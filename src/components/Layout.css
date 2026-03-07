@@ -2,26 +2,254 @@
   min-height: 100vh;
 }
 
-.layout-main {
+.layout-body {
   margin-left: var(--sidebar-width);
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg-white);
   overflow-x: hidden;
 }
 
+.layout-main {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── TopBar ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-white);
+  flex-shrink: 0;
+  z-index: 20;
+}
+
+.topbar-left {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.topbar-profile-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 8px;
+  transition: background 0.12s;
+}
+
+.topbar-profile-btn:hover {
+  background: var(--bg-light);
+}
+
+.topbar-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--bg-light);
+  border: 1.5px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.topbar-profile-chevron {
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+
+.topbar-profile-chevron--open {
+  transform: rotate(180deg);
+}
+
+/* ── Account Switcher Dropdown ── */
+.topbar-account-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 280px;
+  background: var(--bg-white);
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  padding: 6px;
+  z-index: 100;
+  animation: topbar-dropdown-in 0.15s ease-out;
+}
+
+@keyframes topbar-dropdown-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.topbar-account-header {
+  padding: 8px 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.topbar-account-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+
+.topbar-account-item:hover {
+  background: var(--bg-light);
+}
+
+.topbar-account-item--active {
+  background: var(--brand-red-light);
+}
+
+.topbar-account-item--active:hover {
+  background: var(--brand-red-light);
+}
+
+.topbar-account-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-light);
+  border: 1.5px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.topbar-account-item--active .topbar-account-avatar {
+  background: var(--brand-red);
+  border-color: var(--brand-red);
+  color: #fff;
+}
+
+.topbar-account-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.topbar-account-name {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-account-email {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-account-check {
+  color: var(--brand-red);
+  flex-shrink: 0;
+}
+
+/* ── Search ── */
+.topbar-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.topbar-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 14px;
+  background: var(--bg-light);
+  border: 1.5px solid var(--border-light);
+  border-radius: 10px;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.topbar-search:focus-within {
+  border-color: var(--brand-red);
+  background: var(--bg-white);
+  box-shadow: 0 0 0 3px rgba(233, 26, 68, 0.08);
+}
+
+.topbar-search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.topbar-search-input {
+  flex: 1;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.topbar-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.topbar-right {
+  width: 42px;
+  flex-shrink: 0;
+}
+
+/* ── Responsive ── */
 @media (max-width: 768px) {
-  .layout-main {
+  .layout-body {
     margin-left: 0;
     padding-bottom: var(--bottombar-height);
     padding-top: 48px; /* space for credit pill */
   }
 
-  .layout-main.slide-in-left {
+  .layout-body.slide-in-left {
     animation: slideFromRight 0.3s ease-out;
   }
 
-  .layout-main.slide-in-right {
+  .layout-body.slide-in-right {
     animation: slideFromLeft 0.3s ease-out;
+  }
+
+  .topbar {
+    padding: 8px 16px;
+  }
+
+  .topbar-center {
+    max-width: none;
+  }
+
+  .topbar-right {
+    display: none;
   }
 }
 

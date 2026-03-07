@@ -501,12 +501,21 @@
   min-width: 0;
 }
 
-/* Platform Pill Selector */
-.content-pill-bar {
+/* Top bar — prev convos on left, platform pills centered */
+.content-top-bar {
+  position: relative;
   display: flex;
+  align-items: center;
   justify-content: center;
   padding: 20px 24px 0;
   flex-shrink: 0;
+}
+
+/* Platform Pill Selector */
+.content-pill-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .content-pill {
@@ -566,6 +575,42 @@
 .content-pill-icon {
   width: 22px;
   height: 22px;
+}
+
+/* Previous Conversations pill */
+.content-prev-convos {
+  position: absolute;
+  left: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: var(--bg-white);
+  border: 1px solid var(--border-light);
+  border-radius: 50px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition: border-color 0.2s, color 0.2s, box-shadow 0.2s, opacity 0.3s ease;
+}
+
+.content-sidebar--open ~ .content-main .content-prev-convos {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.content-prev-convos:hover {
+  border-color: var(--brand-red);
+  color: var(--brand-red);
+  box-shadow: 0 2px 12px rgba(233, 26, 68, 0.1);
+}
+
+.content-prev-convos-icon {
+  flex-shrink: 0;
 }
 
 /* Chat area */
@@ -920,13 +965,18 @@
     display: none;
   }
 
-  /* Pill moves to fixed top bar, centered between credits & profile */
-  .content-pill-bar {
+  /* Top bar moves to fixed position on mobile */
+  .content-top-bar {
     position: fixed;
     top: 8px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 100;
+    padding: 0;
+    gap: 8px;
+  }
+
+  .content-pill-bar {
     padding: 0;
   }
 
@@ -934,6 +984,21 @@
     --pill-size: 36px;
     padding: 3px;
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Previous conversations — icon-only circle on mobile, next to pills */
+  .content-prev-convos {
+    position: static;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    justify-content: center;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .content-prev-convos-label {
+    display: none;
   }
 
   .content-pill-slider {

@@ -4,6 +4,11 @@ import { Check, ChevronDown, Phone, FileText, ExternalLink, X, Copy } from 'luci
 import './Pages.css';
 import './Dashboard.css';
 
+const PAYMENT_TRACKERS = [
+  { id: 'stripe', name: 'Stripe', logo: '/stripe-logo.png' },
+  { id: 'whop', name: 'Whop', logo: '/whop-logo.svg' },
+];
+
 const NOTE_TAKERS = [
   { id: 'fireflies', name: "Fireflies AI", logo: '/fireflies-logo.png' },
   { id: 'fathom', name: 'Fathom', logo: '/fathom-logo.png' },
@@ -12,8 +17,9 @@ const NOTE_TAKERS = [
 const ONBOARDING_STEPS = [
   { id: 1, label: 'Sign up for PuerlyPersonal', completed: true },
   { id: 2, label: 'Complete Brand DNA', type: 'brand-dna' },
-  { id: 3, label: 'Connect your AI notetaker to record your calls', type: 'notetaker' },
-  { id: 4, label: 'Connect your social media profiles to automate content posting', type: 'action' },
+  { id: 3, label: 'Connect to track your payments and sales', type: 'payment' },
+  { id: 4, label: 'Connect your AI notetaker to record your calls', type: 'notetaker' },
+  { id: 5, label: 'Connect your social media profiles to automate content posting', type: 'action' },
 ];
 
 const MOCK_WEBHOOK_URL = 'https://api.puerlypersonal.com/webhooks/fireflies/abc123';
@@ -24,8 +30,11 @@ export default function Dashboard() {
   const [onboardingVisible, setOnboardingVisible] = useState(true);
   const [completedSteps, setCompletedSteps] = useState(new Set([1]));
   const [selectedNoteTaker, setSelectedNoteTaker] = useState(NOTE_TAKERS[0]);
+  const [selectedPayment, setSelectedPayment] = useState(PAYMENT_TRACKERS[0]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [paymentDropdownOpen, setPaymentDropdownOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [modalType, setModalType] = useState(null); // 'notetaker' or 'payment'
   const [apiKey, setApiKey] = useState('');
   const [firefliesStep, setFirefliesStep] = useState(1); // 1 = enter key, 2 = webhook info
   const [copiedField, setCopiedField] = useState(null);
@@ -46,6 +55,14 @@ export default function Dashboard() {
     setApiKey('');
     setFirefliesStep(1);
     setCopiedField(null);
+    setModalType('notetaker');
+    setModalOpen(true);
+  };
+
+  const openPaymentModal = () => {
+    setApiKey('');
+    setCopiedField(null);
+    setModalType('payment');
     setModalOpen(true);
   };
 
@@ -56,9 +73,11 @@ export default function Dashboard() {
 
   const handleConnect = () => {
     setModalOpen(false);
-    handleComplete(2);
+    if (modalType === 'payment') handleComplete(3);
+    else handleComplete(4);
     setApiKey('');
     setFirefliesStep(1);
+    setModalType(null);
   };
 
   const copyToClipboard = (text, field) => {
@@ -109,7 +128,43 @@ export default function Dashboard() {
                   </div>
                   <div className="step-content">
                     <span className={`step-label ${done ? 'step-label--done' : ''}`}>
-                      {step.type === 'notetaker' ? (
+                      {step.type === 'payment' ? (
+                        <>Connect{' '}
+                          <span className="notetaker-inline">
+                            <div className="notetaker-select" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                className="notetaker-trigger"
+                                onClick={() => setPaymentDropdownOpen(!paymentDropdownOpen)}
+                              >
+                                <img
+                                  src={selectedPayment.logo}
+                                  alt={selectedPayment.name}
+                                  className="notetaker-logo-wide"
+                                />
+                                <ChevronDown size={14} className={`notetaker-chevron ${paymentDropdownOpen ? 'notetaker-chevron--open' : ''}`} />
+                              </button>
+                              {paymentDropdownOpen && (
+                                <div className="notetaker-dropdown">
+                                  {PAYMENT_TRACKERS.map((pt) => (
+                                    <button
+                                      key={pt.id}
+                                      className={`notetaker-option ${selectedPayment.id === pt.id ? 'notetaker-option--selected' : ''}`}
+                                      onClick={() => {
+                                        setSelectedPayment(pt);
+                                        setPaymentDropdownOpen(false);
+                                      }}
+                                    >
+                                      <img src={pt.logo} alt={pt.name} className="notetaker-logo-wide" />
+                                      {selectedPayment.id === pt.id && <Check size={14} />}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </span>
+                          {' '}to track your payments and sales
+                        </>
+                      ) : step.type === 'notetaker' ? (
                         <>Connect{' '}
                           <span className="notetaker-inline">
                             <div className="notetaker-select" onClick={(e) => e.stopPropagation()}>
@@ -154,7 +209,8 @@ export default function Dashboard() {
                         <button
                           className="step-btn step-btn--primary"
                           onClick={() => {
-                            if (step.type === 'notetaker') openNotetakerModal();
+                            if (step.type === 'payment') openPaymentModal();
+                            else if (step.type === 'notetaker') openNotetakerModal();
                             else if (step.type === 'brand-dna') navigate('/settings');
                             else handleComplete(step.id);
                           }}
@@ -199,7 +255,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Notetaker Connection Modal */}
+      {/* Connection Modal */}
       {modalOpen && (
         <div className="modal-overlay" onClick={() => setModalOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -208,11 +264,59 @@ export default function Dashboard() {
             </button>
 
             <div className="modal-logo">
-              <img src={selectedNoteTaker.logo} alt={selectedNoteTaker.name} />
+              <img src={modalType === 'payment' ? selectedPayment.logo : selectedNoteTaker.logo} alt={modalType === 'payment' ? selectedPayment.name : selectedNoteTaker.name} />
             </div>
 
+            {/* PAYMENT: Stripe */}
+            {modalType === 'payment' && selectedPayment.id === 'stripe' && (
+              <>
+                <p className="modal-description">Connect your Stripe account to automatically track your payments and sales in the PuerlyPersonal AI CEO.</p>
+                <div className="modal-field">
+                  <label className="modal-label">Enter your Stripe API key</label>
+                  <input
+                    type="text"
+                    className="modal-input"
+                    placeholder="Paste your API key here"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                </div>
+                <button
+                  className="modal-btn modal-btn--primary"
+                  disabled={!apiKey.trim()}
+                  onClick={handleConnect}
+                >
+                  Connect
+                </button>
+              </>
+            )}
+
+            {/* PAYMENT: Whop */}
+            {modalType === 'payment' && selectedPayment.id === 'whop' && (
+              <>
+                <p className="modal-description">Connect your Whop account to automatically track your payments and sales in the PuerlyPersonal AI CEO.</p>
+                <div className="modal-field">
+                  <label className="modal-label">Enter your Whop API key</label>
+                  <input
+                    type="text"
+                    className="modal-input"
+                    placeholder="Paste your API key here"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                </div>
+                <button
+                  className="modal-btn modal-btn--primary"
+                  disabled={!apiKey.trim()}
+                  onClick={handleConnect}
+                >
+                  Connect
+                </button>
+              </>
+            )}
+
             {/* FATHOM: single step */}
-            {selectedNoteTaker.id === 'fathom' && (
+            {modalType === 'notetaker' && selectedNoteTaker.id === 'fathom' && (
               <>
                 <p className="modal-description">Connect your Fathom AI account to automatically sync all of your call recordings to the PuerlyPersonal AI CEO.</p>
                 <div className="modal-field">
@@ -236,7 +340,7 @@ export default function Dashboard() {
             )}
 
             {/* FIREFLIES: step 1 - enter API key */}
-            {selectedNoteTaker.id === 'fireflies' && firefliesStep === 1 && (
+            {modalType === 'notetaker' && selectedNoteTaker.id === 'fireflies' && firefliesStep === 1 && (
               <>
                 <p className="modal-description">Connect your Fireflies AI account to automatically sync all of your call recordings to the PuerlyPersonal AI CEO.</p>
                 <div className="modal-field">
@@ -260,7 +364,7 @@ export default function Dashboard() {
             )}
 
             {/* FIREFLIES: step 2 - webhook info */}
-            {selectedNoteTaker.id === 'fireflies' && firefliesStep === 2 && (
+            {modalType === 'notetaker' && selectedNoteTaker.id === 'fireflies' && firefliesStep === 2 && (
               <>
                 <p className="modal-instruction">Copy this into your Fireflies AI settings</p>
                 <div className="modal-field">

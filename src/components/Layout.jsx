@@ -1,11 +1,95 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { navItems } from './Sidebar';
+import { useAuth } from '../context/AuthContext';
+import { Search, User, ChevronDown, Check } from 'lucide-react';
 import Sidebar from './Sidebar';
 import BottomBar from './BottomBar';
 import CreditPill from './CreditPill';
 import MobileProfileButton from './MobileProfileButton';
 import './Layout.css';
+
+const MOCK_ACCOUNTS = [
+  { id: 1, name: 'Marko Filipovic', email: 'marko@puerlypersonal.com', plan: 'Growth' },
+  { id: 2, name: 'Marko - Agency', email: 'marko@agency.io', plan: 'Pro' },
+  { id: 3, name: 'Test Workspace', email: 'test@workspace.com', plan: 'Starter' },
+];
+
+function TopBar() {
+  const location = useLocation();
+  const isInbox = location.pathname === '/inbox';
+  const [searchValue, setSearchValue] = useState('');
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [activeAccount, setActiveAccount] = useState(MOCK_ACCOUNTS[0]);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (!accountOpen) return;
+    const handleClick = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setAccountOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [accountOpen]);
+
+  return (
+    <div className="topbar">
+      <div className="topbar-left" ref={dropdownRef}>
+        <button
+          className="topbar-profile-btn"
+          onClick={() => setAccountOpen(!accountOpen)}
+        >
+          <div className="topbar-avatar">
+            <User size={14} />
+          </div>
+          <ChevronDown size={12} className={`topbar-profile-chevron ${accountOpen ? 'topbar-profile-chevron--open' : ''}`} />
+        </button>
+        {accountOpen && (
+          <div className="topbar-account-menu">
+            <div className="topbar-account-header">Switch Account</div>
+            {MOCK_ACCOUNTS.map((account) => (
+              <button
+                key={account.id}
+                className={`topbar-account-item ${activeAccount.id === account.id ? 'topbar-account-item--active' : ''}`}
+                onClick={() => { setActiveAccount(account); setAccountOpen(false); }}
+              >
+                <div className="topbar-account-avatar">
+                  <User size={13} />
+                </div>
+                <div className="topbar-account-info">
+                  <span className="topbar-account-name">{account.name}</span>
+                  <span className="topbar-account-email">{account.email}</span>
+                </div>
+                {activeAccount.id === account.id && <Check size={14} className="topbar-account-check" />}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {isInbox ? (
+        <>
+          <div className="topbar-center">
+            <div className="topbar-search">
+              <Search size={15} className="topbar-search-icon" />
+              <input
+                type="text"
+                className="topbar-search-input"
+                placeholder={'Type to search or "/AI..." to search with AI'}
+                value={searchValue}
+                onChange={(e) => setSearchValue(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="topbar-right" />
+        </>
+      ) : (
+        <div className="topbar-center" />
+      )}
+    </div>
+  );
+}
 
 const SWIPE_THRESHOLD = 60;
 const routes = navItems.map((item) => item.to);
@@ -91,9 +175,12 @@ export default function Layout() {
       <Sidebar />
       <CreditPill />
       <MobileProfileButton />
-      <main className={`layout-main ${slideClass}`}>
-        <Outlet />
-      </main>
+      <div className={`layout-body ${slideClass}`}>
+        {location.pathname === '/inbox' && <TopBar />}
+        <main className="layout-main">
+          <Outlet />
+        </main>
+      </div>
       <BottomBar />
     </div>
   );

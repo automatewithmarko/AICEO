@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History } from 'lucide-react';
 import './Content.css';
 
 const platforms = [
@@ -356,7 +356,7 @@ export default function Content() {
         <p className="cs-branddna-desc cs-branddna-desc--show">
           Your brand voice, identity, and visual style used to personalize content.
         </p>
-        <button className="cs-branddna-btn cs-branddna-btn--show" onClick={(e) => { e.stopPropagation(); navigate('/settings'); }}>
+        <button className="cs-branddna-btn cs-branddna-btn--show" onClick={(e) => { e.stopPropagation(); navigate('/settings', { state: { scrollTo: 'brand-dna' } }); }}>
           Edit Brand DNA
         </button>
       </div>
@@ -533,7 +533,7 @@ export default function Content() {
             <p className="cs-branddna-desc">
               Your brand voice, identity, and visual style used to personalize content.
             </p>
-            <button className="cs-branddna-btn" onClick={(e) => { e.stopPropagation(); navigate('/settings'); }}>
+            <button className="cs-branddna-btn" onClick={(e) => { e.stopPropagation(); navigate('/settings', { state: { scrollTo: 'brand-dna' } }); }}>
               Edit Brand DNA
             </button>
           </div>
@@ -567,22 +567,28 @@ export default function Content() {
       {/* Main content area */}
       <div className="content-main">
         {/* Platform Pill Selector */}
-        <div className="content-pill-bar">
-          <div className="content-pill">
-            <div
-              className="content-pill-slider"
-              style={{ transform: `translateX(calc(${activeIndex} * var(--pill-size)))` }}
-            />
-            {platforms.map((p) => (
-              <button
-                key={p.id}
-                className={`content-pill-btn ${selectedPlatform === p.id ? 'content-pill-btn--active' : ''}`}
-                onClick={() => setSelectedPlatform(p.id)}
-                title={p.name}
-              >
-                {p.icon}
-              </button>
-            ))}
+        <div className="content-top-bar">
+          <button className="content-prev-convos" title="Previous conversations">
+            <History size={18} className="content-prev-convos-icon" />
+            <span className="content-prev-convos-label">Previous conversations</span>
+          </button>
+          <div className="content-pill-bar">
+            <div className="content-pill">
+              <div
+                className="content-pill-slider"
+                style={{ transform: `translateX(calc(${activeIndex} * var(--pill-size)))` }}
+              />
+              {platforms.map((p) => (
+                <button
+                  key={p.id}
+                  className={`content-pill-btn ${selectedPlatform === p.id ? 'content-pill-btn--active' : ''}`}
+                  onClick={() => setSelectedPlatform(p.id)}
+                  title={p.name}
+                >
+                  {p.icon}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
