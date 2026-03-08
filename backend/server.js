@@ -15,6 +15,7 @@ import integrationRoutes from './routes/integrations.js';
 import webhookRoutes from './routes/webhooks.js';
 import salesRoutes from './routes/sales.js';
 import productRoutes from './routes/products.js';
+import contactRoutes from './routes/contacts.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -639,6 +640,13 @@ app.use((req, res, next) => {
   next();
 });
 app.use(productRoutes);
+
+// ─── Contacts/CRM routes (auth required) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/contacts')) return requireAuth(req, res, next);
+  next();
+});
+app.use(contactRoutes);
 
 // ─── Webhook routes (no auth — external services) ───
 app.use(webhookRoutes);

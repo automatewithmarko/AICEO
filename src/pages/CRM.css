@@ -895,6 +895,140 @@
   color: #16a34a;
 }
 
+/* ── Spinner ── */
+@keyframes crm-spin {
+  to { transform: rotate(360deg); }
+}
+
+.crm-spin {
+  animation: crm-spin 0.6s linear infinite;
+}
+
+/* ── Add Contact Bar ── */
+.crm-add-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border-light);
+  background: #fafafa;
+}
+
+.crm-add-input {
+  flex: 1;
+  padding: 7px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  background: var(--bg-white);
+  transition: border-color 0.15s;
+}
+
+.crm-add-input:focus {
+  border-color: #2563eb;
+}
+
+.crm-add-input::placeholder {
+  color: var(--text-muted);
+}
+
+.crm-add-save {
+  padding: 7px 16px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.crm-add-save:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.crm-add-save:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.crm-add-cancel {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.crm-add-cancel:hover {
+  background: #f0f0f2;
+}
+
+/* ── Status Select (in popup) ── */
+.crm-status-select {
+  appearance: none;
+  padding: 3px 10px;
+  border-radius: 50px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  outline: none;
+  font-family: inherit;
+}
+
+/* ── Popup name row with delete ── */
+.crm-popup-name-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.crm-popup-delete {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.crm-popup-delete:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+
+/* ── Popup loading ── */
+.crm-popup-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 /* ── Responsive ── */
 @media (max-width: 900px) {
   .crm-page {

@@ -228,6 +228,68 @@ export async function syncSalesData() {
   return res.json();
 }
 
+// ─── Contacts / CRM ───
+
+export async function getContacts() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/contacts`, { headers });
+  if (!res.ok) return { contacts: [] };
+  return res.json();
+}
+
+export async function createContact(data) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/contacts`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to create contact' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function updateContact(id, data) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/contacts/${id}`, {
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Update failed' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function deleteContact(id) {
+  const headers = await getAuthHeaders();
+  await fetch(`${API_URL}/api/contacts/${id}`, {
+    method: 'DELETE',
+    headers,
+  });
+}
+
+export async function getContactDetail(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/contacts/${id}/detail`, { headers });
+  if (!res.ok) return { recordings: [], emails: [], products: [] };
+  return res.json();
+}
+
+export async function syncContacts() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/contacts/sync`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) return { synced: 0 };
+  return res.json();
+}
+
 // ─── Products ───
 
 export async function getProducts() {
