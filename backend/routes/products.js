@@ -168,7 +168,6 @@ router.post('/api/products', async (req, res) => {
       dbRow.whop_product_id = whopProduct.id;
       dbRow.whop_plan_id = whopPlan.id;
       dbRow.payment_link_url = whopPlan.checkout_link || whopProduct.checkout_link || null;
-    }
     } else if (processor === 'shopify') {
       const { apiKey: shopifyKey, storeUrl } = await getShopifyIntegration(userId);
 
