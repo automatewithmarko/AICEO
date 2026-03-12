@@ -15,9 +15,9 @@ const NOTE_TAKERS = [
   { id: 'stripe', name: 'Stripe', logo: '/stripe-logo.png' },
   { id: 'whop', name: 'Whop', logo: '/whop-logo.svg' },
   { id: 'shopify', name: 'Shopify', logo: '/shopify-logo.png' },
-  { id: 'kajabi', name: 'Kajabi', logo: '/kajabi-logo.png' },
+  { id: 'kajabi', name: 'Kajabi', logo: '/icon-kajabi-text.png', small: true },
   { id: 'gohighlevel', name: 'GoHighLevel', logo: '/gohighlevel-logo.png' },
-  { id: 'netlify', name: 'Netlify', logo: '/netlify-logo.svg' },
+  { id: 'netlify', name: 'Netlify', logo: '/icon-netlify.png' },
   { id: 'email', name: 'Email (SMTP/IMAP)', logo: '/smtp-logo.png', large: true },
 ];
 
@@ -553,7 +553,7 @@ export default function Settings() {
         <div className="settings-integrations">
           {NOTE_TAKERS.map((nt) => (
             <div key={nt.id} className="settings-integration-card">
-              <img src={nt.logo} alt={nt.name} className={`settings-integration-logo ${nt.large ? 'settings-integration-logo--lg' : ''}`} />
+              <img src={nt.logo} alt={nt.name} className={`settings-integration-logo ${nt.large ? 'settings-integration-logo--lg' : ''} ${nt.small ? 'settings-integration-logo--sm' : ''}`} />
               <div className="settings-integration-info">
                 <span className="settings-integration-name">{nt.name}</span>
                 <span className={`settings-integration-status ${integrations[nt.id]?.is_active ? 'settings-integration-status--connected' : ''}`}>
@@ -959,6 +959,22 @@ export default function Settings() {
                 <p className="modal-description">
                   Connect GoHighLevel for automatic bi-directional CRM syncing. New contacts sync both ways between GoHighLevel and your CRM.
                 </p>
+                <div className="modal-steps">
+                  <div className="modal-step">
+                    <span className="modal-step-number">1</span>
+                    <span className="modal-step-text">
+                      Go to your{' '}
+                      <a href="https://app.gohighlevel.com/v2/location/aWX79bMev8BVbGA1gx0X/settings/company" target="_blank" rel="noopener noreferrer" className="modal-step-link">
+                        GoHighLevel Settings page
+                      </a>{' '}
+                      and copy your API key.
+                    </span>
+                  </div>
+                  <div className="modal-step">
+                    <span className="modal-step-number">2</span>
+                    <span className="modal-step-text">Paste it below.</span>
+                  </div>
+                </div>
                 <div className="modal-field">
                   <label className="modal-label">Enter your GoHighLevel API key</label>
                   <input

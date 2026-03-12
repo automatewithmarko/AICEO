@@ -61,6 +61,16 @@
   color: var(--text-secondary);
 }
 
+.topbar-active-email {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .topbar-profile-chevron {
   color: var(--text-muted);
   transition: transform 0.2s;

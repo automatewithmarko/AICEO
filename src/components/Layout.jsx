@@ -46,6 +46,12 @@ function TopBar({ accounts, selectedAccountId, setSelectedAccountId, onAddAccoun
               <Mail size={14} />
             )}
           </div>
+          {activeAccount && (
+            <span className="topbar-active-email">{activeAccount.email}</span>
+          )}
+          {!activeAccount && accounts.length > 1 && (
+            <span className="topbar-active-email">All Accounts</span>
+          )}
           <ChevronDown size={12} className={`topbar-profile-chevron ${accountOpen ? 'topbar-profile-chevron--open' : ''}`} />
         </button>
         {accountOpen && (

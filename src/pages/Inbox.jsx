@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import DOMPurify from 'dompurify';
 import { useOutletContext } from 'react-router-dom';
 import { Search, Star, Paperclip, ChevronDown, Reply, Forward, Trash2, Archive, MoreHorizontal, Plus, X, Bold, Italic, Link2, ImagePlus, Sparkles, FileText, Check, RefreshCw, Mail, Settings, LogOut, Loader2 } from 'lucide-react';
 import { MOCK_CALLS } from './Sales';
@@ -706,11 +707,46 @@ export default function Inbox() {
                   ))}
                 </div>
               )}
-              <div className="inbox-detail-body">
-                {(displayEmail.body_text || '').split('\n').map((line, i) => (
-                  <p key={i}>{line || '\u00A0'}</p>
-                ))}
-              </div>
+              {displayEmail.body_html ? (
+                <div className="inbox-detail-body inbox-detail-body--html">
+                  <iframe
+                    className="inbox-html-frame"
+                    sandbox="allow-popups allow-popups-to-escape-sandbox"
+                    referrerPolicy="no-referrer"
+                    srcDoc={(() => {
+                      const clean = DOMPurify.sanitize(displayEmail.body_html, {
+                        ALLOW_TAGS: ['a','abbr','address','article','aside','b','bdi','bdo','blockquote','br','caption','cite','code','col','colgroup','dd','del','details','dfn','div','dl','dt','em','figcaption','figure','footer','h1','h2','h3','h4','h5','h6','header','hr','i','img','ins','kbd','li','main','mark','nav','ol','p','pre','q','rp','rt','ruby','s','samp','section','small','span','strong','sub','summary','sup','table','tbody','td','tfoot','th','thead','time','tr','u','ul','var','wbr','style','center','font'],
+                        ALLOW_ATTR: ['href','src','alt','title','width','height','style','class','id','dir','lang','colspan','rowspan','align','valign','bgcolor','color','border','cellpadding','cellspacing','face','size','target','rel'],
+                        ALLOW_DATA_ATTR: false,
+                        ADD_TAGS: ['style'],
+                        FORCE_BODY: true,
+                      });
+                      return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><style>
+                        *{margin:0;padding:0;box-sizing:border-box}
+                        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:14px;line-height:1.6;color:#333;word-wrap:break-word;overflow-wrap:break-word;padding:0;margin:0;background:transparent}
+                        img{max-width:100%;height:auto}
+                        a{color:#1a73e8;text-decoration:underline}
+                        table{max-width:100%!important;width:auto!important}
+                        pre{white-space:pre-wrap;overflow-x:auto}
+                        blockquote{border-left:3px solid #ddd;padding-left:12px;margin:8px 0;color:#555}
+                      </style></head><body>${clean}</body></html>`;
+                    })()}
+                    onLoad={(e) => {
+                      const frame = e.target;
+                      try {
+                        const h = frame.contentDocument?.documentElement?.scrollHeight || frame.contentDocument?.body?.scrollHeight;
+                        if (h) frame.style.height = h + 'px';
+                      } catch {}
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="inbox-detail-body">
+                  {(displayEmail.body_text || '').split('\n').map((line, i) => (
+                    <p key={i}>{line || '\u00A0'}</p>
+                  ))}
+                </div>
+              )}
               <div className="inbox-reply-bar">
                 <textarea
                   className="inbox-reply-input"

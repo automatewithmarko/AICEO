@@ -186,6 +186,10 @@
   height: 38px;
 }
 
+.settings-integration-logo--sm {
+  height: 18px;
+}
+
 .settings-integration-info {
   flex: 1;
   display: flex;

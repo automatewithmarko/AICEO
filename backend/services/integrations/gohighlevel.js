@@ -1,6 +1,6 @@
 import { supabase } from '../storage.js';
 
-const GHL_API = 'https://services.leadconnectorhq.com';
+const GHL_API = 'https://rest.gohighlevel.com/v1';
 
 // In-memory set of contact IDs currently being synced (prevents sync loops)
 const syncingContacts = new Map(); // contactId -> timestamp
@@ -23,7 +23,6 @@ function markSyncing(contactId) {
 function ghlHeaders(apiKey) {
   return {
     Authorization: `Bearer ${apiKey}`,
-    Version: '2021-07-28',
     'Content-Type': 'application/json',
   };
 }
@@ -57,12 +56,12 @@ export async function updateGHLContact(apiKey, ghlContactId, contactData) {
 }
 
 export async function searchGHLContactByEmail(apiKey, email) {
-  const res = await fetch(`${GHL_API}/contacts/search/duplicate?email=${encodeURIComponent(email)}`, {
+  const res = await fetch(`${GHL_API}/contacts/lookup?email=${encodeURIComponent(email)}`, {
     headers: ghlHeaders(apiKey),
   });
   if (!res.ok) return null;
   const data = await res.json();
-  return data.contact || null;
+  return data.contacts?.[0] || null;
 }
 
 // ─── Inbound: GHL → Local ───
@@ -285,7 +284,6 @@ export async function validate(apiKey) {
   const res = await fetch(`${GHL_API}/contacts/?limit=1`, {
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      Version: '2021-07-28',
     },
   });
 
@@ -298,7 +296,6 @@ export async function validate(apiKey) {
 export async function sync(integration) {
   const headers = {
     Authorization: `Bearer ${integration.api_key}`,
-    Version: '2021-07-28',
   };
   let synced = 0;
 
@@ -358,7 +355,7 @@ export async function sync(integration) {
   } while (true);
 
   // Fetch pipelines
-  const pipelinesRes = await fetch(`${GHL_API}/opportunities/pipelines`, { headers });
+  const pipelinesRes = await fetch(`${GHL_API}/pipelines/`, { headers });
   if (pipelinesRes.ok) {
     const { pipelines } = await pipelinesRes.json();
     for (const pipeline of (pipelines || [])) {
@@ -378,7 +375,7 @@ export async function sync(integration) {
       if (!error) synced++;
 
       // Fetch opportunities for each pipeline
-      const oppsRes = await fetch(`${GHL_API}/opportunities/search?pipeline_id=${pipeline.id}&limit=50`, { headers });
+      const oppsRes = await fetch(`${GHL_API}/pipelines/${pipeline.id}/opportunities?limit=50`, { headers });
       if (oppsRes.ok) {
         const { opportunities } = await oppsRes.json();
         for (const opp of (opportunities || [])) {
