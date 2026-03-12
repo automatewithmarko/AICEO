@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Send, Mic, Square, CircleStop, PanelRightOpen, Eye } from 'lucide-react';
+import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { supabase } from '../lib/supabase';
@@ -313,6 +313,10 @@ export default function AiCeo() {
   const [dragging, setDragging] = useState(false);
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth <= 768 : false);
   const [mobileArtifactOpen, setMobileArtifactOpen] = useState(false);
+  const [ctxMenuOpen, setCtxMenuOpen] = useState(false);
+  const [hoveredCat, setHoveredCat] = useState(null);
+  const [selectedCtxItems, setSelectedCtxItems] = useState(new Set());
+  const [researchMode, setResearchMode] = useState(false);
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -320,6 +324,7 @@ export default function AiCeo() {
   const abortRef = useRef(null);
   const splitRef = useRef(null);
   const isMobileRef = useRef(isMobile);
+  const ctxMenuRef = useRef(null);
   const contextRef = useRef({
     brandDna: null,
     contentItems: [],
@@ -339,6 +344,76 @@ export default function AiCeo() {
     'Write a LinkedIn post highlighting my business growth.',
     'Build a strategy to increase my conversion rate this month.',
   ];
+
+  const CEO_CONTEXT_CATEGORIES = [
+    {
+      id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png',
+      items: [
+        { id: 'nl-1', name: 'Weekly Growth Tips #42', date: 'Mar 3' },
+        { id: 'nl-2', name: 'Product Launch Announcement', date: 'Feb 24' },
+        { id: 'nl-3', name: 'Year-End Recap & Vision', date: 'Feb 10' },
+      ],
+    },
+    {
+      id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png',
+      items: [
+        { id: 'em-1', name: 'Re: Partnership Proposal', date: 'Mar 8', sub: 'client@example.com' },
+        { id: 'em-2', name: 'Invoice Follow-up', date: 'Mar 5', sub: 'billing@example.com' },
+      ],
+    },
+    {
+      id: 'calls', label: 'Calls', iconSrc: '/icon-call-recording.png',
+      items: [
+        { id: 'cl-1', name: 'Sales Discovery Call', date: 'Mar 7', sub: 'Sales Call' },
+        { id: 'cl-2', name: 'Client Onboarding', date: 'Mar 4', sub: 'Onboarding' },
+      ],
+    },
+    {
+      id: 'content', label: 'Content', iconSrc: '/icon-create-content.png',
+      items: [
+        { id: 'ct-1', name: '5 Tips for Scaling Your Biz', date: 'Mar 6', sub: 'Instagram' },
+        { id: 'ct-2', name: 'Behind the Scenes — My Morning', date: 'Mar 4', sub: 'YouTube' },
+      ],
+    },
+    {
+      id: 'products', label: 'Products', iconSrc: '/icon-products.png',
+      items: [
+        { id: 'pr-1', name: '1:1 Coaching Program', sub: 'Coaching · $500' },
+        { id: 'pr-2', name: 'Growth Masterclass', sub: 'Course · $197' },
+      ],
+    },
+  ];
+
+  const toggleCtxItem = (id) => {
+    setSelectedCtxItems((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const getSelectedCtxDetails = () => {
+    const all = [];
+    for (const cat of CEO_CONTEXT_CATEGORIES) {
+      for (const item of cat.items) {
+        if (selectedCtxItems.has(item.id)) all.push(item);
+      }
+    }
+    return all;
+  };
+
+  // Click outside context menu
+  useEffect(() => {
+    if (!ctxMenuOpen) return;
+    const handleClickOutside = (e) => {
+      if (ctxMenuRef.current && !ctxMenuRef.current.contains(e.target)) {
+        setCtxMenuOpen(false);
+        setHoveredCat(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [ctxMenuOpen]);
 
   // ── Responsive ──
   useEffect(() => {
@@ -611,30 +686,106 @@ export default function AiCeo() {
               <div className="ceo-input-area">
                 <div className="ceo-input-glow" />
                 <div className="ceo-input-wrapper">
-                  <textarea
-                    ref={inputRef}
-                    className="ceo-input"
-                    placeholder="How can your AI CEO help you?"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    rows={3}
-                  />
-                  <div className="ceo-input-actions">
+                  <div className="ceo-input-top-row">
+                    <div className="ceo-ctx-anchor" ref={ctxMenuRef}>
+                      <button className="ceo-ctx-trigger" onClick={() => { setCtxMenuOpen((v) => !v); setHoveredCat(null); }}>
+                        <Plus size={13} /> Add Context
+                      </button>
+                      {ctxMenuOpen && (
+                        <div className="ceo-ctx-dropdown">
+                          <div className="ceo-ctx-dropdown-header">Select Context</div>
+                          {CEO_CONTEXT_CATEGORIES.map((cat) => {
+                            const selectedCount = cat.items.filter((i) => selectedCtxItems.has(i.id)).length;
+                            return (
+                              <div
+                                key={cat.id}
+                                className={`ceo-ctx-cat ${hoveredCat === cat.id ? 'ceo-ctx-cat--active' : ''}`}
+                                onMouseEnter={() => setHoveredCat(cat.id)}
+                              >
+                                <div className="ceo-ctx-cat-icon">
+                                  <img src={cat.iconSrc} alt={cat.label} className="ceo-ctx-cat-img" />
+                                </div>
+                                <span className="ceo-ctx-cat-label">{cat.label}</span>
+                                {selectedCount > 0 && (
+                                  <span className="ceo-ctx-cat-badge">{selectedCount}</span>
+                                )}
+                                <ChevronRight size={13} className="ceo-ctx-cat-arrow" />
+                                {hoveredCat === cat.id && (
+                                  <div className="ceo-ctx-sub">
+                                    <div className="ceo-ctx-sub-header">{cat.label}</div>
+                                    {cat.items.map((item) => (
+                                      <div
+                                        key={item.id}
+                                        className={`ceo-ctx-sub-item ${selectedCtxItems.has(item.id) ? 'ceo-ctx-sub-item--on' : ''}`}
+                                        onClick={() => toggleCtxItem(item.id)}
+                                      >
+                                        <div className="ceo-ctx-sub-info">
+                                          <span className="ceo-ctx-sub-name">{item.name}</span>
+                                          <span className="ceo-ctx-sub-meta">
+                                            {item.sub && <span>{item.sub}</span>}
+                                            {item.sub && item.date && <span className="ceo-ctx-sub-dot" />}
+                                            {item.date && <span>{item.date}</span>}
+                                          </span>
+                                        </div>
+                                        <div className={`ceo-ctx-radio ${selectedCtxItems.has(item.id) ? 'ceo-ctx-radio--on' : ''}`}>
+                                          <div className="ceo-ctx-radio-fill" />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                     <button
-                      className={`ceo-voice-btn ${isListening ? 'ceo-voice-btn--active' : ''}`}
-                      onClick={toggleVoice}
-                      title={isListening ? 'Stop listening' : 'Voice input'}
+                      className={`ceo-research-toggle ${researchMode ? 'ceo-research-toggle--active' : ''}`}
+                      onClick={() => setResearchMode((v) => !v)}
+                      title="Enable web research mode"
                     >
-                      {isListening ? <Square size={18} /> : <Mic size={18} />}
+                      <Globe size={13} /> Research
                     </button>
-                    <button
-                      className="ceo-send-btn"
-                      onClick={sendMessage}
-                      disabled={!input.trim() || isGenerating}
-                    >
-                      <Send size={18} />
-                    </button>
+                    {selectedCtxItems.size > 0 && (
+                      <div className="ceo-ctx-pills">
+                        {getSelectedCtxDetails().map((item) => (
+                          <span key={item.id} className="ceo-ctx-pill">
+                            {item.name}
+                            <button className="ceo-ctx-pill-x" onClick={() => toggleCtxItem(item.id)}>
+                              <X size={10} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="ceo-input-bottom-row">
+                    <textarea
+                      ref={inputRef}
+                      className="ceo-input"
+                      placeholder="How can your AI CEO help you?"
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      rows={3}
+                    />
+                    <div className="ceo-input-actions">
+                      <button
+                        className={`ceo-voice-btn ${isListening ? 'ceo-voice-btn--active' : ''}`}
+                        onClick={toggleVoice}
+                        title={isListening ? 'Stop listening' : 'Voice input'}
+                      >
+                        {isListening ? <Square size={18} /> : <Mic size={18} />}
+                      </button>
+                      <button
+                        className="ceo-send-btn"
+                        onClick={sendMessage}
+                        disabled={!input.trim() || isGenerating}
+                      >
+                        <Send size={18} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -663,8 +814,8 @@ export default function AiCeo() {
                   }
                   return (
                     <div key={msg.id} className="ceo-msg-group">
-                      {msg.content && (
-                        <div className="ceo-bubble ceo-bubble--assistant">
+                      <div className={`ceo-bubble ceo-bubble--assistant ${msg.hasArtifact ? 'ceo-bubble--has-artifact' : ''}`}>
+                        {msg.content && (
                           <div className="ceo-markdown">
                             <ReactMarkdown
                               remarkPlugins={[remarkGfm]}
@@ -679,23 +830,25 @@ export default function AiCeo() {
                               {msg.content}
                             </ReactMarkdown>
                           </div>
-                        </div>
-                      )}
-                      {msg.hasArtifact && (
-                        <button
-                          className="ceo-artifact-card"
-                          onClick={() => {
-                            setPanelOpen(true);
-                            if (isMobile) setMobileArtifactOpen(true);
-                          }}
-                        >
-                          <Eye size={16} />
-                          <span>{msg.artifactTitle || 'View Artifact'}</span>
-                          <span className="ceo-artifact-card-badge">
-                            {ARTIFACT_TYPES[msg.artifactType]?.label || 'Output'}
-                          </span>
-                        </button>
-                      )}
+                        )}
+                        {msg.hasArtifact && (
+                          <div
+                            className="ceo-artifact-card"
+                            onClick={() => {
+                              setPanelOpen(true);
+                              if (isMobile) setMobileArtifactOpen(true);
+                            }}
+                          >
+                            <div className="ceo-artifact-card-left">
+                              <FileText size={14} className="ceo-artifact-card-icon" />
+                              <div className="ceo-artifact-card-marquee">
+                                <span className="ceo-artifact-card-title">{msg.artifactTitle || 'View Artifact'}</span>
+                              </div>
+                            </div>
+                            <span className="ceo-artifact-card-open">Open</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -705,45 +858,121 @@ export default function AiCeo() {
               <div className="ceo-input-area ceo-input-area--bottom">
                 <div className="ceo-input-glow" />
                 <div className="ceo-input-wrapper">
-                  <textarea
-                    className="ceo-input"
-                    placeholder="Ask your AI CEO..."
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onInput={autoResize}
-                    onKeyDown={handleKeyDown}
-                    rows={1}
-                  />
-                  <div className="ceo-input-actions">
+                  <div className="ceo-input-top-row">
+                    <div className="ceo-ctx-anchor" ref={ctxMenuRef}>
+                      <button className="ceo-ctx-trigger" onClick={() => { setCtxMenuOpen((v) => !v); setHoveredCat(null); }}>
+                        <Plus size={13} /> Add Context
+                      </button>
+                      {ctxMenuOpen && (
+                        <div className="ceo-ctx-dropdown">
+                          <div className="ceo-ctx-dropdown-header">Select Context</div>
+                          {CEO_CONTEXT_CATEGORIES.map((cat) => {
+                            const selectedCount = cat.items.filter((i) => selectedCtxItems.has(i.id)).length;
+                            return (
+                              <div
+                                key={cat.id}
+                                className={`ceo-ctx-cat ${hoveredCat === cat.id ? 'ceo-ctx-cat--active' : ''}`}
+                                onMouseEnter={() => setHoveredCat(cat.id)}
+                              >
+                                <div className="ceo-ctx-cat-icon">
+                                  <img src={cat.iconSrc} alt={cat.label} className="ceo-ctx-cat-img" />
+                                </div>
+                                <span className="ceo-ctx-cat-label">{cat.label}</span>
+                                {selectedCount > 0 && (
+                                  <span className="ceo-ctx-cat-badge">{selectedCount}</span>
+                                )}
+                                <ChevronRight size={13} className="ceo-ctx-cat-arrow" />
+                                {hoveredCat === cat.id && (
+                                  <div className="ceo-ctx-sub">
+                                    <div className="ceo-ctx-sub-header">{cat.label}</div>
+                                    {cat.items.map((item) => (
+                                      <div
+                                        key={item.id}
+                                        className={`ceo-ctx-sub-item ${selectedCtxItems.has(item.id) ? 'ceo-ctx-sub-item--on' : ''}`}
+                                        onClick={() => toggleCtxItem(item.id)}
+                                      >
+                                        <div className="ceo-ctx-sub-info">
+                                          <span className="ceo-ctx-sub-name">{item.name}</span>
+                                          <span className="ceo-ctx-sub-meta">
+                                            {item.sub && <span>{item.sub}</span>}
+                                            {item.sub && item.date && <span className="ceo-ctx-sub-dot" />}
+                                            {item.date && <span>{item.date}</span>}
+                                          </span>
+                                        </div>
+                                        <div className={`ceo-ctx-radio ${selectedCtxItems.has(item.id) ? 'ceo-ctx-radio--on' : ''}`}>
+                                          <div className="ceo-ctx-radio-fill" />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                     <button
-                      className={`ceo-voice-btn ${isListening ? 'ceo-voice-btn--active' : ''}`}
-                      onClick={toggleVoice}
-                      title={isListening ? 'Stop listening' : 'Voice input'}
+                      className={`ceo-research-toggle ${researchMode ? 'ceo-research-toggle--active' : ''}`}
+                      onClick={() => setResearchMode((v) => !v)}
+                      title="Enable web research mode"
                     >
-                      {isListening ? <Square size={18} /> : <Mic size={18} />}
+                      <Globe size={13} /> Research
                     </button>
-                    {isGenerating ? (
-                      <button className="ceo-send-btn ceo-stop-btn" onClick={stopGenerating}>
-                        <CircleStop size={18} />
-                      </button>
-                    ) : (
-                      <button
-                        className="ceo-send-btn"
-                        onClick={sendMessage}
-                        disabled={!input.trim()}
-                      >
-                        <Send size={18} />
-                      </button>
+                    {selectedCtxItems.size > 0 && (
+                      <div className="ceo-ctx-pills">
+                        {getSelectedCtxDetails().map((item) => (
+                          <span key={item.id} className="ceo-ctx-pill">
+                            {item.name}
+                            <button className="ceo-ctx-pill-x" onClick={() => toggleCtxItem(item.id)}>
+                              <X size={10} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
                     )}
-                    {artifact && !showPanel && !isMobile && (
+                  </div>
+                  <div className="ceo-input-bottom-row">
+                    <textarea
+                      className="ceo-input"
+                      placeholder="Ask your AI CEO..."
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onInput={autoResize}
+                      onKeyDown={handleKeyDown}
+                      rows={1}
+                    />
+                    <div className="ceo-input-actions">
                       <button
-                        className="ceo-panel-toggle"
-                        onClick={() => setPanelOpen(true)}
-                        title="Show artifact panel"
+                        className={`ceo-voice-btn ${isListening ? 'ceo-voice-btn--active' : ''}`}
+                        onClick={toggleVoice}
+                        title={isListening ? 'Stop listening' : 'Voice input'}
                       >
-                        <PanelRightOpen size={18} />
+                        {isListening ? <Square size={18} /> : <Mic size={18} />}
                       </button>
-                    )}
+                      {isGenerating ? (
+                        <button className="ceo-send-btn ceo-stop-btn" onClick={stopGenerating}>
+                          <CircleStop size={18} />
+                        </button>
+                      ) : (
+                        <button
+                          className="ceo-send-btn"
+                          onClick={sendMessage}
+                          disabled={!input.trim()}
+                        >
+                          <Send size={18} />
+                        </button>
+                      )}
+                      {artifact && !showPanel && !isMobile && (
+                        <button
+                          className="ceo-panel-toggle"
+                          onClick={() => setPanelOpen(true)}
+                          title="Show artifact panel"
+                        >
+                          <PanelRightOpen size={18} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

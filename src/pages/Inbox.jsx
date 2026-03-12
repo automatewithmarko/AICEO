@@ -24,25 +24,13 @@ const PROVIDER_PRESETS = {
     label: 'Gmail',
     imap_host: 'imap.gmail.com', imap_port: 993,
     smtp_host: 'smtp.gmail.com', smtp_port: 465,
-    icon: (
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none">
-        <path d="M22 6.5V17a2 2 0 01-2 2H4a2 2 0 01-2-2V6.5l10 6.5 10-6.5z" fill="#EA4335" opacity="0.15"/>
-        <path d="M22 6.5l-10 6.5L2 6.5" stroke="#EA4335" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        <rect x="2" y="5" width="20" height="14" rx="2" stroke="#EA4335" strokeWidth="1.5"/>
-      </svg>
-    ),
+    icon: <img src="/icon-gmail.webp" alt="Gmail" style={{ width: 28, height: 28, objectFit: 'contain' }} />,
   },
   outlook: {
     label: 'Outlook',
     imap_host: 'outlook.office365.com', imap_port: 993,
     smtp_host: 'smtp-mail.outlook.com', smtp_port: 587,
-    icon: (
-      <svg viewBox="0 0 24 24" width="24" height="24" fill="none">
-        <path d="M22 6.5V17a2 2 0 01-2 2H4a2 2 0 01-2-2V6.5l10 6.5 10-6.5z" fill="#0078D4" opacity="0.15"/>
-        <path d="M22 6.5l-10 6.5L2 6.5" stroke="#0078D4" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        <rect x="2" y="5" width="20" height="14" rx="2" stroke="#0078D4" strokeWidth="1.5"/>
-      </svg>
-    ),
+    icon: <img src="/icon-outlook.png" alt="Outlook" style={{ width: 28, height: 28, objectFit: 'contain' }} />,
   },
   imap: {
     label: 'Custom SMTP',

@@ -19,10 +19,6 @@
   gap: 10px;
   color: var(--text-primary);
 }
-.meetings-header-left h1 {
-  font-size: 22px;
-  margin: 0;
-}
 
 .meetings-header-right {
   display: flex;

@@ -1204,7 +1204,9 @@
 
 /* ── Add Account Modal ── */
 .inbox-account-modal {
-  max-width: 440px;
+  max-width: 500px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
 }
 
 .inbox-account-modal-icon {

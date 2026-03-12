@@ -50,12 +50,8 @@ function ProductsIcon({ size = 20 }) {
 function CrmIcon({ size = 20 }) {
   return <ImgIcon src="/icon-crm.png" alt="CRM" size={size} />;
 }
-function MeetingsIcon({ size = 20 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-    </svg>
-  );
+function CallRecordingIcon({ size = 20 }) {
+  return <ImgIcon src="/icon-call-recording.png" alt="Call Recording" size={size} />;
 }
 function CreditsIcon({ size = 16 }) {
   return <ImgIcon src="/icon-credits.png" alt="Credits" size={size} />;
@@ -72,24 +68,18 @@ const navItems = [
       { to: '/outlier-detector', label: 'Outlier Detector', icon: OutlierDetectorIcon },
     ],
   },
-  {
-    label: 'Marketing',
-    icon: MarketingIcon,
-    children: [
-      { to: '/marketing', label: 'Marketing AI', icon: MarketingIcon },
-      { to: '/inbox', label: 'Inbox', icon: InboxIcon },
-    ],
-  },
+  { to: '/marketing', label: 'Marketing AI', icon: MarketingIcon },
   {
     label: 'Sales',
     icon: SalesIcon,
     children: [
       { to: '/sales', label: 'Sales Overview', icon: SalesIcon },
       { to: '/products', label: 'Products', icon: ProductsIcon },
+      { to: '/meetings', label: 'Call Recording', icon: ({ size }) => <CallRecordingIcon size={size * 1.4} /> },
     ],
   },
+  { to: '/inbox', label: 'Inbox', icon: InboxIcon },
   { to: '/crm', label: 'CRM', icon: CrmIcon },
-  { to: '/meetings', label: 'Meetings', icon: MeetingsIcon },
 ];
 
 export default function Sidebar() {

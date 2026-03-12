@@ -4,10 +4,138 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.products-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .products-header .page-title {
   margin-bottom: 0;
+}
+
+/* Connect buttons */
+.products-connect-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.products-connect-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-white);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.products-connect-btn:hover {
+  border-color: var(--brand-red);
+  box-shadow: 0 2px 8px rgba(233, 26, 68, 0.1);
+}
+
+.products-connect-btn img {
+  height: 18px;
+  object-fit: contain;
+}
+
+.products-connect-btn img[alt="Kajabi"] {
+  height: 14px;
+}
+
+/* Connect Platform Modal */
+.products-connect-modal {
+  max-width: 440px;
+  text-align: center;
+}
+
+.products-connect-modal-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.products-connect-modal-logo img {
+  height: 36px;
+  object-fit: contain;
+}
+
+.products-connect-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 6px;
+}
+
+.products-connect-modal-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+.products-connect-modal .modal-field {
+  text-align: left;
+}
+
+.products-connect-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.products-connect-modal-cancel {
+  background: none;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.products-connect-modal-cancel:hover {
+  background: #f5f5f7;
+  border-color: #c8c8cc;
+}
+
+.products-connect-modal-submit {
+  background: var(--brand-red);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.products-connect-modal-submit:hover:not(:disabled) {
+  background: var(--brand-red-hover);
+}
+
+.products-connect-modal-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .products-add-btn {

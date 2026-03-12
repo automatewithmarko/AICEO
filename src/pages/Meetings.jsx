@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Video, Filter } from 'lucide-react';
+import { Plus, Filter } from 'lucide-react';
 import { getMeetings, getActiveBots } from '../lib/meetings-api';
 import MeetingCard from '../components/meetings/MeetingCard';
 import MeetingSearch from '../components/meetings/MeetingSearch';
@@ -51,8 +51,8 @@ export default function Meetings() {
     <div className="meetings-page">
       <div className="meetings-header">
         <div className="meetings-header-left">
-          <Video size={24} />
-          <h1>Meetings</h1>
+          <img src="/icon-call-recording.png" alt="Call Recording" style={{ width: 28, height: 28, objectFit: 'contain' }} />
+          <h1>Call Recording</h1>
         </div>
         <div className="meetings-header-right">
           <MeetingSearch />
@@ -100,7 +100,7 @@ export default function Meetings() {
         </div>
       ) : meetings.length === 0 ? (
         <div className="meetings-empty">
-          <Video size={48} strokeWidth={1} />
+          <img src="/icon-call-recording.png" alt="Call Recording" style={{ width: 48, height: 48, objectFit: 'contain' }} />
           <h3>No meetings yet</h3>
           <p>Send a bot to record your next meeting and get AI-powered notes.</p>
           <button className="meetings-new-btn" onClick={() => setShowLauncher(true)}>

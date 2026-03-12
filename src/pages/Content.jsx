@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage } from '../lib/api';
@@ -388,6 +388,10 @@ export default function Content() {
   const [docDragOver, setDocDragOver] = useState(false);
   const [tooltip, setTooltip] = useState({ text: '', x: 0, y: 0, visible: false });
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
+  const [contentResearchMode, setContentResearchMode] = useState(false);
+  const [contentCtxMenuOpen, setContentCtxMenuOpen] = useState(false);
+  const [contentHoveredCat, setContentHoveredCat] = useState(null);
+  const [contentSelectedCtx, setContentSelectedCtx] = useState(new Set());
   const [showPasteBtn, setShowPasteBtn] = useState(false);
   const [messages, setMessages] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -400,6 +404,76 @@ export default function Content() {
   const photoInputRef = useRef(null);
   const docInputRef = useRef(null);
   const socialZoneRef = useRef(null);
+  const contentCtxRef = useRef(null);
+
+  const CONTENT_CTX_CATEGORIES = [
+    {
+      id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png',
+      items: [
+        { id: 'nl-1', name: 'Weekly Growth Tips #42', date: 'Mar 3' },
+        { id: 'nl-2', name: 'Product Launch Announcement', date: 'Feb 24' },
+        { id: 'nl-3', name: 'Year-End Recap & Vision', date: 'Feb 10' },
+      ],
+    },
+    {
+      id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png',
+      items: [
+        { id: 'em-1', name: 'Re: Partnership Proposal', date: 'Mar 8', sub: 'client@example.com' },
+        { id: 'em-2', name: 'Invoice Follow-up', date: 'Mar 5', sub: 'billing@example.com' },
+      ],
+    },
+    {
+      id: 'calls', label: 'Calls', iconSrc: '/icon-call-recording.png',
+      items: [
+        { id: 'cl-1', name: 'Sales Discovery Call', date: 'Mar 7', sub: 'Sales Call' },
+        { id: 'cl-2', name: 'Client Onboarding', date: 'Mar 4', sub: 'Onboarding' },
+      ],
+    },
+    {
+      id: 'content', label: 'Content', iconSrc: '/icon-create-content.png',
+      items: [
+        { id: 'ct-1', name: '5 Tips for Scaling Your Biz', date: 'Mar 6', sub: 'Instagram' },
+        { id: 'ct-2', name: 'Behind the Scenes — My Morning', date: 'Mar 4', sub: 'YouTube' },
+      ],
+    },
+    {
+      id: 'products', label: 'Products', iconSrc: '/icon-products.png',
+      items: [
+        { id: 'pr-1', name: '1:1 Coaching Program', sub: 'Coaching · $500' },
+        { id: 'pr-2', name: 'Growth Masterclass', sub: 'Course · $197' },
+      ],
+    },
+  ];
+
+  const toggleContentCtxItem = (id) => {
+    setContentSelectedCtx((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const getContentSelectedDetails = () => {
+    const all = [];
+    for (const cat of CONTENT_CTX_CATEGORIES) {
+      for (const item of cat.items) {
+        if (contentSelectedCtx.has(item.id)) all.push(item);
+      }
+    }
+    return all;
+  };
+
+  useEffect(() => {
+    if (!contentCtxMenuOpen) return;
+    const handleClickOutside = (e) => {
+      if (contentCtxRef.current && !contentCtxRef.current.contains(e.target)) {
+        setContentCtxMenuOpen(false);
+        setContentHoveredCat(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [contentCtxMenuOpen]);
 
   const contentStarters = [
     `Create a carousel post for ${platforms.find(p => p.id === selectedPlatform)?.name || 'Instagram'} about my expertise`,
@@ -1527,24 +1601,90 @@ export default function Content() {
         {/* Chat Input */}
         <div className="content-input-area">
           <div className="content-input-wrapper">
-            <textarea
-              className="content-input"
-              placeholder={`Create content for ${activePlatform.name}...`}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onInput={autoResize}
-              onKeyDown={handleKeyDown}
-              rows={1}
-            />
-            <div className="content-input-footer">
+            <div className="content-input-top-row">
+              <div className="content-ctx-anchor" ref={contentCtxRef}>
+                <button className="content-ctx-trigger" onClick={() => { setContentCtxMenuOpen((v) => !v); setContentHoveredCat(null); }}>
+                  <Plus size={13} /> Add Context
+                </button>
+                {contentCtxMenuOpen && (
+                  <div className="content-ctx-dropdown">
+                    <div className="content-ctx-dropdown-header">Select Context</div>
+                    {CONTENT_CTX_CATEGORIES.map((cat) => {
+                      const selectedCount = cat.items.filter((i) => contentSelectedCtx.has(i.id)).length;
+                      return (
+                        <div
+                          key={cat.id}
+                          className={`content-ctx-cat ${contentHoveredCat === cat.id ? 'content-ctx-cat--active' : ''}`}
+                          onMouseEnter={() => setContentHoveredCat(cat.id)}
+                        >
+                          <div className="content-ctx-cat-icon">
+                            <img src={cat.iconSrc} alt={cat.label} className="content-ctx-cat-img" />
+                          </div>
+                          <span className="content-ctx-cat-label">{cat.label}</span>
+                          {selectedCount > 0 && (
+                            <span className="content-ctx-cat-badge">{selectedCount}</span>
+                          )}
+                          <ChevronRight size={13} className="content-ctx-cat-arrow" />
+                          {contentHoveredCat === cat.id && (
+                            <div className="content-ctx-sub">
+                              <div className="content-ctx-sub-header">{cat.label}</div>
+                              {cat.items.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className={`content-ctx-sub-item ${contentSelectedCtx.has(item.id) ? 'content-ctx-sub-item--on' : ''}`}
+                                  onClick={() => toggleContentCtxItem(item.id)}
+                                >
+                                  <div className="content-ctx-sub-info">
+                                    <span className="content-ctx-sub-name">{item.name}</span>
+                                    <span className="content-ctx-sub-meta">
+                                      {item.sub && <span>{item.sub}</span>}
+                                      {item.sub && item.date && <span className="content-ctx-sub-dot" />}
+                                      {item.date && <span>{item.date}</span>}
+                                    </span>
+                                  </div>
+                                  <div className={`content-ctx-radio ${contentSelectedCtx.has(item.id) ? 'content-ctx-radio--on' : ''}`}>
+                                    <div className="content-ctx-radio-fill" />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               <button
-                className="content-context-btn"
-                style={{ background: 'var(--brand-red)' }}
-                onClick={() => setContextSheetOpen(true)}
+                className={`content-research-toggle ${contentResearchMode ? 'content-research-toggle--active' : ''}`}
+                onClick={() => setContentResearchMode((v) => !v)}
+                title="Enable web research mode"
               >
-                <Plus size={16} />
-                <span>Add context</span>
+                <Globe size={13} /> Research
               </button>
+              {contentSelectedCtx.size > 0 && (
+                <div className="content-ctx-pills">
+                  {getContentSelectedDetails().map((item) => (
+                    <span key={item.id} className="content-ctx-pill">
+                      {item.name}
+                      <button className="content-ctx-pill-x" onClick={() => toggleContentCtxItem(item.id)}>
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="content-input-bottom-row">
+              <textarea
+                className="content-input"
+                placeholder={`Create content for ${activePlatform.name}...`}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onInput={autoResize}
+                onKeyDown={handleKeyDown}
+                rows={1}
+              />
               {isGenerating ? (
                 <button className="content-send-btn content-stop-btn" onClick={stopGenerating}>
                   <CircleStop size={18} />
@@ -1555,15 +1695,6 @@ export default function Content() {
                 </button>
               )}
             </div>
-            {isGenerating ? (
-              <button className="content-send-btn content-send-btn--desktop content-stop-btn" onClick={stopGenerating}>
-                <CircleStop size={18} />
-              </button>
-            ) : (
-              <button className="content-send-btn content-send-btn--desktop" disabled={!input.trim()} onClick={sendMessage}>
-                <Send size={18} />
-              </button>
-            )}
           </div>
         </div>
       </div>

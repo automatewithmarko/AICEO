@@ -605,11 +605,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   padding-bottom: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
 }
 
 .mkt-chat-top-row::-webkit-scrollbar {
@@ -1904,14 +1901,15 @@
 }
 
 .mkt-research-toggle:hover {
-  border-color: #c8c8cc;
-  color: var(--text-secondary);
+  border-color: var(--brand-red);
+  background: var(--brand-red);
+  color: #fff;
 }
 
 .mkt-research-toggle--active {
-  background: rgba(59, 130, 246, 0.08);
-  border-color: #3b82f6;
-  color: #3b82f6;
+  background: var(--brand-red);
+  border-color: var(--brand-red);
+  color: #fff;
 }
 
 /* ── Responsive ── */

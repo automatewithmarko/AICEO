@@ -22,6 +22,9 @@ export default function Products() {
   const [newProduct, setNewProduct] = useState({ name: '', description: '', type: '', price: '', priceMode: 'One-time', photos: [], paymentProcessor: 'none' });
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(null);
   const fileInputRefs = useRef({});
+  const [connectModal, setConnectModal] = useState(null); // 'kajabi' | 'shopify' | null
+  const [connectApiKey, setConnectApiKey] = useState('');
+  const [connectSaving, setConnectSaving] = useState(false);
 
   useEffect(() => {
     loadProducts();
@@ -309,7 +312,19 @@ export default function Products() {
   return (
     <div className="page-container">
       <div className="products-header">
-        <h1 className="page-title">Products</h1>
+        <div className="products-header-left">
+          <h1 className="page-title">Products</h1>
+          <div className="products-connect-buttons">
+            <button className="products-connect-btn" onClick={() => { setConnectModal('kajabi'); setConnectApiKey(''); }}>
+              <span>Connect with</span>
+              <img src="/icon-kajabi-text.png" alt="Kajabi" />
+            </button>
+            <button className="products-connect-btn" onClick={() => { setConnectModal('shopify'); setConnectApiKey(''); }}>
+              <span>Connect with</span>
+              <img src="/icon-shopify-text.png" alt="Shopify" />
+            </button>
+          </div>
+        </div>
         {!addingNew && (
           <button className="products-add-btn" onClick={() => setAddingNew(true)}>
             <Plus size={16} />
@@ -580,6 +595,64 @@ export default function Products() {
             ))}
           </div>
         </>
+      )}
+
+      {/* Connect Platform Modal */}
+      {connectModal && (
+        <div className="modal-overlay" onClick={() => setConnectModal(null)}>
+          <div className="modal products-connect-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setConnectModal(null)}>
+              <X size={18} />
+            </button>
+
+            <div className="products-connect-modal-logo">
+              <img
+                src={connectModal === 'kajabi' ? '/icon-kajabi-text.png' : '/icon-shopify-text.png'}
+                alt={connectModal === 'kajabi' ? 'Kajabi' : 'Shopify'}
+              />
+            </div>
+
+            <h3 className="products-connect-modal-title">
+              Connect {connectModal === 'kajabi' ? 'Kajabi' : 'Shopify'}
+            </h3>
+            <p className="products-connect-modal-desc">
+              Enter your {connectModal === 'kajabi' ? 'Kajabi' : 'Shopify'} API key to import your products.
+            </p>
+
+            <div className="modal-field">
+              <label className="modal-label">API Key</label>
+              <input
+                type="text"
+                className="modal-input"
+                placeholder={`Paste your ${connectModal === 'kajabi' ? 'Kajabi' : 'Shopify'} API key`}
+                value={connectApiKey}
+                onChange={(e) => setConnectApiKey(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <div className="products-connect-modal-actions">
+              <button className="products-connect-modal-cancel" onClick={() => setConnectModal(null)}>
+                Cancel
+              </button>
+              <button
+                className="products-connect-modal-submit"
+                disabled={!connectApiKey.trim() || connectSaving}
+                onClick={async () => {
+                  setConnectSaving(true);
+                  // TODO: integrate with backend API
+                  setTimeout(() => {
+                    setConnectSaving(false);
+                    setConnectModal(null);
+                    setConnectApiKey('');
+                  }, 1500);
+                }}
+              >
+                {connectSaving ? 'Connecting...' : 'Connect & Import'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
