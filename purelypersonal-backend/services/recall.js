@@ -1,5 +1,20 @@
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const RECALL_BASE = `https://${process.env.RECALL_REGION || 'us-west-2'}.recall.ai`;
 const API_KEY = process.env.RECALL_API_KEY;
+
+// Load bot avatar image as base64 once at startup
+let botAvatarB64 = null;
+try {
+  const imgPath = join(__dirname, '..', 'assets', 'bot-avatar.jpg');
+  botAvatarB64 = readFileSync(imgPath).toString('base64');
+  console.log('[recall] Bot avatar loaded');
+} catch (e) {
+  console.warn('[recall] Bot avatar not found, bot will use default image');
+}
 
 async function recallFetch(path, options = {}) {
   const res = await fetch(`${RECALL_BASE}${path}`, {
@@ -42,6 +57,16 @@ export async function createBot(meetingUrl, { botName, userId, meetingId, joinAt
       meeting_id: meetingId || '',
     },
   };
+
+  // Set bot display image
+  if (botAvatarB64) {
+    body.automatic_video_output = {
+      in_call_recording: {
+        kind: 'jpeg',
+        b64_data: botAvatarB64,
+      },
+    };
+  }
 
   if (joinAt) {
     body.join_at = joinAt;
