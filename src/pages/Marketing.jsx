@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Mail, Send, Users, BarChart3, Megaphone, Inbox, FileText, PenTool, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe } from 'lucide-react';
+import { Mail, Send, Users, BarChart3, Megaphone, Inbox, FileText, PenTool, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Loader } from 'lucide-react';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { MOCK_EMAILS } from './Inbox';
@@ -76,7 +76,6 @@ const TOOL_CONFIGS = {
     readyText: 'Your landing page is ready! Check the canvas on the right.',
     canvasActions: [
       { label: 'Import From Template', style: 'outline', hasChevron: true, isTemplateToggle: true },
-      { label: 'Copy As Prompt', style: 'primary' },
       { label: 'Copy Code', style: 'primary', hasChevron: true, isCopyCode: true },
       { label: 'Deploy to Netlify', style: 'netlify', isNetlifyDeploy: true },
     ],
@@ -96,8 +95,8 @@ const TOOL_CONFIGS = {
     readyText: 'Your squeeze page is ready! Check the canvas on the right.',
     canvasActions: [
       { label: 'Import From Template', style: 'outline', hasChevron: true, isTemplateToggle: true },
-      { label: 'Copy As Prompt', style: 'primary' },
       { label: 'Copy Code', style: 'primary', hasChevron: true, isCopyCode: true },
+      { label: 'Deploy to Netlify', style: 'netlify', isNetlifyDeploy: true },
     ],
     templates: [
       { id: 'sp-1', name: 'Danny 1' },
@@ -1623,6 +1622,9 @@ function ToolTab({ config, activeTool, brandDna }) {
                     </button>
                     {copyCodeOpen && (
                       <div className="mkt-copycode-dropdown">
+                        <button className="mkt-copycode-item" onClick={() => { handleCopyAsPrompt(); setCopyCodeOpen(false); }}>
+                          Copy As Prompt
+                        </button>
                         <button className="mkt-copycode-item" onClick={handleCopyCode}>
                           Copy Code
                         </button>
@@ -1637,9 +1639,10 @@ function ToolTab({ config, activeTool, brandDna }) {
                     key={i}
                     className={`mkt-canvas-btn mkt-canvas-btn--netlify${deploying ? ' mkt-canvas-btn--loading' : ''}`}
                     onClick={handleNetlifyDeploy}
-                    disabled={!canvasHtml || deploying}
+                    disabled={deploying}
+                    title={deploying ? 'Deploying...' : deployResult ? 'Redeploy to Netlify' : 'Deploy to Netlify'}
                   >
-                    {deploying ? 'Deploying...' : deployResult ? 'Redeploy' : 'Deploy to Netlify'}
+                    {deploying ? <Loader size={16} className="mkt-spinner" /> : <>Deploy to <img src="/icon-netlify-white.webp" alt="Netlify" className="mkt-netlify-btn-logo" /></>}
                   </button>
                 ) : (
                   <button

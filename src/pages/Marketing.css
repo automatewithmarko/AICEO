@@ -413,20 +413,39 @@
 }
 
 .mkt-canvas-btn--netlify {
-  background: #00c7b7;
+  background: #111e27;
   color: #fff;
-  border: 1px solid #00c7b7;
-  font-weight: 600;
+  border: 1px solid #111e27;
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .mkt-canvas-btn--netlify:hover:not(:disabled) {
-  background: #00b0a2;
-  border-color: #00b0a2;
+  background: #1a2d3a;
+  border-color: #1a2d3a;
 }
 
 .mkt-canvas-btn--netlify:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.mkt-netlify-btn-logo {
+  height: 16px;
+  width: auto;
+  display: block;
+}
+
+@keyframes mkt-spin {
+  to { transform: rotate(360deg); }
+}
+.mkt-spinner {
+  animation: mkt-spin 1s linear infinite;
 }
 
 .mkt-canvas-btn--loading {

@@ -20,11 +20,14 @@ router.get('/api/sales/revenue', async (req, res) => {
     .order('synced_at', { ascending: true });
 
   // Get manual sales
-  const { data: manualSales } = await supabase
+  const { data: manualSales, error: manualError } = await supabase
     .from('manual_sales')
     .select('*')
     .eq('user_id', userId)
     .order('sold_at', { ascending: true });
+
+  if (manualError) console.log('[sales-revenue] manual_sales query error:', manualError.message);
+  console.log(`[sales-revenue] Found ${(manualSales || []).length} manual sales for user ${userId}`);
 
   // Build time buckets based on view
   const now = new Date();
@@ -70,7 +73,9 @@ router.get('/api/sales/revenue', async (req, res) => {
 
   // Helper to find bucket
   const findBucket = (timestamp) => {
+    if (!timestamp) return null;
     const d = new Date(typeof timestamp === 'number' && timestamp < 1e12 ? timestamp * 1000 : timestamp);
+    if (isNaN(d.getTime())) return null; // invalid date
     if (view === 'Week') {
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
       return buckets.find(b => {
@@ -100,9 +105,14 @@ router.get('/api/sales/revenue', async (req, res) => {
 
   // Aggregate manual sales
   for (const s of (manualSales || [])) {
-    const amount = (s.amount || 0) / 100;
-    const bucket = findBucket(s.sold_at);
-    if (bucket) bucket.platform += amount;
+    const rawAmount = Number(s.amount) || 0;
+    const amount = rawAmount / 100; // cents to dollars
+    const bucket = findBucket(s.sold_at || s.created_at);
+    if (bucket) {
+      bucket.platform += amount;
+    } else {
+      console.log(`[sales-revenue] No bucket for manual sale: sold_at=${s.sold_at}, amount=${rawAmount}, view=${view}`);
+    }
   }
 
   // Round values
@@ -123,6 +133,8 @@ router.get('/api/sales/revenue', async (req, res) => {
     kajabi: Math.round(buckets.reduce((s, b) => s + b.kajabi, 0)),
     platform: Math.round(buckets.reduce((s, b) => s + b.platform, 0)),
   };
+
+  console.log(`[sales-revenue] Totals: stripe=${totals.stripe}, platform=${totals.platform}, whop=${totals.whop}`);
 
   res.json({ data: chartData, totals });
 });
@@ -297,11 +309,18 @@ router.post('/api/sales', async (req, res) => {
     return res.status(400).json({ error: 'product_name and amount are required' });
   }
 
+  const parsedAmount = Math.round(Number(amount) * 100); // dollars to cents
+  if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    return res.status(400).json({ error: 'amount must be a valid positive number' });
+  }
+
+  console.log(`[sales] Adding manual sale: product=${product_name}, amount_input=${amount}, amount_cents=${parsedAmount}`);
+
   const { data, error } = await supabase.from('manual_sales').insert({
     user_id: userId,
     product_name,
     buyer_name: buyer_name || '',
-    amount: Math.round(parseFloat(amount) * 100), // dollars to cents
+    amount: parsedAmount, // stored in cents
     sold_at: new Date().toISOString(),
   }).select().single();
 
