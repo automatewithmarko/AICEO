@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight } from 'lucide-react';
+import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, ChevronLeft, Check, ChevronDown, Loader } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { supabase } from '../lib/supabase';
-import { getContentItems, getIntegrationContext, getSalesStats, getSalesRevenue, getSalesCalls, getProducts, getContacts, getOutlierCreators, getOutlierVideos, generateImage } from '../lib/api';
-import { ARTIFACT_TYPES } from '../lib/artifacts';
+import { getContentItems, getIntegrationContext, getSalesStats, getSalesRevenue, getSalesCalls, getProducts, getContacts, getOutlierCreators, getOutlierVideos, generateImage, deployToNetlify } from '../lib/api';
 import ArtifactPanel from '../components/ArtifactPanel';
 import './AiCeo.css';
 
@@ -14,31 +13,48 @@ const BASE_PROMPT = `You are the AI CEO of the user's business, powered by Puerl
 
 IMPORTANT: You already have the user's data loaded below. Reference it directly — don't ask them to provide information you already have.
 
-=== COMMAND CENTER CAPABILITIES ===
-You have tools to CREATE tangible outputs in a split-screen artifact panel next to this chat:
+=== CREATING ARTIFACTS ===
+When the user asks you to CREATE/WRITE/BUILD/DRAFT something tangible, you should:
+1. First, explain your approach in regular markdown text (your plan, what you're building, key decisions).
+2. Then, on a NEW LINE after your explanation, output the artifact as a single JSON object.
 
-**create_artifact** — Use when the user asks you to MAKE something:
-- "Write an email to..." → type: "email", content: JSON string {"to":"recipient@email.com","subject":"Subject","body_html":"<p>HTML body</p>"}
-- "Create a newsletter" / "Build a landing page" → type: "html_template", content: complete standalone HTML with inline CSS
-- "Write a post for Instagram/LinkedIn/etc" → type: "content_post", content: the caption text with hashtags
-- "Write code for..." → type: "code_block", content: the code
-- "Draft a plan/strategy/report" → type: "markdown_doc", content: markdown text
+JSON artifact formats (output on its own line after your explanation):
 
-**generate_image** — Use for visual content: social graphics, thumbnails, etc.
+For newsletters:
+{"type":"newsletter","title":"Short title","html":"<complete standalone HTML with inline CSS>"}
 
-WHEN TO CREATE AN ARTIFACT vs JUST REPLY:
-- User asks to CREATE/WRITE/BUILD/DRAFT something tangible → use create_artifact
-- User asks a QUESTION or wants ANALYSIS/ADVICE → reply in text only
-- You CAN combine text + artifact: explain your approach, then create it
+For landing pages / squeeze pages:
+{"type":"landing_page","title":"Short title","html":"<complete standalone HTML with inline CSS>"}
+
+For emails:
+{"type":"email","title":"Short title","to":"recipient@email.com","subject":"Subject line","body_html":"<p>HTML email body</p>"}
+
+For social media posts:
+{"type":"content_post","title":"Short title","content":"The caption text with hashtags"}
+
+For code:
+{"type":"code_block","title":"Short title","content":"The code"}
+
+For documents / plans / strategies / reports:
+{"type":"markdown_doc","title":"Short title","content":"Markdown content"}
+
+For image generation:
+{"type":"generate_image","prompt":"Detailed image prompt with style, composition, colors, mood"}
 
 ARTIFACT RULES:
-- For emails: write professional, well-formatted HTML. Include greeting and sign-off. Use brand colors if available.
-- For html_template: generate complete standalone HTML (<!DOCTYPE html>) with inline CSS. Make it beautiful and production-ready. Max-width 600px for emails, 1200px for landing pages.
-- For content_post: write the actual caption ready to copy-paste. Include relevant hashtags.
-- For code_block: include the language name at the top as a comment.
-- For markdown_doc: use proper heading hierarchy and formatting.
+- ALWAYS write your explanation/plan FIRST as regular text, then output the JSON artifact after.
+- The JSON must be on its own line — do NOT wrap it in markdown code fences or backticks.
+- NEVER use newlines within JSON string values — use HTML tags for line breaks in HTML.
+- The "html" field must contain complete standalone HTML (<!DOCTYPE html>) with ALL CSS inline. No <style> blocks, no external stylesheets, no <script> tags.
+- Use table-based layout for email/newsletter (max-width 600px). Modern responsive for landing pages (max-width 1200px).
+- Make HTML visually stunning: clean typography, good whitespace, professional color palette, compelling copy.
+- For emails: professional HTML with greeting and sign-off. Use brand colors if available.
+- For content posts: ready-to-copy caption with relevant hashtags.
 - Always ask for missing critical info (like email recipient) before creating the artifact.
-- When generating images for content, call generate_image in addition to create_artifact.`;
+
+WHEN TO CREATE AN ARTIFACT vs JUST REPLY:
+- User asks to CREATE/WRITE/BUILD/DRAFT something → explain your approach, then output JSON artifact
+- User asks a QUESTION or wants ANALYSIS/ADVICE → reply in regular markdown text only (no JSON)`;
 
 function buildFullSystemPrompt(brandDna, contentItems, integrationCtx, salesData, products, contacts, outlierData) {
   let prompt = BASE_PROMPT + '\n\n';
@@ -180,68 +196,23 @@ function buildFullSystemPrompt(brandDna, contentItems, integrationCtx, salesData
   return prompt;
 }
 
-// ── Tool Definitions ──
-const CEO_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'create_artifact',
-      description: 'Create a visual artifact in the split-screen panel. Use for emails, HTML templates (newsletters/landing pages), social media posts, code, or documents.',
-      parameters: {
-        type: 'object',
-        properties: {
-          type: {
-            type: 'string',
-            enum: ['email', 'html_template', 'content_post', 'code_block', 'markdown_doc'],
-            description: 'The artifact type.',
-          },
-          title: {
-            type: 'string',
-            description: 'Short descriptive title for the artifact.',
-          },
-          content: {
-            type: 'string',
-            description: 'The artifact content. email: JSON string {"to":"...","subject":"...","body_html":"..."}. html_template: complete standalone HTML. content_post: caption text. code_block: code. markdown_doc: markdown.',
-          },
-        },
-        required: ['type', 'title', 'content'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'generate_image',
-      description: 'Generate a professional image for content, social media graphics, or thumbnails.',
-      parameters: {
-        type: 'object',
-        properties: {
-          prompt: {
-            type: 'string',
-            description: 'Detailed image prompt: style, subject, composition, colors, text overlays. Must be professional quality.',
-          },
-        },
-        required: ['prompt'],
-      },
-    },
-  },
-];
-
-// ── Streaming with Tool Calls ──
-async function streamWithTools(messages, systemPrompt, onTextChunk, onToolCalls, abortSignal) {
+// ── Streaming (no tools — identical to Marketing page) ──
+async function streamResponse(messages, systemPrompt, onChunk, abortSignal, { searchMode = false } = {}) {
+  const body = {
+    model: 'grok-3-fast',
+    messages: [{ role: 'system', content: systemPrompt }, ...messages],
+    stream: true,
+  };
+  if (searchMode) {
+    body.search_parameters = { mode: 'auto' };
+  }
   const res = await fetch('/api/xai/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${import.meta.env.VITE_XAI_API_KEY}`,
     },
-    body: JSON.stringify({
-      model: 'grok-3-fast',
-      messages: [{ role: 'system', content: systemPrompt }, ...messages],
-      stream: true,
-      tools: CEO_TOOLS,
-      tool_choice: 'auto',
-    }),
+    body: JSON.stringify(body),
     signal: abortSignal,
   });
 
@@ -253,7 +224,6 @@ async function streamWithTools(messages, systemPrompt, onTextChunk, onToolCalls,
   const decoder = new TextDecoder();
   let fullContent = '';
   let buffer = '';
-  let toolCalls = {};
 
   while (true) {
     const { done, value } = await reader.read();
@@ -267,34 +237,63 @@ async function streamWithTools(messages, systemPrompt, onTextChunk, onToolCalls,
       const data = trimmed.slice(6);
       if (data === '[DONE]') continue;
       try {
-        const parsed = JSON.parse(data);
-        const choice = parsed.choices?.[0];
-        if (!choice) continue;
-
-        const textDelta = choice.delta?.content;
-        if (textDelta) {
-          fullContent += textDelta;
-          onTextChunk(fullContent);
-        }
-
-        const tc = choice.delta?.tool_calls;
-        if (tc) {
-          for (const call of tc) {
-            const idx = call.index ?? 0;
-            if (!toolCalls[idx]) toolCalls[idx] = { id: call.id || '', name: '', arguments: '' };
-            if (call.id) toolCalls[idx].id = call.id;
-            if (call.function?.name) toolCalls[idx].name = call.function.name;
-            if (call.function?.arguments) toolCalls[idx].arguments += call.function.arguments;
-          }
-        }
-      } catch { /* skip malformed */ }
+        const delta = JSON.parse(data).choices?.[0]?.delta?.content;
+        if (delta) { fullContent += delta; onChunk(fullContent); }
+      } catch { /* skip */ }
     }
   }
+  return fullContent;
+}
 
-  const calls = Object.values(toolCalls).filter(tc => tc.name);
-  if (calls.length > 0) await onToolCalls(calls);
+// ── Extract partial HTML from streaming JSON (identical to Marketing page) ──
+function extractStreamingHtml(text) {
+  const htmlMatch = text.match(/"html"\s*:\s*"([\s\S]*)$/);
+  if (htmlMatch) {
+    let html = htmlMatch[1];
+    if (html.endsWith('"}')) html = html.slice(0, -2);
+    else if (html.endsWith('"')) html = html.slice(0, -1);
+    try {
+      html = JSON.parse('"' + html + '"');
+    } catch {
+      html = html.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    }
+    return html;
+  }
+  return null;
+}
 
-  return { content: fullContent, toolCalls: calls };
+// ── Parse final AI response — find JSON artifact in text ──
+function tryParseCeoResponse(text) {
+  // Try to find a JSON object in the text (may be preceded by explanation text)
+  // Look for the last { that starts a JSON object with "type"
+  const jsonMatch = text.match(/\{[\s\n]*"type"\s*:/);
+  if (!jsonMatch) return null;
+
+  const jsonStart = text.indexOf(jsonMatch[0]);
+  let jsonStr = text.slice(jsonStart);
+
+  // Strip trailing code fences
+  jsonStr = jsonStr.replace(/\s*```$/, '').trim();
+
+  // Find the end of the JSON object by matching braces
+  let depth = 0;
+  let end = -1;
+  for (let i = 0; i < jsonStr.length; i++) {
+    if (jsonStr[i] === '{') depth++;
+    else if (jsonStr[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+  }
+  if (end > 0) jsonStr = jsonStr.slice(0, end);
+
+  try {
+    const parsed = JSON.parse(jsonStr);
+    if ((parsed.type === 'newsletter' || parsed.type === 'html_template' || parsed.type === 'html' || parsed.type === 'landing_page') && typeof parsed.html === 'string') return { ...parsed, _textBefore: text.slice(0, jsonStart).trim() };
+    if (parsed.type === 'email' && typeof parsed.body_html === 'string') return { ...parsed, _textBefore: text.slice(0, jsonStart).trim() };
+    if (parsed.type === 'content_post' && typeof parsed.content === 'string') return { ...parsed, _textBefore: text.slice(0, jsonStart).trim() };
+    if (parsed.type === 'code_block' && typeof parsed.content === 'string') return { ...parsed, _textBefore: text.slice(0, jsonStart).trim() };
+    if (parsed.type === 'markdown_doc' && typeof parsed.content === 'string') return { ...parsed, _textBefore: text.slice(0, jsonStart).trim() };
+    if (parsed.type === 'generate_image' && typeof parsed.prompt === 'string') return { ...parsed, _textBefore: text.slice(0, jsonStart).trim() };
+  } catch {}
+  return null;
 }
 
 // ── Component ──
@@ -317,6 +316,12 @@ export default function AiCeo() {
   const [hoveredCat, setHoveredCat] = useState(null);
   const [selectedCtxItems, setSelectedCtxItems] = useState(new Set());
   const [researchMode, setResearchMode] = useState(false);
+  const [canvasHtml, setCanvasHtml] = useState(null);
+  const [canvasType, setCanvasType] = useState('newsletter'); // 'newsletter' | 'landing'
+  const [copied, setCopied] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [deployResult, setDeployResult] = useState(null);
+  const [copyCodeOpen, setCopyCodeOpen] = useState(false);
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -325,6 +330,9 @@ export default function AiCeo() {
   const splitRef = useRef(null);
   const isMobileRef = useRef(isMobile);
   const ctxMenuRef = useRef(null);
+  const iframeRef = useRef(null);
+  const canvasBodyRef = useRef(null);
+  const copyCodeRef = useRef(null);
   const contextRef = useRef({
     brandDna: null,
     contentItems: [],
@@ -336,7 +344,8 @@ export default function AiCeo() {
   });
 
   const hasMessages = messages.length > 0;
-  const showPanel = panelOpen && artifact && !isMobile;
+  const showPanel = panelOpen && (artifact || canvasHtml) && !isMobile;
+  const isCanvasMode = !!(canvasHtml && (artifact?.type === 'html_template' || !artifact));
 
   const starters = [
     'Draft an email to follow up with my leads about my top product.',
@@ -499,6 +508,93 @@ export default function AiCeo() {
     };
   }, [dragging]);
 
+  // ── Write HTML into iframe (live preview without reload flash) ──
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const doc = iframe.contentDocument;
+    if (!doc) return;
+    if (canvasHtml) {
+      doc.open();
+      doc.write(canvasHtml);
+      doc.close();
+    } else {
+      doc.open();
+      doc.write('<html><body></body></html>');
+      doc.close();
+    }
+  }, [canvasHtml]);
+
+  // ── Scale iframe to fit canvas width ──
+  useEffect(() => {
+    const container = canvasBodyRef.current;
+    if (!container) return;
+    const update = () => {
+      const iframe = iframeRef.current;
+      if (!iframe) return;
+      const w = container.clientWidth;
+      if (w < 620) {
+        const scale = w / 620;
+        iframe.style.transform = `scale(${scale})`;
+        iframe.style.transformOrigin = 'top left';
+        iframe.style.width = '620px';
+        iframe.style.height = `${100 / scale}%`;
+      } else {
+        iframe.style.transform = '';
+        iframe.style.transformOrigin = '';
+        iframe.style.width = '100%';
+        iframe.style.height = '100%';
+      }
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [canvasHtml]);
+
+  // ── Canvas action handlers ──
+  const handleCopyCode = () => {
+    if (!canvasHtml) return;
+    navigator.clipboard.writeText(canvasHtml);
+    setCopied(true);
+    setCopyCodeOpen(false);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownloadFile = () => {
+    if (!canvasHtml) return;
+    const blob = new Blob([canvasHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'page.html';
+    a.click();
+    URL.revokeObjectURL(url);
+    setCopyCodeOpen(false);
+  };
+
+  const handleNetlifyDeploy = async () => {
+    if (deploying || !canvasHtml) return;
+    setDeploying(true);
+    try {
+      const result = await deployToNetlify(canvasHtml);
+      setDeployResult(result);
+    } catch (e) {
+      console.error('Deploy error:', e);
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  // Click outside copy code dropdown
+  useEffect(() => {
+    if (!copyCodeOpen) return;
+    const handler = (e) => {
+      if (copyCodeRef.current && !copyCodeRef.current.contains(e.target)) setCopyCodeOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [copyCodeOpen]);
+
   // ── Send to AI ──
   const sendToAI = useCallback(async (chatHistory) => {
     setIsGenerating(true);
@@ -516,73 +612,113 @@ export default function AiCeo() {
         ctx.salesData, ctx.products, ctx.contacts, ctx.outlierData,
       );
 
-      await streamWithTools(
+      const fullContent = await streamResponse(
         apiMessages,
         systemPrompt,
-        // onTextChunk
-        (text) => {
-          setMessages(prev => prev.map(m =>
-            m.id === assistantMsgId ? { ...m, content: text } : m
-          ));
-        },
-        // onToolCalls
-        async (calls) => {
-          let createdArtifact = null;
+        (chunk) => {
+          // Check if JSON with HTML has started appearing in the stream
+          const isNewsletter = chunk.includes('"type":"newsletter"') || chunk.includes('"type": "newsletter"');
+          const isLanding = chunk.includes('"type":"landing_page"') || chunk.includes('"type": "landing_page"');
+          const isHtmlGeneric = chunk.includes('"type":"html_template"') || chunk.includes('"type": "html_template"') ||
+            chunk.includes('"type":"html"') || chunk.includes('"type": "html"');
+          const hasHtmlJson = isNewsletter || isLanding || isHtmlGeneric;
 
-          for (const call of calls) {
-            if (call.name === 'create_artifact') {
-              try {
-                const args = JSON.parse(call.arguments);
-                createdArtifact = {
-                  id: Date.now(),
-                  type: args.type,
-                  title: args.title,
-                  content: args.content,
-                  images: [],
-                };
-                setArtifact(createdArtifact);
-                setPanelOpen(true);
-                if (isMobileRef.current) setMobileArtifactOpen(true);
-                // Mark message as having an artifact
-                setMessages(prev => prev.map(m =>
-                  m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: args.type } : m
-                ));
-              } catch (e) {
-                console.error('Artifact parse error:', e);
-              }
-            }
-          }
+          if (hasHtmlJson) {
+            // Set canvas type for correct header
+            if (isLanding) setCanvasType('landing');
+            else setCanvasType('newsletter');
 
-          // Process image generation calls
-          for (const call of calls) {
-            if (call.name === 'generate_image') {
-              try {
-                const args = JSON.parse(call.arguments);
-                const brandData = ctx.brandDna ? {
-                  photoUrls: ctx.brandDna.photo_urls || [],
-                  logoUrl: ctx.brandDna.logo_url || null,
-                  colors: ctx.brandDna.colors || {},
-                  mainFont: ctx.brandDna.main_font || null,
-                } : null;
-                const result = await generateImage(args.prompt, 'general', brandData);
-                if (result.image) {
-                  const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-                  setArtifact(prev => {
-                    if (prev) return { ...prev, images: [...(prev.images || []), { src }] };
-                    const newArt = { id: Date.now(), type: 'content_post', title: 'Generated Image', content: '', images: [{ src }] };
-                    setPanelOpen(true);
-                    if (isMobileRef.current) setMobileArtifactOpen(true);
-                    return newArt;
-                  });
-                }
-              } catch (e) {
-                console.error('Image gen error:', e);
-              }
+            // Extract HTML live and show in canvas
+            const html = extractStreamingHtml(chunk);
+            if (html) {
+              setCanvasHtml(html);
+              setPanelOpen(true);
+              if (isMobileRef.current) setMobileArtifactOpen(true);
             }
+            // Show only the text BEFORE the JSON in chat (the explanation)
+            const jsonIdx = chunk.search(/\{\s*"type"\s*:/);
+            const textPart = jsonIdx > 0 ? chunk.slice(0, jsonIdx).trim() : '';
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsgId ? { ...m, content: textPart } : m
+            ));
+          } else {
+            // Regular text or non-HTML JSON still forming — show full text in chat
+            // Strip any trailing partial JSON that may have started
+            const jsonIdx = chunk.search(/\{\s*"type"\s*:/);
+            const textPart = jsonIdx > 0 ? chunk.slice(0, jsonIdx).trim() : chunk;
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsgId ? { ...m, content: textPart } : m
+            ));
           }
         },
         abort.signal,
+        { searchMode: researchMode },
       );
+
+      // Parse the final response for a JSON artifact
+      const parsed = tryParseCeoResponse(fullContent);
+
+      if (parsed) {
+        const explanationText = parsed._textBefore || '';
+
+        const makeArtifact = (type, title, content) => {
+          const art = { id: Date.now(), type, title, content, images: [] };
+          setArtifact(art);
+          setPanelOpen(true);
+          if (isMobileRef.current) setMobileArtifactOpen(true);
+          // Keep explanation text in the message + add artifact card
+          setMessages(prev => prev.map(m =>
+            m.id === assistantMsgId ? { ...m, content: explanationText, hasArtifact: true, artifactTitle: title, artifactType: type } : m
+          ));
+          return art;
+        };
+
+        if (parsed.type === 'landing_page') {
+          setCanvasType('landing');
+          setCanvasHtml(parsed.html);
+          setDeployResult(null);
+          makeArtifact('html_template', parsed.title || 'Landing Page', parsed.html);
+        } else if (parsed.type === 'newsletter' || parsed.type === 'html_template' || parsed.type === 'html') {
+          setCanvasType('newsletter');
+          setCanvasHtml(parsed.html);
+          makeArtifact('html_template', parsed.title || 'Newsletter', parsed.html);
+        } else if (parsed.type === 'email') {
+          setCanvasHtml(null);
+          makeArtifact('email', parsed.title || 'Email', JSON.stringify({ to: parsed.to, subject: parsed.subject, body_html: parsed.body_html }));
+        } else if (parsed.type === 'content_post') {
+          setCanvasHtml(null);
+          makeArtifact('content_post', parsed.title || 'Content Post', parsed.content);
+        } else if (parsed.type === 'code_block') {
+          setCanvasHtml(null);
+          makeArtifact('code_block', parsed.title || 'Code', parsed.content);
+        } else if (parsed.type === 'markdown_doc') {
+          setCanvasHtml(null);
+          makeArtifact('markdown_doc', parsed.title || 'Document', parsed.content);
+        } else if (parsed.type === 'generate_image') {
+          try {
+            const brandData = ctx.brandDna ? {
+              photoUrls: ctx.brandDna.photo_urls || [],
+              logoUrl: ctx.brandDna.logo_url || null,
+              colors: ctx.brandDna.colors || {},
+              mainFont: ctx.brandDna.main_font || null,
+            } : null;
+            const result = await generateImage(parsed.prompt, 'general', brandData);
+            if (result.image) {
+              const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+              setCanvasHtml(null);
+              const art = { id: Date.now(), type: 'content_post', title: 'Generated Image', content: '', images: [{ src }] };
+              setArtifact(art);
+              setPanelOpen(true);
+              if (isMobileRef.current) setMobileArtifactOpen(true);
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMsgId ? { ...m, content: explanationText, hasArtifact: true, artifactTitle: 'Generated Image', artifactType: 'content_post' } : m
+              ));
+            }
+          } catch (e) {
+            console.error('Image gen error:', e);
+          }
+        }
+      }
     } catch (err) {
       if (err.name !== 'AbortError') {
         setMessages(prev => prev.map(m =>
@@ -595,7 +731,7 @@ export default function AiCeo() {
       abortRef.current = null;
       setIsGenerating(false);
     }
-  }, []);
+  }, [researchMode]);
 
   const stopGenerating = useCallback(() => {
     if (abortRef.current) {
@@ -963,7 +1099,7 @@ export default function AiCeo() {
                           <Send size={18} />
                         </button>
                       )}
-                      {artifact && !showPanel && !isMobile && (
+                      {(artifact || canvasHtml) && !showPanel && !isMobile && (
                         <button
                           className="ceo-panel-toggle"
                           onClick={() => setPanelOpen(true)}
@@ -994,27 +1130,128 @@ export default function AiCeo() {
         {/* ── Artifact Panel (desktop) ── */}
         {showPanel && (
           <div className="ceo-artifact-panel" style={{ width: `${100 - splitPct}%` }}>
-            <ArtifactPanel
-              key={artifact?.id}
-              artifact={artifact}
-              emailAccounts={emailAccounts}
-              onClose={() => setPanelOpen(false)}
-              onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
-            />
+            {isCanvasMode ? (
+              <div className="ceo-canvas">
+                <div className="ceo-canvas-header">
+                  <button className="ceo-canvas-back" onClick={() => setPanelOpen(false)}>
+                    <ChevronLeft size={18} />
+                  </button>
+                  <span className="ceo-canvas-title">Canvas</span>
+                  <div className="ceo-canvas-actions">
+                    {canvasType === 'landing' ? (
+                      <>
+                        <button className="ceo-canvas-btn ceo-canvas-btn--outline">
+                          Import From Template <ChevronDown size={14} />
+                        </button>
+                        <div className="ceo-copycode-anchor" ref={copyCodeRef}>
+                          <button className="ceo-canvas-btn ceo-canvas-btn--primary" onClick={() => setCopyCodeOpen(v => !v)}>
+                            Copy Code <ChevronDown size={14} />
+                          </button>
+                          {copyCodeOpen && (
+                            <div className="ceo-copycode-dropdown">
+                              <button className="ceo-copycode-item" onClick={handleCopyCode}>Copy Code</button>
+                              <button className="ceo-copycode-item" onClick={handleDownloadFile}>Download File</button>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          className={`ceo-canvas-btn ceo-canvas-btn--netlify${deploying ? ' ceo-canvas-btn--loading' : ''}`}
+                          onClick={handleNetlifyDeploy}
+                          disabled={deploying}
+                        >
+                          {deploying ? <Loader size={16} className="ceo-spinner" /> : <>Deploy to <img src="/icon-netlify-white.webp" alt="Netlify" className="ceo-netlify-btn-logo" /></>}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button className="ceo-canvas-btn ceo-canvas-btn--outline">
+                          Import From Template <ChevronDown size={14} />
+                        </button>
+                        <button className="ceo-canvas-btn ceo-canvas-btn--outline" onClick={handleCopyCode}>
+                          {copied ? <><Check size={14} /> Copied</> : 'Save As Template'}
+                        </button>
+                        <button className="ceo-canvas-btn ceo-canvas-btn--primary">
+                          Send Email
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {deployResult && canvasType === 'landing' && (
+                  <div className="ceo-deploy-banner">
+                    <span className="ceo-deploy-banner-dot" />
+                    Live at{' '}
+                    <a href={deployResult.url} target="_blank" rel="noopener noreferrer" className="ceo-deploy-banner-link">
+                      {deployResult.url}
+                    </a>
+                  </div>
+                )}
+                <div className="ceo-canvas-body" ref={canvasBodyRef}>
+                  <iframe
+                    ref={iframeRef}
+                    className="ceo-canvas-iframe"
+                    title="Canvas Preview"
+                    sandbox="allow-same-origin"
+                  />
+                </div>
+              </div>
+            ) : (
+              <ArtifactPanel
+                key={artifact?.id}
+                artifact={artifact}
+                emailAccounts={emailAccounts}
+                onClose={() => setPanelOpen(false)}
+                onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
+              />
+            )}
           </div>
         )}
       </div>
 
       {/* ── Mobile: Artifact Overlay ── */}
-      {isMobile && mobileArtifactOpen && artifact && (
+      {isMobile && mobileArtifactOpen && (artifact || canvasHtml) && (
         <div className="ceo-mobile-overlay">
-          <ArtifactPanel
-            key={`mobile-${artifact?.id}`}
-            artifact={artifact}
-            emailAccounts={emailAccounts}
-            onClose={() => setMobileArtifactOpen(false)}
-            onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
-          />
+          {isCanvasMode ? (
+            <div className="ceo-canvas">
+              <div className="ceo-canvas-header">
+                <button className="ceo-canvas-back" onClick={() => setMobileArtifactOpen(false)}>
+                  <ChevronLeft size={18} />
+                </button>
+                <span className="ceo-canvas-title">Canvas</span>
+                <div className="ceo-canvas-actions">
+                  {canvasType === 'landing' ? (
+                    <button
+                      className={`ceo-canvas-btn ceo-canvas-btn--netlify${deploying ? ' ceo-canvas-btn--loading' : ''}`}
+                      onClick={handleNetlifyDeploy}
+                      disabled={deploying}
+                    >
+                      {deploying ? <Loader size={16} className="ceo-spinner" /> : <>Deploy to <img src="/icon-netlify-white.webp" alt="Netlify" className="ceo-netlify-btn-logo" /></>}
+                    </button>
+                  ) : (
+                    <button className="ceo-canvas-btn ceo-canvas-btn--primary">
+                      Send Email
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="ceo-canvas-body" ref={!showPanel ? canvasBodyRef : undefined}>
+                <iframe
+                  ref={!showPanel ? iframeRef : undefined}
+                  className="ceo-canvas-iframe"
+                  title="Newsletter Preview"
+                  sandbox="allow-same-origin"
+                />
+              </div>
+            </div>
+          ) : (
+            <ArtifactPanel
+              key={`mobile-${artifact?.id}`}
+              artifact={artifact}
+              emailAccounts={emailAccounts}
+              onClose={() => setMobileArtifactOpen(false)}
+              onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
+            />
+          )}
         </div>
       )}
     </div>
