@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage } from '../lib/api';
@@ -272,7 +272,93 @@ function extractImagePromptFromText(text) {
 }
 
 // Stream Grok response with tool calling support
-async function streamContentResponse(messages, systemPrompt, onTextChunk, onToolCall, abortSignal) {
+async function streamContentResponse(messages, systemPrompt, onTextChunk, onToolCall, abortSignal, { searchMode = false, onSearchStatus } = {}) {
+  // Research mode: use Responses API with web_search tool (no image tool in research)
+  if (searchMode) {
+    if (onSearchStatus) onSearchStatus('searching');
+
+    const input = [
+      { role: 'system', content: systemPrompt },
+      ...messages,
+    ];
+
+    const res = await fetch('/api/xai/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${import.meta.env.VITE_XAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'grok-3-fast',
+        input,
+        stream: true,
+        tools: [{ type: 'web_search' }],
+      }),
+      signal: abortSignal,
+    });
+
+    if (!res.ok) throw new Error(await res.text());
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('No response body');
+
+    const decoder = new TextDecoder();
+    let fullContent = '';
+    let buffer = '';
+    let citations = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+        const data = trimmed.slice(6);
+        if (data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data);
+          const eventType = parsed.type;
+
+          if (eventType === 'response.web_search_call.in_progress' || eventType === 'response.web_search_call.searching') {
+            if (onSearchStatus) onSearchStatus('searching');
+          } else if (eventType === 'response.web_search_call.completed') {
+            if (onSearchStatus) onSearchStatus('writing');
+          }
+
+          if (eventType === 'response.output_text.delta') {
+            const delta = parsed.delta;
+            if (delta) { fullContent += delta; onTextChunk(fullContent); }
+          }
+
+          if (eventType === 'response.completed' || eventType === 'response.done') {
+            const respCitations = parsed.response?.citations || [];
+            if (respCitations.length) citations = respCitations;
+          }
+
+          // Fallback for chat-completions compatible format
+          const choice = parsed.choices?.[0];
+          if (choice?.delta?.content) {
+            fullContent += choice.delta.content;
+            onTextChunk(fullContent);
+          }
+        } catch { /* skip */ }
+      }
+    }
+
+    if (citations.length > 0) {
+      const sourcesBlock = '\n\n---\n**Sources:**\n' + citations.map((url, i) => `${i + 1}. ${url}`).join('\n');
+      fullContent += sourcesBlock;
+      onTextChunk(fullContent);
+    }
+
+    if (onSearchStatus) onSearchStatus(null);
+    return { content: fullContent, hadToolCall: false };
+  }
+
+  // Normal mode: Chat Completions API with image tool
   const res = await fetch('/api/xai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -288,7 +374,7 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
     }),
     signal: abortSignal,
   });
-  console.log(`🎨 Streaming started (${messages.filter(m => m.role === 'user').length} user messages)`);
+  console.log(`Streaming started (${messages.filter(m => m.role === 'user').length} user messages)`);
 
   if (!res.ok) throw new Error(await res.text());
 
@@ -298,7 +384,7 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
   const decoder = new TextDecoder();
   let fullContent = '';
   let buffer = '';
-  let toolCalls = {}; // id -> { name, arguments }
+  let toolCalls = {};
 
   while (true) {
     const { done, value } = await reader.read();
@@ -316,37 +402,26 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
         const choice = parsed.choices?.[0];
         if (!choice) continue;
 
-        // Text content
         const textDelta = choice.delta?.content;
-        if (textDelta) {
-          fullContent += textDelta;
-          onTextChunk(fullContent);
-        }
+        if (textDelta) { fullContent += textDelta; onTextChunk(fullContent); }
 
-        // Tool calls
         const tc = choice.delta?.tool_calls;
         if (tc) {
           for (const call of tc) {
             const idx = call.index ?? 0;
-            if (!toolCalls[idx]) {
-              toolCalls[idx] = { id: call.id || '', name: '', arguments: '' };
-            }
+            if (!toolCalls[idx]) toolCalls[idx] = { id: call.id || '', name: '', arguments: '' };
             if (call.id) toolCalls[idx].id = call.id;
             if (call.function?.name) toolCalls[idx].name = call.function.name;
             if (call.function?.arguments) toolCalls[idx].arguments += call.function.arguments;
           }
         }
-      } catch { /* skip malformed */ }
+      } catch { /* skip */ }
     }
   }
 
-  // Process any tool calls after streaming completes
   const calls = Object.values(toolCalls).filter((tc) => tc.name === 'generate_image');
-  console.log('🔧 Tool calls received:', calls.length, JSON.stringify(calls.map(t => ({ name: t.name, args: t.arguments?.slice(0, 80) }))));
 
   let hadToolCall = false;
-
-  // Collect all image prompts
   const imageCalls = [];
   for (const call of calls) {
     try {
@@ -355,11 +430,9 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
     } catch (e) { console.error('Tool call parse error:', e, call.arguments); }
   }
 
-  // Fallback: if Grok described images in text instead of calling the tool
   if (imageCalls.length === 0 && fullContent) {
     const extractedPrompt = extractImagePromptFromText(fullContent);
     if (extractedPrompt) {
-      console.log('🖼️ Fallback — extracting image prompt from text:', extractedPrompt.slice(0, 80));
       imageCalls.push({ id: 'fallback', prompt: extractedPrompt });
     }
   }
@@ -389,6 +462,7 @@ export default function Content() {
   const [tooltip, setTooltip] = useState({ text: '', x: 0, y: 0, visible: false });
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const [contentResearchMode, setContentResearchMode] = useState(false);
+  const [searchStatus, setSearchStatus] = useState(null);
   const [contentCtxMenuOpen, setContentCtxMenuOpen] = useState(false);
   const [contentHoveredCat, setContentHoveredCat] = useState(null);
   const [contentSelectedCtx, setContentSelectedCtx] = useState(new Set());
@@ -583,7 +657,8 @@ export default function Content() {
             console.warn(`⚠️ ${failed.length} image(s) failed`);
           }
         },
-        abort.signal
+        abort.signal,
+        { searchMode: contentResearchMode, onSearchStatus: setSearchStatus },
       );
     } catch (err) {
       if (err.name !== 'AbortError') {
@@ -1521,7 +1596,13 @@ export default function Content() {
                       <img src="/favicon.png" alt="" className="content-assistant-avatar" />
                       <div className="content-thinking">
                         <span className="content-thinking-text">
-                          thinking<span className="content-dots"><span>.</span><span>.</span><span>.</span></span>
+                          {searchStatus === 'searching' ? (
+                            <><Search size={14} /> Searching the web<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
+                          ) : searchStatus === 'writing' ? (
+                            <><PenLine size={14} /> Writing response<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
+                          ) : (
+                            <>thinking<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
+                          )}
                         </span>
                       </div>
                     </div>

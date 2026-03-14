@@ -17,6 +17,7 @@ import salesRoutes from './routes/sales.js';
 import productRoutes from './routes/products.js';
 import contactRoutes from './routes/contacts.js';
 import generateRoutes from './routes/generate.js';
+import orchestrateRoutes from './routes/orchestrate.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -29,7 +30,7 @@ app.use(cors({
 // Raw body for Stripe webhooks (before express.json)
 app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
 
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 
 // Request logging
 app.use((req, res, next) => {
@@ -606,7 +607,16 @@ app.get('/api/outlier/videos', requireAuth, async (req, res) => {
 
   const { data, error } = await query.limit(200);
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ videos: data });
+
+  // Filter out YouTube Shorts (≤ 180s) from results — other platforms are naturally short-form
+  const filtered = (data || []).filter(v => {
+    if (v.outlier_creators?.platform === 'youtube' && v.duration_seconds && v.duration_seconds <= 180) {
+      return false;
+    }
+    return true;
+  });
+
+  res.json({ videos: filtered });
 });
 
 // Re-scan a creator (refresh videos)
@@ -709,6 +719,113 @@ app.use((req, res, next) => {
   next();
 });
 app.use(generateRoutes);
+
+// ─── Orchestrate / Agent routes (auth required) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/orchestrate')) return requireAuth(req, res, next);
+  next();
+});
+app.use(orchestrateRoutes);
+
+// ─── CEO Notifications ───
+app.get('/api/notifications', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.json({ notifications: [] });
+
+  const { data, error } = await supabase
+    .from('ceo_notifications')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(30);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ notifications: data || [] });
+});
+
+app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  const { id } = req.params;
+
+  await supabase
+    .from('ceo_notifications')
+    .update({ is_read: true })
+    .eq('id', id)
+    .eq('user_id', userId);
+
+  res.json({ ok: true });
+});
+
+app.post('/api/notifications/read-all', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+
+  await supabase
+    .from('ceo_notifications')
+    .update({ is_read: true })
+    .eq('user_id', userId)
+    .eq('is_read', false);
+
+  res.json({ ok: true });
+});
+
+// ─── Marketing Templates ───
+app.get('/api/templates', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.json({ templates: [] });
+  const tool = req.query.tool || null;
+
+  let query = supabase
+    .from('marketing_templates')
+    .select('id, name, description, tool, created_at, updated_at')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false });
+
+  if (tool) query = query.eq('tool', tool);
+
+  const { data, error } = await query.limit(50);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ templates: data || [] });
+});
+
+app.get('/api/templates/:id', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  const { data, error } = await supabase
+    .from('marketing_templates')
+    .select('*')
+    .eq('id', req.params.id)
+    .eq('user_id', userId)
+    .single();
+
+  if (error || !data) return res.status(404).json({ error: 'Template not found' });
+  res.json({ template: data });
+});
+
+app.post('/api/templates', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const { name, description, tool, html } = req.body;
+  if (!name || !tool || !html) return res.status(400).json({ error: 'name, tool, and html required' });
+
+  const { data, error } = await supabase
+    .from('marketing_templates')
+    .insert({ user_id: userId, name, description: description || '', tool, html })
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ template: data });
+});
+
+app.delete('/api/templates/:id', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  await supabase
+    .from('marketing_templates')
+    .delete()
+    .eq('id', req.params.id)
+    .eq('user_id', userId);
+  res.json({ ok: true });
+});
 
 // ─── Webhook routes (no auth — external services) ───
 app.use(webhookRoutes);

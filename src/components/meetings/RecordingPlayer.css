@@ -12,6 +12,38 @@
   text-align: center;
   color: var(--text-muted);
   font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.recording-retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--brand-red, #e74c3c);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.recording-retry-btn:hover {
+  opacity: 0.85;
+}
+.recording-retry-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.recording-retry-btn .spinning {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .recording-video {

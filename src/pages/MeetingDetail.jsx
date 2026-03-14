@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Share2, Trash2, RotateCw, Edit3, Check, Square } from 'lucide-react';
-import { getMeeting, deleteMeeting, stopMeeting, reprocessMeeting, updateMeeting, getBotStatus, getStatusInfo, getPlatformInfo, formatDuration } from '../lib/meetings-api';
+import { getMeeting, deleteMeeting, stopMeeting, reprocessMeeting, retryRecording, updateMeeting, getBotStatus, getStatusInfo, getPlatformInfo, formatDuration } from '../lib/meetings-api';
 import TranscriptViewer from '../components/meetings/TranscriptViewer';
 import SummaryPanel from '../components/meetings/SummaryPanel';
 import RecordingPlayer from '../components/meetings/RecordingPlayer';
@@ -75,6 +75,17 @@ export default function MeetingDetail() {
       setMeeting(m => ({ ...m, ...result.meeting }));
     } finally {
       setReprocessing(false);
+    }
+  };
+
+  const handleRetryRecording = async () => {
+    try {
+      const result = await retryRecording(id);
+      if (result?.meeting?.video_url) {
+        setMeeting(m => ({ ...m, video_url: result.meeting.video_url, storage_path: result.meeting.storage_path }));
+      }
+    } catch (err) {
+      console.error('Failed to retry recording:', err);
     }
   };
 
@@ -171,6 +182,7 @@ export default function MeetingDetail() {
             videoUrl={meeting.video_url}
             audioUrl={meeting.audio_url}
             onTimeUpdate={setCurrentTime}
+            onRetry={!meeting.video_url && !meeting.audio_url && meeting.recall_bot_status === 'processed' ? handleRetryRecording : undefined}
           />
           <div className="meeting-detail-transcript">
             <h3>Transcript</h3>

@@ -22,7 +22,6 @@ export async function streamGenerate({ messages, brandDna, onChunk }) {
 
   console.log('[agent] Sending request to Anthropic API...');
   console.log('[agent] Messages count:', anthropicMessages.length);
-  console.log('[agent] API key present:', !!process.env.ANTHROPIC_API_KEY);
 
   let res;
   try {
@@ -38,7 +37,7 @@ export async function streamGenerate({ messages, brandDna, onChunk }) {
       }),
     });
   } catch (fetchErr) {
-    console.error('[agent] Fetch failed:', fetchErr.message, fetchErr.stack);
+    console.error('[agent] Fetch failed:', fetchErr.message);
     throw fetchErr;
   }
 
@@ -56,7 +55,6 @@ export async function streamGenerate({ messages, brandDna, onChunk }) {
   const decoder = new TextDecoder();
   let fullContent = '';
   let buffer = '';
-  let chunkCount = 0;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -76,7 +74,6 @@ export async function streamGenerate({ messages, brandDna, onChunk }) {
         const parsed = JSON.parse(data);
         if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
           fullContent += parsed.delta.text;
-          chunkCount++;
           if (onChunk) onChunk(fullContent);
         }
         if (parsed.type === 'error') {
@@ -88,16 +85,32 @@ export async function streamGenerate({ messages, brandDna, onChunk }) {
     }
   }
 
-  console.log(`[agent] Stream complete. Chunks: ${chunkCount}, Length: ${fullContent.length}`);
+  console.log(`[agent] Stream complete. Length: ${fullContent.length}`);
   return fullContent;
 }
 
 export async function streamEdit({ currentHtml, instruction, conversationHistory, brandDna, onChunk }) {
+  // Don't send full conversation history for edits — it wastes tokens.
+  // Send only: system prompt + the current HTML + edit instruction.
   const messages = [
-    ...(conversationHistory || []),
     {
       role: 'user',
-      content: `Here is my current landing page HTML:\n\n\`\`\`html\n${currentHtml}\n\`\`\`\n\nPlease make this change: ${instruction}`,
+      content: `Here is my current landing page HTML. It uses section markers (<!-- SECTION:name --> ... <!-- /SECTION:name -->).
+
+Please edit ONLY the sections that need to change based on my instruction. Respond with:
+- {"type":"edit","sections":{"sectionName":"<updated section HTML>"},"summary":"..."} for targeted edits
+- {"type":"html","html":"<full HTML>","summary":"..."} only if I ask for a full rewrite
+
+Current HTML:
+${currentHtml}`,
+    },
+    {
+      role: 'assistant',
+      content: 'I have your current landing page with section markers. What changes would you like me to make?',
+    },
+    {
+      role: 'user',
+      content: instruction,
     },
   ];
 

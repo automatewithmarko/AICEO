@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Plus, X, Upload, Trash2, ChevronDown, Check, Link2, Copy, CheckCheck, RefreshCw, Loader2, ExternalLink, ShoppingBag } from 'lucide-react';
-import { getProducts, getImportedProducts, createProduct, updateProduct as updateProductApi, deleteProduct as deleteProductApi, regeneratePaymentLink } from '../lib/api';
+import { getProducts, getImportedProducts, createProduct, updateProduct as updateProductApi, deleteProduct as deleteProductApi, regeneratePaymentLink, uploadProductPhotos } from '../lib/api';
 import './Pages.css';
 import './Products.css';
 
@@ -115,12 +115,25 @@ export default function Products() {
         description: product.description,
         type: product.type,
       });
+
+      // Upload any new photos (ones with .file property)
+      let finalProduct = updated;
+      const newPhotoFiles = product.photos.filter(p => p.file).map(p => p.file);
+      if (newPhotoFiles.length > 0) {
+        try {
+          const { product: withPhotos } = await uploadProductPhotos(product.id, newPhotoFiles);
+          finalProduct = withPhotos;
+        } catch (photoErr) {
+          console.error('Photo upload failed:', photoErr);
+        }
+      }
+
       setProducts((prev) => prev.map((p) => p.id === product.id ? {
         ...p,
-        ...updated,
-        price: (updated.price_cents / 100).toString(),
-        priceMode: updated.price_mode === 'monthly' ? 'Monthly' : 'One-time',
-        photos: updated.photos || p.photos,
+        ...finalProduct,
+        price: (finalProduct.price_cents / 100).toString(),
+        priceMode: finalProduct.price_mode === 'monthly' ? 'Monthly' : 'One-time',
+        photos: finalProduct.photos || p.photos,
       } : p));
       setEditingId(null);
     } catch (err) {
@@ -142,12 +155,26 @@ export default function Products() {
         priceMode: newProduct.priceMode,
         paymentProcessor: newProduct.paymentProcessor,
       });
+
+      // Upload photos if any were selected
+      let finalProduct = product;
+      const photoFiles = newProduct.photos.filter(p => p.file).map(p => p.file);
+      if (photoFiles.length > 0) {
+        try {
+          const { product: updated } = await uploadProductPhotos(product.id, photoFiles);
+          finalProduct = updated;
+        } catch (photoErr) {
+          console.error('Photo upload failed:', photoErr);
+        }
+      }
+
       setProducts((prev) => [{
-        ...product,
-        price: (product.price_cents / 100).toString(),
-        priceMode: product.price_mode === 'monthly' ? 'Monthly' : 'One-time',
-        photos: product.photos || [],
+        ...finalProduct,
+        price: (finalProduct.price_cents / 100).toString(),
+        priceMode: finalProduct.price_mode === 'monthly' ? 'Monthly' : 'One-time',
+        photos: finalProduct.photos || [],
       }, ...prev]);
+      newProduct.photos.forEach(p => { if (p.url?.startsWith('blob:')) URL.revokeObjectURL(p.url); });
       setNewProduct({ name: '', description: '', type: '', price: '', priceMode: 'One-time', photos: [], paymentProcessor: 'none' });
       setAddingNew(false);
     } catch (err) {

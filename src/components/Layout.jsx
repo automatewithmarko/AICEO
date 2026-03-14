@@ -8,6 +8,7 @@ import Sidebar from './Sidebar';
 import BottomBar from './BottomBar';
 import CreditPill from './CreditPill';
 import MobileProfileButton from './MobileProfileButton';
+import NotificationBell from './NotificationBell';
 import './Layout.css';
 
 function TopBar({ accounts, selectedAccountId, setSelectedAccountId, onAddAccount, onRemoveAccount }) {
@@ -258,6 +259,7 @@ export default function Layout() {
       <Sidebar />
       <CreditPill />
       <MobileProfileButton />
+      <NotificationBell />
       <div className={`layout-body ${slideClass}`}>
         {location.pathname === '/inbox' && (
           <TopBar

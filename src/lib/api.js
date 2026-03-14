@@ -11,6 +11,106 @@ async function getAuthHeaders() {
 }
 
 /**
+ * Stream from the backend orchestrator/agent endpoint via SSE.
+ * Used by AI CEO and Marketing pages.
+ *
+ * @param {string} endpoint - API path (e.g., '/api/orchestrate')
+ * @param {object} body - Request body
+ * @param {object} callbacks - Event handlers
+ * @param {AbortSignal} signal - Abort signal
+ */
+export async function streamFromBackend(endpoint, body, callbacks = {}, signal) {
+  const { onTextDelta, onStatus, onAgentChunk, onAgentResult, onAgentStart, onToolCall, onSearchStatus, onFileUpdate, onEditSummary, onFileSaved, onAskUser, onError, onDone } = callbacks;
+  const headers = await getAuthHeaders();
+
+  const res = await fetch(`${API_URL}${endpoint}`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => 'Request failed');
+    throw new Error(errText);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error('No response body');
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith(':')) continue; // skip heartbeats
+      if (!trimmed.startsWith('data: ')) continue;
+      const data = trimmed.slice(6);
+      if (data === '[DONE]') {
+        if (onDone) onDone();
+        continue;
+      }
+
+      try {
+        const event = JSON.parse(data);
+
+        switch (event.type) {
+          case 'text_delta':
+            if (onTextDelta) onTextDelta(event.content);
+            break;
+          case 'status':
+            if (onStatus) onStatus(event.text);
+            break;
+          case 'agent_start':
+            if (onAgentStart) onAgentStart(event.agent);
+            break;
+          case 'agent_chunk':
+            if (onAgentChunk) onAgentChunk(event.agent, event.content);
+            break;
+          case 'agent_result':
+            if (onAgentResult) onAgentResult(event.agent, event.content);
+            break;
+          case 'tool_call':
+            if (onToolCall) onToolCall(event.name, event.arguments);
+            break;
+          case 'search_status':
+            if (onSearchStatus) onSearchStatus(event.status);
+            break;
+          case 'file_update':
+            if (onFileUpdate) onFileUpdate(event.html);
+            break;
+          case 'ask_user':
+            if (onAskUser) onAskUser(event.question, event.options);
+            break;
+          case 'edit_summary':
+            if (onEditSummary) onEditSummary(event.text, event.editCount);
+            break;
+          case 'file_saved':
+            if (onFileSaved) onFileSaved(event.agent);
+            break;
+          case 'error':
+            if (onError) onError(event.error);
+            break;
+          case 'done':
+            if (onDone) onDone(event.content);
+            break;
+        }
+      } catch {
+        // skip malformed events
+      }
+    }
+  }
+}
+
+/**
  * Upload files for content context (documents, videos, images).
  * Files are processed on the backend — documents get text extraction,
  * videos get transcription, images are stored as-is.
@@ -378,6 +478,22 @@ export async function deleteProduct(id) {
   return res.json();
 }
 
+export async function uploadProductPhotos(productId, files) {
+  const headers = await getAuthHeaders();
+  const formData = new FormData();
+  files.forEach((file) => formData.append('photos', file));
+  const res = await fetch(`${API_URL}/api/products/${productId}/photos`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
 export async function regeneratePaymentLink(id) {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/products/${id}/payment-link`, {
@@ -540,7 +656,7 @@ export async function updateEmail(id, updates) {
 }
 
 export async function sendEmailApi({ account_id, to, cc, subject, body_text, body_html, in_reply_to, references }) {
-  // Send via Supabase Edge Function (bypasses Railway SMTP blocking)
+  // Send via Supabase Edge Function (bypasses Railway SMTP port blocking)
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error('Not authenticated');
@@ -610,4 +726,65 @@ export async function generateImage(prompt, platform, brandData) {
     throw new Error(err.error);
   }
   return res.json();
+}
+
+// ─── Marketing Templates ───
+
+export async function getTemplates(tool) {
+  const headers = await getAuthHeaders();
+  const url = tool ? `${API_URL}/api/templates?tool=${tool}` : `${API_URL}/api/templates`;
+  const res = await fetch(url, { headers });
+  if (!res.ok) return { templates: [] };
+  return res.json();
+}
+
+export async function getTemplate(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/templates/${id}`, { headers });
+  if (!res.ok) throw new Error('Template not found');
+  return res.json();
+}
+
+export async function saveTemplate({ name, description, tool, html }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/templates`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description, tool, html }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Save failed' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function deleteTemplate(id) {
+  const headers = await getAuthHeaders();
+  await fetch(`${API_URL}/api/templates/${id}`, { method: 'DELETE', headers });
+}
+
+// ─── CEO Notifications ───
+
+export async function getNotifications() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/notifications`, { headers });
+  if (!res.ok) return { notifications: [] };
+  return res.json();
+}
+
+export async function markNotificationRead(id) {
+  const headers = await getAuthHeaders();
+  await fetch(`${API_URL}/api/notifications/${id}/read`, {
+    method: 'PATCH',
+    headers,
+  });
+}
+
+export async function markAllNotificationsRead() {
+  const headers = await getAuthHeaders();
+  await fetch(`${API_URL}/api/notifications/read-all`, {
+    method: 'POST',
+    headers,
+  });
 }

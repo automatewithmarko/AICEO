@@ -155,13 +155,17 @@ router.post('/api/webhooks/recall', async (req, res) => {
             for (const rec of bot.recordings) {
               const mediaUrl = rec.media_shortcuts?.video_mixed?.data?.download_url;
               if (mediaUrl) {
-                console.log(`[webhook] Downloading recording for meeting ${meeting.id}`);
-                const { buffer, contentType } = await downloadFromUrl(mediaUrl);
-                const ext = contentType.includes('video') ? 'mp4' : 'mp3';
-                const { path, url } = await uploadRecording(meeting.id, buffer, `recording.${ext}`, contentType);
-                const updateFields = { storage_path: path, video_url: url };
-                await supabase.from('meetings').update(updateFields).eq('id', meeting.id);
-                console.log(`[webhook] Recording uploaded for meeting ${meeting.id}`);
+                try {
+                  console.log(`[webhook] Downloading recording for meeting ${meeting.id}`);
+                  const { buffer, contentType } = await downloadFromUrl(mediaUrl);
+                  const ext = contentType.includes('video') ? 'mp4' : 'mp3';
+                  const { path, url } = await uploadRecording(meeting.id, buffer, `recording.${ext}`, contentType);
+                  await supabase.from('meetings').update({ storage_path: path, video_url: url }).eq('id', meeting.id);
+                  console.log(`[webhook] Recording uploaded for meeting ${meeting.id}`);
+                } catch (uploadErr) {
+                  console.warn(`[webhook] Upload failed (${uploadErr.message}), using direct Recall URL`);
+                  await supabase.from('meetings').update({ video_url: mediaUrl }).eq('id', meeting.id);
+                }
               } else {
                 console.warn(`[webhook] No download_url in recording. Status: ${rec.status}, has media_shortcuts: ${!!rec.media_shortcuts}`);
               }
@@ -424,7 +428,8 @@ async function handleMeetingDone(meetingId, userId, botId) {
             await supabase.from('meetings').update({ storage_path: path, video_url: url }).eq('id', meetingId);
             console.log(`[pipeline] Recording uploaded for meeting ${meetingId}`);
           } catch (e) {
-            console.error('[pipeline] Recording download failed:', e.message);
+            console.warn(`[pipeline] Upload failed (${e.message}), using direct Recall URL`);
+            await supabase.from('meetings').update({ video_url: mediaUrl }).eq('id', meetingId);
           }
         } else {
           console.warn(`[pipeline] No download_url in recording. Status: ${rec.status}, has media_shortcuts: ${!!rec.media_shortcuts}`);

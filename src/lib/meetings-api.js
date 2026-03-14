@@ -73,6 +73,12 @@ export async function reprocessMeeting(id, template) {
   });
 }
 
+export async function retryRecording(id) {
+  return ppFetch(`/api/meetings/${id}/retry-recording`, {
+    method: 'POST',
+  });
+}
+
 // Bots
 export async function getActiveBots() {
   return ppFetch('/api/bots/active');

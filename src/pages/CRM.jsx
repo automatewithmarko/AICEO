@@ -56,6 +56,7 @@ export default function CRM() {
   const [addingContact, setAddingContact] = useState(false);
   const [newContact, setNewContact] = useState({ name: '', email: '', phone: '', business: '' });
   const [csvImporting, setCsvImporting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   // List & filter state
   const [customLists, setCustomLists] = useState(loadSavedLists);
   const [showCreateList, setShowCreateList] = useState(false);
@@ -65,6 +66,7 @@ export default function CRM() {
   const pageRef = useRef(null);
   const saveTimerRef = useRef(null);
   const csvInputRef = useRef(null);
+  const vcfInputRef = useRef(null);
   const filterRef = useRef(null);
 
   useEffect(() => {
@@ -101,6 +103,7 @@ export default function CRM() {
 
   const handleAddContact = async () => {
     if (!newContact.name.trim() && !newContact.email.trim()) return;
+    setErrorMsg('');
     try {
       const { contact } = await createContact(newContact);
       setContacts(prev => [{
@@ -112,7 +115,8 @@ export default function CRM() {
       setNewContact({ name: '', email: '', phone: '', business: '' });
       setAddingContact(false);
     } catch (err) {
-      console.error('Failed to add contact:', err);
+      setErrorMsg(err.message || 'Failed to add contact');
+      setTimeout(() => setErrorMsg(''), 4000);
     }
   };
 
@@ -156,6 +160,78 @@ export default function CRM() {
       console.error('CSV import failed:', err);
     }
     setCsvImporting(false);
+  };
+
+  const [vcfImporting, setVcfImporting] = useState(false);
+
+  const handleVcfImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setVcfImporting(true);
+    setErrorMsg('');
+    try {
+      const text = await file.text();
+      // Parse vCard format — split by BEGIN:VCARD blocks
+      const cards = text.split('BEGIN:VCARD').filter(c => c.includes('END:VCARD'));
+      if (!cards.length) {
+        setErrorMsg('No valid contacts found in this file');
+        setVcfImporting(false);
+        setTimeout(() => setErrorMsg(''), 4000);
+        return;
+      }
+
+      let imported = 0;
+      for (const card of cards) {
+        const getField = (field) => {
+          const match = card.match(new RegExp(`^${field}[;:](.*)$`, 'mi'));
+          return match ? match[1].replace(/\\n/g, ' ').replace(/\\;/g, ';').trim() : '';
+        };
+
+        // Parse FN (formatted name) or N (structured name)
+        let name = getField('FN');
+        if (!name) {
+          const n = getField('N');
+          if (n) {
+            const parts = n.split(';');
+            name = [parts[1], parts[0]].filter(Boolean).join(' ').trim();
+          }
+        }
+
+        // Parse email — handle TYPE parameters like EMAIL;TYPE=INTERNET:
+        const emailMatch = card.match(/^EMAIL[^:]*:(.+)$/mi);
+        const email = emailMatch ? emailMatch[1].trim() : '';
+
+        // Parse phone — handle TYPE parameters like TEL;TYPE=CELL:
+        const telMatch = card.match(/^TEL[^:]*:(.+)$/mi);
+        const phone = telMatch ? telMatch[1].trim() : '';
+
+        // Parse org/business
+        const org = getField('ORG').replace(/;+$/, '');
+
+        if (!name && !email) continue;
+
+        try {
+          const { contact } = await createContact({ name, email, phone, business: org });
+          setContacts(prev => [{
+            ...contact,
+            tags: contact.tags || [],
+            socials: contact.socials || { instagram: [], linkedin: [], x: [] },
+            created: new Date(contact.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          }, ...prev]);
+          imported++;
+        } catch { /* skip duplicates */ }
+      }
+
+      if (imported === 0) {
+        setErrorMsg('No new contacts imported (all duplicates or empty)');
+        setTimeout(() => setErrorMsg(''), 4000);
+      }
+    } catch (err) {
+      setErrorMsg('Failed to import contacts from file');
+      setTimeout(() => setErrorMsg(''), 4000);
+    }
+    setVcfImporting(false);
   };
 
   const handleDeleteContact = async (id) => {
@@ -400,6 +476,13 @@ export default function CRM() {
         style={{ display: 'none' }}
         onChange={handleCsvImport}
       />
+      <input
+        ref={vcfInputRef}
+        type="file"
+        accept=".vcf,.vcard"
+        style={{ display: 'none' }}
+        onChange={handleVcfImport}
+      />
 
       {/* Create List Modal */}
       {showCreateList && (
@@ -491,6 +574,15 @@ export default function CRM() {
         </div>
       )}
 
+      {/* Error banner */}
+      {errorMsg && (
+        <div className="crm-error-banner">
+          <AlertCircle size={14} />
+          {errorMsg}
+          <button className="crm-error-dismiss" onClick={() => setErrorMsg('')}><X size={14} /></button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="crm-toolbar">
         <div className="crm-toolbar-left">
@@ -570,6 +662,14 @@ export default function CRM() {
           >
             {csvImporting ? <Loader2 size={14} className="crm-spin" /> : <Upload size={14} />}
             {csvImporting ? 'Importing...' : 'Import CSV'}
+          </button>
+          <button
+            className="crm-pill"
+            onClick={() => vcfInputRef.current?.click()}
+            disabled={vcfImporting}
+          >
+            {vcfImporting ? <Loader2 size={14} className="crm-spin" /> : <Download size={14} />}
+            {vcfImporting ? 'Importing...' : 'Import vCard'}
           </button>
           <button
             className="crm-pill"

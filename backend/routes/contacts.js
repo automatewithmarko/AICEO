@@ -39,9 +39,20 @@ router.post('/api/contacts', async (req, res) => {
   const { name, phone, email, business, status, tags, notes, socials } = req.body;
   if (!name && !email) return res.status(400).json({ error: 'name or email is required' });
 
+  // Check for duplicate email (only if email is provided)
+  if (email?.trim()) {
+    const { data: existing } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('email', email.trim())
+      .maybeSingle();
+    if (existing) return res.status(409).json({ error: 'A contact with this email already exists' });
+  }
+
   const { data, error } = await supabase
     .from('contacts')
-    .upsert({
+    .insert({
       user_id: userId,
       name: name || '',
       phone: phone || '',
@@ -53,7 +64,7 @@ router.post('/api/contacts', async (req, res) => {
       socials: socials || { instagram: [], linkedin: [], x: [] },
       source: 'manual',
       ghl_sync_status: 'pending',
-    }, { onConflict: 'user_id,email', ignoreDuplicates: false })
+    })
     .select()
     .single();
 

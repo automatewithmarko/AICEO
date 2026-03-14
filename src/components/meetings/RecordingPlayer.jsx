@@ -1,15 +1,16 @@
 import { useRef, useState, useEffect } from 'react';
-import { Play, Pause, Volume2, VolumeX, Maximize } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, RotateCw } from 'lucide-react';
 import { formatTimestamp } from '../../lib/meetings-api';
 import './RecordingPlayer.css';
 
-export default function RecordingPlayer({ videoUrl, audioUrl, onTimeUpdate }) {
+export default function RecordingPlayer({ videoUrl, audioUrl, onTimeUpdate, onRetry }) {
   const mediaRef = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [retrying, setRetrying] = useState(false);
 
   const isVideo = !!videoUrl;
   const src = videoUrl || audioUrl;
@@ -72,10 +73,26 @@ export default function RecordingPlayer({ videoUrl, audioUrl, onTimeUpdate }) {
     return () => { delete window.__ppPlayerSeek; };
   }, []);
 
+  const handleRetry = async () => {
+    if (!onRetry) return;
+    setRetrying(true);
+    try {
+      await onRetry();
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   if (!src) {
     return (
       <div className="recording-player-empty">
         No recording available yet
+        {onRetry && (
+          <button className="recording-retry-btn" onClick={handleRetry} disabled={retrying}>
+            <RotateCw size={14} className={retrying ? 'spinning' : ''} />
+            {retrying ? 'Fetching...' : 'Retry fetch'}
+          </button>
+        )}
       </div>
     );
   }

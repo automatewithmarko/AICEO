@@ -1,5 +1,6 @@
 export const ARTIFACT_TYPES = {
   email: { label: 'Email', icon: 'Mail' },
+  newsletter: { label: 'Newsletter', icon: 'Mail' },
   html_template: { label: 'Template', icon: 'FileText' },
   content_post: { label: 'Post', icon: 'PenTool' },
   code_block: { label: 'Code', icon: 'Code' },

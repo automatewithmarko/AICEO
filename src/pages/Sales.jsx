@@ -54,6 +54,7 @@ const SALES_STATUSES = ['Closed', 'Need to follow up', 'Not a fit'];
 const RECORDER_LOGOS = {
   fireflies: '/fireflies-square-logo.png',
   fathom: '/fathom-square-logo.png',
+  purelypersonal: '/our-square-logo.png',
 };
 
 export default function Sales() {

@@ -30,6 +30,7 @@
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .ceo-chat--split {
@@ -971,4 +972,119 @@
   .ceo-artifact-panel {
     display: none;
   }
+}
+
+/* ── CEO Question Popup Overlay ── */
+.ceo-question-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-white);
+  border-top: 1px solid var(--border-light);
+  padding: 24px 28px;
+  z-index: 20;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
+  border-radius: 16px 16px 0 0;
+}
+
+.ceo-question-overlay--visible {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ceo-question-overlay--hidden {
+  transform: translateY(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ceo-question-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 16px 0;
+  line-height: 1.4;
+}
+
+.ceo-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ceo-question-option {
+  width: 100%;
+  padding: 12px 18px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: var(--bg-white);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ceo-question-option:hover {
+  background: #f5f5f7;
+  border-color: #c8c8cc;
+}
+
+.ceo-question-option:active {
+  background: #ebebed;
+}
+
+.ceo-question-option--custom {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+.ceo-question-option--custom:hover {
+  color: var(--text-primary);
+}
+
+.ceo-question-custom-row {
+  display: flex;
+  gap: 8px;
+}
+
+.ceo-question-custom-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.ceo-question-custom-input:focus {
+  border-color: var(--brand-red);
+}
+
+.ceo-question-custom-send {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  border: none;
+  background: var(--brand-red);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ceo-question-custom-send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ceo-question-custom-send:hover:not(:disabled) {
+  background: var(--brand-red-hover);
 }

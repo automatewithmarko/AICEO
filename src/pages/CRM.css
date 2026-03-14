@@ -1255,6 +1255,29 @@
 }
 
 /* ── Add Contact Bar ── */
+.crm-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 13px;
+  font-weight: 500;
+  border-bottom: 1px solid #fecaca;
+}
+
+.crm-error-dismiss {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #dc2626;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+}
+
 .crm-add-bar {
   display: flex;
   align-items: center;
@@ -1430,18 +1453,10 @@
 }
 
 /* ── GHL Sync Badges ── */
-.crm-cell-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .crm-cell-name-text {
   font-weight: 600;
   color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin-right: 6px;
 }
 
 .crm-ghl-badge {

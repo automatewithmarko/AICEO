@@ -1,12 +1,12 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Mail, Send, Users, BarChart3, Megaphone, Inbox, FileText, PenTool, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe } from 'lucide-react';
+import { Mail, Send, Users, BarChart3, Megaphone, Inbox, FileText, PenTool, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine } from 'lucide-react';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { MOCK_EMAILS } from './Inbox';
 import { MOCK_CALLS } from './Sales';
 import { INITIAL_PRODUCTS } from './Products';
 import { supabase } from '../lib/supabase';
-import { generateImage, deployToNetlify } from '../lib/api';
+import { generateImage, deployToNetlify, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate } from '../lib/api';
 import './Pages.css';
 import './Marketing.css';
 
@@ -76,15 +76,9 @@ const TOOL_CONFIGS = {
     readyText: 'Your landing page is ready! Check the canvas on the right.',
     canvasActions: [
       { label: 'Import From Template', style: 'outline', hasChevron: true, isTemplateToggle: true },
-      { label: 'Copy As Prompt', style: 'primary' },
+      { label: 'Save As Template', style: 'outline', isSaveTemplate: true },
       { label: 'Copy Code', style: 'primary', hasChevron: true, isCopyCode: true },
       { label: 'Deploy to Netlify', style: 'netlify', isNetlifyDeploy: true },
-    ],
-    templates: [
-      { id: 'lp-1', name: 'Danny 1' },
-      { id: 'lp-2', name: 'Danny 2' },
-      { id: 'lp-3', name: 'Danny 3' },
-      { id: 'lp-4', name: 'Danny 4' },
     ],
   },
   squeeze: {
@@ -96,14 +90,8 @@ const TOOL_CONFIGS = {
     readyText: 'Your squeeze page is ready! Check the canvas on the right.',
     canvasActions: [
       { label: 'Import From Template', style: 'outline', hasChevron: true, isTemplateToggle: true },
-      { label: 'Copy As Prompt', style: 'primary' },
+      { label: 'Save As Template', style: 'outline', isSaveTemplate: true },
       { label: 'Copy Code', style: 'primary', hasChevron: true, isCopyCode: true },
-    ],
-    templates: [
-      { id: 'sp-1', name: 'Danny 1' },
-      { id: 'sp-2', name: 'Danny 2' },
-      { id: 'sp-3', name: 'Danny 3' },
-      { id: 'sp-4', name: 'Danny 4' },
     ],
   },
   story: {
@@ -169,116 +157,7 @@ RULES FOR STORY SEQUENCES:
   },
 };
 
-// ── Landing Page Agent (Kimi 2.5 on Railway) ──
-const LANDING_AGENT_URL = import.meta.env.VITE_LANDING_AGENT_URL || 'https://landing-page-agent-production-b414.up.railway.app';
-
-async function streamFromLandingAgent({ endpoint, body, onChunk, onStatus, abortSignal }) {
-  // Step 1: POST to create job
-  const submitRes = await fetch(`${LANDING_AGENT_URL}${endpoint}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: abortSignal,
-  });
-
-  if (!submitRes.ok) {
-    const errText = await submitRes.text().catch(() => 'Unknown error');
-    throw new Error(errText);
-  }
-
-  const { jobId } = await submitRes.json();
-  if (!jobId) throw new Error('No job ID returned');
-
-  // Step 2: GET SSE stream for the job
-  const streamRes = await fetch(`${LANDING_AGENT_URL}/stream/${jobId}`, {
-    signal: abortSignal,
-  });
-
-  if (!streamRes.ok) {
-    const errText = await streamRes.text().catch(() => 'Unknown error');
-    throw new Error(errText);
-  }
-
-  const reader = streamRes.body?.getReader();
-  if (!reader) throw new Error('No response body');
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let finalContent = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('data: ')) continue;
-      const data = trimmed.slice(6);
-      if (data === '[DONE]') continue;
-      try {
-        const parsed = JSON.parse(data);
-        if (parsed.type === 'status' && onStatus) onStatus(parsed.text);
-        if (parsed.type === 'chunk') { finalContent = parsed.content; if (onChunk) onChunk(parsed.content); }
-        if (parsed.type === 'done') { finalContent = parsed.content; if (onChunk) onChunk(parsed.content); }
-        if (parsed.type === 'error') throw new Error(parsed.error);
-      } catch (e) {
-        if (e.message && !e.message.includes('JSON')) throw e;
-      }
-    }
-  }
-  return finalContent;
-}
-
-// ── Streaming ──
-async function streamToolResponse(messages, systemPrompt, onChunk, abortSignal, { searchMode = false } = {}) {
-  const body = {
-    model: 'grok-3-fast',
-    messages: [{ role: 'system', content: systemPrompt }, ...messages],
-    stream: true,
-  };
-  if (searchMode) {
-    body.search_parameters = { mode: 'auto' };
-  }
-  const res = await fetch('/api/xai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${import.meta.env.VITE_XAI_API_KEY}`,
-    },
-    body: JSON.stringify(body),
-    signal: abortSignal,
-  });
-
-  if (!res.ok) throw new Error(await res.text());
-
-  const reader = res.body?.getReader();
-  if (!reader) throw new Error('No response body');
-
-  const decoder = new TextDecoder();
-  let fullContent = '';
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('data: ')) continue;
-      const data = trimmed.slice(6);
-      if (data === '[DONE]') continue;
-      try {
-        const delta = JSON.parse(data).choices?.[0]?.delta?.content;
-        if (delta) { fullContent += delta; onChunk(fullContent); }
-      } catch { /* skip */ }
-    }
-  }
-  return fullContent;
-}
+// All AI streaming is now handled server-side via /api/orchestrate
 
 // ── Helpers ──
 function tryParseAIResponse(text) {
@@ -301,35 +180,16 @@ function tryParseAIResponse(text) {
     if (parsed.type === 'cover_image' && typeof parsed.prompt === 'string') {
       return parsed;
     }
+    if (parsed.type === 'edit' && typeof parsed.sections === 'object') {
+      return parsed;
+    }
   } catch {
     // not valid JSON
   }
   return null;
 }
 
-// Build system prompt with brand DNA injected
-function buildToolSystemPrompt(basePrompt, brandDna) {
-  let prompt = basePrompt;
-  if (brandDna) {
-    // Replace default accent color with brand primary
-    const primary = brandDna.colors?.primary || '#E91A44';
-    prompt = prompt.replace(/accent color #E91A44/g, () => `accent color ${primary}`);
-
-    let section = '\n\n=== BRAND DNA (USE THESE IN ALL DESIGNS) ===\n';
-    if (brandDna.description) section += `Brand Description: ${brandDna.description}\n`;
-    if (brandDna.main_font) section += `Main Font: ${brandDna.main_font}\n`;
-    if (brandDna.secondary_font) section += `Secondary Font: ${brandDna.secondary_font}\n`;
-    if (brandDna.colors) {
-      const c = brandDna.colors;
-      if (c.primary) section += `Primary Color: ${c.primary}\n`;
-      if (c.text) section += `Text Color: ${c.text}\n`;
-      if (c.secondary) section += `Secondary Color: ${c.secondary}\n`;
-    }
-    section += `\nCRITICAL: Use the brand colors, fonts, and identity listed above in all generated designs. Replace default colors with these brand colors.\n`;
-    prompt += section;
-  }
-  return prompt;
-}
+// System prompts with brand DNA are now built server-side in backend/agents/
 
 // Insert cover image into newsletter HTML
 function insertCoverImage(html, imgSrc) {
@@ -340,6 +200,22 @@ function insertCoverImage(html, imgSrc) {
     return html.slice(0, idx) + imgTag + html.slice(idx);
   }
   return `<img src="${imgSrc}" alt="Newsletter Cover" style="width:100%;max-width:600px;height:auto;display:block;margin:0 auto;" />` + html;
+}
+
+// Merge section-based edits into existing HTML using section markers
+function mergeSectionEdits(currentHtml, sections) {
+  let result = currentHtml;
+  for (const [sectionName, sectionHtml] of Object.entries(sections)) {
+    const startMarker = `<!-- SECTION:${sectionName} -->`;
+    const endMarker = `<!-- /SECTION:${sectionName} -->`;
+    const startIdx = result.indexOf(startMarker);
+    const endIdx = result.indexOf(endMarker);
+    if (startIdx !== -1 && endIdx !== -1) {
+      // Replace content between markers (inclusive of markers)
+      result = result.slice(0, startIdx) + startMarker + '\n' + sectionHtml.trim() + '\n' + endMarker + result.slice(endIdx + endMarker.length);
+    }
+  }
+  return result;
 }
 
 function extractStreamingHtml(text) {
@@ -759,6 +635,369 @@ function DmFlowView() {
   );
 }
 
+// ── Send Newsletter Modal ──
+function SendNewsletterModal({ open, onClose, canvasHtml }) {
+  const [accounts, setAccounts] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [selectedAccount, setSelectedAccount] = useState('');
+  const [selectedContacts, setSelectedContacts] = useState(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [subject, setSubject] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState(null); // { success, failed, total }
+  const [loading, setLoading] = useState(true);
+  const [selectAll, setSelectAll] = useState(false);
+  const [filterTag, setFilterTag] = useState('');
+
+  // Load accounts and contacts on open
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    setSendResult(null);
+    Promise.all([getEmailAccounts(), getContacts()])
+      .then(([accRes, conRes]) => {
+        const accs = accRes.accounts || accRes || [];
+        setAccounts(Array.isArray(accs) ? accs : []);
+        const cons = conRes.contacts || conRes || [];
+        setContacts(Array.isArray(cons) ? cons : []);
+        if (Array.isArray(accs) && accs.length > 0) setSelectedAccount(accs[0].id);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [open]);
+
+  // Get all unique tags
+  const allTags = useMemo(() => {
+    const tags = new Set();
+    contacts.forEach(c => {
+      if (Array.isArray(c.tags)) c.tags.forEach(t => tags.add(t));
+    });
+    return Array.from(tags).sort();
+  }, [contacts]);
+
+  // Filter contacts
+  const filteredContacts = useMemo(() => {
+    let list = contacts.filter(c => c.email);
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(c =>
+        (c.name || '').toLowerCase().includes(q) ||
+        (c.email || '').toLowerCase().includes(q) ||
+        (c.business || '').toLowerCase().includes(q)
+      );
+    }
+    if (filterTag) {
+      list = list.filter(c => Array.isArray(c.tags) && c.tags.includes(filterTag));
+    }
+    return list;
+  }, [contacts, searchQuery, filterTag]);
+
+  // Toggle select all
+  useEffect(() => {
+    if (selectAll) {
+      setSelectedContacts(new Set(filteredContacts.map(c => c.id)));
+    }
+  }, [selectAll, filteredContacts]);
+
+  const toggleContact = (id) => {
+    setSelectedContacts(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); setSelectAll(false); }
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSend = async () => {
+    if (!selectedAccount || selectedContacts.size === 0 || !canvasHtml) return;
+    setSending(true);
+    setSendResult(null);
+
+    const recipients = contacts.filter(c => selectedContacts.has(c.id) && c.email);
+    let success = 0;
+    let failed = 0;
+
+    // Send in batches of 5 to avoid overwhelming the server
+    for (let i = 0; i < recipients.length; i += 5) {
+      const batch = recipients.slice(i, i + 5);
+      const results = await Promise.allSettled(
+        batch.map(contact =>
+          sendEmailApi({
+            account_id: selectedAccount,
+            to: contact.email,
+            subject: subject || 'Newsletter',
+            body_html: canvasHtml,
+            body_text: '',
+          })
+        )
+      );
+      results.forEach(r => {
+        if (r.status === 'fulfilled') success++;
+        else failed++;
+      });
+    }
+
+    setSendResult({ success, failed, total: recipients.length });
+    setSending(false);
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="send-nl-overlay" onClick={onClose}>
+      <div className="send-nl-modal" onClick={e => e.stopPropagation()}>
+        <div className="send-nl-header">
+          <h3>Send Newsletter</h3>
+          <button className="send-nl-close" onClick={onClose}><X size={18} /></button>
+        </div>
+
+        {loading ? (
+          <div className="send-nl-loading">Loading accounts & contacts...</div>
+        ) : sendResult ? (
+          <div className="send-nl-result">
+            <div className="send-nl-result-icon">{sendResult.failed === 0 ? '\u2713' : '\u26A0'}</div>
+            <div className="send-nl-result-text">
+              Sent to {sendResult.success} of {sendResult.total} contacts
+              {sendResult.failed > 0 && <span className="send-nl-result-fail"> ({sendResult.failed} failed)</span>}
+            </div>
+            <button className="send-nl-btn send-nl-btn--primary" onClick={onClose}>Done</button>
+          </div>
+        ) : (
+          <>
+            {/* From Account */}
+            <div className="send-nl-section">
+              <label className="send-nl-label">From Account</label>
+              {accounts.length === 0 ? (
+                <div className="send-nl-empty">No email accounts connected. Go to Inbox to add one.</div>
+              ) : (
+                <select
+                  className="send-nl-select"
+                  value={selectedAccount}
+                  onChange={e => setSelectedAccount(e.target.value)}
+                >
+                  {accounts.map(a => (
+                    <option key={a.id} value={a.id}>{a.display_name || a.email} ({a.email})</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Subject */}
+            <div className="send-nl-section">
+              <label className="send-nl-label">Subject Line</label>
+              <input
+                className="send-nl-input"
+                type="text"
+                placeholder="Enter email subject..."
+                value={subject}
+                onChange={e => setSubject(e.target.value)}
+              />
+            </div>
+
+            {/* Contact Selection */}
+            <div className="send-nl-section send-nl-section--contacts">
+              <label className="send-nl-label">
+                Recipients
+                <span className="send-nl-count">{selectedContacts.size} selected</span>
+              </label>
+
+              <div className="send-nl-filters">
+                <div className="send-nl-search-wrap">
+                  <Search size={14} />
+                  <input
+                    className="send-nl-search"
+                    type="text"
+                    placeholder="Search contacts..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                {allTags.length > 0 && (
+                  <select
+                    className="send-nl-tag-filter"
+                    value={filterTag}
+                    onChange={e => setFilterTag(e.target.value)}
+                  >
+                    <option value="">All Tags</option>
+                    {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                )}
+              </div>
+
+              <div className="send-nl-select-all">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={selectAll}
+                    onChange={e => {
+                      setSelectAll(e.target.checked);
+                      if (!e.target.checked) setSelectedContacts(new Set());
+                    }}
+                  />
+                  Select All ({filteredContacts.length})
+                </label>
+              </div>
+
+              <div className="send-nl-contact-list">
+                {filteredContacts.length === 0 ? (
+                  <div className="send-nl-empty">No contacts with email addresses found.</div>
+                ) : (
+                  filteredContacts.map(c => (
+                    <label key={c.id} className={`send-nl-contact ${selectedContacts.has(c.id) ? 'send-nl-contact--selected' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={selectedContacts.has(c.id)}
+                        onChange={() => toggleContact(c.id)}
+                      />
+                      <div className="send-nl-contact-info">
+                        <span className="send-nl-contact-name">{c.name || c.email}</span>
+                        <span className="send-nl-contact-email">{c.email}</span>
+                      </div>
+                      {Array.isArray(c.tags) && c.tags.length > 0 && (
+                        <div className="send-nl-contact-tags">
+                          {c.tags.slice(0, 2).map(t => <span key={t} className="send-nl-tag">{t}</span>)}
+                        </div>
+                      )}
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Send Button */}
+            <div className="send-nl-footer">
+              <button className="send-nl-btn send-nl-btn--outline" onClick={onClose}>Cancel</button>
+              <button
+                className="send-nl-btn send-nl-btn--primary"
+                disabled={!selectedAccount || selectedContacts.size === 0 || !subject.trim() || sending}
+                onClick={handleSend}
+              >
+                {sending ? `Sending (${selectedContacts.size})...` : `Send to ${selectedContacts.size} Contact${selectedContacts.size !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Save Template Modal ──
+function SaveTemplateModal({ open, onClose, canvasHtml, activeTool }) {
+  const [name, setName] = useState('');
+  const [desc, setDesc] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => { if (open) { setName(''); setDesc(''); setSaved(false); } }, [open]);
+
+  const handleSave = async () => {
+    if (!name.trim() || !canvasHtml) return;
+    setSaving(true);
+    try {
+      await saveTemplate({ name: name.trim(), description: desc.trim(), tool: activeTool, html: canvasHtml });
+      setSaved(true);
+    } catch {}
+    setSaving(false);
+  };
+
+  if (!open) return null;
+  return (
+    <div className="send-nl-overlay" onClick={onClose}>
+      <div className="send-nl-modal" style={{ maxHeight: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div className="send-nl-header">
+          <h3>Save As Template</h3>
+          <button className="send-nl-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        {saved ? (
+          <div className="send-nl-result">
+            <div className="send-nl-result-icon">{'\u2713'}</div>
+            <div className="send-nl-result-text">Template saved!</div>
+            <button className="send-nl-btn send-nl-btn--primary" onClick={onClose}>Done</button>
+          </div>
+        ) : (
+          <>
+            <div className="send-nl-section">
+              <label className="send-nl-label">Template Name</label>
+              <input className="send-nl-input" placeholder="e.g. Product Launch Newsletter" value={name} onChange={e => setName(e.target.value)} />
+            </div>
+            <div className="send-nl-section">
+              <label className="send-nl-label">Description (optional)</label>
+              <input className="send-nl-input" placeholder="Brief description..." value={desc} onChange={e => setDesc(e.target.value)} />
+            </div>
+            <div className="send-nl-footer">
+              <button className="send-nl-btn send-nl-btn--outline" onClick={onClose}>Cancel</button>
+              <button className="send-nl-btn send-nl-btn--primary" disabled={!name.trim() || saving} onClick={handleSave}>
+                {saving ? 'Saving...' : 'Save Template'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Import Template Modal ──
+function ImportTemplateModal({ open, onClose, activeTool, onImport }) {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    getTemplates(activeTool).then(res => {
+      setTemplates(res.templates || []);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [open, activeTool]);
+
+  const handleImport = async (id) => {
+    try {
+      const { template } = await getTemplate(id);
+      if (template?.html) onImport(template.html);
+      onClose();
+    } catch {}
+  };
+
+  const handleDelete = async (e, id) => {
+    e.stopPropagation();
+    await deleteTemplate(id);
+    setTemplates(prev => prev.filter(t => t.id !== id));
+  };
+
+  if (!open) return null;
+  return (
+    <div className="send-nl-overlay" onClick={onClose}>
+      <div className="send-nl-modal" onClick={e => e.stopPropagation()}>
+        <div className="send-nl-header">
+          <h3>Import From Template</h3>
+          <button className="send-nl-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', minHeight: 200 }}>
+          {loading ? (
+            <div className="send-nl-loading">Loading templates...</div>
+          ) : templates.length === 0 ? (
+            <div className="send-nl-empty">No saved templates yet. Create content and save it as a template first.</div>
+          ) : (
+            templates.map(t => (
+              <div key={t.id} className="tpl-import-item" onClick={() => handleImport(t.id)}>
+                <div className="tpl-import-info">
+                  <div className="tpl-import-name">{t.name}</div>
+                  {t.description && <div className="tpl-import-desc">{t.description}</div>}
+                  <div className="tpl-import-meta">{new Date(t.created_at).toLocaleDateString()}</div>
+                </div>
+                <button className="tpl-import-delete" onClick={(e) => handleDelete(e, t.id)} title="Delete template">
+                  <X size={14} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ToolTab({ config, activeTool, brandDna }) {
   // Existing state
   const [chatInput, setChatInput] = useState('');
@@ -767,6 +1006,7 @@ function ToolTab({ config, activeTool, brandDna }) {
   const [hoveredCat, setHoveredCat] = useState(null);
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [researchMode, setResearchMode] = useState(false);
+  const [searchStatus, setSearchStatus] = useState(null);
 
   // Chat state
   const [messages, setMessages] = useState([]);
@@ -783,6 +1023,9 @@ function ToolTab({ config, activeTool, brandDna }) {
   const [copyCodeOpen, setCopyCodeOpen] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState(null); // { url, site_name }
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [importTemplateOpen, setImportTemplateOpen] = useState(false);
 
   const splitRef = useRef(null);
   const contextRef = useRef(null);
@@ -835,6 +1078,7 @@ function ToolTab({ config, activeTool, brandDna }) {
   }, [chatInput]);
 
   // Write HTML directly into iframe document (avoids srcDoc reload flash)
+  // Also inject CTA link editor overlay for hover-to-edit functionality
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -844,6 +1088,122 @@ function ToolTab({ config, activeTool, brandDna }) {
       doc.open();
       doc.write(canvasHtml);
       doc.close();
+
+      // Inject CTA link editor overlay
+      const script = doc.createElement('script');
+      script.textContent = `
+        (function() {
+          // Styles for the link editor overlay
+          var style = document.createElement('style');
+          style.textContent = [
+            '.cta-link-overlay { position: absolute; display: none; align-items: center; gap: 6px; padding: 6px 10px; background: #1a1a2e; color: #fff; border-radius: 8px; font: 12px/1.3 Inter, system-ui, sans-serif; z-index: 99999; box-shadow: 0 4px 16px rgba(0,0,0,0.25); pointer-events: auto; max-width: 340px; }',
+            '.cta-link-overlay-url { color: #a78bfa; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; cursor: default; }',
+            '.cta-link-overlay-edit { background: none; border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 3px 8px; border-radius: 4px; cursor: pointer; font: 11px/1 Inter, system-ui, sans-serif; white-space: nowrap; }',
+            '.cta-link-overlay-edit:hover { background: rgba(255,255,255,0.1); }',
+            '.cta-link-input-wrap { position: absolute; display: none; align-items: center; gap: 6px; padding: 6px 10px; background: #1a1a2e; border-radius: 8px; z-index: 100000; box-shadow: 0 4px 16px rgba(0,0,0,0.25); }',
+            '.cta-link-input { background: #2a2a3e; border: 1px solid #4a4a6e; color: #fff; padding: 5px 8px; border-radius: 4px; font: 12px/1 Inter, system-ui, sans-serif; width: 220px; outline: none; }',
+            '.cta-link-input:focus { border-color: #a78bfa; }',
+            '.cta-link-save { background: #a78bfa; border: none; color: #fff; padding: 4px 10px; border-radius: 4px; cursor: pointer; font: 11px/1.2 Inter, system-ui, sans-serif; }',
+            '.cta-link-save:hover { background: #8b6fe0; }',
+            'a[href]:hover { outline: 2px solid rgba(167,139,250,0.5); outline-offset: 2px; border-radius: 2px; }',
+          ].join('\\n');
+          document.head.appendChild(style);
+
+          // Create overlay elements
+          var overlay = document.createElement('div');
+          overlay.className = 'cta-link-overlay';
+          overlay.innerHTML = '<span class="cta-link-overlay-url"></span><button class="cta-link-overlay-edit">Edit Link</button>';
+          document.body.appendChild(overlay);
+
+          var inputWrap = document.createElement('div');
+          inputWrap.className = 'cta-link-input-wrap';
+          inputWrap.innerHTML = '<input class="cta-link-input" type="text" placeholder="https://..." /><button class="cta-link-save">Save</button>';
+          document.body.appendChild(inputWrap);
+
+          var urlDisplay = overlay.querySelector('.cta-link-overlay-url');
+          var editBtn = overlay.querySelector('.cta-link-overlay-edit');
+          var linkInput = inputWrap.querySelector('.cta-link-input');
+          var saveBtn = inputWrap.querySelector('.cta-link-save');
+          var activeLink = null;
+          var hideTimer = null;
+
+          function positionOverlay(el, target) {
+            var rect = target.getBoundingClientRect();
+            var scrollY = window.scrollY || document.documentElement.scrollTop;
+            el.style.left = Math.max(4, rect.left) + 'px';
+            el.style.top = (rect.bottom + scrollY + 6) + 'px';
+          }
+
+          // Show overlay on link hover
+          document.addEventListener('mouseover', function(e) {
+            var link = e.target.closest('a[href]');
+            if (!link) return;
+            clearTimeout(hideTimer);
+            activeLink = link;
+            urlDisplay.textContent = link.getAttribute('href') || '#';
+            positionOverlay(overlay, link);
+            overlay.style.display = 'flex';
+          });
+
+          document.addEventListener('mouseout', function(e) {
+            var link = e.target.closest('a[href]');
+            if (!link) return;
+            hideTimer = setTimeout(function() {
+              if (!overlay.matches(':hover') && !inputWrap.matches(':hover')) {
+                overlay.style.display = 'none';
+              }
+            }, 300);
+          });
+
+          overlay.addEventListener('mouseover', function() { clearTimeout(hideTimer); });
+          overlay.addEventListener('mouseout', function() {
+            hideTimer = setTimeout(function() {
+              if (!inputWrap.matches(':hover')) overlay.style.display = 'none';
+            }, 300);
+          });
+
+          // Prevent link navigation
+          document.addEventListener('click', function(e) {
+            var link = e.target.closest('a[href]');
+            if (link) e.preventDefault();
+          });
+
+          // Edit button opens input
+          editBtn.addEventListener('click', function() {
+            if (!activeLink) return;
+            linkInput.value = activeLink.getAttribute('href') || '';
+            positionOverlay(inputWrap, activeLink);
+            inputWrap.style.display = 'flex';
+            overlay.style.display = 'none';
+            linkInput.focus();
+            linkInput.select();
+          });
+
+          // Save link change
+          function saveLink() {
+            if (!activeLink) return;
+            var oldHref = activeLink.getAttribute('href') || '';
+            var newHref = linkInput.value.trim();
+            if (newHref && newHref !== oldHref) {
+              activeLink.setAttribute('href', newHref);
+              window.parent.postMessage({ type: 'cta-link-edit', oldHref: oldHref, newHref: newHref, linkText: activeLink.textContent.trim() }, '*');
+            }
+            inputWrap.style.display = 'none';
+          }
+
+          saveBtn.addEventListener('click', saveLink);
+          linkInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') saveLink();
+            if (e.key === 'Escape') inputWrap.style.display = 'none';
+          });
+
+          inputWrap.addEventListener('mouseover', function() { clearTimeout(hideTimer); });
+          inputWrap.addEventListener('mouseout', function() {
+            hideTimer = setTimeout(function() { inputWrap.style.display = 'none'; }, 500);
+          });
+        })();
+      `;
+      doc.body.appendChild(script);
     } else {
       doc.open();
       doc.write('<html><body></body></html>');
@@ -851,7 +1211,25 @@ function ToolTab({ config, activeTool, brandDna }) {
     }
   }, [canvasHtml]);
 
-  // Scale newsletter iframe to fit canvas width
+  // Listen for CTA link edits from the iframe
+  useEffect(() => {
+    function handleMessage(e) {
+      if (e.data?.type === 'cta-link-edit') {
+        const { oldHref, newHref } = e.data;
+        setCanvasHtml(prev => {
+          if (!prev) return prev;
+          // Replace the href in the HTML — use exact attribute match to avoid false positives
+          const escaped = oldHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp('href="' + escaped + '"', 'g');
+          return prev.replace(regex, 'href="' + newHref.replace(/"/g, '&quot;') + '"');
+        });
+      }
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  // Scale newsletter iframe to fit canvas width — iframe scrolls internally
   useEffect(() => {
     const container = canvasBodyRef.current;
     if (!container) return;
@@ -859,12 +1237,14 @@ function ToolTab({ config, activeTool, brandDna }) {
       const iframe = iframeRef.current;
       if (!iframe) return;
       const w = container.clientWidth;
+      const h = container.clientHeight;
       if (w < 620) {
         const scale = w / 620;
         iframe.style.transform = `scale(${scale})`;
         iframe.style.transformOrigin = 'top left';
+        // Inverse-scale width & height so the iframe fills the container after transform
         iframe.style.width = '620px';
-        iframe.style.height = `${100 / scale}%`;
+        iframe.style.height = Math.round(h / scale) + 'px';
       } else {
         iframe.style.transform = '';
         iframe.style.transformOrigin = '';
@@ -989,14 +1369,11 @@ function ToolTab({ config, activeTool, brandDna }) {
     // Capture files before clearing so we can replace placeholders later
     const filesSnapshot = [...uploadedFiles];
 
-    // Build the content — inject context on first message, files always, edit mode when canvas exists
+    // Build the content — inject context on first message, files always
     const isFirstMessage = messages.length === 0;
     const contextStr = isFirstMessage ? buildContextString() : '';
     const fileContext = buildFileContext();
-    const editContext = canvasHtml && !isFirstMessage
-      ? `[EDIT MODE — The user already has generated output. Here is the current HTML. Make ONLY the changes they request — do NOT rewrite from scratch unless they explicitly ask:\n${canvasHtml}\n]\n\n`
-      : '';
-    const userContent = contextStr + fileContext + editContext + text.trim();
+    const userContent = contextStr + fileContext + text.trim();
 
     const userMsg = { role: 'user', content: userContent };
     const newMessages = [...messages, userMsg];
@@ -1014,65 +1391,71 @@ function ToolTab({ config, activeTool, brandDna }) {
 
     abortRef.current = new AbortController();
 
+    // Detect edit mode — canvas exists and not first message
+    const isEdit = canvasHtml && !isFirstMessage;
+
     try {
-      let fullContent;
+      let fullContent = '';
+      let editHandled = false;
 
-      // Route landing page requests through Kimi 2.5 agent on Railway
-      if (activeTool === 'landing' || activeTool === 'squeeze') {
-        const isEdit = canvasHtml && !isFirstMessage;
-
-        fullContent = await streamFromLandingAgent({
-          endpoint: isEdit ? '/edit' : '/generate',
-          body: isEdit
-            ? { currentHtml: canvasHtml, instruction: text.trim(), conversationHistory: messages, brandDna: brandDna || null }
-            : { messages: newMessages, brandDna: brandDna || null },
-          onChunk: (chunk) => {
-            // Try to extract HTML for live preview while streaming
-            if (chunk.includes('"type":"html"') || chunk.includes('"type": "html"') ||
-                chunk.includes('"type":"newsletter"') || chunk.includes('"type": "newsletter"')) {
-              let html = extractStreamingHtml(chunk);
-              if (html) {
-                html = replaceImagePlaceholders(html, filesSnapshot);
-                setCanvasHtml(html);
-              }
+      await streamFromBackend('/api/orchestrate', {
+        messages: newMessages,
+        mode: 'direct',
+        agent: activeTool,
+        searchMode: researchMode,
+        ...(isEdit ? { currentHtml: canvasHtml, editInstruction: text.trim() } : {}),
+      }, {
+        onAgentChunk: (_agentName, chunk) => {
+          fullContent = chunk;
+          // Try to extract HTML for live preview while streaming
+          if (chunk.includes('"type":"html"') || chunk.includes('"type": "html"') ||
+              chunk.includes('"type":"newsletter"') || chunk.includes('"type": "newsletter"')) {
+            let html = extractStreamingHtml(chunk);
+            if (html) {
+              html = replaceImagePlaceholders(html, filesSnapshot);
+              setCanvasHtml(html);
             }
-          },
-          onStatus: (statusText) => {
-            setChatMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (last?.isStatus) return [...prev.slice(0, -1), { ...last, text: statusText }];
-              return [...prev, { id: `status-${Date.now()}`, role: 'assistant', text: statusText, isStatus: true }];
-            });
-          },
-          abortSignal: abortRef.current.signal,
-        });
-      } else {
-        const systemPrompt = buildToolSystemPrompt(config.systemPrompt, brandDna);
-        fullContent = await streamToolResponse(
-          newMessages,
-          systemPrompt,
-          (chunk) => {
-            // While streaming, try to extract HTML for live preview
-            if (chunk.includes('"type":"newsletter"') || chunk.includes('"type": "newsletter"')) {
-              let html = extractStreamingHtml(chunk);
-              if (html) {
-                html = replaceImagePlaceholders(html, filesSnapshot);
-                setCanvasHtml(html);
-              }
-            }
-          },
-          abortRef.current.signal,
-          { searchMode: researchMode },
-        );
-      }
+          }
+        },
+        onAgentResult: (_agentName, content) => {
+          fullContent = content;
+        },
+        onFileUpdate: (html) => {
+          // File-based edit — backend applied a surgical diff
+          editHandled = true;
+          setCanvasHtml(html);
+        },
+        onEditSummary: (summary) => {
+          editHandled = true;
+          setChatMessages((prev) => [
+            ...prev.filter((m) => !m.isStatus),
+            { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: summary },
+          ]);
+        },
+        onStatus: (statusText) => {
+          setChatMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.isStatus) return [...prev.slice(0, -1), { ...last, text: statusText }];
+            return [...prev, { id: `status-${Date.now()}`, role: 'assistant', text: statusText, isStatus: true }];
+          });
+        },
+        onSearchStatus: setSearchStatus,
+        onError: (error) => {
+          console.error('[marketing] Agent error:', error);
+        },
+      }, abortRef.current.signal);
 
       // Remove status messages
       setChatMessages((prev) => prev.filter((m) => !m.isStatus));
 
-      // Parse the final response
-      const parsed = tryParseAIResponse(fullContent);
-      const assistantMsg = { role: 'assistant', content: fullContent };
-      setMessages((prev) => [...prev, assistantMsg]);
+      // If the backend handled this as a file-based edit, we're done
+      if (editHandled) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: '[edit applied]' }]);
+      } else {
+        // Parse the final response
+        const parsed = tryParseAIResponse(fullContent);
+        const assistantMsg = { role: 'assistant', content: fullContent };
+        setMessages((prev) => [...prev, assistantMsg]);
 
       if (parsed?.type === 'question') {
         setCurrentQuestion({ text: parsed.text, options: parsed.options });
@@ -1140,6 +1523,13 @@ function ToolTab({ config, activeTool, brandDna }) {
         );
 
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-done`, role: 'assistant', text: 'All story frames generated! Check the canvas.' }]);
+      } else if (parsed?.type === 'edit' && parsed.sections) {
+        // Section-based edit — merge only changed sections into current HTML
+        const mergedHtml = mergeSectionEdits(canvasHtml, parsed.sections);
+        const finalHtml = replaceImagePlaceholders(mergedHtml, filesSnapshot);
+        setCanvasHtml(finalHtml);
+        const sectionNames = Object.keys(parsed.sections).join(', ');
+        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || `Updated sections: ${sectionNames}` }]);
       } else if (parsed?.type === 'newsletter' || parsed?.type === 'html') {
         const finalHtml = replaceImagePlaceholders(parsed.html, filesSnapshot);
         setCanvasHtml(finalHtml);
@@ -1147,20 +1537,21 @@ function ToolTab({ config, activeTool, brandDna }) {
 
         // For newsletters, automatically ask about cover image generation
         if (activeTool === 'newsletter') {
-          // Fire a follow-up AI call to get context-specific cover image suggestions
           try {
             const coverSuggestMsg = { role: 'user', content: 'Now suggest 4 creative cover image options for this newsletter.' };
             const coverMessages = [...newMessages, assistantMsg, coverSuggestMsg];
-            const coverContent = await streamToolResponse(
-              coverMessages,
-              systemPrompt,
-              () => {},
-              abortRef.current.signal,
-              { searchMode: false },
-            );
+            let coverContent = '';
+            await streamFromBackend('/api/orchestrate', {
+              messages: coverMessages,
+              mode: 'direct',
+              agent: 'newsletter',
+              searchMode: false,
+            }, {
+              onAgentChunk: (_name, content) => { coverContent = content; },
+              onAgentResult: (_name, content) => { coverContent = content; },
+            }, abortRef.current.signal);
             const coverParsed = tryParseAIResponse(coverContent);
             if (coverParsed?.type === 'question') {
-              // Add the hidden request + AI response to conversation history so the AI has context when user picks an option
               setMessages((prev) => [...prev, coverSuggestMsg, { role: 'assistant', content: coverContent }]);
               setCurrentQuestion({ text: coverParsed.text, options: coverParsed.options });
               setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-cover-q`, role: 'assistant', text: coverParsed.text }]);
@@ -1173,6 +1564,7 @@ function ToolTab({ config, activeTool, brandDna }) {
         // Fallback — show raw text
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: fullContent.slice(0, 500) }]);
       }
+      } // end !editHandled
     } catch (err) {
       if (err.name !== 'AbortError') {
         setChatMessages((prev) => [
@@ -1335,6 +1727,7 @@ function ToolTab({ config, activeTool, brandDna }) {
   }, [getPointerPercent]);
 
   return (
+  <>
     <div className="mkt-split" ref={splitRef}>
       {/* Left — chat area */}
       <div className="mkt-split-left" style={{ flex: `0 0 ${splitPercent}%` }}>
@@ -1383,7 +1776,9 @@ function ToolTab({ config, activeTool, brandDna }) {
               <div className="mkt-msg-row mkt-msg-row--assistant">
                 <div className="mkt-msg mkt-msg--assistant mkt-msg--generating">
                   <span className="mkt-msg-dots"><span /><span /><span /></span>
-                  <span className="mkt-generating-text">{generatingText}</span>
+                  <span className="mkt-generating-text">
+                    {searchStatus === 'searching' ? <><Search size={14} /> Searching the web...</> : searchStatus === 'writing' ? <><PenLine size={14} /> Writing response...</> : generatingText}
+                  </span>
                 </div>
               </div>
             )}
@@ -1584,34 +1979,24 @@ function ToolTab({ config, activeTool, brandDna }) {
           <div className="mkt-canvas-actions">
             {config.canvasActions ? (
               config.canvasActions.map((action, i) =>
-                action.isTemplateToggle && config.templates ? (
-                  <div key={i} className="mkt-template-anchor" ref={templateRef}>
-                    <button
-                      className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
-                      onClick={() => setTemplateDropdownOpen((v) => !v)}
-                    >
-                      {action.label}
-                      <ChevronDown size={14} />
-                    </button>
-                    {templateDropdownOpen && (
-                      <div className="mkt-template-dropdown">
-                        <div className="mkt-template-dropdown-header">Choose a Template</div>
-                        {config.templates.map((tpl) => (
-                          <button
-                            key={tpl.id}
-                            className="mkt-template-item"
-                            onClick={() => {
-                              setTemplateDropdownOpen(false);
-                              sendMessage(`Generate output based on the "${tpl.name}" template${tpl.desc ? ': ' + tpl.desc : ''}`);
-                            }}
-                          >
-                            <span className="mkt-template-item-name">{tpl.name}</span>
-                            <span className="mkt-template-item-desc">{tpl.desc}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                action.isTemplateToggle ? (
+                  <button
+                    key={i}
+                    className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
+                    onClick={() => setImportTemplateOpen(true)}
+                  >
+                    {action.label}
+                    <ChevronDown size={14} />
+                  </button>
+                ) : action.isSaveTemplate ? (
+                  <button
+                    key={i}
+                    className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
+                    onClick={() => setSaveTemplateOpen(true)}
+                    disabled={!canvasHtml}
+                  >
+                    {action.label}
+                  </button>
                 ) : action.isCopyCode ? (
                   <div key={i} className="mkt-template-anchor" ref={copyCodeRef}>
                     <button
@@ -1655,14 +2040,14 @@ function ToolTab({ config, activeTool, brandDna }) {
               )
             ) : (
               <>
-                <button className="mkt-canvas-btn mkt-canvas-btn--outline">
+                <button className="mkt-canvas-btn mkt-canvas-btn--outline" onClick={() => setImportTemplateOpen(true)}>
                   Import From Template <ChevronDown size={14} />
                 </button>
-                <button className="mkt-canvas-btn mkt-canvas-btn--outline">
+                <button className="mkt-canvas-btn mkt-canvas-btn--outline" onClick={() => setSaveTemplateOpen(true)} disabled={!canvasHtml}>
                   Save As Template
                 </button>
-                <button className="mkt-canvas-btn mkt-canvas-btn--primary">
-                  Send Email
+                <button className="mkt-canvas-btn mkt-canvas-btn--primary" onClick={() => setSendModalOpen(true)}>
+                  <Mail size={14} /> Send Email
                 </button>
               </>
             )}
@@ -1682,7 +2067,7 @@ function ToolTab({ config, activeTool, brandDna }) {
             ref={iframeRef}
             className="mkt-canvas-iframe"
             title="Preview"
-            sandbox="allow-same-origin"
+            sandbox="allow-same-origin allow-scripts"
           />
           {config.canvasEmptyType === 'story-sequence' && storyFrames.length > 0 && (
             <StoryFlowCanvas frames={storyFrames} />
@@ -1758,6 +2143,12 @@ function ToolTab({ config, activeTool, brandDna }) {
         </div>
       </div>
     </div>
+
+    {/* Send Newsletter Modal */}
+    <SendNewsletterModal open={sendModalOpen} onClose={() => setSendModalOpen(false)} canvasHtml={canvasHtml} />
+    <SaveTemplateModal open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} canvasHtml={canvasHtml} activeTool={activeTool} />
+    <ImportTemplateModal open={importTemplateOpen} onClose={() => setImportTemplateOpen(false)} activeTool={activeTool} onImport={(html) => setCanvasHtml(html)} />
+  </>
   );
 }
 

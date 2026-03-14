@@ -1,301 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight } from 'lucide-react';
+import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { supabase } from '../lib/supabase';
-import { getContentItems, getIntegrationContext, getSalesStats, getSalesRevenue, getSalesCalls, getProducts, getContacts, getOutlierCreators, getOutlierVideos, generateImage } from '../lib/api';
+import { generateImage, streamFromBackend } from '../lib/api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
 import ArtifactPanel from '../components/ArtifactPanel';
 import './AiCeo.css';
 
-// ── System Prompt ──
-const BASE_PROMPT = `You are the AI CEO of the user's business, powered by PuerlyPersonal. You have FULL access to their business data — brand identity, content library, sales numbers, products, contacts, call transcripts, and outlier content research. You help them with content creation, marketing strategy, sales optimization, and overall business growth. Be direct, actionable, and strategic. Speak like a sharp, experienced CEO who genuinely cares about the user's revenue and growth. Use markdown formatting with headers, tables, bullet points, and bold text to make your analysis clear and scannable.
-
-IMPORTANT: You already have the user's data loaded below. Reference it directly — don't ask them to provide information you already have.
-
-=== COMMAND CENTER CAPABILITIES ===
-You have tools to CREATE tangible outputs in a split-screen artifact panel next to this chat:
-
-**create_artifact** — Use when the user asks you to MAKE something:
-- "Write an email to..." → type: "email", content: JSON string {"to":"recipient@email.com","subject":"Subject","body_html":"<p>HTML body</p>"}
-- "Create a newsletter" / "Build a landing page" → type: "html_template", content: complete standalone HTML with inline CSS
-- "Write a post for Instagram/LinkedIn/etc" → type: "content_post", content: the caption text with hashtags
-- "Write code for..." → type: "code_block", content: the code
-- "Draft a plan/strategy/report" → type: "markdown_doc", content: markdown text
-
-**generate_image** — Use for visual content: social graphics, thumbnails, etc.
-
-WHEN TO CREATE AN ARTIFACT vs JUST REPLY:
-- User asks to CREATE/WRITE/BUILD/DRAFT something tangible → use create_artifact
-- User asks a QUESTION or wants ANALYSIS/ADVICE → reply in text only
-- You CAN combine text + artifact: explain your approach, then create it
-
-ARTIFACT RULES:
-- For emails: write professional, well-formatted HTML. Include greeting and sign-off. Use brand colors if available.
-- For html_template: generate complete standalone HTML (<!DOCTYPE html>) with inline CSS. Make it beautiful and production-ready. Max-width 600px for emails, 1200px for landing pages.
-- For content_post: write the actual caption ready to copy-paste. Include relevant hashtags.
-- For code_block: include the language name at the top as a comment.
-- For markdown_doc: use proper heading hierarchy and formatting.
-- Always ask for missing critical info (like email recipient) before creating the artifact.
-- When generating images for content, call generate_image in addition to create_artifact.`;
-
-function buildFullSystemPrompt(brandDna, contentItems, integrationCtx, salesData, products, contacts, outlierData) {
-  let prompt = BASE_PROMPT + '\n\n';
-
-  if (brandDna) {
-    prompt += `=== BRAND DNA ===\n`;
-    if (brandDna.description) prompt += `Description: ${brandDna.description}\n`;
-    if (brandDna.main_font) prompt += `Main Font: ${brandDna.main_font}\n`;
-    if (brandDna.secondary_font) prompt += `Secondary Font: ${brandDna.secondary_font}\n`;
-    if (brandDna.colors && Object.keys(brandDna.colors).length) {
-      const c = brandDna.colors;
-      if (c.primary) prompt += `Primary Color: ${c.primary}\n`;
-      if (c.text) prompt += `Text Color: ${c.text}\n`;
-      if (c.secondary) prompt += `Secondary Color: ${c.secondary}\n`;
-    }
-    if (brandDna.photo_urls?.length) prompt += `Brand Photos: ${brandDna.photo_urls.length} photos uploaded\n`;
-    if (brandDna.logo_url) prompt += `Logo: uploaded\n`;
-    if (brandDna.documents && Object.keys(brandDna.documents).length) {
-      for (const [key, doc] of Object.entries(brandDna.documents)) {
-        if (doc.extracted_text) {
-          const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-          prompt += `\n--- ${label} ---\n${doc.extracted_text.slice(0, 3000)}\n`;
-        }
-      }
-    }
-    prompt += '\n';
-  }
-
-  if (contentItems?.length) {
-    const docs = contentItems.filter(i => i.type === 'document' && i.extracted_text);
-    const social = contentItems.filter(i => i.type === 'social');
-    const videos = contentItems.filter(i => i.transcript);
-
-    if (docs.length) {
-      prompt += `=== UPLOADED DOCUMENTS ===\n`;
-      docs.forEach((doc, i) => {
-        prompt += `--- ${doc.filename || `Document ${i + 1}`} ---\n${doc.extracted_text.slice(0, 3000)}\n\n`;
-      });
-    }
-    if (social.length) {
-      prompt += `=== SOCIAL MEDIA REFERENCES ===\n`;
-      social.forEach(item => {
-        const m = item.metadata || {};
-        prompt += `--- ${m.title || item.url} ---\n`;
-        prompt += `URL: ${item.url}\n`;
-        if (m.platform) prompt += `Platform: ${m.platform}\n`;
-        if (m.uploader) prompt += `Creator: ${m.uploader}\n`;
-        if (m.description) prompt += `Description: ${m.description.slice(0, 1000)}\n`;
-        if (item.transcript) prompt += `Transcript:\n${item.transcript.slice(0, 3000)}\n`;
-        prompt += '\n';
-      });
-    }
-    if (videos.length) {
-      prompt += `=== VIDEO TRANSCRIPTS ===\n`;
-      videos.forEach(v => {
-        prompt += `--- ${v.filename || v.url || 'Video'} ---\n${v.transcript.slice(0, 3000)}\n\n`;
-      });
-    }
-  }
-
-  if (integrationCtx) {
-    prompt += `=== BUSINESS DATA FROM INTEGRATIONS ===\n${integrationCtx}\n\n`;
-  }
-
-  if (salesData) {
-    if (salesData.stats && Object.keys(salesData.stats).length) {
-      prompt += `=== SALES STATS ===\n`;
-      const s = salesData.stats;
-      if (s.total_revenue != null) prompt += `Total Revenue: $${Number(s.total_revenue).toLocaleString()}\n`;
-      if (s.total_sales != null) prompt += `Total Sales: ${s.total_sales}\n`;
-      if (s.avg_deal_size != null) prompt += `Avg Deal Size: $${Number(s.avg_deal_size).toLocaleString()}\n`;
-      if (s.conversion_rate != null) prompt += `Conversion Rate: ${s.conversion_rate}%\n`;
-      prompt += '\n';
-    }
-    if (salesData.revenue?.length) {
-      prompt += `=== MONTHLY REVENUE ===\n`;
-      salesData.revenue.slice(0, 12).forEach(r => {
-        prompt += `${r.period || r.month}: $${Number(r.revenue || r.amount || 0).toLocaleString()}\n`;
-      });
-      prompt += '\n';
-    }
-    if (salesData.calls?.length) {
-      prompt += `=== RECENT SALES CALLS (${salesData.calls.length}) ===\n`;
-      salesData.calls.slice(0, 20).forEach(call => {
-        prompt += `--- ${call.contact_name || call.title || 'Call'} (${call.date || call.created_at?.slice(0, 10) || 'unknown'}) ---\n`;
-        if (call.outcome) prompt += `Outcome: ${call.outcome}\n`;
-        if (call.notes) prompt += `Notes: ${call.notes.slice(0, 500)}\n`;
-        if (call.transcript) prompt += `Transcript: ${call.transcript.slice(0, 2000)}\n`;
-        prompt += '\n';
-      });
-    }
-  }
-
-  if (products?.length) {
-    prompt += `=== PRODUCTS (${products.length}) ===\n`;
-    products.forEach(p => {
-      prompt += `- ${p.name}: $${p.price || 0}`;
-      if (p.description) prompt += ` — ${p.description.slice(0, 200)}`;
-      if (p.total_sales != null) prompt += ` (${p.total_sales} sales)`;
-      prompt += '\n';
-    });
-    prompt += '\n';
-  }
-
-  if (contacts?.length) {
-    prompt += `=== CONTACTS / CRM (${contacts.length}) ===\n`;
-    contacts.slice(0, 50).forEach(c => {
-      prompt += `- ${c.name || c.email}`;
-      if (c.company) prompt += ` @ ${c.company}`;
-      if (c.stage || c.status) prompt += ` [${c.stage || c.status}]`;
-      if (c.deal_value) prompt += ` ($${Number(c.deal_value).toLocaleString()})`;
-      prompt += '\n';
-    });
-    prompt += '\n';
-  }
-
-  if (outlierData) {
-    if (outlierData.creators?.length) {
-      prompt += `=== OUTLIER RESEARCH — CREATORS FOLLOWED (${outlierData.creators.length}) ===\n`;
-      outlierData.creators.forEach(c => {
-        prompt += `- ${c.display_name || c.username} (${c.platform})`;
-        if (c.avg_views) prompt += ` — avg ${Number(c.avg_views).toLocaleString()} views`;
-        prompt += '\n';
-      });
-      prompt += '\n';
-    }
-    if (outlierData.videos?.length) {
-      prompt += `=== TOP OUTLIER VIDEOS (${outlierData.videos.length}) ===\n`;
-      outlierData.videos.slice(0, 15).forEach(v => {
-        prompt += `- "${v.title}" by ${v.outlier_creators?.display_name || v.outlier_creators?.username || 'unknown'}`;
-        if (v.views) prompt += ` — ${Number(v.views).toLocaleString()} views`;
-        if (v.views_multiplier) prompt += ` (${v.views_multiplier.toFixed(1)}x avg)`;
-        prompt += '\n';
-      });
-      prompt += '\n';
-    }
-  }
-
-  return prompt;
-}
-
-// ── Tool Definitions ──
-const CEO_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'create_artifact',
-      description: 'Create a visual artifact in the split-screen panel. Use for emails, HTML templates (newsletters/landing pages), social media posts, code, or documents.',
-      parameters: {
-        type: 'object',
-        properties: {
-          type: {
-            type: 'string',
-            enum: ['email', 'html_template', 'content_post', 'code_block', 'markdown_doc'],
-            description: 'The artifact type.',
-          },
-          title: {
-            type: 'string',
-            description: 'Short descriptive title for the artifact.',
-          },
-          content: {
-            type: 'string',
-            description: 'The artifact content. email: JSON string {"to":"...","subject":"...","body_html":"..."}. html_template: complete standalone HTML. content_post: caption text. code_block: code. markdown_doc: markdown.',
-          },
-        },
-        required: ['type', 'title', 'content'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'generate_image',
-      description: 'Generate a professional image for content, social media graphics, or thumbnails.',
-      parameters: {
-        type: 'object',
-        properties: {
-          prompt: {
-            type: 'string',
-            description: 'Detailed image prompt: style, subject, composition, colors, text overlays. Must be professional quality.',
-          },
-        },
-        required: ['prompt'],
-      },
-    },
-  },
-];
-
-// ── Streaming with Tool Calls ──
-async function streamWithTools(messages, systemPrompt, onTextChunk, onToolCalls, abortSignal) {
-  const res = await fetch('/api/xai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${import.meta.env.VITE_XAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'grok-3-fast',
-      messages: [{ role: 'system', content: systemPrompt }, ...messages],
-      stream: true,
-      tools: CEO_TOOLS,
-      tool_choice: 'auto',
-    }),
-    signal: abortSignal,
-  });
-
-  if (!res.ok) throw new Error(await res.text());
-
-  const reader = res.body?.getReader();
-  if (!reader) throw new Error('No response body');
-
-  const decoder = new TextDecoder();
-  let fullContent = '';
-  let buffer = '';
-  let toolCalls = {};
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('data: ')) continue;
-      const data = trimmed.slice(6);
-      if (data === '[DONE]') continue;
-      try {
-        const parsed = JSON.parse(data);
-        const choice = parsed.choices?.[0];
-        if (!choice) continue;
-
-        const textDelta = choice.delta?.content;
-        if (textDelta) {
-          fullContent += textDelta;
-          onTextChunk(fullContent);
-        }
-
-        const tc = choice.delta?.tool_calls;
-        if (tc) {
-          for (const call of tc) {
-            const idx = call.index ?? 0;
-            if (!toolCalls[idx]) toolCalls[idx] = { id: call.id || '', name: '', arguments: '' };
-            if (call.id) toolCalls[idx].id = call.id;
-            if (call.function?.name) toolCalls[idx].name = call.function.name;
-            if (call.function?.arguments) toolCalls[idx].arguments += call.function.arguments;
-          }
-        }
-      } catch { /* skip malformed */ }
-    }
-  }
-
-  const calls = Object.values(toolCalls).filter(tc => tc.name);
-  if (calls.length > 0) await onToolCalls(calls);
-
-  return { content: fullContent, toolCalls: calls };
-}
+// CEO prompt and tools are now handled server-side via /api/orchestrate
 
 // ── Component ──
 export default function AiCeo() {
@@ -306,7 +19,6 @@ export default function AiCeo() {
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [contextReady, setContextReady] = useState(false);
   const [artifact, setArtifact] = useState(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [splitPct, setSplitPct] = useState(45);
@@ -317,6 +29,10 @@ export default function AiCeo() {
   const [hoveredCat, setHoveredCat] = useState(null);
   const [selectedCtxItems, setSelectedCtxItems] = useState(new Set());
   const [researchMode, setResearchMode] = useState(false);
+  const [searchStatus, setSearchStatus] = useState(null); // null | 'searching' | 'writing'
+  const [currentQuestion, setCurrentQuestion] = useState(null); // { question, options }
+  const [customTyping, setCustomTyping] = useState(false);
+  const [customText, setCustomText] = useState('');
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -325,15 +41,6 @@ export default function AiCeo() {
   const splitRef = useRef(null);
   const isMobileRef = useRef(isMobile);
   const ctxMenuRef = useRef(null);
-  const contextRef = useRef({
-    brandDna: null,
-    contentItems: [],
-    integrationCtx: '',
-    salesData: null,
-    products: [],
-    contacts: [],
-    outlierData: null,
-  });
 
   const hasMessages = messages.length > 0;
   const showPanel = panelOpen && artifact && !isMobile;
@@ -426,49 +133,7 @@ export default function AiCeo() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // ── Fetch Business Context ──
-  useEffect(() => {
-    async function loadContext() {
-      const results = await Promise.allSettled([
-        supabase.auth.getSession().then(async ({ data: { session } }) => {
-          if (!session?.user) return null;
-          const { data } = await supabase.from('brand_dna').select('*').eq('user_id', session.user.id).single();
-          return data;
-        }),
-        getContentItems().then(r => r.items || []),
-        getIntegrationContext().then(r => r.context || ''),
-        getSalesStats().then(r => r.stats || {}),
-        getSalesRevenue('Month').then(r => r.data || []),
-        getSalesCalls().then(r => r.calls || []),
-        getProducts().then(r => r.products || []),
-        getContacts().then(r => r.contacts || []),
-        getOutlierCreators().then(r => r.creators || []),
-        getOutlierVideos({ outliersOnly: true }).then(r => r.videos || []),
-      ]);
-
-      const val = (i) => results[i].status === 'fulfilled' ? results[i].value : null;
-
-      contextRef.current = {
-        brandDna: val(0),
-        contentItems: val(1) || [],
-        integrationCtx: val(2) || '',
-        salesData: {
-          stats: val(3) || {},
-          revenue: val(4) || [],
-          calls: val(5) || [],
-        },
-        products: val(6) || [],
-        contacts: val(7) || [],
-        outlierData: {
-          creators: val(8) || [],
-          videos: val(9) || [],
-        },
-      };
-
-      setContextReady(true);
-    }
-    loadContext();
-  }, []);
+  // Context is now loaded server-side by the orchestrator
 
   // ── Auto-scroll ──
   useEffect(() => {
@@ -499,7 +164,7 @@ export default function AiCeo() {
     };
   }, [dragging]);
 
-  // ── Send to AI ──
+  // ── Send to AI (via backend orchestrator) ──
   const sendToAI = useCallback(async (chatHistory) => {
     setIsGenerating(true);
     const assistantMsgId = `msg-${Date.now()}-ai`;
@@ -510,79 +175,150 @@ export default function AiCeo() {
       abortRef.current = abort;
 
       const apiMessages = chatHistory.map(m => ({ role: m.role, content: m.content }));
-      const ctx = contextRef.current;
-      const systemPrompt = buildFullSystemPrompt(
-        ctx.brandDna, ctx.contentItems, ctx.integrationCtx,
-        ctx.salesData, ctx.products, ctx.contacts, ctx.outlierData,
-      );
 
-      await streamWithTools(
-        apiMessages,
-        systemPrompt,
-        // onTextChunk
-        (text) => {
+      await streamFromBackend('/api/orchestrate', {
+        messages: apiMessages,
+        mode: 'ceo',
+        searchMode: researchMode,
+      }, {
+        // CEO text streaming
+        onTextDelta: (content) => {
           setMessages(prev => prev.map(m =>
-            m.id === assistantMsgId ? { ...m, content: text } : m
+            m.id === assistantMsgId ? { ...m, content } : m
           ));
         },
-        // onToolCalls
-        async (calls) => {
-          let createdArtifact = null;
-
-          for (const call of calls) {
-            if (call.name === 'create_artifact') {
-              try {
-                const args = JSON.parse(call.arguments);
-                createdArtifact = {
-                  id: Date.now(),
-                  type: args.type,
-                  title: args.title,
-                  content: args.content,
-                  images: [],
-                };
-                setArtifact(createdArtifact);
-                setPanelOpen(true);
-                if (isMobileRef.current) setMobileArtifactOpen(true);
-                // Mark message as having an artifact
-                setMessages(prev => prev.map(m =>
-                  m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: args.type } : m
-                ));
-              } catch (e) {
-                console.error('Artifact parse error:', e);
-              }
+        // Status updates (e.g., "Delegating to newsletter agent...")
+        onStatus: (text) => {
+          setMessages(prev => prev.map(m =>
+            m.id === assistantMsgId ? { ...m, status: text } : m
+          ));
+        },
+        // Agent started delegation
+        onAgentStart: (agentName) => {
+          setMessages(prev => prev.map(m =>
+            m.id === assistantMsgId ? { ...m, status: `Running ${agentName} agent...` } : m
+          ));
+        },
+        // Agent streaming chunks (show in artifact panel)
+        onAgentChunk: (agentName, content) => {
+          // Try to extract HTML from the agent's streaming response for live preview
+          const htmlMatch = content.match(/"html"\s*:\s*"([\s\S]*?)(?:"\s*[,}]|$)/);
+          if (htmlMatch) {
+            let html = htmlMatch[1];
+            try { html = JSON.parse('"' + html + '"'); } catch {
+              html = html.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
             }
-          }
-
-          // Process image generation calls
-          for (const call of calls) {
-            if (call.name === 'generate_image') {
-              try {
-                const args = JSON.parse(call.arguments);
-                const brandData = ctx.brandDna ? {
-                  photoUrls: ctx.brandDna.photo_urls || [],
-                  logoUrl: ctx.brandDna.logo_url || null,
-                  colors: ctx.brandDna.colors || {},
-                  mainFont: ctx.brandDna.main_font || null,
-                } : null;
-                const result = await generateImage(args.prompt, 'general', brandData);
-                if (result.image) {
-                  const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-                  setArtifact(prev => {
-                    if (prev) return { ...prev, images: [...(prev.images || []), { src }] };
-                    const newArt = { id: Date.now(), type: 'content_post', title: 'Generated Image', content: '', images: [{ src }] };
-                    setPanelOpen(true);
-                    if (isMobileRef.current) setMobileArtifactOpen(true);
-                    return newArt;
-                  });
-                }
-              } catch (e) {
-                console.error('Image gen error:', e);
-              }
+            if (html.length > 50) {
+              const isNewsletter = agentName === 'newsletter' || content.includes('"type":"newsletter"') || content.includes('"type": "newsletter"');
+              setArtifact(prev => ({
+                id: prev?.id || Date.now(),
+                type: isNewsletter ? 'newsletter' : 'html_template',
+                title: `${agentName} output`,
+                content: html,
+                images: prev?.images || [],
+                agentSource: agentName,
+              }));
+              setPanelOpen(true);
+              if (isMobileRef.current) setMobileArtifactOpen(true);
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: `${agentName} output`, artifactType: 'html_template' } : m
+              ));
             }
           }
         },
-        abort.signal,
-      );
+        // Agent finished — parse final result
+        onAgentResult: (agentName, content) => {
+          try {
+            const parsed = JSON.parse(content);
+            if (parsed.html || parsed.type === 'newsletter' || parsed.type === 'html') {
+              const html = parsed.html;
+              const isNewsletter = agentName === 'newsletter' || parsed.type === 'newsletter';
+              setArtifact({
+                id: Date.now(),
+                type: isNewsletter ? 'newsletter' : 'html_template',
+                title: parsed.summary || `${agentName} output`,
+                content: html,
+                images: [],
+                agentSource: agentName,
+              });
+              setPanelOpen(true);
+              if (isMobileRef.current) setMobileArtifactOpen(true);
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: parsed.summary || `${agentName} output`, artifactType: 'html_template' } : m
+              ));
+            }
+            if (parsed.type === 'story_sequence' && parsed.frames) {
+              setArtifact({
+                id: Date.now(),
+                type: 'story_sequence',
+                title: parsed.summary || 'Story Sequence',
+                content: JSON.stringify(parsed),
+                frames: parsed.frames,
+                images: [],
+              });
+              setPanelOpen(true);
+              if (isMobileRef.current) setMobileArtifactOpen(true);
+            }
+          } catch {
+            // Not JSON — treat as raw content
+            if (content.includes('<!DOCTYPE') || content.includes('<html')) {
+              setArtifact({
+                id: Date.now(),
+                type: 'html_template',
+                title: `${agentName} output`,
+                content,
+                images: [],
+              });
+              setPanelOpen(true);
+              if (isMobileRef.current) setMobileArtifactOpen(true);
+            }
+          }
+        },
+        // Direct tool calls (create_artifact, generate_image)
+        onToolCall: async (name, args) => {
+          if (name === 'create_artifact') {
+            setArtifact({
+              id: Date.now(),
+              type: args.type,
+              title: args.title,
+              content: args.content,
+              images: [],
+            });
+            setPanelOpen(true);
+            if (isMobileRef.current) setMobileArtifactOpen(true);
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: args.type } : m
+            ));
+          }
+          if (name === 'generate_image') {
+            try {
+              const result = await generateImage(args.prompt, 'general', null);
+              if (result.image) {
+                const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+                setArtifact(prev => {
+                  if (prev) return { ...prev, images: [...(prev.images || []), { src }] };
+                  const newArt = { id: Date.now(), type: 'content_post', title: 'Generated Image', content: '', images: [{ src }] };
+                  setPanelOpen(true);
+                  if (isMobileRef.current) setMobileArtifactOpen(true);
+                  return newArt;
+                });
+              }
+            } catch (e) {
+              console.error('Image gen error:', e);
+            }
+          }
+        },
+        onSearchStatus: setSearchStatus,
+        onAskUser: (question, options) => {
+          setCurrentQuestion({ question, options });
+          setCustomTyping(false);
+          setCustomText('');
+          // Clear status from assistant message
+          setMessages(prev => prev.map(m =>
+            m.id === assistantMsgId ? { ...m, status: null } : m
+          ));
+        },
+      }, abort.signal);
     } catch (err) {
       if (err.name !== 'AbortError') {
         setMessages(prev => prev.map(m =>
@@ -595,7 +331,7 @@ export default function AiCeo() {
       abortRef.current = null;
       setIsGenerating(false);
     }
-  }, []);
+  }, [researchMode]);
 
   const stopGenerating = useCallback(() => {
     if (abortRef.current) {
@@ -605,9 +341,21 @@ export default function AiCeo() {
     }
   }, []);
 
+  const answerQuestion = useCallback((answer) => {
+    if (!answer.trim() || isGenerating) return;
+    setCurrentQuestion(null);
+    setCustomTyping(false);
+    setCustomText('');
+    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: answer.trim() };
+    const updated = [...messages, userMsg];
+    setMessages(updated);
+    sendToAI(updated);
+  }, [isGenerating, messages, sendToAI]);
+
   const sendMessage = useCallback(() => {
     const text = input.trim();
     if (!text || isGenerating) return;
+    setCurrentQuestion(null);
     const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: text };
     const updated = [...messages, userMsg];
     setMessages(updated);
@@ -807,7 +555,13 @@ export default function AiCeo() {
                     return (
                       <div key={msg.id} className="ceo-thinking">
                         <span className="ceo-thinking-text">
-                          thinking<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span>
+                          {searchStatus === 'searching' ? (
+                            <><Search size={14} /> Searching the web<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></>
+                          ) : searchStatus === 'writing' ? (
+                            <><PenLine size={14} /> Writing response<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></>
+                          ) : (
+                            <>thinking<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></>
+                          )}
                         </span>
                       </div>
                     );
@@ -853,6 +607,41 @@ export default function AiCeo() {
                   );
                 })}
                 <div ref={messagesEndRef} />
+              </div>
+
+              {/* Question popup overlay */}
+              <div className={`ceo-question-overlay ${currentQuestion ? 'ceo-question-overlay--visible' : 'ceo-question-overlay--hidden'}`}>
+                {currentQuestion && (
+                  <>
+                    <p className="ceo-question-text">{currentQuestion.question}</p>
+                    {!customTyping ? (
+                      <div className="ceo-question-options">
+                        {currentQuestion.options.map((opt, i) => (
+                          <button key={i} className="ceo-question-option" onClick={() => answerQuestion(opt)}>
+                            {opt}
+                          </button>
+                        ))}
+                        <button className="ceo-question-option ceo-question-option--custom" onClick={() => setCustomTyping(true)}>
+                          Type your own...
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="ceo-question-custom-row">
+                        <input
+                          className="ceo-question-custom-input"
+                          placeholder="Type your answer..."
+                          value={customText}
+                          onChange={(e) => setCustomText(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && customText.trim()) answerQuestion(customText); }}
+                          autoFocus
+                        />
+                        <button className="ceo-question-custom-send" disabled={!customText.trim()} onClick={() => answerQuestion(customText)}>
+                          <ArrowUp size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
 
               <div className="ceo-input-area ceo-input-area--bottom">

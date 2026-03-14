@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { supabase } from '../middleware/auth.js';
-import { createBot, leaveMeeting, deleteBot, detectPlatform } from '../services/recall.js';
+import { createBot, leaveMeeting, deleteBot, detectPlatform, getBot } from '../services/recall.js';
 import { processCompletedMeeting } from '../services/ai-processor.js';
-import { deleteRecording } from '../services/storage.js';
+import { deleteRecording, uploadRecording, downloadFromUrl } from '../services/storage.js';
 
 const router = Router();
 
@@ -237,6 +237,54 @@ router.post('/:id/reprocess', async (req, res) => {
     res.json({ meeting: updated });
   } catch (err) {
     res.status(500).json({ error: 'Failed to reprocess meeting' });
+  }
+});
+
+// POST /api/meetings/:id/retry-recording — Re-fetch recording from Recall
+router.post('/:id/retry-recording', async (req, res) => {
+  const userId = req.user.id;
+
+  const { data: meeting, error } = await supabase
+    .from('meetings')
+    .select('id, recall_bot_id, video_url, recall_bot_status')
+    .eq('id', req.params.id)
+    .eq('user_id', userId)
+    .single();
+
+  if (error || !meeting) return res.status(404).json({ error: 'Meeting not found' });
+  if (!meeting.recall_bot_id) return res.status(400).json({ error: 'No bot associated with this meeting' });
+  if (meeting.video_url) return res.json({ meeting: { video_url: meeting.video_url }, message: 'Recording already exists' });
+
+  try {
+    const bot = await getBot(meeting.recall_bot_id);
+    if (!bot?.recordings?.length) {
+      return res.status(404).json({ error: 'No recordings found on Recall for this meeting' });
+    }
+
+    for (const rec of bot.recordings) {
+      const mediaUrl = rec.media_shortcuts?.video_mixed?.data?.download_url;
+      if (mediaUrl) {
+        // Try uploading to Supabase storage first, fall back to direct Recall URL if too large
+        try {
+          console.log(`[retry-recording] Downloading recording for meeting ${meeting.id}`);
+          const { buffer, contentType } = await downloadFromUrl(mediaUrl);
+          const ext = contentType.includes('video') ? 'mp4' : 'mp3';
+          const { path, url } = await uploadRecording(meeting.id, buffer, `recording.${ext}`, contentType);
+          await supabase.from('meetings').update({ storage_path: path, video_url: url }).eq('id', meeting.id);
+          console.log(`[retry-recording] Recording uploaded for meeting ${meeting.id}`);
+          return res.json({ meeting: { video_url: url, storage_path: path }, message: 'Recording fetched successfully' });
+        } catch (uploadErr) {
+          console.warn(`[retry-recording] Upload failed (${uploadErr.message}), using direct Recall URL`);
+          await supabase.from('meetings').update({ video_url: mediaUrl }).eq('id', meeting.id);
+          return res.json({ meeting: { video_url: mediaUrl }, message: 'Recording linked directly from provider' });
+        }
+      }
+    }
+
+    return res.status(404).json({ error: 'Recording not yet available on Recall (no download URL)' });
+  } catch (err) {
+    console.error('[retry-recording] Error:', err.message);
+    res.status(500).json({ error: `Failed to fetch recording: ${err.message}` });
   }
 });
 

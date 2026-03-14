@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import Stripe from 'stripe';
+import Busboy from 'busboy';
 import { supabase } from '../services/storage.js';
 
 const router = Router();
@@ -328,6 +329,75 @@ router.post('/api/products/:id/payment-link', async (req, res) => {
     console.log(`[products] Payment link error: ${err.message}`);
     res.status(400).json({ error: err.message });
   }
+});
+
+// ─── Upload product photos ───
+router.post('/api/products/:id/photos', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const { data: product, error: fetchErr } = await supabase
+    .from('products')
+    .select('id, photos')
+    .eq('id', req.params.id)
+    .eq('user_id', userId)
+    .single();
+
+  if (fetchErr || !product) return res.status(404).json({ error: 'Product not found' });
+
+  const existingPhotos = product.photos || [];
+  if (existingPhotos.length >= 3) return res.status(400).json({ error: 'Maximum 3 photos allowed' });
+
+  const busboy = Busboy({ headers: req.headers, limits: { files: 3 - existingPhotos.length, fileSize: 10 * 1024 * 1024 } });
+  const uploadedPhotos = [];
+
+  busboy.on('file', (fieldname, stream, info) => {
+    const { filename, mimeType } = info;
+    if (!mimeType.startsWith('image/')) {
+      stream.resume();
+      return;
+    }
+
+    const chunks = [];
+    stream.on('data', (chunk) => chunks.push(chunk));
+    stream.on('end', async () => {
+      const buffer = Buffer.concat(chunks);
+      const ext = filename.split('.').pop() || 'jpg';
+      const storagePath = `${userId}/${product.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from('product-images')
+        .upload(storagePath, buffer, { contentType: mimeType, upsert: true });
+
+      if (!uploadErr) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('product-images')
+          .getPublicUrl(storagePath);
+
+        uploadedPhotos.push({ id: `photo-${Date.now()}-${Math.random().toString(36).slice(2)}`, url: publicUrl });
+      }
+    });
+  });
+
+  busboy.on('finish', async () => {
+    const allPhotos = [...existingPhotos, ...uploadedPhotos].slice(0, 3);
+
+    const { data, error } = await supabase
+      .from('products')
+      .update({ photos: allPhotos, updated_at: new Date().toISOString() })
+      .eq('id', product.id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ product: data });
+  });
+
+  busboy.on('error', (err) => {
+    res.status(500).json({ error: err.message });
+  });
+
+  req.pipe(busboy);
 });
 
 export default router;
