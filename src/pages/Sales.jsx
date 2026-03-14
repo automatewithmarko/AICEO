@@ -85,6 +85,7 @@ export default function Sales() {
   // Fetch revenue data when view changes
   const fetchRevenue = useCallback(async () => {
     const result = await getSalesRevenue(activeView);
+    console.log('[Sales] Revenue data:', JSON.stringify(result.data?.map(d => ({ label: d.label, platform: d.platform, stripe: d.stripe }))));
     setChartData(result.data || []);
   }, [activeView]);
 
