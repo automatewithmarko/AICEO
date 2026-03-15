@@ -215,13 +215,14 @@ router.put('/api/products/:id', async (req, res) => {
   if (fetchErr || !existing) return res.status(404).json({ error: 'Product not found' });
 
   try {
-    // Update Stripe product name/description if changed
-    if (existing.stripe_product_id && (name || description !== undefined)) {
+    // Update Stripe product name/description/images if changed
+    if (existing.stripe_product_id && (name || description !== undefined || photos !== undefined)) {
       const apiKey = await getStripeKey(userId);
       const stripe = new Stripe(apiKey);
       const updates = {};
       if (name) updates.name = name;
       if (description !== undefined) updates.description = description;
+      if (photos !== undefined) updates.images = photos.map(p => p.url).slice(0, 8);
       await stripe.products.update(existing.stripe_product_id, updates);
     }
 
@@ -408,6 +409,20 @@ router.post('/api/products/:id/photos', async (req, res) => {
       .single();
 
     if (error) return res.status(500).json({ error: error.message });
+
+    // Sync images to Stripe product so payment link shows them
+    if (data.stripe_product_id && allPhotos.length > 0) {
+      try {
+        const apiKey = await getStripeKey(userId);
+        const stripe = new Stripe(apiKey);
+        await stripe.products.update(data.stripe_product_id, {
+          images: allPhotos.map(p => p.url).slice(0, 8),
+        });
+      } catch (stripeErr) {
+        console.log(`[products] Stripe image sync error: ${stripeErr.message}`);
+      }
+    }
+
     res.json({ product: data });
   });
 
