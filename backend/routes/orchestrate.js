@@ -321,7 +321,7 @@ RULES:
 // mode: "ceo" or "direct" (direct handles both generation and editing)
 router.post('/api/orchestrate', async (req, res) => {
   const userId = req.user?.id;
-  const { messages, mode = 'ceo', agent: agentName, searchMode = false, currentHtml, editInstruction } = req.body;
+  const { messages, mode = 'ceo', agent: agentName, searchMode = false, currentHtml, editInstruction, currentAgent } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array required' });
@@ -347,7 +347,7 @@ router.post('/api/orchestrate', async (req, res) => {
     if (mode === 'direct') {
       await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction });
     } else {
-      await handleCeoOrchestration({ res, messages, context, searchMode, userId });
+      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent });
     }
     console.log('[orchestrate] Handler completed successfully');
   } catch (err) {
@@ -526,7 +526,7 @@ async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId
 }
 
 // ── CEO Orchestration ──
-async function handleCeoOrchestration({ res, messages, context, searchMode, userId }) {
+async function handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent }) {
   const systemPrompt = buildCeoSystemPrompt(context);
   const tools = buildAgentTools();
 
@@ -546,7 +546,7 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, user
     onToolCalls: async (toolCalls) => {
       for (const call of toolCalls) {
         if (call.name === 'delegate_to_agent') {
-          await handleAgentDelegation({ res, call, context });
+          await handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent });
         } else if (call.name === 'ask_user') {
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
@@ -646,7 +646,7 @@ async function handleSendEmail({ res, call, userId }) {
 }
 
 // ── Agent Delegation (CEO calls a specialist agent) ──
-async function handleAgentDelegation({ res, call, context }) {
+async function handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent }) {
   let args;
   try { args = JSON.parse(call.arguments); } catch { args = {}; }
 
@@ -662,19 +662,82 @@ async function handleAgentDelegation({ res, call, context }) {
   sendSSE(res, { type: 'status', text: `Delegating to ${agent.name} agent...` });
   sendSSE(res, { type: 'agent_start', agent: agent.name });
 
+  // If we have existing HTML and the delegation is to the same agent type, try file-based editing
+  const isEditMode = currentHtml && currentAgent && (agentName === currentAgent);
+  if (isEditMode && userId) {
+    console.log(`[orchestrate] CEO edit mode: trying file-based edit for ${agentName}`);
+    try {
+      const edited = await tryFileBasedEdit({
+        res,
+        agent,
+        agentName,
+        editInstruction: taskDescription,
+        userId,
+        context,
+        currentHtml,
+      });
+      if (edited) {
+        console.log('[orchestrate] CEO file-based edit succeeded');
+        return;
+      }
+    } catch (err) {
+      console.log(`[orchestrate] CEO file-based edit failed, falling back: ${err.message}`);
+    }
+  }
+
   const systemPrompt = agent.buildSystemPrompt(context.brandDna);
-  // Tell the agent to skip its question flow — the CEO already gathered context
-  const directInstruction = `IMPORTANT: The AI CEO has already asked the user all necessary questions. You have all the context you need below. Generate the final output IMMEDIATELY — do NOT ask any questions. Respond with the final generated output directly.\n\nHere is what to create:\n${taskDescription}`;
-  const agentMessages = [{ role: 'user', content: directInstruction }];
+
+  // If editing but file-based failed, use section-based editing
+  let agentMessages;
+  if (isEditMode) {
+    agentMessages = [
+      {
+        role: 'user',
+        content: `Here is my current HTML with section markers (<!-- SECTION:name --> ... <!-- /SECTION:name -->).
+
+Please edit ONLY the sections that need to change based on my instruction. Respond with:
+- {"type":"edit","sections":{"sectionName":"<updated section HTML>"},"summary":"..."} for targeted edits
+- {"type":"newsletter","html":"<full HTML>","summary":"..."} only if I ask for a full rewrite
+
+Current HTML:
+${currentHtml}`,
+      },
+      {
+        role: 'assistant',
+        content: 'I have your current HTML with section markers. What changes would you like me to make?',
+      },
+      {
+        role: 'user',
+        content: taskDescription,
+      },
+    ];
+  } else {
+    // Tell the agent to skip its question flow — the CEO already gathered context
+    const directInstruction = `IMPORTANT: The AI CEO has already asked the user all necessary questions. You have all the context you need below. Generate the final output IMMEDIATELY — do NOT ask any questions. Respond with the final generated output directly.\n\nHere is what to create:\n${taskDescription}`;
+    agentMessages = [{ role: 'user', content: directInstruction }];
+  }
+
   const agentWithPrompt = { ...agent, systemPrompt };
 
+  let finalContent = '';
   const result = await executeAgent({
     agent: agentWithPrompt,
     messages: agentMessages,
     onChunk: (content) => {
+      finalContent = content;
       sendSSE(res, { type: 'agent_chunk', agent: agent.name, content });
     },
   });
+
+  // Save to file store for future edits
+  if (userId && result.content) {
+    try {
+      const parsed = tryParseJSON(result.content);
+      if (parsed?.html) {
+        saveFile(userId, agentName, parsed.html);
+      }
+    } catch {}
+  }
 
   sendSSE(res, { type: 'agent_result', agent: agent.name, content: result.content });
 }

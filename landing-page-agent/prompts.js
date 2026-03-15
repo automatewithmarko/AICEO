@@ -105,21 +105,49 @@ Generate a COMPLETE standalone HTML file:
    - CTAs: action-oriented ("Start Free Trial", "Get Instant Access", "Book Your Call")
    - Include specific numbers and social proof
 
-## USING BRAND ASSETS — CRITICAL
+## IMAGE STRATEGY — CRITICAL (read carefully)
 
-When brand assets are provided, you MUST use them:
+You have TWO types of images available. Choose wisely per section:
 
-### Brand Photos
-- Photos are provided as URLs. Use them as ACTUAL <img> tags — not as backgrounds.
-- Hero section: Use the best/most striking photo as the hero image
-- About/features: Use additional photos throughout the page
-- Apply object-fit: cover and appropriate aspect ratios
-- Example: <img src="THE_PROVIDED_URL" alt="..." style="width:100%;height:400px;object-fit:cover;border-radius:12px;">
+### 1. BRAND PHOTOS (user's provided images)
+Use these ONLY where the USER, their PRODUCT, or their BRAND should literally appear:
+- Testimonials: brand photos work as headshots/avatars
+- About/founder sections: photos of the actual person
+- Social proof: real product/team/workspace photos
+- Use as: <img src="ACTUAL_PHOTO_URL_FROM_BRAND_DNA"> with the real URL
+
+### 2. AI-GENERATED IMAGES (use {{GENERATE:prompt}} placeholder)
+Use these for conceptual, illustrative, or lifestyle visuals:
+- Hero section: ALWAYS use {{GENERATE:...}} — the hero needs a custom visual matching the specific offer, not a random brand photo
+- Features section: {{GENERATE:...}} for feature illustrations/icons
+- How-it-works: {{GENERATE:...}} for step illustrations
+- Final CTA: {{GENERATE:...}} for an aspirational visual
+- Format: src="{{GENERATE:A vivid, detailed description of the image. Include style, colors, composition, and how it relates to this section's content}}"
+
+### DECISION FRAMEWORK per section:
+| Section | Question | Image Type |
+|---------|----------|------------|
+| Nav/Footer | Logo? | Brand logo URL |
+| Hero | Conceptual visual for the offer? | {{GENERATE:...}} |
+| Social Proof | Real metrics/logos? | CSS/text (no image needed) or brand photo |
+| Features | Illustrations for concepts? | {{GENERATE:...}} |
+| Testimonials | Real person headshot? | Brand photo if available, otherwise skip |
+| How-it-works | Step illustrations? | {{GENERATE:...}} |
+| FAQ | None needed | No image |
+| Final CTA | Aspirational visual? | {{GENERATE:...}} |
+
+### IMAGE STYLING:
+- All images: width:100%;height:auto;display:block; — NEVER use fixed heights, NEVER use object-fit
+- Hero images: full-width, border-radius:12px
+- Feature illustrations: max-width:280px, centered
+- Logo: max-height:44px;width:auto;
+- All images must have descriptive alt text
+
+## USING OTHER BRAND ASSETS — CRITICAL
 
 ### Brand Logo
 - Use the logo URL in the <nav> as an <img> tag
 - Keep it appropriately sized (height ~36-44px)
-- Example: <img src="THE_PROVIDED_LOGO_URL" alt="Logo" style="height:40px;">
 - Also use it in the footer
 
 ### Brand Colors
@@ -203,15 +231,12 @@ export function buildSystemPrompt(brandDna) {
   // Photos
   const photos = brandDna.photo_urls || brandDna.photoUrls || [];
   if (photos.length > 0) {
-    parts.push('\n### Brand Photos — USE THESE AS REAL IMAGES');
+    parts.push('\n### Brand Photos — USE ONLY WHERE THE USER/PRODUCT SHOULD APPEAR');
+    parts.push('These are photos of the user, their team, or their product. Use them ONLY in sections where a real person/product should appear (testimonials, about, social proof). Do NOT use them as hero images — use {{GENERATE:...}} for conceptual hero visuals instead.');
     photos.forEach((url, i) => {
-      const usage = i === 0 ? '(USE as hero image)' :
-                    i === 1 ? '(USE in features/about section)' :
-                    i === 2 ? '(USE in testimonials or another section)' :
-                    '(USE where appropriate)';
-      parts.push(`- Photo ${i + 1}: ${url} ${usage}`);
+      parts.push(`- Photo ${i + 1}: ${url}`);
     });
-    parts.push('- Insert these as <img src="URL"> tags — NOT as CSS backgrounds');
+    parts.push('- Insert as <img src="URL"> tags when appropriate — NOT as CSS backgrounds');
   }
 
   // Brand description

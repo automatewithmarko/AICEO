@@ -18,6 +18,7 @@ import productRoutes from './routes/products.js';
 import contactRoutes from './routes/contacts.js';
 import generateRoutes from './routes/generate.js';
 import orchestrateRoutes from './routes/orchestrate.js';
+import { startEmailSync } from './services/email-sync.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -30,7 +31,7 @@ app.use(cors({
 // Raw body for Stripe webhooks (before express.json)
 app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
 
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '50mb' }));
 
 // Request logging
 app.use((req, res, next) => {
@@ -832,4 +833,5 @@ app.use(webhookRoutes);
 
 app.listen(PORT, () => {
   console.log(`AICEO backend running on port ${PORT}`);
+  startEmailSync();
 });

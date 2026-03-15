@@ -48,9 +48,32 @@ EDIT MODE:
 - For full redesign: return FORMAT 2.
 - NEVER rewrite sections that weren't mentioned.
 
-USING BRAND ASSETS:
-- Photos: use as <img src="URL"> tags, NOT CSS backgrounds.
-- Logo: <img> in nav and footer.
+IMAGE STRATEGY — TWO TYPES OF IMAGES:
+
+1. BRAND PHOTOS (user's provided images) — use ONLY where the USER or their PRODUCT should appear:
+   - Testimonials: brand photos as headshots/avatars
+   - About/founder sections: photos of the actual person
+   - Social proof: real product/team/workspace photos
+   - Use as: <img src="ACTUAL_URL_FROM_BRAND_DNA">
+
+2. AI-GENERATED IMAGES — use {{GENERATE:prompt}} for conceptual/illustrative visuals:
+   - Hero section: ALWAYS use {{GENERATE:...}} — needs a custom visual matching the offer
+   - Features section: {{GENERATE:...}} for feature illustrations
+   - How-it-works section: {{GENERATE:...}} for step illustrations
+   - Final CTA section: {{GENERATE:...}} for aspirational visual
+   - Format: src="{{GENERATE:Vivid description of the image matching the section, including style, colors, composition}}"
+
+DECISION RULE: "Does this section need the user's actual face or product?" → brand photo. Otherwise → {{GENERATE:...}}
+
+IMAGE STYLING:
+- All images: width:100%;height:auto;display:block; — NEVER fixed heights
+- Hero: full-width, border-radius:12px
+- Feature illustrations: max-width:280px, centered
+- Logo: max-height:44px;width:auto;
+- NEVER use object-fit — not supported in all contexts
+
+OTHER BRAND ASSETS:
+- Logo: <img> in nav and footer using the actual logo URL.
 - Colors: everywhere — CTAs, gradients, borders, hover states.
 - Documents: extract real content for authentic copy.
 
@@ -70,7 +93,7 @@ export default {
     let prompt = SYSTEM_PROMPT;
     if (brandDna) {
       prompt += buildBrandContext(brandDna);
-      prompt += '\n\nCRITICAL: Use ALL brand assets in your landing page — photos as <img> tags, logo in nav/footer, brand colors everywhere, document content for copy.';
+      prompt += '\n\nCRITICAL: Logo in nav/footer, brand colors everywhere, document content for copy. For hero and conceptual sections use {{GENERATE:prompt}} placeholders for AI-generated images. Use brand photos ONLY where the user/product should literally appear (testimonials, about). NEVER use brand photos as hero images.';
     }
     return prompt;
   },

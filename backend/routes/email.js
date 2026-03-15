@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { supabase } from '../services/storage.js';
 import { fetchEmails, validateImapConnection } from '../services/imap.js';
 import { sendEmail, validateSmtpConnection } from '../services/smtp.js';
+import { connectNewAccount, disconnectAccount } from '../services/email-sync.js';
 
 const router = Router();
 
@@ -96,6 +97,11 @@ router.post('/api/email-accounts', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   console.log(`[email] Account connected: ${email}${smtpWarning ? ' (with SMTP warning)' : ''}`);
+
+  // Start IDLE connection for real-time email updates
+  const fullAccount = { ...data, user_id: userId, imap_host: account.imap_host, imap_port: account.imap_port, username, password };
+  connectNewAccount(fullAccount);
+
   res.json({ account: data, warning: smtpWarning });
 });
 
@@ -103,6 +109,9 @@ router.post('/api/email-accounts', async (req, res) => {
 router.delete('/api/email-accounts/:id', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  // Disconnect IDLE connection before deleting
+  disconnectAccount(req.params.id);
 
   const { error } = await supabase
     .from('email_accounts')

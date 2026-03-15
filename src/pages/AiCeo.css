@@ -29,12 +29,14 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
   position: relative;
 }
 
 .ceo-chat--split {
   flex: none;
+  min-height: 0;
 }
 
 /* ── Divider ── */
@@ -90,6 +92,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
   border-left: 1px solid var(--border-light);
 }
@@ -364,6 +367,13 @@
   max-width: 760px;
   width: 100%;
   margin: 0 auto;
+  min-height: 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ceo-messages::-webkit-scrollbar {
+  display: none;
 }
 
 .ceo-msg-group {

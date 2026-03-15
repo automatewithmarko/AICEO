@@ -665,14 +665,6 @@ export default function CRM() {
           </button>
           <button
             className="crm-pill"
-            onClick={() => vcfInputRef.current?.click()}
-            disabled={vcfImporting}
-          >
-            {vcfImporting ? <Loader2 size={14} className="crm-spin" /> : <Download size={14} />}
-            {vcfImporting ? 'Importing...' : 'Import vCard'}
-          </button>
-          <button
-            className="crm-pill"
             onClick={handleSync}
             disabled={syncing}
           >
@@ -1103,6 +1095,14 @@ export default function CRM() {
               >
                 Products Purchased
               </button>
+              {popup.contact.ghl_raw_data && (
+                <button
+                  className={`crm-view-tab ${popupTab === 'ghl' ? 'crm-view-tab--active' : ''}`}
+                  onClick={() => setPopupTab('ghl')}
+                >
+                  GHL Data
+                </button>
+              )}
             </div>
 
             {/* Tab content */}
@@ -1173,6 +1173,21 @@ export default function CRM() {
                       <span className="crm-product-price">{p.price}</span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {popupTab === 'ghl' && popup.contact.ghl_raw_data && (
+                <div className="crm-popup-list crm-ghl-data">
+                  {Object.entries(popup.contact.ghl_raw_data)
+                    .filter(([, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0))
+                    .map(([key, value]) => (
+                      <div key={key} className="crm-ghl-data-row">
+                        <span className="crm-ghl-data-key">{key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}</span>
+                        <span className="crm-ghl-data-value">
+                          {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+                        </span>
+                      </div>
+                    ))}
                 </div>
               )}
             </div>

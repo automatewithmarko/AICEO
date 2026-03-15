@@ -110,10 +110,14 @@ export default function Products() {
     setSaving(true);
     setError('');
     try {
+      // Send existing (non-blob) photos to persist removals
+      const existingPhotos = product.photos.filter(p => !p.file && !p.url?.startsWith('blob:'));
+
       const { product: updated } = await updateProductApi(product.id, {
         name: product.name,
         description: product.description,
         type: product.type,
+        photos: existingPhotos,
       });
 
       // Upload any new photos (ones with .file property)

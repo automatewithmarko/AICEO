@@ -1,6 +1,7 @@
 import { supabase } from '../storage.js';
 
-const GHL_API = 'https://rest.gohighlevel.com/v1';
+const GHL_API = 'https://services.leadconnectorhq.com';
+const GHL_API_VERSION = '2021-07-28';
 
 // In-memory set of contact IDs currently being synced (prevents sync loops)
 const syncingContacts = new Map(); // contactId -> timestamp
@@ -24,16 +25,22 @@ function ghlHeaders(apiKey) {
   return {
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
+    Version: GHL_API_VERSION,
   };
+}
+
+// Get locationId from integration metadata
+function getLocationId(integration) {
+  return integration.metadata?.location_id || integration.location_id || '';
 }
 
 // ─── GHL API Helpers ───
 
-export async function createGHLContact(apiKey, contactData) {
+export async function createGHLContact(apiKey, contactData, locationId) {
   const res = await fetch(`${GHL_API}/contacts/`, {
     method: 'POST',
     headers: ghlHeaders(apiKey),
-    body: JSON.stringify(contactData),
+    body: JSON.stringify({ ...contactData, locationId }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -55,8 +62,8 @@ export async function updateGHLContact(apiKey, ghlContactId, contactData) {
   return res.json();
 }
 
-export async function searchGHLContactByEmail(apiKey, email) {
-  const res = await fetch(`${GHL_API}/contacts/lookup?email=${encodeURIComponent(email)}`, {
+export async function searchGHLContactByEmail(apiKey, email, locationId) {
+  const res = await fetch(`${GHL_API}/contacts/?locationId=${encodeURIComponent(locationId)}&query=${encodeURIComponent(email)}&limit=1`, {
     headers: ghlHeaders(apiKey),
   });
   if (!res.ok) return null;
@@ -73,19 +80,19 @@ export async function syncContactFromGHL(ghlContact, userId) {
   const business = ghlContact.companyName || '';
   const ghlId = ghlContact.id;
 
-  if (!email && !ghlId) return null;
+  // Store the full raw GHL object
+  const rawData = { ...ghlContact };
 
-  // Check if contact already exists locally (by email or ghl_contact_id)
-  let existing = null;
-  if (email) {
-    const { data } = await supabase.from('contacts')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('email', email)
-      .single();
-    existing = data;
+  console.log(`[ghl-sync] syncContactFromGHL: name="${name}" email="${email}" phone="${phone}" ghlId="${ghlId}"`);
+
+  if (!email && !phone && !ghlId) {
+    console.log('[ghl-sync] Skipping contact — no email, phone, or ghlId');
+    return null;
   }
-  if (!existing && ghlId) {
+
+  // Match by: ghl_contact_id first, then email, then phone
+  let existing = null;
+  if (ghlId) {
     const { data } = await supabase.from('contacts')
       .select('*')
       .eq('user_id', userId)
@@ -93,22 +100,45 @@ export async function syncContactFromGHL(ghlContact, userId) {
       .single();
     existing = data;
   }
+  if (!existing && email) {
+    const { data } = await supabase.from('contacts')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('email', email)
+      .single();
+    existing = data;
+  }
+  if (!existing && phone) {
+    // Normalize phone: strip spaces/dashes, match last 10 digits
+    const normalizedPhone = phone.replace(/[\s\-\(\)]/g, '');
+    const { data: phoneMatches } = await supabase.from('contacts')
+      .select('*')
+      .eq('user_id', userId)
+      .neq('phone', '');
+    if (phoneMatches) {
+      existing = phoneMatches.find(c => {
+        const cp = (c.phone || '').replace(/[\s\-\(\)]/g, '');
+        return cp === normalizedPhone || cp.slice(-10) === normalizedPhone.slice(-10);
+      }) || null;
+    }
+  }
 
   const now = new Date().toISOString();
 
   if (existing) {
-    // Mark syncing to prevent loop
     markSyncing(existing.id);
 
-    // Update: only fill in blank fields, always update GHL link
+    // Update: fill in blank fields, always update GHL link + raw data
     const updates = {
       ghl_contact_id: ghlId,
       ghl_sync_status: 'synced',
       ghl_synced_at: now,
       ghl_sync_error: null,
+      ghl_raw_data: rawData,
       updated_at: now,
     };
     if (!existing.name && name) updates.name = name;
+    if (!existing.email && email) updates.email = email;
     if (!existing.phone && phone) updates.phone = phone;
     if (!existing.business && business) updates.business = business;
 
@@ -119,10 +149,11 @@ export async function syncContactFromGHL(ghlContact, userId) {
       .single();
 
     if (error) console.log(`[ghl-sync] Update local contact error: ${error.message}`);
+    else console.log(`[ghl-sync] Updated existing contact ${existing.id}`);
     return data || existing;
   } else {
     // Create new local contact
-    const contactEmail = email || `ghl-${ghlId}@placeholder.local`;
+    const contactEmail = email || (phone ? `ghl-${ghlId}@placeholder.local` : `ghl-${ghlId}@placeholder.local`);
     const record = {
       user_id: userId,
       name: name || '',
@@ -137,14 +168,18 @@ export async function syncContactFromGHL(ghlContact, userId) {
       ghl_contact_id: ghlId,
       ghl_sync_status: 'synced',
       ghl_synced_at: now,
+      ghl_raw_data: rawData,
     };
 
     const { data, error } = await supabase.from('contacts')
-      .upsert(record, { onConflict: 'user_id,email', ignoreDuplicates: false })
+      .insert(record)
       .select()
       .single();
 
-    if (data) markSyncing(data.id);
+    if (data) {
+      markSyncing(data.id);
+      console.log(`[ghl-sync] Created new contact ${data.id} (${contactEmail})`);
+    }
     if (error) console.log(`[ghl-sync] Create local contact error: ${error.message}`);
     return data;
   }
@@ -158,6 +193,7 @@ export async function syncContactToGHL(contact, integration) {
 
   markSyncing(contact.id);
 
+  const locationId = getLocationId(integration);
   const nameParts = (contact.name || '').split(' ');
   const firstName = nameParts[0] || '';
   const lastName = nameParts.slice(1).join(' ') || '';
@@ -181,8 +217,8 @@ export async function syncContactToGHL(contact, integration) {
       await updateGHLContact(integration.api_key, ghlContactId, ghlData);
     } else {
       // Check for duplicate by email first
-      if (contact.email && !contact.email.includes('@placeholder.local')) {
-        const existing = await searchGHLContactByEmail(integration.api_key, contact.email);
+      if (contact.email && !contact.email.includes('@placeholder.local') && locationId) {
+        const existing = await searchGHLContactByEmail(integration.api_key, contact.email, locationId);
         if (existing) {
           ghlContactId = existing.id;
           await updateGHLContact(integration.api_key, ghlContactId, ghlData);
@@ -191,7 +227,7 @@ export async function syncContactToGHL(contact, integration) {
 
       // Create new if no existing found
       if (!ghlContactId) {
-        const result = await createGHLContact(integration.api_key, ghlData);
+        const result = await createGHLContact(integration.api_key, ghlData, locationId);
         ghlContactId = result.contact?.id;
       }
     }
@@ -280,39 +316,68 @@ export async function handleWebhook(payload, integration) {
 
 // ─── Validation ───
 
-export async function validate(apiKey) {
-  const res = await fetch(`${GHL_API}/contacts/?limit=1`, {
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
+export async function validate(apiKey, metadata) {
+  const locationId = metadata?.location_id;
+  if (!locationId) throw new Error('Location ID is required for GoHighLevel v2');
+
+  // Use POST /contacts/search (v2 recommended endpoint) to validate token + locationId
+  const res = await fetch(`${GHL_API}/contacts/search`, {
+    method: 'POST',
+    headers: ghlHeaders(apiKey),
+    body: JSON.stringify({ locationId, pageLimit: 1 }),
   });
 
-  if (!res.ok) throw new Error('Invalid GoHighLevel API key');
-  return { ok: true };
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.log(`[ghl-validate] Failed (${res.status}): ${body}`);
+    let msg = 'Invalid API token or Location ID';
+    try { msg = JSON.parse(body).message || msg; } catch {}
+    throw new Error(msg);
+  }
+  return { ok: true, location_id: locationId };
 }
 
 // ─── Full Sync ───
 
 export async function sync(integration) {
-  const headers = {
-    Authorization: `Bearer ${integration.api_key}`,
-  };
+  const apiKey = integration.api_key;
+  const locationId = getLocationId(integration);
+  const headers = ghlHeaders(apiKey);
   let synced = 0;
 
-  // Fetch contacts with pagination
-  let startAfterId = null;
+  if (!locationId) {
+    console.log('[ghl-sync] No locationId found, skipping sync');
+    return { synced: 0, total: 0 };
+  }
+
+  console.log(`[ghl-sync] Starting sync for locationId=${locationId}`);
+
+  // Fetch contacts using v2 POST /contacts/search with cursor pagination
+  let searchAfter = null;
   let totalContactsFetched = 0;
   const maxContacts = 1000;
 
   do {
-    let url = `${GHL_API}/contacts/?limit=100`;
-    if (startAfterId) url += `&startAfterId=${startAfterId}`;
+    const body = { locationId, pageLimit: 100 };
+    if (searchAfter) body.searchAfter = searchAfter;
 
-    const contactsRes = await fetch(url, { headers });
-    if (!contactsRes.ok) break;
+    console.log(`[ghl-sync] Fetching contacts page, searchAfter=${searchAfter || 'none'}`);
+
+    const contactsRes = await fetch(`${GHL_API}/contacts/search`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!contactsRes.ok) {
+      const errBody = await contactsRes.text().catch(() => '');
+      console.log(`[ghl-sync] Contact search failed (${contactsRes.status}): ${errBody}`);
+      break;
+    }
 
     const data = await contactsRes.json();
     const contacts = data.contacts || [];
+    console.log(`[ghl-sync] Got ${contacts.length} contacts (total in GHL: ${data.total || 'unknown'})`);
 
     for (const contact of contacts) {
       const name = [contact.firstName, contact.lastName].filter(Boolean).join(' ') || contact.email || 'Unknown';
@@ -343,22 +408,24 @@ export async function sync(integration) {
       // Materialize into contacts table
       await syncContactFromGHL(contact, integration.user_id);
 
-      // Rate limit: 200ms between API-bound operations
       totalContactsFetched++;
     }
 
-    startAfterId = data.meta?.startAfterId || null;
-    if (!startAfterId || contacts.length < 100 || totalContactsFetched >= maxContacts) break;
+    // Get cursor from last contact for next page
+    const lastContact = contacts[contacts.length - 1];
+    searchAfter = lastContact?.searchAfter || null;
+    if (!searchAfter || contacts.length < 100 || totalContactsFetched >= maxContacts) break;
 
     // Rate limit between pages
     await new Promise(r => setTimeout(r, 200));
   } while (true);
 
-  // Fetch pipelines
-  const pipelinesRes = await fetch(`${GHL_API}/pipelines/`, { headers });
+  // Fetch pipelines (v2 endpoint)
+  const pipelinesRes = await fetch(`${GHL_API}/opportunities/pipelines?locationId=${encodeURIComponent(locationId)}`, { headers });
   if (pipelinesRes.ok) {
-    const { pipelines } = await pipelinesRes.json();
-    for (const pipeline of (pipelines || [])) {
+    const pipelinesData = await pipelinesRes.json();
+    const pipelines = pipelinesData.pipelines || [];
+    for (const pipeline of pipelines) {
       const { error } = await supabase.from('integration_data').upsert({
         user_id: integration.user_id,
         integration_id: integration.id,
@@ -374,11 +441,12 @@ export async function sync(integration) {
       }, { onConflict: 'integration_id,external_id', ignoreDuplicates: false });
       if (!error) synced++;
 
-      // Fetch opportunities for each pipeline
-      const oppsRes = await fetch(`${GHL_API}/pipelines/${pipeline.id}/opportunities?limit=50`, { headers });
+      // Fetch opportunities for each pipeline (v2 endpoint)
+      const oppsRes = await fetch(`${GHL_API}/opportunities/search?locationId=${encodeURIComponent(locationId)}&pipelineId=${encodeURIComponent(pipeline.id)}&limit=50`, { headers });
       if (oppsRes.ok) {
-        const { opportunities } = await oppsRes.json();
-        for (const opp of (opportunities || [])) {
+        const oppsData = await oppsRes.json();
+        const opportunities = oppsData.opportunities || [];
+        for (const opp of opportunities) {
           const { error: oppErr } = await supabase.from('integration_data').upsert({
             user_id: integration.user_id,
             integration_id: integration.id,

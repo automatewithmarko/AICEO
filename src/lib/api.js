@@ -628,6 +628,8 @@ export async function getEmails(params = {}) {
   if (params.starred) url.searchParams.set('starred', 'true');
   if (params.accountId) url.searchParams.set('account_id', params.accountId);
   if (params.search) url.searchParams.set('search', params.search);
+  if (params.limit) url.searchParams.set('limit', String(params.limit));
+  if (params.offset) url.searchParams.set('offset', String(params.offset));
   const res = await fetch(url.toString(), { headers });
   if (!res.ok) return { emails: [] };
   return res.json();
@@ -723,6 +725,20 @@ export async function generateImage(prompt, platform, brandData) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Image generation failed' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function uploadImageToStorage(base64, mimeType) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/generate/upload-image`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base64, mimeType }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Upload failed' }));
     throw new Error(err.error);
   }
   return res.json();

@@ -54,6 +54,23 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
     }
   }, [externalAccounts]);
 
+  // Listen for CTA link edits from the iframe
+  useEffect(() => {
+    function handleMessage(e) {
+      if (e.data?.type === 'cta-link-edit') {
+        const { oldHref, newHref } = e.data;
+        setHtmlContent(prev => {
+          if (!prev) return prev;
+          const escaped = oldHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp('href="' + escaped + '"', 'g');
+          return prev.replace(regex, 'href="' + newHref.replace(/"/g, '&quot;') + '"');
+        });
+      }
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
   if (!artifact) return null;
 
   const { type, title, content, images } = artifact;
@@ -257,25 +274,22 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                   <Mail size={14} /> Send Email
                 </button>
               )}
+              <button className="ap-btn ap-btn--outline" onClick={handleDownload}>
+                <Download size={14} /> Download
+              </button>
               <button className="ap-btn ap-btn--outline" onClick={() => handleCopy()}>
                 {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy Code</>}
               </button>
               {isLanding && (
                 <button
-                  className={`ap-btn ${deployResult ? 'ap-btn--deploy-done' : 'ap-btn--deploy'}`}
+                  className={`ap-btn ap-btn--netlify${deploying ? ' ap-btn--loading' : ''}`}
                   onClick={handleDeploy}
-                  disabled={deploying || !!deployResult}
+                  disabled={!(htmlContent || content) || deploying}
                 >
-                  {deployResult ? <><Check size={14} /> Live</> : deploying ? 'Deploying...' : <><Rocket size={14} /> Deploy</>}
+                  {deploying ? 'Deploying...' : deployResult ? 'Redeploy' : 'Deploy to Netlify'}
                 </button>
               )}
             </>
-          )}
-
-          {deployResult && (
-            <a href={deployResult.url} target="_blank" rel="noopener noreferrer" className="ap-btn ap-btn--outline ap-deploy-link">
-              {deployResult.url.replace('https://', '')}
-            </a>
           )}
 
           {/* Non-HTML types — just copy */}
@@ -289,6 +303,16 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
       </div>
 
       {sendError && <div className="ap-error">{sendError}</div>}
+
+      {deployResult && (
+        <div className="ap-deploy-banner">
+          <span className="ap-deploy-banner-dot" />
+          Live at{' '}
+          <a href={deployResult.url} target="_blank" rel="noopener noreferrer" className="ap-deploy-banner-link">
+            {deployResult.url}
+          </a>
+        </div>
+      )}
 
       <div className="ap-body">
         {type === 'email' && <EmailRenderer content={content} />}
@@ -446,18 +470,175 @@ function EmailRenderer({ content }) {
   );
 }
 
+// Replace {{GENERATE:...}} placeholders with a loading spinner for display
+function replaceGeneratePlaceholders(html) {
+  if (!html || !html.includes('{{GENERATE:')) return html;
+  return html.replace(/\{\{GENERATE:.*?\}\}/g, `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300" viewBox="0 0 600 300"><rect width="600" height="300" fill="%23f0f0f2" rx="8"/><g transform="translate(300,150)"><circle cx="0" cy="0" r="16" fill="none" stroke="%23999" stroke-width="3" stroke-dasharray="80" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="1s" repeatCount="indefinite"/></circle></g><text x="300" y="190" text-anchor="middle" fill="%23999" font-family="Inter,system-ui,sans-serif" font-size="13">Generating image...</text></svg>')}`);
+}
+
 function HtmlRenderer({ content, iframeRef }) {
+  const containerRef = useRef(null);
+
+  // Write HTML to iframe with CTA link editor
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
     const doc = iframe.contentDocument;
     if (!doc) return;
-    doc.open();
-    doc.write(content || '<html><body></body></html>');
-    doc.close();
+
+    if (content) {
+      doc.open();
+      doc.write(replaceGeneratePlaceholders(content));
+      doc.close();
+
+      // Inject CTA link editor script
+      const script = doc.createElement('script');
+      script.textContent = `
+        (function() {
+          var style = document.createElement('style');
+          style.textContent = [
+            '.cta-link-overlay { position: absolute; display: none; align-items: center; gap: 6px; padding: 6px 10px; background: #1a1a2e; color: #fff; border-radius: 8px; font: 12px/1.3 Inter, system-ui, sans-serif; z-index: 99999; box-shadow: 0 4px 16px rgba(0,0,0,0.25); pointer-events: auto; max-width: 340px; }',
+            '.cta-link-overlay-url { color: #a78bfa; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; cursor: default; }',
+            '.cta-link-overlay-edit { background: none; border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 3px 8px; border-radius: 4px; cursor: pointer; font: 11px/1 Inter, system-ui, sans-serif; white-space: nowrap; }',
+            '.cta-link-overlay-edit:hover { background: rgba(255,255,255,0.1); }',
+            '.cta-link-input-wrap { position: absolute; display: none; align-items: center; gap: 6px; padding: 6px 10px; background: #1a1a2e; border-radius: 8px; z-index: 100000; box-shadow: 0 4px 16px rgba(0,0,0,0.25); }',
+            '.cta-link-input { background: #2a2a3e; border: 1px solid #4a4a6e; color: #fff; padding: 5px 8px; border-radius: 4px; font: 12px/1 Inter, system-ui, sans-serif; width: 220px; outline: none; }',
+            '.cta-link-input:focus { border-color: #a78bfa; }',
+            '.cta-link-save { background: #a78bfa; border: none; color: #fff; padding: 4px 10px; border-radius: 4px; cursor: pointer; font: 11px/1.2 Inter, system-ui, sans-serif; }',
+            '.cta-link-save:hover { background: #8b6fe0; }',
+            'a[href]:hover { outline: 2px solid rgba(167,139,250,0.5); outline-offset: 2px; border-radius: 2px; }',
+          ].join('\\n');
+          document.head.appendChild(style);
+
+          var overlay = document.createElement('div');
+          overlay.className = 'cta-link-overlay';
+          overlay.innerHTML = '<span class="cta-link-overlay-url"></span><button class="cta-link-overlay-edit">Edit Link</button>';
+          document.body.appendChild(overlay);
+
+          var inputWrap = document.createElement('div');
+          inputWrap.className = 'cta-link-input-wrap';
+          inputWrap.innerHTML = '<input class="cta-link-input" type="text" placeholder="https://..." /><button class="cta-link-save">Save</button>';
+          document.body.appendChild(inputWrap);
+
+          var urlDisplay = overlay.querySelector('.cta-link-overlay-url');
+          var editBtn = overlay.querySelector('.cta-link-overlay-edit');
+          var linkInput = inputWrap.querySelector('.cta-link-input');
+          var saveBtn = inputWrap.querySelector('.cta-link-save');
+          var activeLink = null;
+          var hideTimer = null;
+
+          function positionOverlay(el, target) {
+            var rect = target.getBoundingClientRect();
+            var scrollY = window.scrollY || document.documentElement.scrollTop;
+            el.style.left = Math.max(4, rect.left) + 'px';
+            el.style.top = (rect.bottom + scrollY + 6) + 'px';
+          }
+
+          document.addEventListener('mouseover', function(e) {
+            var link = e.target.closest('a[href]');
+            if (!link) return;
+            clearTimeout(hideTimer);
+            activeLink = link;
+            urlDisplay.textContent = link.getAttribute('href') || '#';
+            positionOverlay(overlay, link);
+            overlay.style.display = 'flex';
+          });
+
+          document.addEventListener('mouseout', function(e) {
+            var link = e.target.closest('a[href]');
+            if (!link) return;
+            hideTimer = setTimeout(function() {
+              if (!overlay.matches(':hover') && !inputWrap.matches(':hover')) {
+                overlay.style.display = 'none';
+              }
+            }, 300);
+          });
+
+          overlay.addEventListener('mouseover', function() { clearTimeout(hideTimer); });
+          overlay.addEventListener('mouseout', function() {
+            hideTimer = setTimeout(function() {
+              if (!inputWrap.matches(':hover')) overlay.style.display = 'none';
+            }, 300);
+          });
+
+          document.addEventListener('click', function(e) {
+            var link = e.target.closest('a[href]');
+            if (link) e.preventDefault();
+          });
+
+          editBtn.addEventListener('click', function() {
+            if (!activeLink) return;
+            linkInput.value = activeLink.getAttribute('href') || '';
+            positionOverlay(inputWrap, activeLink);
+            inputWrap.style.display = 'flex';
+            overlay.style.display = 'none';
+            linkInput.focus();
+            linkInput.select();
+          });
+
+          function saveLink() {
+            if (!activeLink) return;
+            var oldHref = activeLink.getAttribute('href') || '';
+            var newHref = linkInput.value.trim();
+            if (newHref && newHref !== oldHref) {
+              activeLink.setAttribute('href', newHref);
+              window.parent.postMessage({ type: 'cta-link-edit', oldHref: oldHref, newHref: newHref, linkText: activeLink.textContent.trim() }, '*');
+            }
+            inputWrap.style.display = 'none';
+          }
+
+          saveBtn.addEventListener('click', saveLink);
+          linkInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') saveLink();
+            if (e.key === 'Escape') inputWrap.style.display = 'none';
+          });
+
+          inputWrap.addEventListener('mouseover', function() { clearTimeout(hideTimer); });
+          inputWrap.addEventListener('mouseout', function() {
+            hideTimer = setTimeout(function() { inputWrap.style.display = 'none'; }, 500);
+          });
+        })();
+      `;
+      doc.body.appendChild(script);
+    } else {
+      doc.open();
+      doc.write('<html><body></body></html>');
+      doc.close();
+    }
   }, [content, iframeRef]);
 
-  return <iframe ref={iframeRef} className="ap-iframe" title="Preview" sandbox="allow-same-origin allow-scripts" />;
+  // Responsive iframe scaling
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const update = () => {
+      const iframe = iframeRef.current;
+      if (!iframe) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w < 620) {
+        const scale = w / 620;
+        iframe.style.transform = `scale(${scale})`;
+        iframe.style.transformOrigin = 'top left';
+        iframe.style.width = '620px';
+        iframe.style.height = Math.round(h / scale) + 'px';
+      } else {
+        iframe.style.transform = '';
+        iframe.style.transformOrigin = '';
+        iframe.style.width = '100%';
+        iframe.style.height = '100%';
+      }
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [content, iframeRef]);
+
+  return (
+    <div ref={containerRef} className="ap-iframe-container">
+      <iframe ref={iframeRef} className="ap-iframe" title="Preview" sandbox="allow-same-origin allow-scripts" />
+    </div>
+  );
 }
 
 function ContentPostRenderer({ content, images }) {

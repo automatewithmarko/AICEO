@@ -7,6 +7,8 @@ import {
   addEmailAccount, syncEmailAccount,
   getEmails, getEmail, updateEmail, sendEmailApi, saveDraft, getEmailCounts, deleteEmail,
 } from '../lib/api';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 import './Pages.css';
 import './Inbox.css';
 
@@ -82,6 +84,7 @@ export default function Inbox() {
     accounts, selectedAccountId, setSelectedAccountId,
     addAccountOpen, setAddAccountOpen, loadAccounts, handleRemoveAccount,
   } = useOutletContext();
+  const { user } = useAuth();
 
   // Data state
   const [emails, setEmails] = useState([]);
@@ -92,6 +95,9 @@ export default function Inbox() {
   const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 30;
   const [syncProgress, setSyncProgress] = useState(null); // { synced: N } or null
 
   // Add account modal
@@ -140,8 +146,11 @@ export default function Inbox() {
 
   // ── Data fetching ──
 
-  const loadEmails = useCallback(async (folder, search, accountId) => {
-    const params = {};
+  const emailCountRef = useRef(0);
+  useEffect(() => { emailCountRef.current = emails.length; }, [emails.length]);
+
+  const loadEmails = useCallback(async (folder, search, accountId, append = false) => {
+    const params = { limit: PAGE_SIZE, offset: append ? emailCountRef.current : 0 };
     if (folder === 'starred') {
       params.starred = true;
     } else {
@@ -150,8 +159,21 @@ export default function Inbox() {
     if (search) params.search = search;
     if (accountId) params.accountId = accountId;
     const { emails: data } = await getEmails(params);
-    setEmails(data || []);
+    const fetched = data || [];
+    if (append) {
+      setEmails(prev => [...prev, ...fetched]);
+    } else {
+      setEmails(fetched);
+    }
+    setHasMore(fetched.length >= PAGE_SIZE);
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    await loadEmails(activeFolder, searchQuery, selectedAccountId, true);
+    setLoadingMore(false);
+  }, [loadingMore, hasMore, activeFolder, searchQuery, selectedAccountId, loadEmails]);
 
   const loadCounts = useCallback(async (accountId) => {
     const { counts: c } = await getEmailCounts(accountId);
@@ -193,31 +215,61 @@ export default function Inbox() {
     return () => clearTimeout(searchTimeoutRef.current);
   }, [searchQuery]);
 
-  // Poll DB every 10s for UI refresh (fast — no IMAP)
+  // Realtime: subscribe to new emails via Supabase Realtime
   useEffect(() => {
-    if (loading || accounts.length === 0) return;
-    const poll = setInterval(async () => {
-      try {
-        await loadEmails(activeFolder, searchQuery, selectedAccountId);
-        await loadCounts(selectedAccountId);
-      } catch (_) {}
-    }, 10000);
-    return () => clearInterval(poll);
-  }, [loading, accounts, activeFolder, searchQuery, selectedAccountId, loadEmails, loadCounts]);
+    if (!user?.id || loading) return;
 
-  // Full IMAP sync every 2 min (heavy — opens IMAP connection)
-  useEffect(() => {
-    if (loading || accounts.length === 0) return;
-    const sync = setInterval(async () => {
-      try {
-        for (const acc of accounts) {
-          if (selectedAccountId && acc.id !== selectedAccountId) continue;
-          await syncEmailAccount(acc.id);
+    const channel = supabase
+      .channel('emails-realtime')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'emails',
+        filter: `user_id=eq.${user.id}`,
+      }, (payload) => {
+        const newEmail = payload.new;
+        // Only add if it matches current folder/account filter
+        const matchesFolder = activeFolder === 'starred'
+          ? newEmail.is_starred
+          : (newEmail.folder || 'inbox') === (activeFolder || 'inbox');
+        const matchesAccount = !selectedAccountId || newEmail.account_id === selectedAccountId;
+
+        if (matchesFolder && matchesAccount) {
+          setEmails(prev => {
+            // Dedup
+            if (prev.some(e => e.id === newEmail.id)) return prev;
+            return [newEmail, ...prev];
+          });
         }
-      } catch (_) {}
-    }, 120000);
-    return () => clearInterval(sync);
-  }, [loading, accounts, selectedAccountId]);
+        // Always refresh counts
+        loadCounts(selectedAccountId);
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'emails',
+        filter: `user_id=eq.${user.id}`,
+      }, (payload) => {
+        const updated = payload.new;
+        setEmails(prev => prev.map(e => e.id === updated.id ? { ...e, ...updated } : e));
+        if (selectedEmail?.id === updated.id) {
+          setSelectedEmailFull(prev => prev ? { ...prev, ...updated } : prev);
+        }
+        loadCounts(selectedAccountId);
+      })
+      .on('postgres_changes', {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'emails',
+        filter: `user_id=eq.${user.id}`,
+      }, (payload) => {
+        setEmails(prev => prev.filter(e => e.id !== payload.old.id));
+        loadCounts(selectedAccountId);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.id, loading, activeFolder, selectedAccountId]);
 
   // ── Account actions ──
 
@@ -648,7 +700,8 @@ export default function Inbox() {
                 </p>
               </div>
             ) : (
-              emails.map((email) => (
+              <>
+              {emails.map((email) => (
                 <div
                   key={email.id}
                   className={`inbox-email-row ${!email.is_read ? 'inbox-email-row--unread' : ''} ${selectedEmail?.id === email.id ? 'inbox-email-row--selected' : ''}`}
@@ -674,7 +727,13 @@ export default function Inbox() {
                     <div className="inbox-email-preview">{generatePreview(email.body_text)}</div>
                   </div>
                 </div>
-              ))
+              ))}
+              {hasMore && (
+                <button className="inbox-load-more" onClick={loadMore} disabled={loadingMore}>
+                  {loadingMore ? 'Loading...' : 'Load More'}
+                </button>
+              )}
+              </>
             )}
           </div>
         </div>

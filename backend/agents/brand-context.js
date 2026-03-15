@@ -33,20 +33,14 @@ export function buildBrandContext(brandDna) {
   // Photos
   const photos = brandDna.photo_urls || [];
   if (photos.length > 0) {
-    parts.push('\n### Brand Photos');
-    parts.push('These photos are various sizes and aspect ratios. You MUST handle them responsively:');
+    parts.push('\n### Brand Photos (reference images of the user/product)');
+    parts.push('Use these ONLY where the actual user, their team, or their product should appear (testimonials, about, social proof). Do NOT use as hero images — use {{GENERATE:prompt}} for conceptual hero visuals instead.');
     photos.forEach((url, i) => {
-      const usage = i === 0 ? '(hero/header image)' :
-                    i === 1 ? '(features/about section)' :
-                    i === 2 ? '(testimonials or supporting section)' :
-                    '(use where appropriate)';
-      parts.push(`- Photo ${i + 1}: ${url} ${usage}`);
+      parts.push(`- Photo ${i + 1}: ${url}`);
     });
-    parts.push('- Insert as <img src="URL"> tags, NOT CSS backgrounds');
-    parts.push('- ALWAYS use width:100%;height:auto; — NEVER set a fixed pixel height (it distorts images)');
-    parts.push('- For logos: max-height:44px;width:auto;');
-    parts.push('- For hero images: width:100%;height:auto;display:block;border-radius:8px;');
-    parts.push('- If a photo doesn\'t fit the context, skip it — don\'t force it in');
+    parts.push('- Insert as <img src="URL"> tags when contextually appropriate');
+    parts.push('- ALWAYS use width:100%;height:auto; — NEVER set a fixed pixel height');
+    parts.push('- If a photo doesn\'t fit the section context, skip it — don\'t force it in');
   }
 
   // Brand description

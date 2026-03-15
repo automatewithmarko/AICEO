@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { supabase } from '../services/storage.js';
-import { syncContactToGHL, syncContactFromGHL } from '../services/integrations/gohighlevel.js';
+import { syncContactToGHL, syncContactFromGHL, sync as syncGHL } from '../services/integrations/gohighlevel.js';
 
 const router = Router();
 
@@ -440,28 +440,15 @@ router.post('/api/contacts/sync', async (req, res) => {
     }
   }
 
-  // 4. Sync from GoHighLevel contacts (integration_data → contacts table)
-  const { data: ghlContacts } = await supabase
-    .from('integration_data')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('provider', 'gohighlevel')
-    .eq('data_type', 'contact')
-    .limit(500);
-
-  if (ghlContacts) {
-    for (const ghl of ghlContacts) {
-      const ghlContact = {
-        id: ghl.external_id,
-        firstName: ghl.metadata?.first_name || '',
-        lastName: ghl.metadata?.last_name || '',
-        email: ghl.metadata?.email || '',
-        phone: ghl.metadata?.phone || '',
-        companyName: ghl.metadata?.company || '',
-        tags: ghl.metadata?.tags || [],
-      };
-      const result = await syncContactFromGHL(ghlContact, userId);
-      if (result) synced++;
+  // 4. Sync from GoHighLevel — fetch fresh from GHL API, then materialize
+  const ghlIntegration = await getGHLIntegration(userId);
+  if (ghlIntegration) {
+    try {
+      const ghlResult = await syncGHL({ ...ghlIntegration, user_id: userId });
+      synced += ghlResult.synced || 0;
+      console.log(`[contacts] GHL API sync: ${ghlResult.synced} contacts fetched`);
+    } catch (err) {
+      console.log(`[contacts] GHL API sync failed: ${err.message}`);
     }
   }
 

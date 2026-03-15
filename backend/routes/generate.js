@@ -40,6 +40,18 @@ const PLATFORM_IMAGE_RULES = {
 - Style reference: think MrBeast, MKBHD, or Ali Abdaal thumbnail quality
 - NO cluttered designs, NO small text, NO generic stock imagery`,
 
+  instagram_story: `INSTAGRAM STORY RULES:
+- Aspect ratio: PORTRAIT 9:16 (1080x1920) — this is critical, the image MUST be tall vertical portrait format
+- This is an Instagram Story frame — full-screen vertical content
+- Bold, large, readable TEXT overlaid on the image — 2-3 lines max
+- Typography: clean sans-serif, high contrast against background, centered or top-third placement
+- Background: vibrant photo, gradient, or styled visual — must fill the entire 9:16 frame
+- Style reference: think professional Instagram story ads, branded story slides
+- Colors: bold, saturated, on-brand. High contrast text with subtle shadow or background blur for readability
+- NO landscape images, NO square crops — the image MUST be 9:16 portrait
+- NO tiny text, NO cluttered layouts — keep it punchy and scroll-stopping
+- Make it look like a top social media agency designed it`,
+
   tiktok: `TIKTOK COVER RULES:
 - Aspect ratio: PORTRAIT 9:16 — tall vertical format
 - Bold text overlay centered in the frame
@@ -241,6 +253,40 @@ ${prompt}`;
     });
   } catch (err) {
     console.log(`[generate/image] Error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Upload base64 image to Supabase storage ───
+router.post('/api/generate/upload-image', async (req, res) => {
+  const { base64, mimeType, filename } = req.body;
+  if (!base64) return res.status(400).json({ error: 'base64 is required' });
+
+  try {
+    const ext = (mimeType || 'image/png').split('/')[1] || 'png';
+    const name = filename || `nl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const buffer = Buffer.from(base64, 'base64');
+
+    const { data, error } = await supabase.storage
+      .from('newsletter-images')
+      .upload(name, buffer, {
+        contentType: mimeType || 'image/png',
+        upsert: true,
+      });
+
+    if (error) {
+      console.log(`[upload-image] Storage error: ${error.message}`);
+      return res.status(500).json({ error: error.message });
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('newsletter-images')
+      .getPublicUrl(name);
+
+    console.log(`[upload-image] Uploaded ${name} → ${urlData.publicUrl}`);
+    res.json({ url: urlData.publicUrl });
+  } catch (err) {
+    console.log(`[upload-image] Error: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });

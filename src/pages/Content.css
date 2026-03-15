@@ -111,6 +111,7 @@
 /* Photo thumbnail grid */
 .cs-photo-grid {
   display: flex;
+  justify-content: center;
   gap: 4px;
 }
 
@@ -158,6 +159,7 @@
 /* Document thumbnail grid */
 .cs-doc-grid {
   display: flex;
+  justify-content: center;
   gap: 4px;
 }
 
@@ -1312,13 +1314,30 @@
 .cs-social-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  justify-content: center;
+  gap: 0;
+  padding: 4px;
   background: var(--bg-white);
   border: 1px solid var(--border-light);
   border-radius: 10px;
   position: relative;
   transition: border-color 0.2s, background 0.2s;
+}
+
+.cs-social-card .cs-social-card-info,
+.cs-social-card .cs-social-card-remove {
+  display: none;
+}
+
+.content-sidebar--open .cs-social-card {
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.content-sidebar--open .cs-social-card .cs-social-card-info,
+.content-sidebar--open .cs-social-card .cs-social-card-remove {
+  display: flex;
 }
 
 .cs-social-card--extracting {

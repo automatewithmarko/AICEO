@@ -240,6 +240,29 @@
   margin: 0;
 }
 
+.inbox-load-more {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  background: none;
+  color: var(--brand-red);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border-top: 1px solid var(--border-light);
+  transition: background 0.15s;
+}
+
+.inbox-load-more:hover:not(:disabled) {
+  background: var(--bg-secondary);
+}
+
+.inbox-load-more:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
 .inbox-empty-btn {
   display: flex;
   align-items: center;

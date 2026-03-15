@@ -400,6 +400,13 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, on
       // Execute tool calls via the handler
       if (onToolCalls) await onToolCalls(toolCalls);
 
+      // If ask_user was called, stop the loop — wait for user's answer
+      const hasAskUser = toolCalls.some(tc => tc.name === 'ask_user');
+      if (hasAskUser) {
+        if (content) lastContent += content;
+        return { content: lastContent, toolCalls: [] };
+      }
+
       // Build assistant message with tool calls (OpenAI format)
       const assistantMsg = { role: 'assistant', content: content || null };
       assistantMsg.tool_calls = toolCalls.map(tc => ({

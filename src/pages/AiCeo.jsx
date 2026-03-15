@@ -3,12 +3,72 @@ import { useOutletContext } from 'react-router-dom';
 import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { generateImage, streamFromBackend } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend } from '../lib/api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
 import ArtifactPanel from '../components/ArtifactPanel';
 import './AiCeo.css';
 
 // CEO prompt and tools are now handled server-side via /api/orchestrate
+
+// Generate AI images for {{GENERATE:prompt}} placeholders in newsletter HTML
+// Images are uploaded to Supabase storage and replaced with public URLs (not base64)
+async function generateNewsletterImages(html, setArtifactFn) {
+  const regex = /\{\{GENERATE:(.*?)\}\}/g;
+  const matches = [];
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    matches.push({ full: match[0], prompt: match[1] });
+  }
+  if (matches.length === 0) return html;
+
+  let updatedHtml = html;
+
+  // Generate and upload images in parallel
+  const results = await Promise.allSettled(
+    matches.map(async (m) => {
+      try {
+        const result = await generateImage(m.prompt.trim(), 'general', null);
+        if (result.image) {
+          // Upload to Supabase storage, get public URL
+          const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
+          if (uploaded.url) {
+            return { placeholder: m.full, src: uploaded.url };
+          }
+        }
+      } catch (err) {
+        console.error('Newsletter image gen/upload failed:', err);
+      }
+      return null;
+    })
+  );
+
+  // Replace placeholders with public URLs
+  for (const r of results) {
+    if (r.status === 'fulfilled' && r.value) {
+      updatedHtml = updatedHtml.replace(r.value.placeholder, r.value.src);
+      if (setArtifactFn) {
+        const currentHtml = updatedHtml;
+        setArtifactFn(prev => prev ? { ...prev, content: currentHtml } : prev);
+      }
+    }
+  }
+  return updatedHtml;
+}
+
+// Merge section-based edits into existing HTML using section markers
+function mergeSectionEdits(currentHtml, sections) {
+  let result = currentHtml;
+  for (const [sectionName, sectionHtml] of Object.entries(sections)) {
+    const startMarker = `<!-- SECTION:${sectionName} -->`;
+    const endMarker = `<!-- /SECTION:${sectionName} -->`;
+    const startIdx = result.indexOf(startMarker);
+    const endIdx = result.indexOf(endMarker);
+    if (startIdx !== -1 && endIdx !== -1) {
+      result = result.slice(0, startIdx) + startMarker + '\n' + sectionHtml.trim() + '\n' + endMarker + result.slice(endIdx + endMarker.length);
+    }
+  }
+  return result;
+}
 
 // ── Component ──
 export default function AiCeo() {
@@ -41,6 +101,7 @@ export default function AiCeo() {
   const splitRef = useRef(null);
   const isMobileRef = useRef(isMobile);
   const ctxMenuRef = useRef(null);
+  const artifactRef = useRef(null);
 
   const hasMessages = messages.length > 0;
   const showPanel = panelOpen && artifact && !isMobile;
@@ -122,6 +183,11 @@ export default function AiCeo() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [ctxMenuOpen]);
 
+  // ── Keep artifact ref in sync ──
+  useEffect(() => {
+    artifactRef.current = artifact;
+  }, [artifact]);
+
   // ── Responsive ──
   useEffect(() => {
     isMobileRef.current = isMobile;
@@ -135,9 +201,14 @@ export default function AiCeo() {
 
   // Context is now loaded server-side by the orchestrator
 
-  // ── Auto-scroll ──
+  // ── Auto-scroll — only when user sends a message or generation starts ──
+  const shouldScrollRef = useRef(false);
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (shouldScrollRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      shouldScrollRef.current = false;
+    }
   }, [messages]);
 
   // ── Draggable Divider ──
@@ -176,10 +247,15 @@ export default function AiCeo() {
 
       const apiMessages = chatHistory.map(m => ({ role: m.role, content: m.content }));
 
+      // Pass current artifact HTML for editing support
+      const currentArtifact = artifactRef.current;
+      const hasHtmlArtifact = currentArtifact?.content && (currentArtifact.type === 'newsletter' || currentArtifact.type === 'html_template');
+
       await streamFromBackend('/api/orchestrate', {
         messages: apiMessages,
         mode: 'ceo',
         searchMode: researchMode,
+        ...(hasHtmlArtifact ? { currentHtml: currentArtifact.content, currentAgent: currentArtifact.agentSource || 'newsletter' } : {}),
       }, {
         // CEO text streaming
         onTextDelta: (content) => {
@@ -230,7 +306,20 @@ export default function AiCeo() {
         onAgentResult: (agentName, content) => {
           try {
             const parsed = JSON.parse(content);
-            if (parsed.html || parsed.type === 'newsletter' || parsed.type === 'html') {
+            // Section-based edit — merge only changed sections into current artifact HTML
+            if (parsed.type === 'edit' && parsed.sections) {
+              const currentArt = artifactRef.current;
+              if (currentArt?.content) {
+                const mergedHtml = mergeSectionEdits(currentArt.content, parsed.sections);
+                setArtifact(prev => prev ? { ...prev, content: mergedHtml } : prev);
+                setPanelOpen(true);
+                if (isMobileRef.current) setMobileArtifactOpen(true);
+                const sectionNames = Object.keys(parsed.sections).join(', ');
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantMsgId ? { ...m, content: parsed.summary || `Updated sections: ${sectionNames}`, hasArtifact: true, artifactTitle: currentArt.title || 'Updated output' } : m
+                ));
+              }
+            } else if (parsed.html || parsed.type === 'newsletter' || parsed.type === 'html') {
               const html = parsed.html;
               const isNewsletter = agentName === 'newsletter' || parsed.type === 'newsletter';
               setArtifact({
@@ -246,6 +335,13 @@ export default function AiCeo() {
               setMessages(prev => prev.map(m =>
                 m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: parsed.summary || `${agentName} output`, artifactType: 'html_template' } : m
               ));
+
+              // Generate AI images for {{GENERATE:...}} placeholders
+              if (html && html.includes('{{GENERATE:')) {
+                generateNewsletterImages(html, setArtifact).catch(err => {
+                  console.error('Newsletter image generation failed:', err);
+                });
+              }
             }
             if (parsed.type === 'story_sequence' && parsed.frames) {
               setArtifact({
@@ -309,13 +405,27 @@ export default function AiCeo() {
           }
         },
         onSearchStatus: setSearchStatus,
+        // File-based edit updates (live preview while editing)
+        onFileUpdate: (html) => {
+          setArtifact(prev => prev ? { ...prev, content: html } : prev);
+          setPanelOpen(true);
+          if (isMobileRef.current) setMobileArtifactOpen(true);
+        },
+        // Edit summary after file-based edits complete
+        onEditSummary: (summary) => {
+          if (summary) {
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsgId ? { ...m, content: summary, hasArtifact: true, artifactTitle: 'Updated newsletter' } : m
+            ));
+          }
+        },
         onAskUser: (question, options) => {
           setCurrentQuestion({ question, options });
           setCustomTyping(false);
           setCustomText('');
-          // Clear status from assistant message
+          // Save the question as the assistant's message so it appears in conversation history
           setMessages(prev => prev.map(m =>
-            m.id === assistantMsgId ? { ...m, status: null } : m
+            m.id === assistantMsgId ? { ...m, content: question, status: null } : m
           ));
         },
       }, abort.signal);
@@ -346,6 +456,7 @@ export default function AiCeo() {
     setCurrentQuestion(null);
     setCustomTyping(false);
     setCustomText('');
+    shouldScrollRef.current = true;
     const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: answer.trim() };
     const updated = [...messages, userMsg];
     setMessages(updated);
@@ -356,15 +467,20 @@ export default function AiCeo() {
     const text = input.trim();
     if (!text || isGenerating) return;
     setCurrentQuestion(null);
+    shouldScrollRef.current = true;
     const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: text };
     const updated = [...messages, userMsg];
     setMessages(updated);
     setInput('');
+    // Reset textarea height
+    const textarea = document.querySelector('.ceo-input-area--bottom .ceo-input');
+    if (textarea) textarea.style.height = 'auto';
     sendToAI(updated);
   }, [input, isGenerating, messages, sendToAI]);
 
   const handleStarter = useCallback((text) => {
     if (isGenerating) return;
+    shouldScrollRef.current = true;
     const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: text };
     const updated = [userMsg];
     setMessages(updated);
@@ -606,6 +722,7 @@ export default function AiCeo() {
                     </div>
                   );
                 })}
+                {currentQuestion && <div style={{ minHeight: 200, flexShrink: 0 }} />}
                 <div ref={messagesEndRef} />
               </div>
 

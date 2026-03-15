@@ -202,7 +202,7 @@ router.put('/api/products/:id', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
-  const { name, description, type } = req.body;
+  const { name, description, type, photos } = req.body;
 
   // Fetch existing
   const { data: existing, error: fetchErr } = await supabase
@@ -230,6 +230,7 @@ router.put('/api/products/:id', async (req, res) => {
     if (name) dbUpdates.name = name;
     if (description !== undefined) dbUpdates.description = description;
     if (type) dbUpdates.type = type;
+    if (photos !== undefined) dbUpdates.photos = photos;
 
     const { data, error } = await supabase
       .from('products')
@@ -349,7 +350,7 @@ router.post('/api/products/:id/photos', async (req, res) => {
   if (existingPhotos.length >= 3) return res.status(400).json({ error: 'Maximum 3 photos allowed' });
 
   const busboy = Busboy({ headers: req.headers, limits: { files: 3 - existingPhotos.length, fileSize: 10 * 1024 * 1024 } });
-  const uploadedPhotos = [];
+  const uploadPromises = [];
 
   busboy.on('file', (fieldname, stream, info) => {
     const { filename, mimeType } = info;
@@ -360,26 +361,43 @@ router.post('/api/products/:id/photos', async (req, res) => {
 
     const chunks = [];
     stream.on('data', (chunk) => chunks.push(chunk));
-    stream.on('end', async () => {
-      const buffer = Buffer.concat(chunks);
-      const ext = filename.split('.').pop() || 'jpg';
-      const storagePath = `${userId}/${product.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-      const { error: uploadErr } = await supabase.storage
-        .from('product-images')
-        .upload(storagePath, buffer, { contentType: mimeType, upsert: true });
+    const uploadDone = new Promise((resolve) => {
+      stream.on('end', async () => {
+        try {
+          const buffer = Buffer.concat(chunks);
+          const ext = filename.split('.').pop() || 'jpg';
+          const storagePath = `${userId}/${product.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-      if (!uploadErr) {
-        const { data: { publicUrl } } = supabase.storage
-          .from('product-images')
-          .getPublicUrl(storagePath);
+          const { error: uploadErr } = await supabase.storage
+            .from('product-images')
+            .upload(storagePath, buffer, { contentType: mimeType, upsert: true });
 
-        uploadedPhotos.push({ id: `photo-${Date.now()}-${Math.random().toString(36).slice(2)}`, url: publicUrl });
-      }
+          if (!uploadErr) {
+            const { data: { publicUrl } } = supabase.storage
+              .from('product-images')
+              .getPublicUrl(storagePath);
+
+            resolve({ id: `photo-${Date.now()}-${Math.random().toString(36).slice(2)}`, url: publicUrl });
+          } else {
+            console.log(`[products] Photo upload error: ${uploadErr.message}`);
+            resolve(null);
+          }
+        } catch (err) {
+          console.log(`[products] Photo upload exception: ${err.message}`);
+          resolve(null);
+        }
+      });
     });
+
+    uploadPromises.push(uploadDone);
   });
 
   busboy.on('finish', async () => {
+    // Wait for all uploads to actually complete
+    const results = await Promise.all(uploadPromises);
+    const uploadedPhotos = results.filter(Boolean);
+
     const allPhotos = [...existingPhotos, ...uploadedPhotos].slice(0, 3);
 
     const { data, error } = await supabase

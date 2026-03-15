@@ -44,6 +44,7 @@ export default function Settings() {
   const [connectError, setConnectError] = useState(null);
   const [firefliesWebhook, setFirefliesWebhook] = useState({ url: '', secret: '' });
   const [ghlWebhook, setGhlWebhook] = useState({ url: '', secret: '' });
+  const [ghlLocationId, setGhlLocationId] = useState('');
   const [shopifyStoreUrl, setShopifyStoreUrl] = useState('');
   const [shopifyStep, setShopifyStep] = useState(1);
   const [shopifyWebhook, setShopifyWebhook] = useState({ url: '', secret: '' });
@@ -267,17 +268,13 @@ export default function Settings() {
   };
 
   const handleGHLNext = async () => {
-    if (!apiKey.trim()) return;
+    if (!apiKey.trim() || !ghlLocationId.trim()) return;
     setConnecting(true);
     setConnectError(null);
     try {
-      const result = await connectIntegration('gohighlevel', apiKey);
+      const result = await connectIntegration('gohighlevel', apiKey, { location_id: ghlLocationId.trim() });
       setIntegrations((prev) => ({ ...prev, gohighlevel: result.integration }));
-      setGhlWebhook({
-        url: result.integration.webhook_url || '',
-        secret: result.integration.webhook_secret || '',
-      });
-      setGhlStep(2);
+      setModalOpen(null);
     } catch (err) {
       setConnectError(err.message);
     } finally {
@@ -963,24 +960,34 @@ export default function Settings() {
                   <div className="modal-step">
                     <span className="modal-step-number">1</span>
                     <span className="modal-step-text">
-                      Go to your{' '}
-                      <a href="https://app.gohighlevel.com/v2/location/aWX79bMev8BVbGA1gx0X/settings/company" target="_blank" rel="noopener noreferrer" className="modal-step-link">
-                        GoHighLevel Settings page
-                      </a>{' '}
-                      and copy your API key.
+                      Go to your GoHighLevel{' '}
+                      <strong>Settings &rarr; Business Profile</strong>{' '}
+                      to find your Location ID, and{' '}
+                      <strong>Settings &rarr; Integrations &rarr; Private Integrations</strong>{' '}
+                      to create an API token.
                     </span>
                   </div>
                   <div className="modal-step">
                     <span className="modal-step-number">2</span>
-                    <span className="modal-step-text">Paste it below.</span>
+                    <span className="modal-step-text">Paste both values below.</span>
                   </div>
                 </div>
                 <div className="modal-field">
-                  <label className="modal-label">Enter your GoHighLevel API key</label>
+                  <label className="modal-label">Location ID (sub-account)</label>
                   <input
                     type="text"
                     className="modal-input"
-                    placeholder="Paste your API key here"
+                    placeholder="e.g. ve9EPM428h8vShlRW1KT"
+                    value={ghlLocationId}
+                    onChange={(e) => setGhlLocationId(e.target.value)}
+                  />
+                </div>
+                <div className="modal-field">
+                  <label className="modal-label">Private Integration API Token</label>
+                  <input
+                    type="text"
+                    className="modal-input"
+                    placeholder="Paste your API token here"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                   />
@@ -988,60 +995,10 @@ export default function Settings() {
                 {connectError && <p className="modal-error">{connectError}</p>}
                 <button
                   className="modal-btn modal-btn--primary"
-                  disabled={!apiKey.trim() || connecting}
+                  disabled={!apiKey.trim() || !ghlLocationId.trim() || connecting}
                   onClick={handleGHLNext}
                 >
-                  {connecting ? <><Loader size={14} className="settings-spinner" /> Validating...</> : 'Next'}
-                </button>
-              </>
-            )}
-
-            {/* GoHighLevel: step 2 */}
-            {modalOpen === 'gohighlevel' && ghlStep === 2 && (
-              <>
-                <p className="modal-instruction">Copy this into your GoHighLevel Settings &rarr; Webhooks</p>
-                <div className="modal-field">
-                  <label className="modal-label">Webhook URL</label>
-                  <div className="modal-copy-row">
-                    <input
-                      type="text"
-                      className="modal-input modal-input--readonly"
-                      value={ghlWebhook.url}
-                      readOnly
-                    />
-                    <button
-                      className="modal-copy-btn"
-                      onClick={() => copyToClipboard(ghlWebhook.url, 'ghl-url')}
-                    >
-                      {copiedField === 'ghl-url' ? <Check size={16} /> : <Copy size={16} />}
-                    </button>
-                  </div>
-                </div>
-                <div className="modal-field">
-                  <label className="modal-label">Webhook Secret</label>
-                  <div className="modal-copy-row">
-                    <input
-                      type="text"
-                      className="modal-input modal-input--readonly"
-                      value={ghlWebhook.secret}
-                      readOnly
-                    />
-                    <button
-                      className="modal-copy-btn"
-                      onClick={() => copyToClipboard(ghlWebhook.secret, 'ghl-secret')}
-                    >
-                      {copiedField === 'ghl-secret' ? <Check size={16} /> : <Copy size={16} />}
-                    </button>
-                  </div>
-                </div>
-                <p className="modal-description" style={{ fontSize: 12, marginTop: 4 }}>
-                  Subscribe to <strong>ContactCreate</strong>, <strong>ContactUpdate</strong>, and <strong>ContactDelete</strong> events for real-time sync.
-                </p>
-                <button
-                  className="modal-btn modal-btn--primary"
-                  onClick={() => setModalOpen(null)}
-                >
-                  Done
+                  {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
                 </button>
               </>
             )}

@@ -895,6 +895,41 @@
   color: #16a34a;
 }
 
+/* ── GHL Raw Data ── */
+.crm-ghl-data {
+  padding: 8px 0 !important;
+}
+
+.crm-ghl-data-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 13px;
+}
+
+.crm-ghl-data-row:last-child {
+  border-bottom: none;
+}
+
+.crm-ghl-data-key {
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 120px;
+}
+
+.crm-ghl-data-value {
+  color: var(--text-primary);
+  text-align: right;
+  word-break: break-all;
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+
 /* ── List tab delete button ── */
 .crm-list-tab-delete {
   display: inline-flex;

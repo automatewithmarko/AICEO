@@ -322,88 +322,119 @@ const CONTEXT_CATEGORIES = [
   },
 ];
 
-// ── Story Sequence React Flow Canvas ──
-const STORY_W = 150;
-const STAGGER_X = 200;
-const STAGGER_Y = 340; // 267px card height + 73px gap for edge
+// ── Story Sequence Phone Viewer ──
+function StoryPhoneViewer({ frames }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const timerRef = useRef(null);
+  const touchStartRef = useRef(null);
+  const DURATION = 5000;
 
-function StoryCardNode({ data }) {
+  const total = frames.length;
+  const frame = frames[activeIndex] || {};
+
+  // Auto-advance to first ready frame when images load
+  const readyCount = frames.filter(f => f.imageSrc && !f.loading).length;
+  const prevReadyRef = useRef(0);
+  useEffect(() => {
+    if (readyCount > prevReadyRef.current) {
+      // A new image just loaded — jump to it if we're on a loading/empty frame
+      const currentFrame = frames[activeIndex];
+      if (!currentFrame?.imageSrc || currentFrame?.loading) {
+        const firstReady = frames.findIndex(f => f.imageSrc && !f.loading);
+        if (firstReady >= 0) setActiveIndex(firstReady);
+      }
+      prevReadyRef.current = readyCount;
+    }
+  }, [readyCount, frames, activeIndex]);
+
+  // Autoplay timer — runs even on hover so navigation works, just skips auto-advance when paused
+  useEffect(() => {
+    if (total === 0) return;
+    if (paused) return;
+    timerRef.current = setTimeout(() => {
+      setActiveIndex(prev => (prev + 1) % total);
+    }, DURATION);
+    return () => clearTimeout(timerRef.current);
+  }, [paused, total, activeIndex]);
+
+  const goPrev = (e) => {
+    e.stopPropagation();
+    setActiveIndex(prev => Math.max(0, prev - 1));
+  };
+  const goNext = (e) => {
+    e.stopPropagation();
+    setActiveIndex(prev => Math.min(total - 1, prev + 1));
+  };
+
+  // Touch/swipe handling
+  const onTouchStart = (e) => { touchStartRef.current = e.touches[0].clientX; };
+  const onTouchEnd = (e) => {
+    if (touchStartRef.current === null) return;
+    const diff = e.changedTouches[0].clientX - touchStartRef.current;
+    if (Math.abs(diff) > 40) {
+      if (diff < 0) setActiveIndex(prev => Math.min(total - 1, prev + 1));
+      else setActiveIndex(prev => Math.max(0, prev - 1));
+    }
+    touchStartRef.current = null;
+  };
+
   return (
-    <div className="sf-card">
-      <Handle type="target" position={Position.Top} className="sf-handle" />
-      <div className="sf-card-inner">
-        {data.loading ? (
-          <div className="sf-card-loading">
-            <span className="mkt-msg-dots"><span /><span /><span /></span>
-          </div>
-        ) : data.imageSrc ? (
-          <img src={data.imageSrc} alt={data.caption} className="sf-card-img" />
-        ) : (
-          <div className="sf-card-empty">
-            <div className="mkt-story-ig-icon" />
-          </div>
+    <div className="sp-wrapper">
+      <div
+        className="sp-phone"
+        onMouseEnter={() => setPaused(true)}
+        onMouseLeave={() => setPaused(false)}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        {/* Timeline bars */}
+        <div className="sp-timeline">
+          {frames.map((_, i) => (
+            <div key={i} className="sp-timeline-bar" onClick={() => setActiveIndex(i)}>
+              <div
+                className={`sp-timeline-fill ${i === activeIndex ? (paused ? 'sp-timeline-fill--paused' : 'sp-timeline-fill--active') : i < activeIndex ? 'sp-timeline-fill--done' : ''}`}
+                style={i === activeIndex ? { animationDuration: `${DURATION}ms` } : undefined}
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Left/Right tap zones */}
+        <div className="sp-tap sp-tap--left" onClick={goPrev} />
+        <div className="sp-tap sp-tap--right" onClick={goNext} />
+
+        {/* Left/Right arrows (visible on hover) */}
+        {activeIndex > 0 && (
+          <button className="sp-arrow sp-arrow--left" onClick={goPrev}>
+            <ChevronRight size={20} style={{ transform: 'rotate(180deg)' }} />
+          </button>
         )}
-        <div className="sf-card-overlay">
-          <span className="sf-card-num">Story {data.index + 1}</span>
-          {data.caption && <span className="sf-card-caption">{data.caption}</span>}
+        {activeIndex < total - 1 && (
+          <button className="sp-arrow sp-arrow--right" onClick={goNext}>
+            <ChevronRight size={20} />
+          </button>
+        )}
+
+        {/* Frame content */}
+        <div className="sp-frame">
+          {frame.loading ? (
+            <div className="sp-frame-loading">
+              <span className="mkt-msg-dots"><span /><span /><span /></span>
+            </div>
+          ) : frame.imageSrc ? (
+            <img src={frame.imageSrc} alt={frame.caption || ''} className="sp-frame-img" />
+          ) : (
+            <div className="sp-frame-empty">
+              <div className="mkt-story-ig-icon" />
+            </div>
+          )}
+          <div className="sp-frame-overlay">
+            <span className="sp-frame-num">Story {activeIndex + 1} / {total}</span>
+            {frame.caption && <span className="sp-frame-caption">{frame.caption}</span>}
+          </div>
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} className="sf-handle" />
-    </div>
-  );
-}
-
-const storyNodeTypes = { storyCard: StoryCardNode };
-
-function StoryFlowCanvas({ frames }) {
-  const nodes = useMemo(() =>
-    frames.map((f, i) => ({
-      id: `story-${i}`,
-      type: 'storyCard',
-      position: {
-        x: (i % 2 === 0 ? 0 : STAGGER_X),
-        y: i * STAGGER_Y,
-      },
-      data: { ...f, index: i },
-      draggable: false,
-      selectable: false,
-      connectable: false,
-    })),
-  [frames]);
-
-  const edges = useMemo(() =>
-    frames.slice(0, -1).map((_, i) => ({
-      id: `e-${i}`,
-      source: `story-${i}`,
-      target: `story-${i + 1}`,
-      type: 'smoothstep',
-      animated: true,
-      style: { stroke: '#c8c8cc', strokeWidth: 2, strokeDasharray: '8 4' },
-      sourceHandle: null,
-      targetHandle: null,
-    })),
-  [frames]);
-
-  return (
-    <div className="sf-canvas">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={storyNodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.4 }}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        elementsSelectable={false}
-        panOnDrag
-        zoomOnScroll
-        zoomOnPinch
-        minZoom={0.2}
-        maxZoom={2}
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background color="#e5e7eb" gap={20} size={1} />
-      </ReactFlow>
     </div>
   );
 }
@@ -1497,7 +1528,7 @@ function ToolTab({ config, activeTool, brandDna }) {
         setStoryFrames(frames);
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || `Generating ${frames.length} story frames...` }]);
 
-        // Generate all images in parallel
+        // Generate images sequentially — each frame references the previous for visual continuity
         const brandData = brandDna ? {
           photoUrls: brandDna.photo_urls || [],
           logoUrl: brandDna.logo_url || null,
@@ -1505,22 +1536,34 @@ function ToolTab({ config, activeTool, brandDna }) {
           mainFont: brandDna.main_font || null,
         } : null;
 
-        await Promise.allSettled(
-          frames.map(async (frame, idx) => {
-            try {
-              const result = await generateImage(frame.image_prompt, 'instagram_story', brandData);
-              const allowedMime = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-              if (result.image && allowedMime.includes(result.image.mimeType)) {
-                const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-                setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, imageSrc: src, loading: false } : f));
-              } else {
-                setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, loading: false } : f));
-              }
-            } catch {
+        const visualStyle = parsed.visual_style || '';
+        let prevImageData = null; // Pass previous frame as reference to Gemini
+
+        for (let idx = 0; idx < frames.length; idx++) {
+          const frame = frames[idx];
+          const sequencePrompt = `${visualStyle ? `VISUAL STYLE FOR THIS SERIES: ${visualStyle}\n\n` : ''}This is frame ${idx + 1} of ${frames.length} in a cohesive Instagram Story sequence. ${idx > 0 ? 'CRITICAL: Match the EXACT same visual style, color palette, typography, and art direction as the previous frame shown in the attached reference image. The viewer should feel like they are swiping through ONE continuous story.' : 'This is the FIRST frame — establish the visual style that all subsequent frames will match.'}\n\n${frame.image_prompt}`;
+
+          try {
+            // Pass previous frame image as reference for continuity
+            const refBrand = prevImageData ? {
+              ...brandData,
+              // Prepend previous frame as first "photo" so Gemini sees it as reference
+              photoUrls: [`data:${prevImageData.mimeType};base64,${prevImageData.data}`, ...(brandData?.photoUrls || [])],
+            } : brandData;
+
+            const result = await generateImage(sequencePrompt, 'instagram_story', refBrand);
+            const allowedMime = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+            if (result.image && allowedMime.includes(result.image.mimeType)) {
+              const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+              prevImageData = result.image; // Save for next frame's reference
+              setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, imageSrc: src, loading: false } : f));
+            } else {
               setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, loading: false } : f));
             }
-          })
-        );
+          } catch {
+            setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, loading: false } : f));
+          }
+        }
 
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-done`, role: 'assistant', text: 'All story frames generated! Check the canvas.' }]);
       } else if (parsed?.type === 'edit' && parsed.sections) {
@@ -2070,7 +2113,7 @@ function ToolTab({ config, activeTool, brandDna }) {
             sandbox="allow-same-origin allow-scripts"
           />
           {config.canvasEmptyType === 'story-sequence' && storyFrames.length > 0 && (
-            <StoryFlowCanvas frames={storyFrames} />
+            <StoryPhoneViewer frames={storyFrames} />
           )}
           {config.canvasEmptyType === 'story-sequence' && storyFrames.length === 0 && !canvasHtml && (
             <div className="mkt-canvas-empty mkt-canvas-empty--story">

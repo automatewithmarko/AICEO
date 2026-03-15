@@ -60,15 +60,22 @@ HTML REQUIREMENTS:
 - Make it feel human, warm, and persuasive
 
 IMAGE HANDLING IN EMAILS — CRITICAL:
-- Brand photos are various sizes/aspect ratios. You MUST constrain them properly.
-- Logo: use as <img> in header. Constrain to max-height: 44px; width: auto; so it doesn't blow up.
-- Hero/banner image: set width="600" (full width of email) with style="width:100%;height:auto;display:block;" — this makes ANY aspect ratio work cleanly.
-- Inline content images (within body sections): wrap in a centered container, set max-width:100%;height:auto;border-radius:8px; — NEVER set a fixed height that will distort the image.
-- NEVER use fixed height on images (e.g., height="400") — this stretches/squishes photos. Always use height:auto.
+
+LOGO (header/footer only):
+- Use the user's brand logo URL as <img> in the header and optionally the footer.
+- Constrain to max-height: 44px; width: auto; so it doesn't blow up.
+
+ALL OTHER IMAGES (hero, body, illustrations) — AI GENERATED:
+- Do NOT use the user's brand photos for content images. Those are reference photos, not newsletter content.
+- For every hero image, section illustration, or inline image, use this placeholder format as the src:
+  src="{{GENERATE:detailed description of the image to generate}}"
+- The description inside {{GENERATE:...}} should be a vivid, specific prompt that matches the newsletter's story/topic.
+- Example: src="{{GENERATE:A modern flat illustration of a rocket launching from a laptop screen, representing business growth, in brand colors with clean minimal style}}"
+- Include 1-3 generated images per newsletter (hero + 1-2 body images). Don't overdo it.
+- Style the placeholder images with: width="600" style="width:100%;height:auto;display:block;border-radius:8px;"
+- All images must have descriptive alt text for accessibility.
+- NEVER set a fixed height on images. Always use height:auto.
 - NEVER use object-fit in emails — most email clients don't support it.
-- For side-by-side images in a 2-column table layout: set width="280" (with 20px gap) and height:auto.
-- If a photo doesn't fit the section context, skip it — don't force every photo into the email.
-- All images must have alt="" text for accessibility.
 
 COVER IMAGE FLOW:
 - When user says "suggest cover image options", respond with FORMAT 1 providing 4 vivid visual concepts + a "No thanks" option
@@ -91,7 +98,7 @@ export default {
       const primary = brandDna.colors?.primary;
       if (primary) prompt = prompt.replace(/accent color #E91A44/g, `accent color ${primary}`);
       prompt += buildBrandContext(brandDna);
-      prompt += '\n\nCRITICAL: Use ALL brand assets — colors, fonts, logo, photos, document content — in your newsletter design.';
+      prompt += '\n\nCRITICAL: Use brand colors, fonts, logo (header only), and document content in your newsletter. For all non-logo images use {{GENERATE:prompt}} placeholders — they will be AI-generated to match the story.';
     }
     return prompt;
   },
