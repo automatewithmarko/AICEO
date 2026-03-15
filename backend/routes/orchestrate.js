@@ -128,7 +128,7 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
   const hasBrandDna = !!(context.brandDna?.description || context.brandDna?.colors?.primary);
   const hasProducts = (context.products || []).length > 0;
   const hasContacts = (context.contacts || []).length > 0;
-  const hasSales = !!(context.salesData?.stats?.total_sales) || !!(context.revenueAnalytics?.totalRevenue);
+  const hasSales = !!(context.salesData?.stats?.total_sales);
 
   prompt += `\nBrand DNA: ${hasBrandDna ? 'SET UP' : 'MISSING — critical for content quality. Ask user to set up Brand DNA in Settings.'}\n`;
   prompt += `Products: ${hasProducts ? (context.products || []).length + ' products' : 'NONE — ask what they sell so you can help with marketing'}\n`;
@@ -145,7 +145,7 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
 
   prompt += '\n';
 
-  const { brandDna, contentItems, salesData, products, contacts, outlierData, revenueAnalytics } = context;
+  const { brandDna, contentItems, salesData, products, contacts, outlierData, integrationCtx } = context;
 
   if (brandDna) {
     prompt += `=== BRAND DNA ===\n`;
@@ -192,37 +192,8 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
     }
   }
 
-  if (revenueAnalytics) {
-    prompt += `=== REVENUE & BUSINESS METRICS ===\n`;
-    prompt += `Total Revenue: $${revenueAnalytics.totalRevenue.toLocaleString()}\n`;
-    prompt += `Last 30 Days: $${revenueAnalytics.revenueLast30.toLocaleString()}`;
-    if (revenueAnalytics.growthPct !== null) {
-      prompt += ` (${revenueAnalytics.growthPct >= 0 ? '+' : ''}${revenueAnalytics.growthPct}% vs prior 30 days)`;
-    }
-    prompt += '\n';
-    if (revenueAnalytics.mrr > 0) {
-      prompt += `MRR: $${revenueAnalytics.mrr.toLocaleString()}\n`;
-    }
-    if (revenueAnalytics.activeSubscriptions > 0) {
-      prompt += `Active Subscriptions: ${revenueAnalytics.activeSubscriptions}\n`;
-    }
-    if (revenueAnalytics.activeMemberships > 0) {
-      prompt += `Active Memberships (Whop): ${revenueAnalytics.activeMemberships}\n`;
-    }
-    prompt += `Customers: ${revenueAnalytics.totalCustomers}\n`;
-
-    const providers = Object.keys(revenueAnalytics.providerRevenue);
-    if (providers.length > 1) {
-      prompt += `Revenue by source: ${providers.map(p => `${p}: $${Math.round(revenueAnalytics.providerRevenue[p]).toLocaleString()}`).join(', ')}\n`;
-    }
-
-    if (revenueAnalytics.recentTxns.length > 0) {
-      prompt += `\nRecent transactions:\n`;
-      revenueAnalytics.recentTxns.forEach(tx => {
-        prompt += `- $${tx.amount.toLocaleString()} (${tx.provider}) ${tx.title}\n`;
-      });
-    }
-    prompt += '\n';
+  if (integrationCtx) {
+    prompt += `=== BUSINESS DATA FROM INTEGRATIONS ===\n${integrationCtx}\n\n`;
   }
 
   if (salesData) {
