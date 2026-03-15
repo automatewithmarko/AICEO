@@ -260,6 +260,8 @@ export async function getOutlierVideos(params = {}) {
   if (params.outliersOnly) url.searchParams.set('outliers_only', 'true');
   if (params.creatorId) url.searchParams.set('creator_id', params.creatorId);
   if (params.platform) url.searchParams.set('platform', params.platform);
+  if (params.limit) url.searchParams.set('limit', String(params.limit));
+  if (params.offset) url.searchParams.set('offset', String(params.offset));
   const res = await fetch(url.toString(), { headers });
   if (!res.ok) return { videos: [] };
   return res.json();

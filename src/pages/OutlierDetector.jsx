@@ -93,21 +93,42 @@ export default function OutlierDetector() {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [addedToContext, setAddedToContext] = useState(new Set());
   const [addingToContext, setAddingToContext] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 50;
 
   // Load creators and videos on mount
   useEffect(() => {
-    Promise.all([getOutlierCreators(), getOutlierVideos()])
+    Promise.all([getOutlierCreators(), getOutlierVideos({ limit: PAGE_SIZE })])
       .then(([c, v]) => {
         setCreators(c.creators || []);
-        setVideos(v.videos || []);
+        const vids = v.videos || [];
+        setVideos(vids);
+        setHasMore(vids.length >= PAGE_SIZE);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
   const refreshVideos = useCallback(() => {
-    getOutlierVideos().then(({ videos: v }) => setVideos(v || [])).catch(() => {});
+    getOutlierVideos({ limit: PAGE_SIZE }).then(({ videos: v }) => {
+      const vids = v || [];
+      setVideos(vids);
+      setHasMore(vids.length >= PAGE_SIZE);
+    }).catch(() => {});
   }, []);
+
+  const loadMoreVideos = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const { videos: more } = await getOutlierVideos({ limit: PAGE_SIZE, offset: videos.length });
+      const fetched = more || [];
+      setVideos(prev => [...prev, ...fetched]);
+      setHasMore(fetched.length >= PAGE_SIZE);
+    } catch {}
+    setLoadingMore(false);
+  }, [loadingMore, hasMore, videos.length]);
 
   const handleFollowCreator = async () => {
     if (!usernameInput.trim() || !selectedPlatform) return;
@@ -459,6 +480,29 @@ export default function OutlierDetector() {
           );
         })}
       </div>
+
+      {hasMore && filteredVideos.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0 32px' }}>
+          <button
+            onClick={loadMoreVideos}
+            disabled={loadingMore}
+            style={{
+              padding: '10px 32px',
+              borderRadius: 10,
+              border: '1px solid var(--border-light)',
+              background: 'var(--bg-white)',
+              color: 'var(--text-primary)',
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: 'inherit',
+              cursor: loadingMore ? 'default' : 'pointer',
+              opacity: loadingMore ? 0.6 : 1,
+            }}
+          >
+            {loadingMore ? 'Loading...' : 'Load More'}
+          </button>
+        </div>
+      )}
 
       {filteredVideos.length === 0 && creators.length > 0 && (
         <div className="od-empty">

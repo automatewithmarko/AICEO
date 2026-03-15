@@ -416,7 +416,7 @@ app.post('/api/outlier/creators', requireAuth, async (req, res) => {
 
       // Fetch videos and calculate outliers
       console.log(`[outlier] Fetching videos for ${channel.displayName}`);
-      const videos = await fetchRecentVideos(channel.uploadsPlaylistId, 50);
+      const videos = await fetchRecentVideos(channel.uploadsPlaylistId, 200);
       const { videos: enriched, averages } = calculateOutliers(videos);
 
       // Update creator averages
@@ -590,6 +590,8 @@ app.get('/api/outlier/videos', requireAuth, async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.json({ videos: [] });
 
+  const { limit = 50, offset = 0 } = req.query;
+
   let query = supabase
     .from('outlier_videos')
     .select('*, outlier_creators!inner(username, display_name, avatar_url, platform, avg_views, avg_likes, avg_comments)')
@@ -606,18 +608,15 @@ app.get('/api/outlier/videos', requireAuth, async (req, res) => {
     query = query.eq('platform', req.query.platform);
   }
 
-  const { data, error } = await query.limit(200);
+  // Exclude YouTube Shorts (≤ 180s) at the DB level
+  query = query.or('duration_seconds.gt.180,duration_seconds.is.null');
+
+  query = query.range(Number(offset), Number(offset) + Number(limit) - 1);
+
+  const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
-  // Filter out YouTube Shorts (≤ 180s) from results — other platforms are naturally short-form
-  const filtered = (data || []).filter(v => {
-    if (v.outlier_creators?.platform === 'youtube' && v.duration_seconds && v.duration_seconds <= 180) {
-      return false;
-    }
-    return true;
-  });
-
-  res.json({ videos: filtered });
+  res.json({ videos: data || [] });
 });
 
 // Re-scan a creator (refresh videos)

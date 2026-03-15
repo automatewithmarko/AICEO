@@ -950,8 +950,8 @@ export default function Settings() {
                 </button>
               </>
             )}
-            {/* GoHighLevel: step 1 */}
-            {modalOpen === 'gohighlevel' && ghlStep === 1 && (
+            {/* GoHighLevel */}
+            {modalOpen === 'gohighlevel' && (
               <>
                 <p className="modal-description">
                   Connect GoHighLevel for automatic bi-directional CRM syncing. New contacts sync both ways between GoHighLevel and your CRM.
@@ -960,20 +960,22 @@ export default function Settings() {
                   <div className="modal-step">
                     <span className="modal-step-number">1</span>
                     <span className="modal-step-text">
-                      Go to your GoHighLevel{' '}
-                      <strong>Settings &rarr; Business Profile</strong>{' '}
-                      to find your Location ID, and{' '}
-                      <strong>Settings &rarr; Integrations &rarr; Private Integrations</strong>{' '}
-                      to create an API token.
+                      Go to your GoHighLevel <strong>Settings &rarr; Business Profile</strong> and copy your Location ID.
                     </span>
                   </div>
                   <div className="modal-step">
                     <span className="modal-step-number">2</span>
-                    <span className="modal-step-text">Paste both values below.</span>
+                    <span className="modal-step-text">
+                      Go to <strong>Settings &rarr; Integrations &rarr; Private Integrations</strong> and create an API token.
+                    </span>
+                  </div>
+                  <div className="modal-step">
+                    <span className="modal-step-number">3</span>
+                    <span className="modal-step-text">Paste both below.</span>
                   </div>
                 </div>
                 <div className="modal-field">
-                  <label className="modal-label">Location ID (sub-account)</label>
+                  <label className="modal-label">Location ID</label>
                   <input
                     type="text"
                     className="modal-input"
@@ -983,7 +985,7 @@ export default function Settings() {
                   />
                 </div>
                 <div className="modal-field">
-                  <label className="modal-label">Private Integration API Token</label>
+                  <label className="modal-label">API Token</label>
                   <input
                     type="text"
                     className="modal-input"
