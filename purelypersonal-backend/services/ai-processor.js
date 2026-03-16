@@ -39,12 +39,17 @@ export async function generateSummary(transcript, template) {
 
 export async function extractActionItems(transcript) {
   try {
+    // Truncate very long transcripts to avoid token limits
+    const truncated = transcript.length > 30000 ? transcript.slice(0, 30000) + '\n\n[...transcript truncated]' : transcript;
     const result = await chatComplete(
-      'You are an expert at extracting action items from meeting transcripts. Return valid JSON only.',
-      `${ACTION_ITEMS_PROMPT}\n\nTranscript:\n${transcript}`
+      'You are an expert at extracting action items from meeting transcripts. Return valid JSON only with an "action_items" key.',
+      `${ACTION_ITEMS_PROMPT}\n\nTranscript:\n${truncated}`
     );
+    console.log(`[ai] Action items raw response (${result.length} chars): ${result.slice(0, 200)}...`);
     const parsed = JSON.parse(result);
-    return Array.isArray(parsed) ? parsed : parsed.action_items || [];
+    const items = Array.isArray(parsed) ? parsed : parsed.action_items || [];
+    console.log(`[ai] Extracted ${items.length} action items`);
+    return items;
   } catch (err) {
     console.error('[ai] Action items extraction failed:', err.message);
     return [];

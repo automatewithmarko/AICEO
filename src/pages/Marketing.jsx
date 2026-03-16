@@ -3,7 +3,7 @@ import { Mail, Send, Users, BarChart3, Megaphone, Inbox, FileText, PenTool, Arro
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
-import { generateImage, deployToNetlify, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems } from '../lib/api';
+import { generateImage, uploadImageToStorage, deployToNetlify, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems } from '../lib/api';
 import './Pages.css';
 import './Marketing.css';
 
@@ -1103,8 +1103,14 @@ function ToolTab({ config, activeTool, brandDna }) {
     const doc = iframe.contentDocument;
     if (!doc) return;
     if (canvasHtml) {
+      // Replace {{GENERATE:...}} placeholders with loading spinners for display
+      let displayHtml = canvasHtml;
+      if (displayHtml.includes('{{GENERATE:')) {
+        const spinnerSvg = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300" viewBox="0 0 600 300"><rect width="600" height="300" fill="%23f0f0f2" rx="8"/><g transform="translate(300,150)"><circle cx="0" cy="0" r="16" fill="none" stroke="%23999" stroke-width="3" stroke-dasharray="80" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="1s" repeatCount="indefinite"/></circle></g><text x="300" y="190" text-anchor="middle" fill="%23999" font-family="Inter,system-ui,sans-serif" font-size="13">Generating image...</text></svg>')}`;
+        displayHtml = displayHtml.replace(/\{\{GENERATE:.*?\}\}/g, spinnerSvg);
+      }
       doc.open();
-      doc.write(canvasHtml);
+      doc.write(displayHtml);
       doc.close();
 
       // Inject CTA link editor overlay
@@ -1561,9 +1567,52 @@ function ToolTab({ config, activeTool, brandDna }) {
         const sectionNames = Object.keys(parsed.sections).join(', ');
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || `Updated sections: ${sectionNames}` }]);
       } else if (parsed?.type === 'newsletter' || parsed?.type === 'html') {
-        const finalHtml = replaceImagePlaceholders(parsed.html, filesSnapshot);
+        let finalHtml = replaceImagePlaceholders(parsed.html, filesSnapshot);
         setCanvasHtml(finalHtml);
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || config.readyText }]);
+
+        // Generate AI images for {{GENERATE:...}} placeholders
+        if (finalHtml.includes('{{GENERATE:')) {
+          const genRegex = /\{\{GENERATE:(.*?)\}\}/g;
+          const genMatches = [];
+          let genMatch;
+          while ((genMatch = genRegex.exec(finalHtml)) !== null) {
+            genMatches.push({ full: genMatch[0], prompt: genMatch[1] });
+          }
+          if (genMatches.length > 0) {
+            const genBrandData = brandDna ? {
+              photoUrls: brandDna.photo_urls || [],
+              logoUrl: brandDna.logo_url || null,
+              colors: brandDna.colors || {},
+              mainFont: brandDna.main_font || null,
+            } : null;
+            // Generate and upload images in parallel
+            Promise.allSettled(
+              genMatches.map(async (m) => {
+                try {
+                  const result = await generateImage(m.prompt.trim(), 'general', genBrandData);
+                  if (result.image) {
+                    const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
+                    if (uploaded.url) return { placeholder: m.full, src: uploaded.url };
+                  }
+                } catch (err) {
+                  console.error('Image gen/upload failed:', err);
+                }
+                return null;
+              })
+            ).then((results) => {
+              setCanvasHtml((prev) => {
+                let updated = prev;
+                for (const r of results) {
+                  if (r.status === 'fulfilled' && r.value) {
+                    updated = updated.replace(r.value.placeholder, r.value.src);
+                  }
+                }
+                return updated;
+              });
+            });
+          }
+        }
 
         // For newsletters, automatically ask about cover image generation
         if (activeTool === 'newsletter') {

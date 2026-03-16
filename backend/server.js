@@ -483,7 +483,7 @@ app.post('/api/outlier/creators', requireAuth, async (req, res) => {
       if (insertErr) throw insertErr;
 
       console.log(`[outlier] Fetching TikTok videos for ${profile.displayName}`);
-      const videos = await tiktokService.fetchRecentVideos(username, 50);
+      const videos = await tiktokService.fetchRecentVideos(username, 100);
       const { videos: enriched, averages } = tiktokService.calculateOutliers(videos);
 
       await supabase.from('outlier_creators').update({
@@ -533,7 +533,7 @@ app.post('/api/outlier/creators', requireAuth, async (req, res) => {
       if (insertErr) throw insertErr;
 
       console.log(`[outlier] Fetching Instagram posts for ${profile.displayName}`);
-      const posts = await instagramService.fetchRecentPosts(username, 50);
+      const posts = await instagramService.fetchRecentPosts(username, 100);
       const { videos: enriched, averages } = instagramService.calculateOutliers(posts);
 
       await supabase.from('outlier_creators').update({
@@ -608,8 +608,8 @@ app.get('/api/outlier/videos', requireAuth, async (req, res) => {
     query = query.eq('platform', req.query.platform);
   }
 
-  // Exclude YouTube Shorts (≤ 180s) at the DB level
-  query = query.or('duration_seconds.gt.180,duration_seconds.is.null');
+  // Exclude YouTube Shorts (≤ 180s)
+  query = query.gt('duration_seconds', 180);
 
   query = query.range(Number(offset), Number(offset) + Number(limit) - 1);
 
@@ -641,10 +641,10 @@ app.post('/api/outlier/scan/:creatorId', requireAuth, async (req, res) => {
       videos = await fetchRecentVideos(channel.uploadsPlaylistId, 50);
       ({ videos: enriched, averages } = calculateOutliers(videos));
     } else if (creator.platform === 'tiktok') {
-      videos = await tiktokService.fetchRecentVideos(creator.username, 30);
+      videos = await tiktokService.fetchRecentVideos(creator.username, 100);
       ({ videos: enriched, averages } = tiktokService.calculateOutliers(videos));
     } else if (creator.platform === 'instagram') {
-      videos = await instagramService.fetchRecentPosts(creator.username, 30);
+      videos = await instagramService.fetchRecentPosts(creator.username, 100);
       ({ videos: enriched, averages } = instagramService.calculateOutliers(videos));
     } else {
       return res.status(400).json({ error: `${creator.platform} not supported` });

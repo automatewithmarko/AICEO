@@ -2,16 +2,20 @@ export const SUMMARY_SYSTEM_PROMPT = `You are an expert meeting analyst. Analyze
 
 Always return valid JSON matching the requested structure.`;
 
-export const ACTION_ITEMS_PROMPT = `Analyze this meeting transcript and extract all action items and to-dos. For each action item, identify:
+export const ACTION_ITEMS_PROMPT = `Analyze this meeting transcript and extract ALL action items, to-dos, commitments, and follow-ups. Be thorough — even implicit commitments like "I'll send that over" or "let's circle back on that" count as action items.
+
+For each action item, identify:
 - text: a short, clear title of what needs to be done (1 sentence max)
 - description: a brief explanation with context about why this task matters or how to approach it (1-2 sentences)
 - assignee: who is responsible (use the speaker name if mentioned, otherwise "Unassigned")
 - due_date: any mentioned deadline (null if none)
 - completed: always false
 
-Return a JSON array of action items. If no action items are found, return an empty array.
+Return a JSON object with an "action_items" key containing the array.
 
-Format: [{"text": "...", "description": "...", "assignee": "...", "due_date": null, "completed": false}]`;
+Format: {"action_items": [{"text": "...", "description": "...", "assignee": "...", "due_date": null, "completed": false}]}
+
+If genuinely no action items exist, return: {"action_items": []}`;
 
 export const CHAPTERS_PROMPT = `Analyze this meeting transcript with timestamps and break it into logical chapters/sections. Each chapter should represent a distinct topic or phase of the meeting.
 

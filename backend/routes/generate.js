@@ -41,16 +41,38 @@ const PLATFORM_IMAGE_RULES = {
 - NO cluttered designs, NO small text, NO generic stock imagery`,
 
   instagram_story: `INSTAGRAM STORY RULES:
-- Aspect ratio: PORTRAIT 9:16 (1080x1920) — this is critical, the image MUST be tall vertical portrait format
-- This is an Instagram Story frame — full-screen vertical content
-- Bold, large, readable TEXT overlaid on the image — 2-3 lines max
-- Typography: clean sans-serif, high contrast against background, centered or top-third placement
-- Background: vibrant photo, gradient, or styled visual — must fill the entire 9:16 frame
-- Style reference: think professional Instagram story ads, branded story slides
-- Colors: bold, saturated, on-brand. High contrast text with subtle shadow or background blur for readability
-- NO landscape images, NO square crops — the image MUST be 9:16 portrait
-- NO tiny text, NO cluttered layouts — keep it punchy and scroll-stopping
-- Make it look like a top social media agency designed it`,
+- Aspect ratio: PORTRAIT 9:16 (1080x1920) — the image MUST be tall vertical portrait format
+- This is an Instagram Story frame — full-screen vertical content shot on an iPhone
+
+TEXT OVERLAY — MUST LOOK EXACTLY LIKE INSTAGRAM'S NATIVE TEXT TOOL:
+Instagram has a specific text sticker UI. When you open Instagram Stories and tap the "Aa" text button, then tap the "A" button to cycle through styles, the "Classic" style looks like this:
+- A solid opaque WHITE rectangular pill/block sits on top of the photo
+- Inside the white block: BLACK text in a clean sans-serif font (SF Pro / Helvetica Neue style)
+- The white block has rounded corners (about 8-10px radius), with horizontal padding (~16px) and vertical padding (~8px)
+- The block is exactly the width of the text content plus padding — it does NOT stretch edge to edge
+- The block casts NO shadow, has NO border, NO gradient — just a flat solid white rectangle
+- The text inside is regular weight (not bold, not thin), clean, simple, perfectly legible
+- The text block FLOATS on top of the photo — it is clearly a separate UI element overlaid on the image, NOT burned into or blended with the photo
+- Position the text block in the center or upper-third of the frame
+- Multiple lines of text = one white block containing all lines, NOT separate blocks per line
+- The white block should look like it was placed there by the Instagram app's text editor, not designed in Photoshop
+- This is the SINGLE MOST IMPORTANT visual element — if the text doesn't look like Instagram's native text sticker, the image is wrong
+- Reference: Google "Instagram story text classic style" to see exactly what this looks like
+
+DO NOT:
+- Do NOT use fancy fonts, script fonts, serif fonts, or decorative typography
+- Do NOT render text with gradients, shadows, outlines, 3D effects, or neon glow
+- Do NOT burn text directly into the photo without the white background block
+- Do NOT use colored text blocks — the block is WHITE with BLACK text (classic style)
+- Do NOT stretch the text block to fill the width of the image
+
+PHOTO STYLE:
+- iPhone quality — natural mobile photography, casual but polished
+- Real lighting, real textures, real environments, slight natural grain
+- NOT overly produced studio shots
+- NO illustrations, NO SVG, NO flat design, NO vector art
+- The photo should look like something a creator actually shot on their phone
+- NO landscape images, NO square crops`,
 
   tiktok: `TIKTOK COVER RULES:
 - Aspect ratio: PORTRAIT 9:16 — tall vertical format
