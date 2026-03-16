@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, X, Upload, Trash2, ChevronDown, Check, Link2, Copy, CheckCheck, RefreshCw, Loader2, ExternalLink, ShoppingBag } from 'lucide-react';
+import { Plus, X, Upload, Trash2, ChevronDown, Check, Link2, Copy, CheckCheck, Loader2, ExternalLink, ShoppingBag } from 'lucide-react';
 import { getProducts, getImportedProducts, createProduct, updateProduct as updateProductApi, deleteProduct as deleteProductApi, regeneratePaymentLink, uploadProductPhotos } from '../lib/api';
 import './Pages.css';
 import './Products.css';
@@ -19,7 +19,7 @@ export default function Products() {
   const [error, setError] = useState('');
   const [copiedId, setCopiedId] = useState(null);
   const [regeneratingId, setRegeneratingId] = useState(null);
-  const [newProduct, setNewProduct] = useState({ name: '', description: '', type: '', price: '', priceMode: 'One-time', photos: [], paymentProcessor: 'none' });
+  const [newProduct, setNewProduct] = useState({ name: '', description: '', type: '', pricingOptions: [{ price: '', priceMode: 'One-time' }], photos: [], paymentProcessor: 'none' });
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(null);
   const fileInputRefs = useRef({});
   const [connectModal, setConnectModal] = useState(null); // 'kajabi' | 'shopify' | null
@@ -147,7 +147,8 @@ export default function Products() {
   };
 
   const addProduct = async () => {
-    if (!newProduct.name.trim() || !newProduct.type || !newProduct.price.trim()) return;
+    const validOptions = newProduct.pricingOptions.filter(o => o.price.trim());
+    if (!newProduct.name.trim() || !newProduct.type || validOptions.length === 0) return;
     setSaving(true);
     setError('');
     try {
@@ -155,8 +156,10 @@ export default function Products() {
         name: newProduct.name,
         description: newProduct.description,
         type: newProduct.type,
-        price: newProduct.price,
-        priceMode: newProduct.priceMode,
+        pricingOptions: validOptions,
+        // Legacy fields for backward compat with deployed backend
+        price: validOptions[0].price,
+        priceMode: validOptions[0].priceMode,
         paymentProcessor: newProduct.paymentProcessor,
       });
 
@@ -172,14 +175,31 @@ export default function Products() {
         }
       }
 
+      // If backend returned pricing_options, use them; otherwise build from
+      // the legacy single link + the pricing options the user entered so
+      // the card can display all options even before backend is redeployed.
+      let pricingOpts = finalProduct.pricing_options;
+      if (!pricingOpts || pricingOpts.length === 0) {
+        pricingOpts = validOptions.map((opt) => ({
+          price_cents: Math.round(parseFloat(opt.price) * 100),
+          price_mode: opt.priceMode === 'Monthly' ? 'monthly' : 'one_time',
+          payment_link_url: null,
+        }));
+        // Attach the single payment link to the first option
+        if (finalProduct.payment_link_url && pricingOpts.length > 0) {
+          pricingOpts[0].payment_link_url = finalProduct.payment_link_url;
+        }
+      }
+
       setProducts((prev) => [{
         ...finalProduct,
         price: (finalProduct.price_cents / 100).toString(),
         priceMode: finalProduct.price_mode === 'monthly' ? 'Monthly' : 'One-time',
         photos: finalProduct.photos || [],
+        pricing_options: pricingOpts,
       }, ...prev]);
       newProduct.photos.forEach(p => { if (p.url?.startsWith('blob:')) URL.revokeObjectURL(p.url); });
-      setNewProduct({ name: '', description: '', type: '', price: '', priceMode: 'One-time', photos: [], paymentProcessor: 'none' });
+      setNewProduct({ name: '', description: '', type: '', pricingOptions: [{ price: '', priceMode: 'One-time' }], photos: [], paymentProcessor: 'none' });
       setAddingNew(false);
     } catch (err) {
       setError(err.message);
@@ -289,29 +309,57 @@ export default function Products() {
   };
 
   const renderPaymentLink = (product) => {
+    const opts = product.pricing_options || [];
+    const optsWithLinks = opts.filter(o => o.payment_link_url);
+
+    // Multiple pricing options
+    if (optsWithLinks.length > 0) {
+      return (
+        <div className="products-payment-links">
+          {opts.map((opt, idx) => {
+            const copyKey = `${product.id}-${idx}`;
+            const priceLabel = `$${(opt.price_cents / 100).toLocaleString()}${opt.price_mode === 'monthly' ? '/mo' : ''}`;
+            return (
+              <div key={idx} className="products-payment-link-item">
+                <span className="products-payment-link-option-label">Option {idx + 1} — {priceLabel}</span>
+                {opt.payment_link_url ? (
+                  <div className="products-payment-link">
+                    <img src="/stripe-square-logo.png" alt="Stripe" className="products-payment-link-logo" />
+                    <span className="products-payment-link-url">{opt.payment_link_url}</span>
+                    <button
+                      className={`products-copy-btn ${copiedId === copyKey ? 'products-copy-btn--copied' : ''}`}
+                      onClick={() => copyLink(copyKey, opt.payment_link_url)}
+                      title={copiedId === copyKey ? 'Copied!' : 'Copy link'}
+                    >
+                      {copiedId === copyKey ? <CheckCheck size={14} /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="products-payment-link products-payment-link--pending">
+                    <img src="/stripe-square-logo.png" alt="Stripe" className="products-payment-link-logo" />
+                    <span className="products-payment-link-url">Link will be generated after backend deploy</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // Legacy single payment link fallback
     if (!product.payment_link_url) return null;
     return (
-      <div className="products-payment-link">
-        <div className="products-payment-link-header">
-          <Link2 size={13} />
-          <span>Payment Link</span>
-        </div>
-        <div className="products-payment-link-row">
+      <div className="products-payment-links">
+        <div className="products-payment-link">
+          <img src="/stripe-square-logo.png" alt="Stripe" className="products-payment-link-logo" />
           <span className="products-payment-link-url">{product.payment_link_url}</span>
           <button
             className={`products-copy-btn ${copiedId === product.id ? 'products-copy-btn--copied' : ''}`}
             onClick={() => copyLink(product.id, product.payment_link_url)}
-            title="Copy link"
+            title={copiedId === product.id ? 'Copied!' : 'Copy link'}
           >
             {copiedId === product.id ? <CheckCheck size={14} /> : <Copy size={14} />}
-          </button>
-          <button
-            className="products-regen-btn"
-            onClick={() => handleRegenerateLink(product.id)}
-            disabled={regeneratingId === product.id}
-            title="Regenerate link"
-          >
-            {regeneratingId === product.id ? <Loader2 size={14} className="products-spin" /> : <RefreshCw size={14} />}
           </button>
         </div>
       </div>
@@ -376,7 +424,7 @@ export default function Products() {
         <div className="products-card products-card--new">
           <div className="products-card-header">
             <h3 className="products-card-title">New Product</h3>
-            <button className="products-card-close" onClick={() => { setAddingNew(false); setNewProduct({ name: '', description: '', type: '', price: '', priceMode: 'One-time', photos: [], paymentProcessor: 'none' }); }}>
+            <button className="products-card-close" onClick={() => { setAddingNew(false); setNewProduct({ name: '', description: '', type: '', pricingOptions: [{ price: '', priceMode: 'One-time' }], photos: [], paymentProcessor: 'none' }); }}>
               <X size={16} />
             </button>
           </div>
@@ -412,18 +460,60 @@ export default function Products() {
 
           <div className="products-field">
             <label className="products-label">Pricing</label>
-            {renderPriceMode('new', newProduct.priceMode, (mode) => setNewProduct((prev) => ({ ...prev, priceMode: mode })))}
-            <div className="products-price-input-wrap">
-              <span className="products-price-prefix">$</span>
-              <input
-                type="text"
-                className="products-input products-input--price"
-                placeholder="0.00"
-                value={newProduct.price}
-                onChange={(e) => setNewProduct((prev) => ({ ...prev, price: e.target.value }))}
-              />
-              {newProduct.priceMode === 'Monthly' && <span className="products-price-suffix">/mo</span>}
-            </div>
+            {newProduct.pricingOptions.map((opt, idx) => (
+              <div key={idx} className="products-pricing-option-row">
+                {renderPriceMode(`new-${idx}`, opt.priceMode, (mode) =>
+                  setNewProduct((prev) => {
+                    const updated = [...prev.pricingOptions];
+                    updated[idx] = { ...updated[idx], priceMode: mode };
+                    return { ...prev, pricingOptions: updated };
+                  })
+                )}
+                <div className="products-price-input-wrap">
+                  <span className="products-price-prefix">$</span>
+                  <input
+                    type="text"
+                    className="products-input products-input--price"
+                    placeholder="0.00"
+                    value={opt.price}
+                    onChange={(e) =>
+                      setNewProduct((prev) => {
+                        const updated = [...prev.pricingOptions];
+                        updated[idx] = { ...updated[idx], price: e.target.value };
+                        return { ...prev, pricingOptions: updated };
+                      })
+                    }
+                  />
+                  {opt.priceMode === 'Monthly' && <span className="products-price-suffix">/mo</span>}
+                </div>
+                {newProduct.pricingOptions.length > 1 && (
+                  <button
+                    className="products-pricing-option-remove"
+                    onClick={() =>
+                      setNewProduct((prev) => ({
+                        ...prev,
+                        pricingOptions: prev.pricingOptions.filter((_, i) => i !== idx),
+                      }))
+                    }
+                    title="Remove pricing option"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              className="products-add-pricing-btn"
+              onClick={() =>
+                setNewProduct((prev) => ({
+                  ...prev,
+                  pricingOptions: [...prev.pricingOptions, { price: '', priceMode: 'One-time' }],
+                }))
+              }
+            >
+              <Plus size={14} />
+              Add pricing option
+            </button>
           </div>
 
           <div className="products-field">
@@ -448,13 +538,13 @@ export default function Products() {
 
           <button
             className="products-save-btn"
-            disabled={!newProduct.name.trim() || !newProduct.type || !newProduct.price.trim() || saving}
+            disabled={!newProduct.name.trim() || !newProduct.type || !newProduct.pricingOptions.some(o => o.price.trim()) || saving}
             onClick={addProduct}
           >
             {saving ? (
               <><Loader2 size={16} className="products-spin" /> {newProduct.paymentProcessor === 'none' ? 'Creating...' : `Creating on ${newProduct.paymentProcessor.charAt(0).toUpperCase() + newProduct.paymentProcessor.slice(1)}...`}</>
             ) : (
-              newProduct.paymentProcessor === 'none' ? 'Create Product' : `Create Product & Generate ${newProduct.paymentProcessor.charAt(0).toUpperCase() + newProduct.paymentProcessor.slice(1)} Link`
+              newProduct.paymentProcessor === 'none' ? 'Create Product' : `Create Product & Generate ${newProduct.paymentProcessor.charAt(0).toUpperCase() + newProduct.paymentProcessor.slice(1)} Link${newProduct.pricingOptions.length > 1 ? 's' : ''}`
             )}
           </button>
         </div>
@@ -523,18 +613,22 @@ export default function Products() {
 
                   <div className="products-field">
                     <label className="products-label">Pricing</label>
-                    <p className="products-value products-price-display">
-                      ${Number(product.price).toLocaleString()}
-                      {product.priceMode === 'Monthly' && <span className="products-price-suffix-text">/mo</span>}
-                    </p>
+                    {(product.pricing_options && product.pricing_options.length > 0) ? (
+                      <div className="products-pricing-list">
+                        {product.pricing_options.map((opt, idx) => (
+                          <p key={idx} className="products-value products-price-display">
+                            ${(opt.price_cents / 100).toLocaleString()}
+                            {opt.price_mode === 'monthly' && <span className="products-price-suffix-text">/mo</span>}
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="products-value products-price-display">
+                        ${Number(product.price).toLocaleString()}
+                        {product.priceMode === 'Monthly' && <span className="products-price-suffix-text">/mo</span>}
+                      </p>
+                    )}
                   </div>
-
-                  {product.payment_processor && product.payment_processor !== 'none' && (
-                    <div className="products-field">
-                      <label className="products-label">Payment Processor</label>
-                      <span className="products-type-badge">{product.payment_processor.charAt(0).toUpperCase() + product.payment_processor.slice(1)}</span>
-                    </div>
-                  )}
 
                   {renderPaymentLink(product)}
 

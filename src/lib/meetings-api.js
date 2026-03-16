@@ -62,6 +62,21 @@ export async function deleteMeeting(id) {
   return ppFetch(`/api/meetings/${id}`, { method: 'DELETE' });
 }
 
+export async function assignContactToMeeting(meetingId, contactId) {
+  return ppFetch(`/api/meetings/${meetingId}/contacts`, {
+    method: 'POST',
+    body: JSON.stringify({ contact_id: contactId }),
+  });
+}
+
+export async function removeContactFromMeeting(meetingId, contactId) {
+  return ppFetch(`/api/meetings/${meetingId}/contacts/${contactId}`, { method: 'DELETE' });
+}
+
+export async function generateActionItems(id) {
+  return ppFetch(`/api/meetings/${id}/generate-action-items`, { method: 'POST' });
+}
+
 export async function stopMeeting(id) {
   return ppFetch(`/api/meetings/${id}/stop`, { method: 'POST' });
 }
@@ -195,11 +210,11 @@ export function formatTimestamp(seconds) {
 
 export function getPlatformInfo(platform) {
   const platforms = {
-    zoom: { name: 'Zoom', color: '#2D8CFF' },
-    google_meet: { name: 'Google Meet', color: '#00897B' },
-    microsoft_teams: { name: 'Teams', color: '#6264A7' },
-    webex: { name: 'Webex', color: '#07C160' },
-    unknown: { name: 'Meeting', color: '#666' },
+    zoom: { name: 'Zoom', color: '#2D8CFF', icon: '/icon-zoom.png' },
+    google_meet: { name: 'Google Meet', color: '#00897B', icon: '/icon-google-meet.png' },
+    microsoft_teams: { name: 'Teams', color: '#6264A7', icon: '/icon-teams.png' },
+    webex: { name: 'Webex', color: '#07C160', icon: null },
+    unknown: { name: 'Meeting', color: '#666', icon: null },
   };
   return platforms[platform] || platforms.unknown;
 }

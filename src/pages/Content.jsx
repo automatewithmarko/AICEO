@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, getTemplates, getEmails, getSalesCalls, getProducts } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Content.css';
 
@@ -480,44 +480,50 @@ export default function Content() {
   const socialZoneRef = useRef(null);
   const contentCtxRef = useRef(null);
 
-  const CONTENT_CTX_CATEGORIES = [
-    {
-      id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png',
-      items: [
-        { id: 'nl-1', name: 'Weekly Growth Tips #42', date: 'Mar 3' },
-        { id: 'nl-2', name: 'Product Launch Announcement', date: 'Feb 24' },
-        { id: 'nl-3', name: 'Year-End Recap & Vision', date: 'Feb 10' },
-      ],
-    },
-    {
-      id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png',
-      items: [
-        { id: 'em-1', name: 'Re: Partnership Proposal', date: 'Mar 8', sub: 'client@example.com' },
-        { id: 'em-2', name: 'Invoice Follow-up', date: 'Mar 5', sub: 'billing@example.com' },
-      ],
-    },
-    {
-      id: 'calls', label: 'Calls', iconSrc: '/icon-call-recording.png',
-      items: [
-        { id: 'cl-1', name: 'Sales Discovery Call', date: 'Mar 7', sub: 'Sales Call' },
-        { id: 'cl-2', name: 'Client Onboarding', date: 'Mar 4', sub: 'Onboarding' },
-      ],
-    },
-    {
-      id: 'content', label: 'Content', iconSrc: '/icon-create-content.png',
-      items: [
-        { id: 'ct-1', name: '5 Tips for Scaling Your Biz', date: 'Mar 6', sub: 'Instagram' },
-        { id: 'ct-2', name: 'Behind the Scenes — My Morning', date: 'Mar 4', sub: 'YouTube' },
-      ],
-    },
-    {
-      id: 'products', label: 'Products', iconSrc: '/icon-products.png',
-      items: [
-        { id: 'pr-1', name: '1:1 Coaching Program', sub: 'Coaching · $500' },
-        { id: 'pr-2', name: 'Growth Masterclass', sub: 'Course · $197' },
-      ],
-    },
-  ];
+  const [contentCtxCategories, setContentCtxCategories] = useState([
+    { id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png', items: [] },
+    { id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png', items: [] },
+    { id: 'calls', label: 'Calls', iconSrc: '/icon-call-recording.png', items: [] },
+    { id: 'content', label: 'Content', iconSrc: '/icon-create-content.png', items: [] },
+    { id: 'products', label: 'Products', iconSrc: '/icon-products.png', items: [] },
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fmt = (d) => { try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } };
+    Promise.all([
+      getTemplates('newsletter').catch(() => ({ templates: [] })),
+      getEmails({ limit: 20 }).catch(() => ({ emails: [] })),
+      getSalesCalls().catch(() => ({ calls: [] })),
+      getContentItems().catch(() => ({ items: [] })),
+      getProducts().catch(() => ({ products: [] })),
+    ]).then(([nlRes, emRes, clRes, ctRes, prRes]) => {
+      if (cancelled) return;
+      setContentCtxCategories([
+        {
+          id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png',
+          items: (nlRes.templates || []).map((t) => ({ id: `nl-${t.id}`, name: t.name || t.description || 'Untitled', date: fmt(t.created_at) })),
+        },
+        {
+          id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png',
+          items: (emRes.emails || []).map((e) => ({ id: `em-${e.id}`, name: e.subject || '(no subject)', date: fmt(e.date), sub: e.from_name || e.from_email || '' })),
+        },
+        {
+          id: 'calls', label: 'Calls', iconSrc: '/icon-call-recording.png',
+          items: (clRes.calls || []).map((c) => ({ id: `cl-${c.id}`, name: c.title || c.name || 'Untitled Call', date: fmt(c.date || c.created_at), sub: c.call_type || c.callType || '' })),
+        },
+        {
+          id: 'content', label: 'Content', iconSrc: '/icon-create-content.png',
+          items: (ctRes.items || []).map((c) => ({ id: `ct-${c.id}`, name: c.title || c.name || c.file_name || 'Untitled', date: fmt(c.created_at), sub: c.type || c.platform || '' })),
+        },
+        {
+          id: 'products', label: 'Products', iconSrc: '/icon-products.png',
+          items: (prRes.products || []).map((p) => ({ id: `pr-${p.id}`, name: p.name || 'Untitled Product', sub: `${p.type || p.product_type || ''} · $${p.price || 0}` })),
+        },
+      ]);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const toggleContentCtxItem = (id) => {
     setContentSelectedCtx((prev) => {
@@ -529,7 +535,7 @@ export default function Content() {
 
   const getContentSelectedDetails = () => {
     const all = [];
-    for (const cat of CONTENT_CTX_CATEGORIES) {
+    for (const cat of contentCtxCategories) {
       for (const item of cat.items) {
         if (contentSelectedCtx.has(item.id)) all.push(item);
       }
@@ -571,9 +577,11 @@ export default function Content() {
         .from('brand_dna')
         .select('*')
         .eq('user_id', session.user.id)
-        .single();
-      console.log('[Content] Brand DNA loaded:', data ? { logo: !!data.logo_url, photos: data.photo_urls?.length, colors: data.colors, fonts: { main: data.main_font } } : null, error?.message || '');
-      if (data) setBrandDna(data);
+        .order('updated_at', { ascending: true })
+        .limit(1);
+      const brandRow = data?.[0] || null;
+      console.log('[Content] Brand DNA loaded:', brandRow ? { logo: !!brandRow.logo_url, photos: brandRow.photo_urls?.length, colors: brandRow.colors, fonts: { main: brandRow.main_font } } : null, error?.message || '');
+      if (brandRow) setBrandDna(brandRow);
     });
     getIntegrationContext().then(({ context }) => {
       if (context) setIntegrationCtx(context);
@@ -1690,7 +1698,7 @@ export default function Content() {
                 {contentCtxMenuOpen && (
                   <div className="content-ctx-dropdown">
                     <div className="content-ctx-dropdown-header">Select Context</div>
-                    {CONTENT_CTX_CATEGORIES.map((cat) => {
+                    {contentCtxCategories.map((cat) => {
                       const selectedCount = cat.items.filter((i) => contentSelectedCtx.has(i.id)).length;
                       return (
                         <div

@@ -6,6 +6,7 @@ import TranscriptViewer from '../components/meetings/TranscriptViewer';
 import SummaryPanel from '../components/meetings/SummaryPanel';
 import RecordingPlayer from '../components/meetings/RecordingPlayer';
 import ShareModal from '../components/meetings/ShareModal';
+import AssignContactModal from '../components/meetings/AssignContactModal';
 import './MeetingDetail.css';
 
 export default function MeetingDetail() {
@@ -16,6 +17,7 @@ export default function MeetingDetail() {
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [showShare, setShowShare] = useState(false);
+  const [showAssign, setShowAssign] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState('');
   const [reprocessing, setReprocessing] = useState(false);
@@ -136,7 +138,11 @@ export default function MeetingDetail() {
         </div>
 
         <div className="meeting-detail-meta">
-          <span className="meeting-detail-platform" style={{ background: platform.color }}>{platform.name}</span>
+          {platform.icon ? (
+            <img src={platform.icon} alt={platform.name} className="meeting-detail-platform-icon" />
+          ) : (
+            <span className="meeting-detail-platform" style={{ background: platform.color }}>{platform.name}</span>
+          )}
           <span className="meeting-detail-status" style={{ color: status.color }}>
             {isActive && <span className="meeting-detail-pulse" />}
             {status.label}
@@ -163,6 +169,12 @@ export default function MeetingDetail() {
             <button className="meeting-detail-action" onClick={handleReprocess} disabled={reprocessing}>
               <RotateCw size={14} className={reprocessing ? 'spinning' : ''} />
               Reprocess
+            </button>
+          )}
+          {meeting.recall_bot_status === 'processed' && (
+            <button className="meeting-detail-action" onClick={() => setShowAssign(true)}>
+              <img src="/icon-assign-contact.png" alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
+              Assign Contact
             </button>
           )}
           <button className="meeting-detail-action" onClick={() => setShowShare(true)}>
@@ -196,7 +208,7 @@ export default function MeetingDetail() {
         </div>
 
         <div className="meeting-detail-right">
-          <SummaryPanel meeting={meeting} onSeek={handleSeek} />
+          <SummaryPanel meeting={meeting} onSeek={handleSeek} onUpdate={setMeeting} />
         </div>
       </div>
 
@@ -205,6 +217,16 @@ export default function MeetingDetail() {
           meeting={meeting}
           onClose={() => setShowShare(false)}
           onUpdate={setMeeting}
+        />
+      )}
+
+      {showAssign && (
+        <AssignContactModal
+          meetingId={meeting.id}
+          onClose={() => setShowAssign(false)}
+          onAssigned={(contact) => {
+            console.log('Assigned contact:', contact.name);
+          }}
         />
       )}
     </div>

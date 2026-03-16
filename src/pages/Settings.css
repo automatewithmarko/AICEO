@@ -175,6 +175,24 @@
   box-shadow: var(--shadow-sm);
 }
 
+.settings-integration-card--expanded {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  gap: 0;
+}
+
+.settings-integration-card--expanded .settings-integration-card-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 24px;
+}
+
+.settings-integration-card:not(.settings-integration-card--expanded) .settings-integration-card-top {
+  display: contents;
+}
+
 .settings-integration-logo {
   height: 28px;
   width: auto;
@@ -211,6 +229,79 @@
 .settings-integration-status--connected {
   color: #16a34a;
   font-weight: 500;
+}
+
+/* Email Accounts List */
+.settings-email-accounts {
+  border-top: 1px solid var(--border-light);
+  padding: 6px 24px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.settings-email-account-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.settings-email-account-row + .settings-email-account-row {
+  border-top: 1px solid var(--border-light);
+}
+
+.settings-email-account-row > svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.settings-email-account-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.settings-email-account-address {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-email-account-name {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.settings-btn--sm {
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 7px;
+  gap: 4px;
+}
+
+.settings-email-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0 2px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand-red);
+  cursor: pointer;
+  transition: opacity 0.15s;
+  align-self: flex-start;
+}
+
+.settings-email-add-btn:hover {
+  opacity: 0.8;
 }
 
 /* Brand DNA */
@@ -865,6 +956,255 @@
   white-space: nowrap;
 }
 
+/* Brand DNA Section Header */
+.settings-brand-dna-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.settings-brand-dna-section-header .settings-section-title {
+  margin-bottom: 0;
+}
+
+.settings-brand-dna-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Brand DNA Selector Dropdown */
+.settings-brand-selector {
+  position: relative;
+}
+
+.settings-brand-selector-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-medium);
+  background: var(--bg-white);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.settings-brand-selector-trigger:hover {
+  border-color: var(--brand-red);
+  box-shadow: 0 0 0 3px rgba(233, 26, 68, 0.08);
+}
+
+.settings-brand-selector-trigger--open {
+  border-color: var(--brand-red);
+  box-shadow: 0 0 0 3px rgba(233, 26, 68, 0.08);
+}
+
+.settings-brand-selector-chevron {
+  transition: transform 0.2s;
+  color: var(--text-muted);
+}
+
+.settings-brand-selector-trigger--open .settings-brand-selector-chevron {
+  transform: rotate(180deg);
+}
+
+.settings-brand-selector-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+}
+
+.settings-brand-selector-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 220px;
+  background: var(--bg-white);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.settings-brand-selector-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.1s;
+  text-align: left;
+}
+
+.settings-brand-selector-option:hover {
+  background: var(--bg-light);
+}
+
+.settings-brand-selector-option--active {
+  background: var(--brand-red-light);
+  color: var(--brand-red);
+  font-weight: 600;
+}
+
+.settings-brand-selector-option--active:hover {
+  background: var(--brand-red-light);
+}
+
+/* Add Brand DNA Button */
+.settings-btn--add-brand {
+  background: var(--bg-white);
+  color: var(--brand-red);
+  border: 1px dashed var(--brand-red);
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.settings-btn--add-brand:hover {
+  background: var(--brand-red-light);
+  box-shadow: 0 0 0 3px rgba(233, 26, 68, 0.08);
+  color: var(--brand-red);
+}
+
+/* Add Brand DNA Modal */
+.settings-add-brand-modal {
+  max-width: 440px;
+  text-align: center;
+}
+
+.settings-add-brand-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--brand-red-light);
+  color: var(--brand-red);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+
+.settings-add-brand-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.settings-add-brand-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 20px;
+  max-width: 340px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.settings-add-brand-pricing-card {
+  background: linear-gradient(135deg, #fef2f4 0%, #fff 100%);
+  border: 1px solid rgba(233, 26, 68, 0.15);
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.settings-add-brand-pricing-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(233, 26, 68, 0.1);
+}
+
+.settings-add-brand-pricing-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-add-brand-pricing-amount {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.settings-add-brand-pricing-dollar {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--brand-red);
+}
+
+.settings-add-brand-pricing-number {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--brand-red);
+  line-height: 1;
+}
+
+.settings-add-brand-pricing-period {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.settings-add-brand-features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-add-brand-features li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.settings-add-brand-features li svg {
+  color: var(--brand-red);
+  flex-shrink: 0;
+}
+
+.settings-add-brand-modal .modal-field {
+  text-align: left;
+}
+
+.settings-add-brand-submit {
+  width: 100%;
+  justify-content: center;
+  padding: 14px 24px;
+  font-size: 15px;
+  border-radius: 12px;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .settings-row {
@@ -882,12 +1222,36 @@
     margin: 0 18px;
   }
 
-  .settings-integration-card {
+  .settings-integration-card:not(.settings-integration-card--expanded) {
     flex-wrap: wrap;
     padding: 16px 18px;
   }
 
-  .settings-integration-card .settings-btn {
+  .settings-integration-card:not(.settings-integration-card--expanded) .settings-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .settings-integration-card--expanded .settings-integration-card-top {
+    flex-wrap: wrap;
+    padding: 16px 18px;
+  }
+
+  .settings-integration-card--expanded .settings-integration-card-top .settings-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .settings-email-accounts {
+    padding: 6px 18px 12px;
+  }
+
+  .settings-email-account-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .settings-email-account-row .settings-btn {
     width: 100%;
     justify-content: center;
   }
@@ -921,6 +1285,22 @@
 
   .settings-color-circle-clear {
     opacity: 1;
+  }
+
+  .settings-brand-dna-section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .settings-brand-dna-controls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .settings-brand-selector-dropdown {
+    right: auto;
+    left: 0;
   }
 }
 

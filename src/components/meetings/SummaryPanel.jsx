@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { CheckCircle, Circle, Clock, BookOpen } from 'lucide-react';
-import { formatTimestamp } from '../../lib/meetings-api';
+import { CheckCircle, Circle, Clock, BookOpen, ChevronDown, ChevronRight, Sparkles, Loader2 } from 'lucide-react';
+import { formatTimestamp, generateActionItems, updateMeeting } from '../../lib/meetings-api';
 import './SummaryPanel.css';
 
-export default function SummaryPanel({ meeting, onSeek }) {
+export default function SummaryPanel({ meeting, onSeek, onUpdate }) {
   const [tab, setTab] = useState('summary');
 
   const tabs = [
@@ -28,7 +28,13 @@ export default function SummaryPanel({ meeting, onSeek }) {
 
       <div className="summary-content">
         {tab === 'summary' && <SummaryContent summary={meeting.summary} />}
-        {tab === 'actions' && <ActionItemsContent items={meeting.action_items} />}
+        {tab === 'actions' && (
+          <ActionItemsContent
+            items={meeting.action_items}
+            meetingId={meeting.id}
+            onUpdate={onUpdate}
+          />
+        )}
         {tab === 'chapters' && <ChaptersContent chapters={meeting.chapters} onSeek={onSeek} />}
       </div>
     </div>
@@ -67,32 +73,102 @@ function SummaryContent({ summary }) {
   );
 }
 
-function ActionItemsContent({ items }) {
-  if (!items?.length) {
-    return <div className="summary-empty">No action items found.</div>;
-  }
+function ActionItemsContent({ items, meetingId, onUpdate }) {
+  const [generating, setGenerating] = useState(false);
+  const [expandedIdx, setExpandedIdx] = useState(null);
+  const [localItems, setLocalItems] = useState(items || []);
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    try {
+      const result = await generateActionItems(meetingId);
+      const newItems = result.action_items || [];
+      setLocalItems(newItems);
+      onUpdate?.(m => ({ ...m, action_items: newItems }));
+    } catch (err) {
+      console.error('Failed to generate action items:', err);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const toggleComplete = async (idx) => {
+    const updated = localItems.map((item, i) =>
+      i === idx ? { ...item, completed: !item.completed } : item
+    );
+    setLocalItems(updated);
+    onUpdate?.(m => ({ ...m, action_items: updated }));
+    try {
+      await updateMeeting(meetingId, { action_items: updated });
+    } catch (err) {
+      console.error('Failed to update action item:', err);
+    }
+  };
+
+  const toggleExpand = (idx) => {
+    setExpandedIdx(expandedIdx === idx ? null : idx);
+  };
 
   return (
-    <div className="action-items-list">
-      {items.map((item, i) => (
-        <div key={i} className="action-item">
-          <div className="action-item-check">
-            {item.completed ? <CheckCircle size={18} /> : <Circle size={18} />}
-          </div>
-          <div className="action-item-body">
-            <p className="action-item-text">{item.text}</p>
-            <div className="action-item-meta">
-              {item.assignee && <span className="action-item-assignee">{item.assignee}</span>}
-              {item.due_date && (
-                <span className="action-item-due">
-                  <Clock size={12} />
-                  {item.due_date}
+    <div className="action-items-container">
+      <button
+        className="action-items-generate-btn"
+        onClick={handleGenerate}
+        disabled={generating}
+      >
+        {generating ? (
+          <>
+            <Loader2 size={15} className="spinning" />
+            Generating...
+          </>
+        ) : (
+          <>
+            <Sparkles size={15} />
+            Generate Action Items
+          </>
+        )}
+      </button>
+
+      {localItems.length === 0 ? (
+        <div className="summary-empty">No action items yet. Click the button above to generate them from the transcript.</div>
+      ) : (
+        <div className="action-items-list">
+          {localItems.map((item, i) => (
+            <div key={i} className={`action-item ${item.completed ? 'action-item--completed' : ''}`}>
+              <div className="action-item-main" onClick={() => toggleExpand(i)}>
+                <button
+                  className="action-item-checkbox"
+                  onClick={(e) => { e.stopPropagation(); toggleComplete(i); }}
+                >
+                  {item.completed ? <CheckCircle size={18} /> : <Circle size={18} />}
+                </button>
+                <span className={`action-item-text ${item.completed ? 'action-item-text--done' : ''}`}>
+                  {item.text}
                 </span>
+                <span className="action-item-expand">
+                  {expandedIdx === i ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </span>
+              </div>
+              {expandedIdx === i && (
+                <div className="action-item-details">
+                  {item.description && <p className="action-item-description">{item.description}</p>}
+                  <div className="action-item-meta">
+                    {item.assignee && item.assignee !== 'Unassigned' && (
+                      <span className="action-item-assignee">{item.assignee}</span>
+                    )}
+                    {item.due_date && (
+                      <span className="action-item-due">
+                        <Clock size={12} />
+                        {item.due_date}
+                      </span>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
-          </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }

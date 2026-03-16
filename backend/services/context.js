@@ -8,7 +8,7 @@ export async function loadUserContext(userId) {
 
   // Parallel fetch all context data (including soul notes + active integrations)
   const [brandRes, contentRes, statsRes, revenueRes, callsRes, productsRes, contactsRes, creatorsRes, videosRes, integrationRes, soulRes, integrationsRes, emailAccRes] = await Promise.allSettled([
-    supabase.from('brand_dna').select('*').eq('user_id', userId).single(),
+    supabase.from('brand_dna').select('*').eq('user_id', userId).order('updated_at', { ascending: true }).limit(1),
     supabase.from('content_items').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
     supabase.from('sales').select('amount, created_at').eq('user_id', userId),
     supabase.from('sales').select('amount, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(100),
@@ -23,7 +23,7 @@ export async function loadUserContext(userId) {
     supabase.from('email_accounts').select('id, email, provider, display_name, is_active').eq('user_id', userId),
   ]);
 
-  const brandDna = brandRes.status === 'fulfilled' ? brandRes.value.data : null;
+  const brandDna = brandRes.status === 'fulfilled' ? (brandRes.value.data?.[0] || null) : null;
   const contentItems = contentRes.status === 'fulfilled' ? (contentRes.value.data || []) : [];
   const products = productsRes.status === 'fulfilled' ? (productsRes.value.data || []) : [];
   const contacts = contactsRes.status === 'fulfilled' ? (contactsRes.value.data || []) : [];

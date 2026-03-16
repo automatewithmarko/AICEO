@@ -70,12 +70,12 @@ export default function Dashboard() {
         }
 
         // Check Brand DNA
-        const { data: brandDna } = await supabase
+        const { data: brandDnaRows } = await supabase
           .from('brand_dna')
           .select('id')
           .eq('user_id', session.user.id)
-          .single();
-        if (brandDna) steps.add(2);
+          .limit(1);
+        if (brandDnaRows?.length) steps.add(2);
       }
 
       // Check connected integrations

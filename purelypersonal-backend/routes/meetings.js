@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../middleware/auth.js';
 import { createBot, leaveMeeting, deleteBot, detectPlatform, getBot } from '../services/recall.js';
-import { processCompletedMeeting } from '../services/ai-processor.js';
+import { processCompletedMeeting, extractActionItems } from '../services/ai-processor.js';
 import { deleteRecording, uploadRecording, downloadFromUrl } from '../services/storage.js';
 
 const router = Router();
@@ -130,11 +130,12 @@ router.post('/', async (req, res) => {
 // PATCH /api/meetings/:id — Update title, template
 router.patch('/:id', async (req, res) => {
   const userId = req.user.id;
-  const { title, summary_template } = req.body;
+  const { title, summary_template, action_items } = req.body;
 
   const updates = { updated_at: new Date().toISOString() };
   if (title !== undefined) updates.title = title;
   if (summary_template !== undefined) updates.summary_template = summary_template;
+  if (action_items !== undefined) updates.action_items = action_items;
 
   const { data, error } = await supabase
     .from('meetings')
@@ -285,6 +286,101 @@ router.post('/:id/retry-recording', async (req, res) => {
   } catch (err) {
     console.error('[retry-recording] Error:', err.message);
     res.status(500).json({ error: `Failed to fetch recording: ${err.message}` });
+  }
+});
+
+// POST /api/meetings/:id/contacts — Assign a contact to a meeting
+router.post('/:id/contacts', async (req, res) => {
+  const userId = req.user.id;
+  const { contact_id } = req.body;
+
+  if (!contact_id) return res.status(400).json({ error: 'contact_id is required' });
+
+  // Verify meeting belongs to user
+  const { data: meeting } = await supabase
+    .from('meetings')
+    .select('id')
+    .eq('id', req.params.id)
+    .eq('user_id', userId)
+    .single();
+
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+  const { error } = await supabase
+    .from('meeting_contacts')
+    .upsert({ meeting_id: req.params.id, contact_id, role: 'participant' }, { onConflict: 'meeting_id,contact_id' });
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// DELETE /api/meetings/:id/contacts/:contactId — Remove a contact from a meeting
+router.delete('/:id/contacts/:contactId', async (req, res) => {
+  const userId = req.user.id;
+
+  // Verify meeting belongs to user
+  const { data: meeting } = await supabase
+    .from('meetings')
+    .select('id')
+    .eq('id', req.params.id)
+    .eq('user_id', userId)
+    .single();
+
+  if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+  const { error } = await supabase
+    .from('meeting_contacts')
+    .delete()
+    .eq('meeting_id', req.params.id)
+    .eq('contact_id', req.params.contactId);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// POST /api/meetings/:id/generate-action-items — Generate action items from transcript using AI
+router.post('/:id/generate-action-items', async (req, res) => {
+  const userId = req.user.id;
+
+  const { data: meeting, error } = await supabase
+    .from('meetings')
+    .select('id, transcript_text')
+    .eq('id', req.params.id)
+    .eq('user_id', userId)
+    .single();
+
+  if (error || !meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+  if (!meeting.transcript_text) {
+    // Try building from segments
+    const { data: segments } = await supabase
+      .from('transcript_segments')
+      .select('speaker_name, text')
+      .eq('meeting_id', req.params.id)
+      .eq('is_partial', false)
+      .order('sequence_index', { ascending: true });
+
+    if (!segments?.length) {
+      return res.status(400).json({ error: 'No transcript available for this meeting' });
+    }
+
+    meeting.transcript_text = segments
+      .map(s => `${s.speaker_name || 'Speaker'}: ${s.text}`)
+      .join('\n');
+  }
+
+  try {
+    const actionItems = await extractActionItems(meeting.transcript_text);
+
+    await supabase
+      .from('meetings')
+      .update({ action_items: actionItems, updated_at: new Date().toISOString() })
+      .eq('id', req.params.id);
+
+    res.json({ action_items: actionItems });
+  } catch (err) {
+    console.error('[meetings] Generate action items error:', err.message);
+    res.status(500).json({ error: 'Failed to generate action items' });
   }
 });
 

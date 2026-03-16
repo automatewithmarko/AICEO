@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from 'react-router-dom';
-import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, FileText, Loader } from 'lucide-react';
+import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, ChevronDown, FileText, Loader, Plus, Dna } from 'lucide-react';
 import ColorWheelPicker from '../components/ColorWheelPicker';
 import FontSelector from '../components/FontSelector';
-import { uploadBrandDnaFiles, uploadContextFiles, getIntegrations, connectIntegration, disconnectIntegration, getEmailAccounts, addEmailAccount, deleteEmailAccount } from '../lib/api';
+import { uploadBrandDnaFiles, uploadContextFiles, getIntegrations, connectIntegration, disconnectIntegration, getEmailAccounts, addEmailAccount, deleteEmailAccount, syncEmailAccount } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
 import './Settings.css';
@@ -51,6 +51,8 @@ export default function Settings() {
   const [kajabiStep, setKajabiStep] = useState(1);
   const [kajabiWebhook, setKajabiWebhook] = useState({ url: '', secret: '' });
   const [emailForm, setEmailForm] = useState({ email: '', senderName: '', username: '', password: '', imapHost: '', imapPort: '993', smtpHost: '', smtpPort: '587' });
+  const [emailAccounts, setEmailAccounts] = useState([]);
+  const [removingEmailId, setRemovingEmailId] = useState(null);
 
   // Auto-detect email provider settings from email address
   const EMAIL_PRESETS = {
@@ -83,6 +85,11 @@ export default function Settings() {
   const [secondaryFont, setSecondaryFont] = useState('');
   const [logo, setLogo] = useState(null);
   const [brandDnaPulse, setBrandDnaPulse] = useState(false);
+  const [brandDnaList, setBrandDnaList] = useState([]);
+  const [activeBrandDnaId, setActiveBrandDnaId] = useState(null);
+  const [showAddBrandDnaModal, setShowAddBrandDnaModal] = useState(false);
+  const [newBrandName, setNewBrandName] = useState('');
+  const [brandSelectorOpen, setBrandSelectorOpen] = useState(false);
   const fileInputRef = useRef(null);
   const logoInputRef = useRef(null);
   const docInputRefs = useRef({});
@@ -102,7 +109,29 @@ export default function Settings() {
     }
   }, [location.state]);
 
-  // Load Brand DNA from DB
+  // Helper to load a brand DNA record into form state
+  const loadBrandDnaIntoForm = (data) => {
+    setPhotos(data.photo_urls?.length
+      ? data.photo_urls.map((url, i) => ({ id: `db-photo-${i}`, url }))
+      : []);
+    setLogo(data.logo_url ? { url: data.logo_url } : null);
+    setBrandColors(data.colors && Object.keys(data.colors).length
+      ? { primary: '', text: '', secondary: '', ...data.colors }
+      : { primary: '', text: '', secondary: '' });
+    setMainFont(data.main_font || '');
+    setSecondaryFont(data.secondary_font || '');
+    if (data.documents && Object.keys(data.documents).length) {
+      const docs = {};
+      for (const [key, val] of Object.entries(data.documents)) {
+        docs[key] = { name: val.name, url: val.url, extractedText: val.extracted_text };
+      }
+      setDocuments(docs);
+    } else {
+      setDocuments({});
+    }
+  };
+
+  // Load Brand DNA(s) from DB
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session?.user) { setBrandDnaLoading(false); return; }
@@ -110,25 +139,13 @@ export default function Settings() {
         .from('brand_dna')
         .select('*')
         .eq('user_id', session.user.id)
-        .single();
-      if (data) {
+        .order('updated_at', { ascending: true });
+      if (data && data.length > 0) {
         setBrandDnaCreated(true);
-        if (data.photo_urls?.length) {
-          setPhotos(data.photo_urls.map((url, i) => ({ id: `db-photo-${i}`, url })));
-        }
-        if (data.logo_url) setLogo({ url: data.logo_url });
-        if (data.colors && Object.keys(data.colors).length) {
-          setBrandColors(prev => ({ ...prev, ...data.colors }));
-        }
-        if (data.main_font) setMainFont(data.main_font);
-        if (data.secondary_font) setSecondaryFont(data.secondary_font);
-        if (data.documents && Object.keys(data.documents).length) {
-          const docs = {};
-          for (const [key, val] of Object.entries(data.documents)) {
-            docs[key] = { name: val.name, url: val.url, extractedText: val.extracted_text };
-          }
-          setDocuments(docs);
-        }
+        setBrandDnaList(data);
+        const active = data[0];
+        setActiveBrandDnaId(active.id);
+        loadBrandDnaIntoForm(active);
       }
       setBrandDnaLoading(false);
       setTimeout(() => { initialLoadDone.current = true; }, 500);
@@ -149,6 +166,7 @@ export default function Settings() {
         }
         if (emailResult.accounts?.length > 0) {
           map.email = { is_active: true, provider: 'email' };
+          setEmailAccounts(emailResult.accounts);
         }
         setIntegrations(map);
       } catch {
@@ -162,7 +180,7 @@ export default function Settings() {
 
   // Auto-save Brand DNA to DB when state changes
   useEffect(() => {
-    if (!initialLoadDone.current || !brandDnaCreated) return;
+    if (!initialLoadDone.current || !brandDnaCreated || !activeBrandDnaId) return;
     if (photos.some(p => p.uploading)) return;
     if (logo?.uploading) return;
     if (Object.values(documents).some(d => d?.uploading)) return;
@@ -171,7 +189,7 @@ export default function Settings() {
     saveTimer.current = setTimeout(async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) return;
-      await supabase.from('brand_dna').update({
+      const updatePayload = {
         photo_urls: photos.map(p => p.url).filter(Boolean),
         logo_url: logo?.url || null,
         colors: brandColors,
@@ -183,10 +201,13 @@ export default function Settings() {
             .map(([k, v]) => [k, { name: v.name, url: v.url, extracted_text: v.extractedText || '' }])
         ),
         updated_at: new Date().toISOString(),
-      }).eq('user_id', session.user.id);
+      };
+      await supabase.from('brand_dna').update(updatePayload).eq('id', activeBrandDnaId);
+      // Also update the local list so switching doesn't lose changes
+      setBrandDnaList(prev => prev.map(b => b.id === activeBrandDnaId ? { ...b, ...updatePayload } : b));
     }, 1000);
     return () => clearTimeout(saveTimer.current);
-  }, [brandDnaCreated, photos, logo, documents, brandColors, mainFont, secondaryFont]);
+  }, [brandDnaCreated, activeBrandDnaId, photos, logo, documents, brandColors, mainFont, secondaryFont]);
 
   const handleResetPassword = () => {
     setPasswordReset(true);
@@ -326,7 +347,7 @@ export default function Settings() {
     setConnecting(true);
     setConnectError(null);
     try {
-      await addEmailAccount({
+      const result = await addEmailAccount({
         email,
         display_name: senderName,
         username,
@@ -337,11 +358,40 @@ export default function Settings() {
         smtp_port: parseInt(smtpPort) || 587,
       });
       setIntegrations((prev) => ({ ...prev, email: { is_active: true, provider: 'email' } }));
+      if (result.account) {
+        setEmailAccounts((prev) => [...prev, result.account]);
+      } else {
+        // Fallback: re-fetch all accounts
+        const { accounts } = await getEmailAccounts();
+        if (accounts) setEmailAccounts(accounts);
+      }
       setModalOpen(null);
     } catch (err) {
       setConnectError(err.message);
     } finally {
       setConnecting(false);
+    }
+  };
+
+  const handleRemoveEmailAccount = async (accountId) => {
+    setRemovingEmailId(accountId);
+    try {
+      await deleteEmailAccount(accountId);
+      setEmailAccounts((prev) => {
+        const next = prev.filter((a) => a.id !== accountId);
+        if (next.length === 0) {
+          setIntegrations((p) => {
+            const n = { ...p };
+            delete n.email;
+            return n;
+          });
+        }
+        return next;
+      });
+    } catch {
+      // Silently fail
+    } finally {
+      setRemovingEmailId(null);
     }
   };
 
@@ -444,15 +494,54 @@ export default function Settings() {
   const handleCreateBrandDna = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return;
-    await supabase.from('brand_dna').upsert({
+    const { data } = await supabase.from('brand_dna').insert({
       user_id: session.user.id,
+      name: 'My Brand',
       photo_urls: [],
       video_urls: [],
       documents: {},
       colors: {},
-    }, { onConflict: 'user_id' });
+    }).select().single();
+    if (data) {
+      setBrandDnaList([data]);
+      setActiveBrandDnaId(data.id);
+    }
     setBrandDnaCreated(true);
     initialLoadDone.current = true;
+  };
+
+  const handleAddBrandDna = async () => {
+    if (!newBrandName.trim()) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+    initialLoadDone.current = false;
+    const { data } = await supabase.from('brand_dna').insert({
+      user_id: session.user.id,
+      name: newBrandName.trim(),
+      photo_urls: [],
+      video_urls: [],
+      documents: {},
+      colors: {},
+    }).select().single();
+    if (data) {
+      setBrandDnaList(prev => [...prev, data]);
+      setActiveBrandDnaId(data.id);
+      loadBrandDnaIntoForm(data);
+    }
+    setNewBrandName('');
+    setShowAddBrandDnaModal(false);
+    setTimeout(() => { initialLoadDone.current = true; }, 500);
+  };
+
+  const switchBrandDna = (brandId) => {
+    if (brandId === activeBrandDnaId) return;
+    const brand = brandDnaList.find(b => b.id === brandId);
+    if (!brand) return;
+    initialLoadDone.current = false;
+    setActiveBrandDnaId(brandId);
+    loadBrandDnaIntoForm(brand);
+    setBrandSelectorOpen(false);
+    setTimeout(() => { initialLoadDone.current = true; }, 500);
   };
 
   const currentModal = modalOpen ? NOTE_TAKERS.find((n) => n.id === modalOpen) : null;
@@ -549,28 +638,71 @@ export default function Settings() {
         ) : (
         <div className="settings-integrations">
           {NOTE_TAKERS.map((nt) => (
-            <div key={nt.id} className="settings-integration-card">
-              <img src={nt.logo} alt={nt.name} className={`settings-integration-logo ${nt.large ? 'settings-integration-logo--lg' : ''} ${nt.small ? 'settings-integration-logo--sm' : ''}`} />
-              <div className="settings-integration-info">
-                <span className="settings-integration-name">{nt.name}</span>
-                <span className={`settings-integration-status ${integrations[nt.id]?.is_active ? 'settings-integration-status--connected' : ''}`}>
-                  {integrations[nt.id]?.is_active ? 'Connected' : 'Not connected'}
-                </span>
+            <div key={nt.id} className={`settings-integration-card ${nt.id === 'email' && emailAccounts.length > 0 ? 'settings-integration-card--expanded' : ''}`}>
+              <div className="settings-integration-card-top">
+                <img src={nt.logo} alt={nt.name} className={`settings-integration-logo ${nt.large ? 'settings-integration-logo--lg' : ''} ${nt.small ? 'settings-integration-logo--sm' : ''}`} />
+                <div className="settings-integration-info">
+                  <span className="settings-integration-name">{nt.name}</span>
+                  <span className={`settings-integration-status ${integrations[nt.id]?.is_active ? 'settings-integration-status--connected' : ''}`}>
+                    {nt.id === 'email' && emailAccounts.length > 0
+                      ? `${emailAccounts.length} account${emailAccounts.length > 1 ? 's' : ''} connected`
+                      : integrations[nt.id]?.is_active ? 'Connected' : 'Not connected'}
+                  </span>
+                </div>
+                {nt.id === 'email' ? (
+                  emailAccounts.length === 0 && (
+                    <button
+                      className="settings-btn settings-btn--primary"
+                      onClick={() => openModal('email')}
+                    >
+                      Connect
+                    </button>
+                  )
+                ) : integrations[nt.id]?.is_active ? (
+                  <button
+                    className="settings-btn settings-btn--danger"
+                    onClick={() => handleDisconnect(nt.id)}
+                  >
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    className="settings-btn settings-btn--primary"
+                    onClick={() => openModal(nt.id)}
+                  >
+                    Connect
+                  </button>
+                )}
               </div>
-              {integrations[nt.id]?.is_active ? (
-                <button
-                  className="settings-btn settings-btn--danger"
-                  onClick={() => handleDisconnect(nt.id)}
-                >
-                  Disconnect
-                </button>
-              ) : (
-                <button
-                  className="settings-btn settings-btn--primary"
-                  onClick={() => openModal(nt.id)}
-                >
-                  Connect
-                </button>
+
+              {/* Email accounts list */}
+              {nt.id === 'email' && emailAccounts.length > 0 && (
+                <div className="settings-email-accounts">
+                  {emailAccounts.map((acc) => (
+                    <div key={acc.id} className="settings-email-account-row">
+                      <Mail size={15} />
+                      <div className="settings-email-account-info">
+                        <span className="settings-email-account-address">{acc.email}</span>
+                        {acc.display_name && <span className="settings-email-account-name">{acc.display_name}</span>}
+                      </div>
+                      <button
+                        className="settings-btn settings-btn--danger settings-btn--sm"
+                        onClick={() => handleRemoveEmailAccount(acc.id)}
+                        disabled={removingEmailId === acc.id}
+                      >
+                        {removingEmailId === acc.id ? <Loader size={13} className="settings-spinner" /> : <Trash2 size={13} />}
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    className="settings-email-add-btn"
+                    onClick={() => openModal('email')}
+                  >
+                    <Plus size={15} />
+                    Add Another Email
+                  </button>
+                </div>
               )}
             </div>
           ))}
@@ -580,7 +712,50 @@ export default function Settings() {
 
       {/* Brand DNA Section */}
       <div className="settings-section" ref={brandDnaRef}>
-        <h2 className="settings-section-title">Brand DNA</h2>
+        <div className="settings-brand-dna-section-header">
+          <h2 className="settings-section-title">Brand DNA</h2>
+          {brandDnaCreated && brandDnaList.length > 0 && (
+            <div className="settings-brand-dna-controls">
+              {brandDnaList.length > 1 && (
+                <div className="settings-brand-selector">
+                  <button
+                    className={`settings-brand-selector-trigger ${brandSelectorOpen ? 'settings-brand-selector-trigger--open' : ''}`}
+                    onClick={() => setBrandSelectorOpen(!brandSelectorOpen)}
+                  >
+                    <Dna size={14} />
+                    <span>{brandDnaList.find(b => b.id === activeBrandDnaId)?.name || 'My Brand'}</span>
+                    <ChevronDown size={14} className="settings-brand-selector-chevron" />
+                  </button>
+                  {brandSelectorOpen && (
+                    <>
+                      <div className="settings-brand-selector-backdrop" onClick={() => setBrandSelectorOpen(false)} />
+                      <div className="settings-brand-selector-dropdown">
+                        {brandDnaList.map(b => (
+                          <button
+                            key={b.id}
+                            className={`settings-brand-selector-option ${b.id === activeBrandDnaId ? 'settings-brand-selector-option--active' : ''}`}
+                            onClick={() => switchBrandDna(b.id)}
+                          >
+                            <Dna size={14} />
+                            <span>{b.name || 'My Brand'}</span>
+                            {b.id === activeBrandDnaId && <Check size={14} />}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+              <button
+                className="settings-btn settings-btn--add-brand"
+                onClick={() => setShowAddBrandDnaModal(true)}
+              >
+                <Plus size={15} />
+                <span>Add Brand DNA</span>
+              </button>
+            </div>
+          )}
+        </div>
         {!brandDnaCreated ? (
           <div className="settings-card settings-brand-dna-card">
             <p className="settings-brand-dna-desc">
@@ -1300,6 +1475,62 @@ export default function Settings() {
                 </button>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Add Brand DNA Pricing Modal */}
+      {showAddBrandDnaModal && (
+        <div className="modal-overlay" onClick={() => setShowAddBrandDnaModal(false)}>
+          <div className="modal settings-add-brand-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowAddBrandDnaModal(false)}>
+              <X size={18} />
+            </button>
+
+            <div className="settings-add-brand-icon">
+              <Dna size={32} />
+            </div>
+
+            <h3 className="settings-add-brand-title">Add Brand DNA</h3>
+            <p className="settings-add-brand-subtitle">
+              Create a separate brand profile with its own identity, colors, fonts, and documents.
+            </p>
+
+            <div className="settings-add-brand-pricing-card">
+              <div className="settings-add-brand-pricing-header">
+                <span className="settings-add-brand-pricing-label">Additional Brand DNA</span>
+                <div className="settings-add-brand-pricing-amount">
+                  <span className="settings-add-brand-pricing-dollar">$</span>
+                  <span className="settings-add-brand-pricing-number">99</span>
+                  <span className="settings-add-brand-pricing-period">/month</span>
+                </div>
+              </div>
+              <ul className="settings-add-brand-features">
+                <li><Check size={14} /> Separate brand identity & assets</li>
+                <li><Check size={14} /> Independent colors & typography</li>
+                <li><Check size={14} /> Dedicated documents & uploads</li>
+                <li><Check size={14} /> AI agents use the active brand</li>
+              </ul>
+            </div>
+
+            <div className="modal-field">
+              <label className="modal-label">Brand Name</label>
+              <input
+                type="text"
+                className="modal-input"
+                placeholder="e.g. My Second Brand"
+                value={newBrandName}
+                onChange={(e) => setNewBrandName(e.target.value)}
+              />
+            </div>
+
+            <button
+              className="modal-btn modal-btn--primary settings-add-brand-submit"
+              disabled={!newBrandName.trim()}
+              onClick={handleAddBrandDna}
+            >
+              Purchase Additional Brand DNA
+            </button>
           </div>
         </div>
       )}

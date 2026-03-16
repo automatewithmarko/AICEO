@@ -249,6 +249,15 @@
 .crm-cell-name {
   font-weight: 600;
   color: var(--text-primary);
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.crm-cell-name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
 }
 
 .crm-cell-email {
@@ -378,6 +387,10 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
 }
 
 .crm-kb-card-biz {
@@ -406,25 +419,28 @@
 
 /* ── Column widths ── */
 .crm-table th:nth-child(1),
-.crm-table td:nth-child(1) { width: 15%; }
+.crm-table td:nth-child(1) { width: 40px; min-width: 40px; max-width: 40px; }
 
 .crm-table th:nth-child(2),
-.crm-table td:nth-child(2) { width: 14%; }
+.crm-table td:nth-child(2) { width: 15%; }
 
 .crm-table th:nth-child(3),
-.crm-table td:nth-child(3) { width: 18%; }
+.crm-table td:nth-child(3) { width: 13%; }
 
 .crm-table th:nth-child(4),
-.crm-table td:nth-child(4) { width: 16%; }
+.crm-table td:nth-child(4) { width: 18%; }
 
 .crm-table th:nth-child(5),
-.crm-table td:nth-child(5) { width: 11%; }
+.crm-table td:nth-child(5) { width: 15%; }
 
 .crm-table th:nth-child(6),
-.crm-table td:nth-child(6) { width: 12%; }
+.crm-table td:nth-child(6) { width: 11%; }
 
 .crm-table th:nth-child(7),
-.crm-table td:nth-child(7) { width: 14%; }
+.crm-table td:nth-child(7) { width: 11%; }
+
+.crm-table th:nth-child(8),
+.crm-table td:nth-child(8) { width: 14%; }
 
 /* ── Contact Popup ── */
 .crm-popup-overlay {
@@ -1487,59 +1503,160 @@
   }
 }
 
-/* ── GHL Sync Badges ── */
+/* ── GHL Icon ── */
 .crm-cell-name-text {
   font-weight: 600;
   color: var(--text-primary);
-  margin-right: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
-.crm-ghl-badge {
+.crm-ghl-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 2px;
+}
+
+/* ── Checkboxes ── */
+.crm-cell-check {
+  text-align: center;
+  padding: 0 !important;
+  vertical-align: middle;
+}
+
+.crm-checkbox {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 1px 6px;
+  justify-content: center;
+  cursor: pointer;
+  padding: 8px;
+}
+
+.crm-checkbox input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.crm-checkbox-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #d1d5db;
   border-radius: 4px;
-  font-size: 10px;
+  background: #fff;
+  transition: all 0.15s ease;
+  color: transparent;
+}
+
+.crm-checkbox input:checked + .crm-checkbox-box {
+  background: var(--brand-red, #e91a44);
+  border-color: var(--brand-red, #e91a44);
+  color: #fff;
+}
+
+.crm-checkbox:hover .crm-checkbox-box {
+  border-color: var(--brand-red, #e91a44);
+}
+
+/* ── Bulk Actions ── */
+.crm-bulk-count {
+  font-size: 13px;
   font-weight: 600;
+  color: var(--brand-red, #e91a44);
   white-space: nowrap;
-  flex-shrink: 0;
+  padding: 0 4px;
 }
 
-.crm-ghl-badge--synced {
-  background: #dcfce7;
-  color: #16a34a;
+.crm-pill--danger {
+  color: #dc2626 !important;
+  border-color: #fca5a5 !important;
 }
 
-.crm-ghl-badge--pending {
-  background: #fef3c7;
-  color: #d97706;
+.crm-pill--danger:hover {
+  background: #fef2f2 !important;
+  border-color: #dc2626 !important;
 }
 
-.crm-ghl-badge--error {
-  background: #fee2e2;
-  color: #dc2626;
+.crm-bulk-dropdown-wrap {
+  position: relative;
 }
 
-.crm-ghl-badge--local_only {
-  background: #f3f4f6;
-  color: #6b7280;
+.crm-bulk-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  padding: 6px;
+  max-height: 240px;
+  overflow-y: auto;
 }
 
-/* Kanban inline icons */
-.crm-ghl-inline-icon {
-  display: inline;
-  margin-left: 4px;
-  vertical-align: middle;
-  flex-shrink: 0;
+.crm-bulk-dropdown-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 4px;
+  outline: none;
+  box-sizing: border-box;
 }
 
-.crm-ghl-inline-icon--synced {
-  color: #16a34a;
+.crm-bulk-dropdown-input:focus {
+  border-color: var(--brand-red, #e91a44);
 }
 
-.crm-ghl-inline-icon--error {
-  color: #dc2626;
+.crm-bulk-dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.crm-bulk-dropdown-item:hover {
+  background: #f5f5f7;
+}
+
+.crm-bulk-dropdown-item--action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--brand-red, #e91a44);
+  font-weight: 600;
+}
+
+.crm-bulk-dropdown-divider {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 4px 0;
+}
+
+.crm-kb-card-name-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 /* Popup GHL sync section */
