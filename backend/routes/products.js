@@ -82,57 +82,82 @@ router.post('/api/products', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
-  const { name, description, type, price, priceMode, paymentProcessor } = req.body;
-  if (!name || !type || !price) return res.status(400).json({ error: 'name, type, and price are required' });
+  const { name, description, type, price, priceMode, paymentProcessor, pricingOptions } = req.body;
 
-  const priceCents = Math.round(parseFloat(price) * 100);
-  if (isNaN(priceCents) || priceCents <= 0) return res.status(400).json({ error: 'Invalid price' });
+  // Build normalized pricing options array (supports both old single-price and new multi-price)
+  let options;
+  if (Array.isArray(pricingOptions) && pricingOptions.length > 0) {
+    options = pricingOptions.map((opt) => {
+      const cents = Math.round(parseFloat(opt.price) * 100);
+      if (isNaN(cents) || cents <= 0) throw new Error('Invalid price in pricing options');
+      return { price_cents: cents, price_mode: opt.priceMode === 'Monthly' ? 'monthly' : 'one_time' };
+    });
+  } else if (price) {
+    const cents = Math.round(parseFloat(price) * 100);
+    if (isNaN(cents) || cents <= 0) return res.status(400).json({ error: 'Invalid price' });
+    options = [{ price_cents: cents, price_mode: priceMode === 'Monthly' ? 'monthly' : 'one_time' }];
+  } else {
+    return res.status(400).json({ error: 'name, type, and at least one pricing option are required' });
+  }
+
+  if (!name || !type) return res.status(400).json({ error: 'name and type are required' });
 
   const processor = paymentProcessor || 'none';
-  const isMonthly = priceMode === 'Monthly';
 
   try {
+    // Use first option for the legacy single-price columns
     const dbRow = {
       user_id: userId,
       name,
       description: description || '',
       type,
-      price_cents: priceCents,
-      price_mode: isMonthly ? 'monthly' : 'one_time',
+      price_cents: options[0].price_cents,
+      price_mode: options[0].price_mode,
       photos: [],
       payment_processor: processor,
+      pricing_options: options, // will be enriched with Stripe/Whop IDs below
     };
 
     if (processor === 'stripe') {
       const apiKey = await getStripeKey(userId);
       const stripe = new Stripe(apiKey);
 
+      // One Stripe product for all pricing options
       const stripeProduct = await stripe.products.create({
         name,
         description: description || undefined,
         metadata: { type, created_by: 'aiceo' },
       });
 
-      const priceParams = {
-        product: stripeProduct.id,
-        unit_amount: priceCents,
-        currency: 'usd',
-      };
-      if (isMonthly) priceParams.recurring = { interval: 'month' };
-      const stripePrice = await stripe.prices.create(priceParams);
-
-      const paymentLink = await stripe.paymentLinks.create({
-        line_items: [{ price: stripePrice.id, quantity: 1 }],
-      });
-
       dbRow.stripe_product_id = stripeProduct.id;
-      dbRow.stripe_price_id = stripePrice.id;
-      dbRow.stripe_payment_link_id = paymentLink.id;
-      dbRow.payment_link_url = paymentLink.url;
+
+      // Create a price + payment link per pricing option
+      for (const opt of options) {
+        const priceParams = {
+          product: stripeProduct.id,
+          unit_amount: opt.price_cents,
+          currency: 'usd',
+        };
+        if (opt.price_mode === 'monthly') priceParams.recurring = { interval: 'month' };
+        const stripePrice = await stripe.prices.create(priceParams);
+
+        const paymentLink = await stripe.paymentLinks.create({
+          line_items: [{ price: stripePrice.id, quantity: 1 }],
+        });
+
+        opt.stripe_price_id = stripePrice.id;
+        opt.stripe_payment_link_id = paymentLink.id;
+        opt.payment_link_url = paymentLink.url;
+      }
+
+      // Legacy columns: use first option
+      dbRow.stripe_price_id = options[0].stripe_price_id;
+      dbRow.stripe_payment_link_id = options[0].stripe_payment_link_id;
+      dbRow.payment_link_url = options[0].payment_link_url;
     } else if (processor === 'whop') {
       const apiKey = await getWhopKey(userId);
 
-      // Create Whop product
+      // One Whop product
       const createRes = await fetch('https://api.whop.com/api/v5/products', {
         method: 'POST',
         headers: {
@@ -151,45 +176,61 @@ router.post('/api/products', async (req, res) => {
       }
 
       const whopProduct = await createRes.json();
+      dbRow.whop_product_id = whopProduct.id;
 
-      // Create Whop plan (price)
-      const planRes = await fetch('https://api.whop.com/api/v5/plans', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          product_id: whopProduct.id,
-          plan_type: isMonthly ? 'renewal' : 'one_time',
-          initial_price: priceCents,
-          currency: 'usd',
-          ...(isMonthly ? { renewal_period: 'monthly', renewal_price: priceCents } : {}),
-        }),
-      });
+      // Create a plan per pricing option
+      for (const opt of options) {
+        const isMonthly = opt.price_mode === 'monthly';
+        const planRes = await fetch('https://api.whop.com/api/v5/plans', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            product_id: whopProduct.id,
+            plan_type: isMonthly ? 'renewal' : 'one_time',
+            initial_price: opt.price_cents,
+            currency: 'usd',
+            ...(isMonthly ? { renewal_period: 'monthly', renewal_price: opt.price_cents } : {}),
+          }),
+        });
 
-      if (!planRes.ok) {
-        const errBody = await planRes.text();
-        throw new Error(`Whop plan creation failed: ${errBody}`);
+        if (!planRes.ok) {
+          const errBody = await planRes.text();
+          throw new Error(`Whop plan creation failed: ${errBody}`);
+        }
+
+        const whopPlan = await planRes.json();
+        opt.whop_plan_id = whopPlan.id;
+        opt.payment_link_url = whopPlan.checkout_link || whopProduct.checkout_link || null;
       }
 
-      const whopPlan = await planRes.json();
-
-      dbRow.whop_product_id = whopProduct.id;
-      dbRow.whop_plan_id = whopPlan.id;
-      dbRow.payment_link_url = whopPlan.checkout_link || whopProduct.checkout_link || null;
+      dbRow.whop_plan_id = options[0].whop_plan_id || null;
+      dbRow.payment_link_url = options[0].payment_link_url || null;
     }
     // processor === 'none' — just save to DB, no external API calls
 
-    const { data, error } = await supabase
+    dbRow.pricing_options = options;
+
+    let { data, error } = await supabase
       .from('products')
       .insert(dbRow)
       .select()
       .single();
 
+    // If pricing_options column doesn't exist yet, retry without it
+    if (error && error.message && error.message.includes('pricing_options')) {
+      console.log('[products] pricing_options column not found, inserting without it');
+      delete dbRow.pricing_options;
+      const retry = await supabase.from('products').insert(dbRow).select().single();
+      data = retry.data;
+      error = retry.error;
+    }
+
     if (error) return res.status(500).json({ error: error.message });
 
-    console.log(`[products] Created "${name}" (${processor}) for user ${userId}`);
+    console.log(`[products] Created "${name}" (${processor}, ${options.length} pricing option${options.length > 1 ? 's' : ''}) for user ${userId}`);
     res.json({ product: data });
   } catch (err) {
     console.log(`[products] Create error: ${err.message}`);
@@ -254,17 +295,36 @@ router.delete('/api/products/:id', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
-  const { data: existing } = await supabase
+  let { data: existing } = await supabase
     .from('products')
-    .select('stripe_product_id, stripe_payment_link_id, payment_processor')
+    .select('stripe_product_id, stripe_payment_link_id, payment_processor, pricing_options')
     .eq('id', req.params.id)
     .eq('user_id', userId)
     .single();
+
+  // Fallback if pricing_options column doesn't exist yet
+  if (!existing) {
+    const fallback = await supabase
+      .from('products')
+      .select('stripe_product_id, stripe_payment_link_id, payment_processor')
+      .eq('id', req.params.id)
+      .eq('user_id', userId)
+      .single();
+    existing = fallback.data;
+  }
 
   try {
     if (existing?.stripe_product_id && existing?.payment_processor === 'stripe') {
       const apiKey = await getStripeKey(userId);
       const stripe = new Stripe(apiKey);
+      // Deactivate all payment links from pricing_options
+      const opts = existing.pricing_options || [];
+      for (const opt of opts) {
+        if (opt.stripe_payment_link_id) {
+          await stripe.paymentLinks.update(opt.stripe_payment_link_id, { active: false }).catch(() => {});
+        }
+      }
+      // Also deactivate legacy single link if present
       if (existing.stripe_payment_link_id) {
         await stripe.paymentLinks.update(existing.stripe_payment_link_id, { active: false }).catch(() => {});
       }

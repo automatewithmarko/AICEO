@@ -2,11 +2,8 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Mail, Send, Users, BarChart3, Megaphone, Inbox, FileText, PenTool, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine } from 'lucide-react';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { MOCK_EMAILS } from './Inbox';
-import { MOCK_CALLS } from './Sales';
-import { INITIAL_PRODUCTS } from './Products';
 import { supabase } from '../lib/supabase';
-import { generateImage, deployToNetlify, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate } from '../lib/api';
+import { generateImage, deployToNetlify, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems } from '../lib/api';
 import './Pages.css';
 import './Marketing.css';
 
@@ -264,63 +261,7 @@ function GhostCard({ icon, lines, className }) {
   );
 }
 
-const CONTEXT_CATEGORIES = [
-  {
-    id: 'newsletters',
-    label: 'Past Newsletters',
-    iconSrc: '/icon-marketing.png',
-    items: [
-      { id: 'nl-1', name: 'Weekly Growth Tips #42', date: 'Mar 3' },
-      { id: 'nl-2', name: 'Product Launch Announcement', date: 'Feb 24' },
-      { id: 'nl-3', name: 'Year-End Recap & Vision', date: 'Feb 10' },
-      { id: 'nl-4', name: 'Community Spotlight — Feb', date: 'Feb 3' },
-      { id: 'nl-5', name: 'Weekly Growth Tips #41', date: 'Jan 27' },
-    ],
-  },
-  {
-    id: 'emails',
-    label: 'Past Emails',
-    iconSrc: '/icon-inbox.png',
-    items: MOCK_EMAILS.map((e) => ({
-      id: `em-${e.id}`,
-      name: e.subject,
-      date: e.date,
-      sub: e.from,
-    })),
-  },
-  {
-    id: 'calls',
-    label: 'Calls',
-    iconSrc: '/fireflies-square-logo.png',
-    items: MOCK_CALLS.map((c) => ({
-      id: `cl-${c.id}`,
-      name: c.name,
-      date: c.date.replace(', 2026', ''),
-      sub: c.callType,
-    })),
-  },
-  {
-    id: 'content',
-    label: 'Content',
-    iconSrc: '/icon-create-content.png',
-    items: [
-      { id: 'ct-1', name: '5 Tips for Scaling Your Biz', date: 'Mar 6', sub: 'Instagram' },
-      { id: 'ct-2', name: 'Behind the Scenes — My Morning', date: 'Mar 4', sub: 'YouTube' },
-      { id: 'ct-3', name: 'Client Transformation Story', date: 'Mar 2', sub: 'LinkedIn' },
-      { id: 'ct-4', name: 'How I Grew to 10K Subs', date: 'Feb 28', sub: 'Instagram' },
-    ],
-  },
-  {
-    id: 'products',
-    label: 'Products',
-    iconSrc: '/icon-products.png',
-    items: INITIAL_PRODUCTS.map((p) => ({
-      id: `pr-${p.id}`,
-      name: p.name,
-      sub: `${p.type} · $${p.price}`,
-    })),
-  },
-];
+// Context categories are now fetched dynamically inside ToolTab
 
 // ── Story Sequence Phone Viewer ──
 function StoryPhoneViewer({ frames }) {
@@ -1039,6 +980,52 @@ function ToolTab({ config, activeTool, brandDna }) {
   const [researchMode, setResearchMode] = useState(false);
   const [searchStatus, setSearchStatus] = useState(null);
 
+  // Dynamic context categories (fetched from real APIs)
+  const [contextCategories, setContextCategories] = useState([
+    { id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png', items: [] },
+    { id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png', items: [] },
+    { id: 'calls', label: 'Calls', iconSrc: '/fireflies-square-logo.png', items: [] },
+    { id: 'content', label: 'Content', iconSrc: '/icon-create-content.png', items: [] },
+    { id: 'products', label: 'Products', iconSrc: '/icon-products.png', items: [] },
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fmt = (d) => { try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } };
+    Promise.all([
+      getTemplates('newsletter').catch(() => ({ templates: [] })),
+      getEmails({ limit: 20 }).catch(() => ({ emails: [] })),
+      getSalesCalls().catch(() => ({ calls: [] })),
+      getContentItems().catch(() => ({ items: [] })),
+      getProducts().catch(() => ({ products: [] })),
+    ]).then(([nlRes, emRes, clRes, ctRes, prRes]) => {
+      if (cancelled) return;
+      setContextCategories([
+        {
+          id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png',
+          items: (nlRes.templates || []).map((t) => ({ id: `nl-${t.id}`, name: t.name || t.description || 'Untitled', date: fmt(t.created_at) })),
+        },
+        {
+          id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png',
+          items: (emRes.emails || []).map((e) => ({ id: `em-${e.id}`, name: e.subject || '(no subject)', date: fmt(e.date), sub: e.from_name || e.from_email || '' })),
+        },
+        {
+          id: 'calls', label: 'Calls', iconSrc: '/fireflies-square-logo.png',
+          items: (clRes.calls || []).map((c) => ({ id: `cl-${c.id}`, name: c.title || c.name || 'Untitled Call', date: fmt(c.date || c.created_at), sub: c.call_type || c.callType || '' })),
+        },
+        {
+          id: 'content', label: 'Content', iconSrc: '/icon-create-content.png',
+          items: (ctRes.items || []).map((c) => ({ id: `ct-${c.id}`, name: c.title || c.name || c.file_name || 'Untitled', date: fmt(c.created_at), sub: c.type || c.platform || '' })),
+        },
+        {
+          id: 'products', label: 'Products', iconSrc: '/icon-products.png',
+          items: (prRes.products || []).map((p) => ({ id: `pr-${p.id}`, name: p.name || 'Untitled Product', sub: `${p.type || p.product_type || ''} · $${p.price || 0}` })),
+        },
+      ]);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   // Chat state
   const [messages, setMessages] = useState([]);
   const [chatMessages, setChatMessages] = useState([]);
@@ -1308,7 +1295,7 @@ function ToolTab({ config, activeTool, brandDna }) {
 
   const getSelectedItemDetails = () => {
     const results = [];
-    for (const cat of CONTEXT_CATEGORIES) {
+    for (const cat of contextCategories) {
       for (const item of cat.items) {
         if (selectedItems.has(item.id)) {
           results.push({ ...item, catLabel: cat.label });
@@ -1890,7 +1877,7 @@ function ToolTab({ config, activeTool, brandDna }) {
                 {contextOpen && (
                   <div className="mkt-ctx-dropdown">
                     <div className="mkt-ctx-dropdown-header">Select Context</div>
-                    {CONTEXT_CATEGORIES.map((cat) => {
+                    {contextCategories.map((cat) => {
                       const selectedCount = cat.items.filter((i) => selectedItems.has(i.id)).length;
                       return (
                         <div
@@ -2207,9 +2194,10 @@ export default function Marketing() {
         .from('brand_dna')
         .select('*')
         .eq('user_id', session.user.id)
-        .single();
+        .order('updated_at', { ascending: true })
+        .limit(1);
       if (error) { console.error('Failed to load brand DNA:', error.message); return; }
-      if (data) setBrandDna(data);
+      if (data?.[0]) setBrandDna(data[0]);
     }).catch((err) => console.error('Brand DNA load error:', err));
   }, []);
 

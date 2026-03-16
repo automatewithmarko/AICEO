@@ -107,11 +107,13 @@ router.post('/api/generate/image', async (req, res) => {
       const userId = req.user?.id;
       if (userId && userId !== 'anonymous') {
         console.log(`[generate/image] No brand data from frontend — fetching from DB for user ${userId}`);
-        const { data: dbBrand } = await supabase
+        const { data: dbBrandRows } = await supabase
           .from('brand_dna')
           .select('logo_url, photo_urls, colors, main_font')
           .eq('user_id', userId)
-          .single();
+          .order('updated_at', { ascending: true })
+          .limit(1);
+        const dbBrand = dbBrandRows?.[0] || null;
         if (dbBrand) {
           brand = {
             logoUrl: dbBrand.logo_url || null,

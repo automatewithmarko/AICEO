@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Search, Filter, ArrowUpDown, Plus, X, Phone, Mail, Building2, Calendar, Play, Download, ExternalLink, Send, Instagram, Linkedin, Trash2, RefreshCw, Loader2, CloudOff, AlertCircle, CheckCircle2, Upload, UserPlus, Check } from 'lucide-react';
+import { Search, Filter, ArrowUpDown, Plus, X, Phone, Mail, Building2, Calendar, Play, Download, ExternalLink, Send, Instagram, Linkedin, Trash2, RefreshCw, Loader2, CloudOff, AlertCircle, CheckCircle2, Upload, UserPlus, Check, Tag, ListPlus, FolderPlus, ChevronDown } from 'lucide-react';
 import { getContacts, createContact, updateContact as updateContactApi, deleteContact as deleteContactApi, getContactDetail, syncContacts, syncContactToGHL } from '../lib/api';
 import './CRM.css';
 
@@ -53,6 +53,10 @@ export default function CRM() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [addingSocial, setAddingSocial] = useState(null);
   const [socialInput, setSocialInput] = useState('');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkMenu, setBulkMenu] = useState(null); // 'tag' | 'status' | 'addToList' | 'createList' | null
+  const [bulkTagInput, setBulkTagInput] = useState('');
+  const [bulkListName, setBulkListName] = useState('');
   const [addingContact, setAddingContact] = useState(false);
   const [newContact, setNewContact] = useState({ name: '', email: '', phone: '', business: '' });
   const [csvImporting, setCsvImporting] = useState(false);
@@ -77,12 +81,18 @@ export default function CRM() {
     setLoading(true);
     try {
       const { contacts: data } = await getContacts();
-      setContacts(data.map(c => ({
-        ...c,
-        tags: c.tags || [],
-        socials: c.socials || { instagram: [], linkedin: [], x: [] },
-        created: new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      })));
+      setContacts(data.map(c => {
+        // For GHL contacts, always use ghl_raw_data.email as source of truth
+        // The DB email column may contain a stale placeholder like ghl-xxx@placeholder.local
+        let email = c.ghl_raw_data ? (c.ghl_raw_data.email || '') : (c.email || '');
+        return {
+          ...c,
+          email,
+          tags: c.tags || [],
+          socials: c.socials || { instagram: [], linkedin: [], x: [] },
+          created: new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        };
+      }));
     } catch (err) {
       console.error('Failed to load contacts:', err);
     }
@@ -244,6 +254,78 @@ export default function CRM() {
     }
   };
 
+  // ── Bulk actions ──
+  const bulkDeleteContacts = async () => {
+    if (!selectedIds.size) return;
+    if (!window.confirm(`Delete ${selectedIds.size} contact${selectedIds.size > 1 ? 's' : ''}?`)) return;
+    for (const id of selectedIds) {
+      try { await deleteContactApi(id); } catch {}
+    }
+    setContacts(prev => prev.filter(c => !selectedIds.has(c.id)));
+    if (popup && selectedIds.has(popup.contact.id)) setPopup(null);
+    setSelectedIds(new Set());
+  };
+
+  const bulkAddTag = (tag) => {
+    if (!tag.trim()) return;
+    const tagVal = tag.trim();
+    for (const id of selectedIds) {
+      const c = contacts.find(x => x.id === id);
+      if (c && !(c.tags || []).includes(tagVal)) {
+        const newTags = [...(c.tags || []), tagVal];
+        updateLocalContact(id, prev => ({ ...prev, tags: newTags }));
+        updateContactApi(id, { tags: newTags }).catch(() => {});
+      }
+    }
+    setBulkMenu(null);
+    setBulkTagInput('');
+  };
+
+  const bulkChangeStatus = (status) => {
+    for (const id of selectedIds) {
+      updateLocalContact(id, prev => ({ ...prev, status }));
+      updateContactApi(id, { status }).catch(() => {});
+    }
+    setBulkMenu(null);
+  };
+
+  const bulkCreateList = () => {
+    if (!bulkListName.trim()) return;
+    // Collect the unique tags and statuses from selected contacts to define the list
+    const selectedContacts = contacts.filter(c => selectedIds.has(c.id));
+    const tags = [...new Set(selectedContacts.flatMap(c => c.tags || []))];
+    const statuses = [...new Set(selectedContacts.map(c => c.status))];
+    const newList = {
+      id: `list-${Date.now()}`,
+      name: bulkListName.trim(),
+      statuses,
+      tags,
+    };
+    const updated = [...customLists, newList];
+    setCustomLists(updated);
+    saveLists(updated);
+    setActiveList(newList.id);
+    setBulkMenu(null);
+    setBulkListName('');
+  };
+
+  const bulkAddToList = (list) => {
+    // Add a shared tag matching the list name so contacts appear in that list's tag filter
+    const selectedContacts = contacts.filter(c => selectedIds.has(c.id));
+    const listTags = list.tags || [];
+    if (listTags.length > 0) {
+      const tagToAdd = listTags[0];
+      for (const c of selectedContacts) {
+        if (!(c.tags || []).includes(tagToAdd)) {
+          const newTags = [...(c.tags || []), tagToAdd];
+          updateLocalContact(c.id, prev => ({ ...prev, tags: newTags }));
+          updateContactApi(c.id, { tags: newTags }).catch(() => {});
+        }
+      }
+    }
+    setBulkMenu(null);
+  };
+
   // Debounced save to DB when contact fields change
   const debouncedSave = useCallback((contactId, updates) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -300,6 +382,16 @@ export default function CRM() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showFilters]);
+
+  // Close bulk dropdown on outside click
+  useEffect(() => {
+    if (!bulkMenu) return;
+    const handler = (e) => {
+      if (!e.target.closest('.crm-bulk-dropdown-wrap')) setBulkMenu(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [bulkMenu]);
 
   const handleCreateList = () => {
     if (!listForm.name.trim()) return;
@@ -637,44 +729,119 @@ export default function CRM() {
           </button>
         </div>
         <div className="crm-toolbar-right">
-          {searchOpen ? (
-            <div className="crm-search-box">
-              <Search size={14} className="crm-search-icon" />
-              <input
-                className="crm-search-input"
-                placeholder="Search contacts..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                autoFocus
-                onBlur={() => { if (!search) setSearchOpen(false); }}
-              />
-            </div>
+          {selectedIds.size > 0 ? (
+            <>
+              <span className="crm-bulk-count">{selectedIds.size} selected</span>
+              <button className="crm-pill crm-pill--danger" onClick={bulkDeleteContacts}>
+                <Trash2 size={14} />
+                Delete
+              </button>
+              <div className="crm-bulk-dropdown-wrap">
+                <button className="crm-pill" onClick={() => setBulkMenu(bulkMenu === 'tag' ? null : 'tag')}>
+                  <Tag size={14} />
+                  Add Tag
+                  <ChevronDown size={12} />
+                </button>
+                {bulkMenu === 'tag' && (
+                  <div className="crm-bulk-dropdown">
+                    <input
+                      className="crm-bulk-dropdown-input"
+                      placeholder="Type a tag..."
+                      value={bulkTagInput}
+                      onChange={(e) => setBulkTagInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') bulkAddTag(bulkTagInput); }}
+                      autoFocus
+                    />
+                    {allTags.map(t => (
+                      <button key={t} className="crm-bulk-dropdown-item" onClick={() => bulkAddTag(t)}>{t}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="crm-bulk-dropdown-wrap">
+                <button className="crm-pill" onClick={() => setBulkMenu(bulkMenu === 'status' ? null : 'status')}>
+                  <Filter size={14} />
+                  Change Status
+                  <ChevronDown size={12} />
+                </button>
+                {bulkMenu === 'status' && (
+                  <div className="crm-bulk-dropdown">
+                    {STATUSES.map(s => (
+                      <button key={s} className="crm-bulk-dropdown-item" onClick={() => bulkChangeStatus(s)}>{s}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="crm-bulk-dropdown-wrap">
+                <button className="crm-pill" onClick={() => setBulkMenu(bulkMenu === 'addToList' ? null : 'addToList')}>
+                  <ListPlus size={14} />
+                  Add to List
+                  <ChevronDown size={12} />
+                </button>
+                {bulkMenu === 'addToList' && (
+                  <div className="crm-bulk-dropdown">
+                    {customLists.map(l => (
+                      <button key={l.id} className="crm-bulk-dropdown-item" onClick={() => bulkAddToList(l)}>{l.name}</button>
+                    ))}
+                    <div className="crm-bulk-dropdown-divider" />
+                    <input
+                      className="crm-bulk-dropdown-input"
+                      placeholder="New list name..."
+                      value={bulkListName}
+                      onChange={(e) => setBulkListName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') bulkCreateList(); }}
+                      autoFocus
+                    />
+                    <button className="crm-bulk-dropdown-item crm-bulk-dropdown-item--action" onClick={bulkCreateList} disabled={!bulkListName.trim()}>
+                      <FolderPlus size={14} />
+                      Create New List
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
           ) : (
-            <button className="crm-pill" onClick={() => setSearchOpen(true)}>
-              <Search size={14} />
-              Search Contacts
-            </button>
+            <>
+              {searchOpen ? (
+                <div className="crm-search-box">
+                  <Search size={14} className="crm-search-icon" />
+                  <input
+                    className="crm-search-input"
+                    placeholder="Search contacts..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    autoFocus
+                    onBlur={() => { if (!search) setSearchOpen(false); }}
+                  />
+                </div>
+              ) : (
+                <button className="crm-pill" onClick={() => setSearchOpen(true)}>
+                  <Search size={14} />
+                  Search Contacts
+                </button>
+              )}
+              <button
+                className="crm-pill"
+                onClick={() => csvInputRef.current?.click()}
+                disabled={csvImporting}
+              >
+                {csvImporting ? <Loader2 size={14} className="crm-spin" /> : <Upload size={14} />}
+                {csvImporting ? 'Importing...' : 'Import CSV'}
+              </button>
+              <button
+                className="crm-pill"
+                onClick={handleSync}
+                disabled={syncing}
+              >
+                {syncing ? <Loader2 size={14} className="crm-spin" /> : <RefreshCw size={14} />}
+                {syncing ? 'Syncing...' : 'Sync'}
+              </button>
+              <button className="crm-add-contact-btn" onClick={() => setAddingContact(true)}>
+                <UserPlus size={15} />
+                <span className="crm-add-contact-label">Add Contact</span>
+              </button>
+            </>
           )}
-          <button
-            className="crm-pill"
-            onClick={() => csvInputRef.current?.click()}
-            disabled={csvImporting}
-          >
-            {csvImporting ? <Loader2 size={14} className="crm-spin" /> : <Upload size={14} />}
-            {csvImporting ? 'Importing...' : 'Import CSV'}
-          </button>
-          <button
-            className="crm-pill"
-            onClick={handleSync}
-            disabled={syncing}
-          >
-            {syncing ? <Loader2 size={14} className="crm-spin" /> : <RefreshCw size={14} />}
-            {syncing ? 'Syncing...' : 'Sync'}
-          </button>
-          <button className="crm-add-contact-btn" onClick={() => setAddingContact(true)}>
-            <UserPlus size={15} />
-            <span className="crm-add-contact-label">Add Contact</span>
-          </button>
         </div>
       </div>
 
@@ -700,6 +867,22 @@ export default function CRM() {
           <table className="crm-table">
             <thead>
               <tr>
+                <th className="crm-cell-check">
+                  <label className="crm-checkbox" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={filtered.length > 0 && filtered.every(c => selectedIds.has(c.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedIds(new Set(filtered.map(c => c.id)));
+                        } else {
+                          setSelectedIds(new Set());
+                        }
+                      }}
+                    />
+                    <span className="crm-checkbox-box"><Check size={12} /></span>
+                  </label>
+                </th>
                 <th>Contact Name</th>
                 <th>Phone</th>
                 <th>Email</th>
@@ -714,26 +897,40 @@ export default function CRM() {
                 const st = STATUS_COLORS[c.status] || { bg: '#f3f4f6', color: '#374151' };
                 return (
                   <tr key={c.id} onClick={(e) => openContact(c, e)} className="crm-row-clickable">
+                    <td className="crm-cell-check" onClick={(e) => e.stopPropagation()}>
+                      <label className="crm-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(c.id)}
+                          onChange={() => {
+                            setSelectedIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(c.id)) next.delete(c.id);
+                              else next.add(c.id);
+                              return next;
+                            });
+                          }}
+                        />
+                        <span className="crm-checkbox-box"><Check size={12} /></span>
+                      </label>
+                    </td>
                     <td className="crm-cell-name">
-                      <span className="crm-cell-name-text">{c.name || '—'}</span>
-                      {c.ghl_contact_id && (
-                        <span className={`crm-ghl-badge crm-ghl-badge--${c.ghl_sync_status || 'synced'}`} title={
-                          c.ghl_sync_status === 'error' ? `GHL sync error: ${c.ghl_sync_error || 'Unknown'}` :
-                          c.ghl_sync_status === 'pending' ? 'Syncing to GHL...' :
-                          c.ghl_sync_status === 'synced' ? 'Synced with GoHighLevel' : 'GHL'
-                        }>
-                          {c.ghl_sync_status === 'synced' && <CheckCircle2 size={12} />}
-                          {c.ghl_sync_status === 'pending' && <Loader2 size={12} className="crm-spin" />}
-                          {c.ghl_sync_status === 'error' && <AlertCircle size={12} />}
-                          GHL
-                        </span>
-                      )}
-                      {c.source === 'gohighlevel' && !c.ghl_contact_id && (
-                        <span className="crm-ghl-badge crm-ghl-badge--local_only" title="Imported from GHL (local only)">
-                          <CloudOff size={12} />
-                          GHL
-                        </span>
-                      )}
+                      <div className="crm-cell-name-wrap">
+                        <span className="crm-cell-name-text">{c.name || '—'}</span>
+                        {(c.ghl_contact_id || c.source === 'gohighlevel') && (
+                          <img
+                            src="/gohighlevel_logoSquare.png"
+                            alt="GHL"
+                            className="crm-ghl-icon"
+                            title={
+                              c.ghl_sync_status === 'error' ? `GHL sync error: ${c.ghl_sync_error || 'Unknown'}` :
+                              c.ghl_sync_status === 'pending' ? 'Syncing to GHL...' :
+                              c.ghl_sync_status === 'synced' ? 'Synced with GoHighLevel' :
+                              c.source === 'gohighlevel' ? 'Imported from GHL' : 'GHL'
+                            }
+                          />
+                        )}
+                      </div>
                     </td>
                     <td>{c.phone || '—'}</td>
                     <td className="crm-cell-email">{c.email || '—'}</td>
@@ -756,7 +953,7 @@ export default function CRM() {
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="crm-empty">
+                  <td colSpan={8} className="crm-empty">
                     {contacts.length === 0 ? 'No contacts yet. Click "Sync Contacts" to import from your integrations, or add one manually.' : 'No contacts found.'}
                   </td>
                 </tr>
@@ -783,16 +980,13 @@ export default function CRM() {
                   {cards.map((c) => (
                     <div key={c.id} className="crm-kb-card" onClick={(e) => openContact(c, e)}>
                       <div className="crm-kb-card-name">
-                        {c.name || c.email}
-                        {c.ghl_contact_id && c.ghl_sync_status === 'synced' && (
-                          <CheckCircle2 size={12} className="crm-ghl-inline-icon crm-ghl-inline-icon--synced" />
-                        )}
-                        {c.ghl_contact_id && c.ghl_sync_status === 'error' && (
-                          <AlertCircle size={12} className="crm-ghl-inline-icon crm-ghl-inline-icon--error" />
+                        <span className="crm-kb-card-name-text">{c.name || c.email}</span>
+                        {(c.ghl_contact_id || c.source === 'gohighlevel') && (
+                          <img src="/gohighlevel_logoSquare.png" alt="GHL" className="crm-ghl-icon" title="GoHighLevel" />
                         )}
                       </div>
                       <div className="crm-kb-card-biz">{c.business || '—'}</div>
-                      <div className="crm-kb-card-email">{c.email}</div>
+                      <div className="crm-kb-card-email">{c.email || '—'}</div>
                       <div className="crm-kb-card-footer">
                         <span className="crm-kb-card-date">{c.created}</span>
                         <div className="crm-tags">

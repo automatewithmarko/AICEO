@@ -105,6 +105,12 @@
   text-transform: uppercase;
 }
 
+.meeting-detail-platform-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
 .meeting-detail-status {
   display: flex;
   align-items: center;

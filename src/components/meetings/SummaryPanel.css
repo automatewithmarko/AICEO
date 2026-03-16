@@ -77,34 +77,120 @@
 }
 
 /* Action Items */
+.action-items-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.action-items-generate-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  background: var(--brand-red);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.action-items-generate-btn:hover {
+  background: var(--brand-red-hover);
+}
+
+.action-items-generate-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 .action-items-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
+
 .action-item {
-  display: flex;
-  gap: 10px;
-  padding: 10px;
   border-radius: 8px;
   background: #f9fafb;
   border: 1px solid #f0f0f2;
+  overflow: hidden;
 }
-.action-item-check {
+
+.action-item--completed {
+  opacity: 0.6;
+}
+
+.action-item-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.action-item-main:hover {
+  background: #f0f0f2;
+}
+
+.action-item-checkbox {
+  background: none;
+  border: none;
+  padding: 0;
   color: var(--text-muted);
+  cursor: pointer;
   flex-shrink: 0;
-  padding-top: 1px;
+  display: flex;
+  transition: color 0.15s;
 }
+
+.action-item-checkbox:hover {
+  color: var(--brand-red);
+}
+
+.action-item--completed .action-item-checkbox {
+  color: #10b981;
+}
+
 .action-item-text {
-  margin: 0;
+  flex: 1;
   font-size: 14px;
   color: var(--text-primary);
   line-height: 1.4;
 }
+
+.action-item-text--done {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.action-item-expand {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  display: flex;
+}
+
+.action-item-details {
+  padding: 0 12px 12px 42px;
+}
+
+.action-item-description {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
 .action-item-meta {
   display: flex;
   gap: 10px;
-  margin-top: 4px;
 }
 .action-item-assignee {
   font-size: 12px;
