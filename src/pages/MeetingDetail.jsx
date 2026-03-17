@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Share2, Trash2, RotateCw, Edit3, Check, Square } from 'lucide-react';
+import { ArrowLeft, Share2, Trash2, RotateCw, Edit3, Check, Square, Copy } from 'lucide-react';
 import { getMeeting, deleteMeeting, stopMeeting, reprocessMeeting, retryRecording, updateMeeting, getBotStatus, getStatusInfo, getPlatformInfo, formatDuration } from '../lib/meetings-api';
 import TranscriptViewer from '../components/meetings/TranscriptViewer';
 import SummaryPanel from '../components/meetings/SummaryPanel';
@@ -21,6 +21,7 @@ export default function MeetingDetail() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState('');
   const [reprocessing, setReprocessing] = useState(false);
+  const [transcriptCopied, setTranscriptCopied] = useState(false);
 
   const isActive = meeting && ['joining_call', 'in_waiting_room', 'in_call_recording', 'in_call_not_recording'].includes(meeting.recall_bot_status);
 
@@ -197,7 +198,23 @@ export default function MeetingDetail() {
             onRetry={!meeting.video_url && !meeting.audio_url && meeting.recall_bot_status === 'processed' ? handleRetryRecording : undefined}
           />
           <div className="meeting-detail-transcript">
-            <h3>Transcript</h3>
+            <div className="meeting-detail-transcript-header">
+              <h3>Transcript</h3>
+              {segments.length > 0 && (
+                <button
+                  className="meeting-detail-copy-btn"
+                  title="Copy transcript"
+                  onClick={() => {
+                    const text = segments.map(s => `${s.speaker_name || 'Unknown'}: ${s.text}`).join('\n');
+                    navigator.clipboard.writeText(text);
+                    setTranscriptCopied(true);
+                    setTimeout(() => setTranscriptCopied(false), 2000);
+                  }}
+                >
+                  {transcriptCopied ? <Check size={14} /> : <Copy size={14} />}
+                </button>
+              )}
+            </div>
             <TranscriptViewer
               segments={segments}
               currentTime={currentTime}

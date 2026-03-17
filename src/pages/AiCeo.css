@@ -2,7 +2,8 @@
 .ceo-page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
+  max-height: 100%;
   overflow: hidden;
 }
 
@@ -360,6 +361,7 @@
 .ceo-messages {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 32px 24px 16px;
   display: flex;
   flex-direction: column;
@@ -1205,7 +1207,7 @@
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .ceo-page {
-    height: calc(100vh - var(--bottombar-height) - 48px);
+    height: 100%;
   }
 
   .ceo-hero {
@@ -1255,25 +1257,40 @@
 .ceo-question-overlay {
   position: absolute;
   bottom: 0;
-  left: 0;
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 660px;
   background: var(--bg-white);
-  border-top: 1px solid var(--border-light);
+  border: 1px solid var(--border-light);
   padding: 24px 28px;
   z-index: 20;
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 24px rgba(233, 26, 68, 0.08), 0 -4px 20px rgba(0, 0, 0, 0.06);
   border-radius: 16px 16px 0 0;
 }
 
+.ceo-question-overlay::before {
+  content: '';
+  position: absolute;
+  top: -12px;
+  bottom: -12px;
+  left: -20px;
+  right: -20px;
+  border-radius: 32px;
+  background: radial-gradient(ellipse at center, rgba(233, 26, 68, 0.12) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: -1;
+}
+
 .ceo-question-overlay--visible {
-  transform: translateY(0);
+  transform: translateX(-50%) translateY(0);
   opacity: 1;
   pointer-events: auto;
 }
 
 .ceo-question-overlay--hidden {
-  transform: translateY(100%);
+  transform: translateX(-50%) translateY(100%);
   opacity: 0;
   pointer-events: none;
 }

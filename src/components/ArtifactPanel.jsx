@@ -244,7 +244,23 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             <ChevronLeft size={18} />
           </button>
           {renderIcon()}
-          <span className="ap-title">{title}</span>
+          <span
+            className="ap-title"
+            onMouseEnter={(e) => {
+              const el = e.currentTarget;
+              const overflow = el.scrollWidth - el.clientWidth;
+              if (overflow > 0) {
+                const speed = 60;
+                const duration = Math.max(3, (overflow / speed) * 2 + 1);
+                el.style.setProperty('--marquee-distance', `-${overflow}px`);
+                el.style.setProperty('--marquee-duration', `${duration}s`);
+                el.classList.add('ap-title--scrolling');
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.classList.remove('ap-title--scrolling');
+            }}
+          ><span className="ap-title-text">{title}</span></span>
           <span className="ap-type-badge">{typeInfo.label}</span>
           <button className="ap-close" onClick={onClose}><X size={18} /></button>
         </div>

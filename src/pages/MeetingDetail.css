@@ -196,14 +196,40 @@
   flex-direction: column;
   overflow: hidden;
 }
-.meeting-detail-transcript h3 {
-  margin: 0;
+.meeting-detail-transcript-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.meeting-detail-transcript-header h3 {
+  margin: 0;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  border-bottom: 1px solid var(--border-light);
-  flex-shrink: 0;
+}
+
+.meeting-detail-copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-white);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.meeting-detail-copy-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-medium);
+  background: var(--bg-light);
 }
 
 .meeting-detail-right {

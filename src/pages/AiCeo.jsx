@@ -91,6 +91,7 @@ export default function AiCeo() {
   const [customText, setCustomText] = useState('');
 
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
   const abortRef = useRef(null);
@@ -202,7 +203,10 @@ export default function AiCeo() {
 
   useEffect(() => {
     if (shouldScrollRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      const container = messagesContainerRef.current;
+      if (container) {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+      }
       shouldScrollRef.current = false;
     }
   }, [messages]);
@@ -753,7 +757,7 @@ export default function AiCeo() {
 
           {hasMessages && (
             <>
-              <div className="ceo-messages">
+              <div className="ceo-messages" ref={messagesContainerRef}>
                 {messages.map((msg) => {
                   if (msg.role === 'user') {
                     return (
