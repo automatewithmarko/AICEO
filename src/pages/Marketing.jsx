@@ -2054,7 +2054,23 @@ function ToolTab({ config, activeTool, brandDna }) {
       {/* Right — canvas */}
       <div className="mkt-split-right" style={{ flex: `0 0 ${100 - splitPercent}%` }}>
         <div className="mkt-canvas-header">
-          <span className="mkt-canvas-title">{config.canvasTitle}</span>
+          <div
+            className="mkt-canvas-title"
+            onMouseEnter={(e) => {
+              const el = e.currentTarget;
+              const overflow = el.scrollWidth - el.clientWidth;
+              if (overflow > 0) {
+                const speed = 60;
+                const duration = Math.max(3, (overflow / speed) * 2 + 1);
+                el.style.setProperty('--marquee-distance', `-${overflow}px`);
+                el.style.setProperty('--marquee-duration', `${duration}s`);
+                el.classList.add('mkt-canvas-title--scrolling');
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.classList.remove('mkt-canvas-title--scrolling');
+            }}
+          ><span className="mkt-canvas-title-text">{config.canvasTitle}</span></div>
           <div className="mkt-canvas-actions">
             {config.canvasActions ? (
               config.canvasActions.map((action, i) =>

@@ -351,8 +351,7 @@
   justify-content: space-between;
   padding: 10px 20px;
   border-bottom: 1px solid var(--border-light);
-  flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -360,16 +359,39 @@
   font-size: 16px;
   font-weight: 700;
   color: var(--text-primary);
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  mask-image: linear-gradient(to right, black calc(100% - 32px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 32px), transparent 100%);
+}
+
+.mkt-canvas-title-text {
+  display: inline-block;
   white-space: nowrap;
-  flex-shrink: 0;
+}
+
+.mkt-canvas-title--scrolling {
+  mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
+}
+
+.mkt-canvas-title--scrolling .mkt-canvas-title-text {
+  animation: mkt-title-marquee var(--marquee-duration, 6s) linear infinite;
+}
+
+@keyframes mkt-title-marquee {
+  0%   { transform: translateX(0); }
+  40%  { transform: translateX(var(--marquee-distance)); }
+  60%  { transform: translateX(var(--marquee-distance)); }
+  100% { transform: translateX(0); }
 }
 
 .mkt-canvas-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
+  flex-shrink: 0;
 }
 
 .mkt-canvas-btn {
@@ -2077,13 +2099,11 @@
   }
 
   .mkt-canvas-header {
-    flex-wrap: wrap;
     gap: 10px;
     padding: 12px 14px;
   }
 
   .mkt-canvas-actions {
-    flex-wrap: wrap;
     gap: 6px;
   }
 
