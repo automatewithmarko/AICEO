@@ -164,7 +164,7 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
 }
 
 // Stream from XAI Responses API with web_search
-async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSearchStatus, abortSignal }) {
+async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSearchStatus, onSearchResult, abortSignal }) {
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) throw new Error('XAI_API_KEY not configured');
 
@@ -183,6 +183,7 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
       input,
       stream: true,
       tools: [{ type: 'web_search' }],
+      include: ['inline_citations'],
     }),
     signal: abortSignal,
   });
@@ -224,6 +225,17 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
           if (onSearchStatus) onSearchStatus('writing');
         }
 
+        // Capture citation annotations as they arrive
+        if (eventType === 'response.output_text.annotation.added') {
+          const ann = parsed.annotation;
+          if (ann?.type === 'url_citation' && ann.url) {
+            if (!citations.includes(ann.url)) {
+              citations.push(ann.url);
+              if (onSearchResult) onSearchResult(ann.url);
+            }
+          }
+        }
+
         if (eventType === 'response.output_text.delta') {
           const delta = parsed.delta;
           if (delta) {
@@ -234,7 +246,12 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
 
         if (eventType === 'response.completed' || eventType === 'response.done') {
           const respCitations = parsed.response?.citations || [];
-          if (respCitations.length) citations = respCitations;
+          for (const url of respCitations) {
+            if (!citations.includes(url)) {
+              citations.push(url);
+              if (onSearchResult) onSearchResult(url);
+            }
+          }
         }
 
         // Fallback: Chat Completions compatible format
@@ -265,6 +282,43 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
   const model = agent.model;
   const maxTokens = agent.maxTokens;
   const provider = agent.provider || 'anthropic';
+
+  if (searchMode && provider === 'anthropic') {
+    // For content generation agents (newsletter, landing page, etc.), do research first
+    // then feed the research results into the agent as extra context
+    if (onSearchStatus) onSearchStatus('searching');
+    let researchContent = '';
+    try {
+      const researchResult = await streamXaiResearch({
+        systemPrompt: 'You are a research assistant. Find relevant, current information to help create content.',
+        messages,
+        model: 'grok-4-fast-reasoning',
+        onChunk: () => {}, // Don't stream research chunks to the user
+        onSearchStatus,
+        abortSignal,
+      });
+      researchContent = researchResult.content || '';
+    } catch (err) {
+      console.log(`[agent] Research phase failed: ${err.message}`);
+    }
+
+    if (onSearchStatus) onSearchStatus('writing');
+
+    // Inject research results into the agent messages as context
+    const enrichedMessages = [...messages];
+    if (researchContent) {
+      const lastUserIdx = enrichedMessages.findLastIndex(m => m.role === 'user');
+      if (lastUserIdx >= 0) {
+        enrichedMessages[lastUserIdx] = {
+          ...enrichedMessages[lastUserIdx],
+          content: enrichedMessages[lastUserIdx].content + `\n\n--- RESEARCH RESULTS (use these for accurate, current content) ---\n${researchContent.slice(0, 4000)}`,
+        };
+      }
+    }
+
+    const content = await streamAnthropic({ systemPrompt, messages: enrichedMessages, model, maxTokens, onChunk, abortSignal });
+    return { content, toolCalls: [] };
+  }
 
   if (searchMode) {
     return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-fast-reasoning', onChunk, onSearchStatus, abortSignal });

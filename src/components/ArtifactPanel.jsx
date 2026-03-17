@@ -246,6 +246,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
           {renderIcon()}
           <span className="ap-title">{title}</span>
           <span className="ap-type-badge">{typeInfo.label}</span>
+          <button className="ap-close" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="ap-header-right">
           {/* Email type — simple send */}
@@ -298,7 +299,6 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
               {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy</>}
             </button>
           )}
-          <button className="ap-close" onClick={onClose}><X size={18} /></button>
         </div>
       </div>
 
@@ -471,9 +471,17 @@ function EmailRenderer({ content }) {
 }
 
 // Replace {{GENERATE:...}} placeholders with a loading spinner for display
+const GENERATE_PLACEHOLDER_SVG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300" viewBox="0 0 600 300"><rect width="598" height="298" x="1" y="1" fill="%23ffffff" rx="8" stroke="%23E91A44" stroke-width="2" stroke-dasharray="8 4"/><rect width="200" height="32" x="200" y="126" rx="16" fill="%23E91A44" opacity="0.15"><animate attributeName="opacity" values="0.08;0.22;0.08" dur="1.5s" repeatCount="indefinite"/></rect><rect width="140" height="32" x="230" y="126" rx="16" fill="%23E91A44" opacity="0.25"><animate attributeName="opacity" values="0.12;0.35;0.12" dur="1.5s" repeatCount="indefinite"/></rect><circle cx="300" cy="142" r="10" fill="none" stroke="%23E91A44" stroke-width="2.5" stroke-dasharray="50" stroke-linecap="round" opacity="0.6"><animateTransform attributeName="transform" type="rotate" from="0 300 142" to="360 300 142" dur="1s" repeatCount="indefinite"/></circle><text x="300" y="182" text-anchor="middle" fill="%23E91A44" font-family="Inter,system-ui,sans-serif" font-size="12" font-weight="600" opacity="0.6">Generating image...</text></svg>')}`;
+
 function replaceGeneratePlaceholders(html) {
   if (!html || !html.includes('{{GENERATE:')) return html;
-  return html.replace(/\{\{GENERATE:.*?\}\}/g, `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300" viewBox="0 0 600 300"><rect width="600" height="300" fill="%23f0f0f2" rx="8"/><g transform="translate(300,150)"><circle cx="0" cy="0" r="16" fill="none" stroke="%23999" stroke-width="3" stroke-dasharray="80" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="1s" repeatCount="indefinite"/></circle></g><text x="300" y="190" text-anchor="middle" fill="%23999" font-family="Inter,system-ui,sans-serif" font-size="13">Generating image...</text></svg>')}`);
+  // Replace the entire <img> tag that contains {{GENERATE:...}} with a visible div placeholder
+  const placeholderDiv = '<div style="width:100%;height:250px;background:#fff;border:2px dashed #E91A44;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;"><div style="width:20px;height:20px;border:2.5px solid #E91A44;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div><span style="color:#E91A44;font-size:12px;font-weight:600;font-family:Inter,system-ui,sans-serif;">Generating image...</span></div><style>@keyframes spin{to{transform:rotate(360deg)}}</style>';
+  // Replace full <img ... {{GENERATE:...}} ... > tags
+  let result = html.replace(/<img[^>]*\{\{GENERATE:[\s\S]*?\}\}[^>]*\/?>/gi, placeholderDiv);
+  // Also replace any remaining bare {{GENERATE:...}} (e.g., in src attributes not caught above)
+  result = result.replace(/\{\{GENERATE:[\s\S]*?\}\}/g, GENERATE_PLACEHOLDER_SVG);
+  return result;
 }
 
 function HtmlRenderer({ content, iframeRef }) {

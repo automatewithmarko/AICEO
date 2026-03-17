@@ -158,31 +158,61 @@ RULES FOR STORY SEQUENCES:
 
 // ── Helpers ──
 function tryParseAIResponse(text) {
-  // Strip markdown code fences if AI wraps in them
-  let cleaned = text.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+  if (!text) return null;
+
+  // Try multiple parsing strategies
+  let parsed = null;
+
+  // Strategy 1: direct parse
+  try { parsed = JSON.parse(text.trim()); } catch {}
+
+  // Strategy 2: strip markdown code fences
+  if (!parsed) {
+    let cleaned = text.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+    }
+    try { parsed = JSON.parse(cleaned); } catch {}
   }
-  try {
-    const parsed = JSON.parse(cleaned);
-    if (parsed.type === 'question' && parsed.text && Array.isArray(parsed.options)) {
-      return parsed;
+
+  // Strategy 3: extract JSON object from mixed content
+  if (!parsed) {
+    const objMatch = text.match(/\{[\s\S]*\}/);
+    if (objMatch) {
+      try { parsed = JSON.parse(objMatch[0]); } catch {}
     }
-    if ((parsed.type === 'newsletter' || parsed.type === 'html') && typeof parsed.html === 'string') {
-      return parsed;
-    }
-    if (parsed.type === 'story_sequence' && Array.isArray(parsed.frames)) {
-      return parsed;
-    }
-    if (parsed.type === 'cover_image' && typeof parsed.prompt === 'string') {
-      return parsed;
-    }
-    if (parsed.type === 'edit' && typeof parsed.sections === 'object') {
-      return parsed;
-    }
-  } catch {
-    // not valid JSON
   }
+
+  if (!parsed) {
+    // Strategy 4: try to extract HTML from a partial/broken JSON response
+    if (text.includes('"html"') && (text.includes('<!DOCTYPE') || text.includes('<html') || text.includes('<table'))) {
+      const htmlMatch = text.match(/"html"\s*:\s*"([\s\S]+)/);
+      if (htmlMatch) {
+        let html = htmlMatch[1];
+        try { html = JSON.parse('"' + html.replace(/"\s*[,}]\s*$/, '') + '"'); } catch {
+          html = html.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\').replace(/"\s*[,}]\s*$/, '');
+        }
+        if (html.includes('<')) {
+          const isNewsletter = text.includes('"type":"newsletter"') || text.includes('"type": "newsletter"');
+          return { type: isNewsletter ? 'newsletter' : 'html', html, summary: '' };
+        }
+      }
+    }
+    return null;
+  }
+
+  // Validate parsed response
+  if (parsed.type === 'question' && parsed.text && Array.isArray(parsed.options)) return parsed;
+  if ((parsed.type === 'newsletter' || parsed.type === 'html') && typeof parsed.html === 'string') return parsed;
+  if (parsed.type === 'story_sequence' && Array.isArray(parsed.frames)) return parsed;
+  if (parsed.type === 'cover_image' && typeof parsed.prompt === 'string') return parsed;
+  if (parsed.type === 'edit' && typeof parsed.sections === 'object') return parsed;
+
+  // If it has html field but wrong/missing type, still accept it
+  if (typeof parsed.html === 'string' && parsed.html.includes('<')) {
+    return { ...parsed, type: parsed.type || 'html' };
+  }
+
   return null;
 }
 
@@ -1106,8 +1136,11 @@ function ToolTab({ config, activeTool, brandDna }) {
       // Replace {{GENERATE:...}} placeholders with loading spinners for display
       let displayHtml = canvasHtml;
       if (displayHtml.includes('{{GENERATE:')) {
-        const spinnerSvg = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300" viewBox="0 0 600 300"><rect width="600" height="300" fill="%23f0f0f2" rx="8"/><g transform="translate(300,150)"><circle cx="0" cy="0" r="16" fill="none" stroke="%23999" stroke-width="3" stroke-dasharray="80" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="1s" repeatCount="indefinite"/></circle></g><text x="300" y="190" text-anchor="middle" fill="%23999" font-family="Inter,system-ui,sans-serif" font-size="13">Generating image...</text></svg>')}`;
-        displayHtml = displayHtml.replace(/\{\{GENERATE:.*?\}\}/g, spinnerSvg);
+        const placeholderDiv = '<div style="width:100%;height:250px;background:#fff;border:2px dashed #E91A44;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;"><div style="width:20px;height:20px;border:2.5px solid #E91A44;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div><span style="color:#E91A44;font-size:12px;font-weight:600;font-family:Inter,system-ui,sans-serif;">Generating image...</span></div><style>@keyframes spin{to{transform:rotate(360deg)}}</style>';
+        // Replace full <img> tags containing {{GENERATE:...}}
+        displayHtml = displayHtml.replace(/<img[^>]*\{\{GENERATE:[\s\S]*?\}\}[^>]*\/?>/gi, placeholderDiv);
+        // Catch any remaining bare {{GENERATE:...}}
+        displayHtml = displayHtml.replace(/\{\{GENERATE:[\s\S]*?\}\}/g, '');
       }
       doc.open();
       doc.write(displayHtml);
@@ -1571,47 +1604,33 @@ function ToolTab({ config, activeTool, brandDna }) {
         setCanvasHtml(finalHtml);
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || config.readyText }]);
 
-        // Generate AI images for {{GENERATE:...}} placeholders
+        // Generate AI images for {{GENERATE:...}} placeholders — each swaps in independently
         if (finalHtml.includes('{{GENERATE:')) {
-          const genRegex = /\{\{GENERATE:(.*?)\}\}/g;
+          const genRegex = /\{\{GENERATE:([\s\S]*?)\}\}/g;
           const genMatches = [];
           let genMatch;
           while ((genMatch = genRegex.exec(finalHtml)) !== null) {
             genMatches.push({ full: genMatch[0], prompt: genMatch[1] });
           }
-          if (genMatches.length > 0) {
-            const genBrandData = brandDna ? {
-              photoUrls: brandDna.photo_urls || [],
-              logoUrl: brandDna.logo_url || null,
-              colors: brandDna.colors || {},
-              mainFont: brandDna.main_font || null,
-            } : null;
-            // Generate and upload images in parallel
-            Promise.allSettled(
-              genMatches.map(async (m) => {
-                try {
-                  const result = await generateImage(m.prompt.trim(), 'general', genBrandData);
-                  if (result.image) {
-                    const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
-                    if (uploaded.url) return { placeholder: m.full, src: uploaded.url };
-                  }
-                } catch (err) {
-                  console.error('Image gen/upload failed:', err);
+          const ERROR_IMG = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200" viewBox="0 0 600 200"><rect width="598" height="198" x="1" y="1" fill="#fff" rx="8" stroke="#dc2626" stroke-width="2"/><text x="300" y="105" text-anchor="middle" fill="#dc2626" font-family="Inter,system-ui,sans-serif" font-size="13" font-weight="600">Image generation failed</text></svg>');
+          genMatches.forEach((m) => {
+            (async () => {
+              let imgSrc = null;
+              try {
+                const result = await generateImage(m.prompt.trim(), 'newsletter', null);
+                if (result.image) {
+                  const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
+                  if (uploaded.url) imgSrc = uploaded.url;
                 }
-                return null;
-              })
-            ).then((results) => {
+              } catch (err) {
+                console.error('Image gen failed:', err.message);
+              }
               setCanvasHtml((prev) => {
-                let updated = prev;
-                for (const r of results) {
-                  if (r.status === 'fulfilled' && r.value) {
-                    updated = updated.replace(r.value.placeholder, r.value.src);
-                  }
-                }
-                return updated;
+                const replacement = imgSrc || ERROR_IMG;
+                return prev.replaceAll(m.full, replacement);
               });
-            });
-          }
+            })();
+          });
         }
 
         // For newsletters, automatically ask about cover image generation

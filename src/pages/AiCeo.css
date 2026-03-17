@@ -512,6 +512,79 @@
   font-style: italic;
 }
 
+/* ── Research Card ── */
+.ceo-research-card {
+  align-self: flex-start;
+  background: #1e1f21;
+  border-radius: 14px;
+  padding: 16px 20px;
+  min-width: 260px;
+  max-width: 340px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ceo-research-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ceo-research-icon {
+  color: var(--brand-red);
+  animation: ceoResearchPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes ceoResearchPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.ceo-research-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ceo-research-bar {
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--brand-red) 0%, transparent 100%);
+  animation: ceoResearchScan 1.8s ease-in-out infinite;
+  opacity: 0.5;
+}
+
+.ceo-research-bar:nth-child(1) { width: 100%; }
+.ceo-research-bar:nth-child(2) { width: 75%; }
+.ceo-research-bar:nth-child(3) { width: 50%; }
+
+.ceo-research-bar--done {
+  background: var(--brand-red);
+  animation: none;
+  opacity: 0.8;
+}
+
+@keyframes ceoResearchScan {
+  0% { opacity: 0.2; background-position: -100% 0; }
+  50% { opacity: 0.7; }
+  100% { opacity: 0.2; background-position: 200% 0; }
+}
+
+.ceo-research-label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .ceo-dots span {
   opacity: 0;
   animation: ceoDotFade 1.2s infinite;

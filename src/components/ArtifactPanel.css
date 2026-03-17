@@ -7,13 +7,11 @@
 
 .ap-header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 12px 16px;
+  flex-direction: column;
+  padding: 10px 14px 0;
   border-bottom: 1px solid var(--border-light);
-  gap: 8px;
   flex-shrink: 0;
-  overflow: hidden;
+  gap: 0;
 }
 
 .ap-header-left {
@@ -22,6 +20,7 @@
   gap: 8px;
   min-width: 0;
   color: var(--text-primary);
+  padding-bottom: 8px;
 }
 
 .ap-back-btn {
@@ -60,11 +59,18 @@
 .ap-header-right {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-shrink: 1;
-  flex-wrap: wrap;
-  min-width: 0;
-  justify-content: flex-end;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-bottom: 10px;
+  margin: 0 -14px;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+.ap-header-right::-webkit-scrollbar {
+  display: none;
 }
 
 .ap-btn {
@@ -164,9 +170,9 @@
 }
 
 .ap-close {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   border: none;
   background: none;
   color: var(--text-muted);
@@ -175,6 +181,8 @@
   justify-content: center;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .ap-close:hover {

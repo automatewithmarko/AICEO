@@ -12,47 +12,43 @@ import './AiCeo.css';
 
 // Generate AI images for {{GENERATE:prompt}} placeholders in newsletter HTML
 // Images are uploaded to Supabase storage and replaced with public URLs (not base64)
-async function generateNewsletterImages(html, setArtifactFn) {
-  const regex = /\{\{GENERATE:(.*?)\}\}/g;
+// Each image swaps in immediately when ready (true parallel, not wait-for-all)
+function generateNewsletterImages(html, setArtifactFn) {
+  const regex = /\{\{GENERATE:([\s\S]*?)\}\}/g;
   const matches = [];
   let match;
   while ((match = regex.exec(html)) !== null) {
     matches.push({ full: match[0], prompt: match[1] });
   }
-  if (matches.length === 0) return html;
+  if (matches.length === 0) return;
 
-  let updatedHtml = html;
+  const ERROR_IMG = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200" viewBox="0 0 600 200"><rect width="598" height="198" x="1" y="1" fill="#fff" rx="8" stroke="#dc2626" stroke-width="2"/><text x="300" y="105" text-anchor="middle" fill="#dc2626" font-family="Inter,system-ui,sans-serif" font-size="13" font-weight="600">Image generation failed</text></svg>');
 
-  // Generate and upload images in parallel
-  const results = await Promise.allSettled(
-    matches.map(async (m) => {
+  // Fire all in parallel — each one updates the artifact independently as it finishes
+  matches.forEach((m) => {
+    (async () => {
+      let imgSrc = null;
       try {
-        const result = await generateImage(m.prompt.trim(), 'general', null);
+        const result = await generateImage(m.prompt.trim(), 'newsletter', null);
         if (result.image) {
-          // Upload to Supabase storage, get public URL
           const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
-          if (uploaded.url) {
-            return { placeholder: m.full, src: uploaded.url };
-          }
+          if (uploaded.url) imgSrc = uploaded.url;
         }
       } catch (err) {
-        console.error('Newsletter image gen/upload failed:', err);
+        console.error('Image gen failed:', err.message);
       }
-      return null;
-    })
-  );
 
-  // Replace placeholders with public URLs
-  for (const r of results) {
-    if (r.status === 'fulfilled' && r.value) {
-      updatedHtml = updatedHtml.replace(r.value.placeholder, r.value.src);
+      // Swap just the src value — keep the original <img> tag and all its styling intact
       if (setArtifactFn) {
-        const currentHtml = updatedHtml;
-        setArtifactFn(prev => prev ? { ...prev, content: currentHtml } : prev);
+        setArtifactFn(prev => {
+          if (!prev?.content) return prev;
+          const replacement = imgSrc || ERROR_IMG;
+          const updated = prev.content.replaceAll(m.full, replacement);
+          return { ...prev, content: updated };
+        });
       }
-    }
-  }
-  return updatedHtml;
+    })();
+  });
 }
 
 // Merge section-based edits into existing HTML using section markers
@@ -305,7 +301,17 @@ export default function AiCeo() {
         // Agent finished — parse final result
         onAgentResult: (agentName, content) => {
           try {
-            const parsed = JSON.parse(content);
+            // Try direct parse, then strip markdown fences, then extract JSON object
+            let parsed;
+            try { parsed = JSON.parse(content); } catch {
+              let cleaned = content.trim();
+              if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+              try { parsed = JSON.parse(cleaned); } catch {
+                const objMatch = cleaned.match(/\{[\s\S]*\}/);
+                if (objMatch) parsed = JSON.parse(objMatch[0]);
+              }
+            }
+            if (!parsed) throw new Error('No valid JSON');
             // Section-based edit — merge only changed sections into current artifact HTML
             if (parsed.type === 'edit' && parsed.sections) {
               const currentArt = artifactRef.current;
@@ -342,7 +348,79 @@ export default function AiCeo() {
                   console.error('Newsletter image generation failed:', err);
                 });
               }
+
+              // For newsletters, automatically ask about cover image
+              if (isNewsletter) {
+                (async () => {
+                  try {
+                    const coverMsg = { role: 'user', content: 'Now suggest 4 creative cover image options for this newsletter I just generated. Respond with a question offering 4 vivid cover image concepts plus a "No cover image" option.' };
+                    let coverContent = '';
+                    await streamFromBackend('/api/orchestrate', {
+                      messages: [
+                        { role: 'user', content: 'Generate a newsletter' },
+                        { role: 'assistant', content: content },
+                        coverMsg,
+                      ],
+                      mode: 'direct',
+                      agent: 'newsletter',
+                      searchMode: false,
+                    }, {
+                      onAgentChunk: (_n, c) => { coverContent = c; },
+                      onAgentResult: (_n, c) => { coverContent = c; },
+                    });
+                    let coverParsed;
+                    try { coverParsed = JSON.parse(coverContent); } catch {
+                      const m = coverContent.match(/\{[\s\S]*\}/);
+                      if (m) try { coverParsed = JSON.parse(m[0]); } catch {}
+                    }
+                    if (coverParsed?.type === 'question' && coverParsed.text && coverParsed.options) {
+                      setCurrentQuestion({ question: coverParsed.text, options: coverParsed.options });
+                      setMessages(prev => prev.map(m =>
+                        m.id === assistantMsgId ? { ...m, content: coverParsed.text, status: null } : m
+                      ));
+                    }
+                  } catch {}
+                })();
+              }
             }
+            // Cover image prompt — generate and inject into newsletter
+            if (parsed.type === 'cover_image' && parsed.prompt) {
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMsgId ? { ...m, content: 'Generating your cover image...' } : m
+              ));
+              (async () => {
+                try {
+                  const imgResult = await generateImage(parsed.prompt, 'newsletter', null);
+                  if (imgResult.image) {
+                    const uploaded = await uploadImageToStorage(imgResult.image.data, imgResult.image.mimeType);
+                    if (uploaded.url) {
+                      setArtifact(prev => {
+                        if (!prev?.content) return prev;
+                        let html = prev.content;
+                        const heroStart = html.indexOf('<!-- SECTION:hero -->');
+                        if (heroStart !== -1) {
+                          const tdMatch = html.indexOf('<td', heroStart);
+                          const tdEnd = tdMatch !== -1 ? html.indexOf('>', tdMatch) + 1 : -1;
+                          if (tdEnd > 0) {
+                            const imgTag = `<img src="${uploaded.url}" alt="Newsletter Cover" style="width:100%;height:auto;display:block;border-radius:8px;margin-bottom:16px;" />`;
+                            html = html.slice(0, tdEnd) + imgTag + html.slice(tdEnd);
+                          }
+                        }
+                        return { ...prev, content: html };
+                      });
+                      setMessages(prev => prev.map(m =>
+                        m.id === assistantMsgId ? { ...m, content: 'Cover image added to your newsletter!' } : m
+                      ));
+                    }
+                  }
+                } catch (err) {
+                  setMessages(prev => prev.map(m =>
+                    m.id === assistantMsgId ? { ...m, content: `Cover image generation failed: ${err.message}` } : m
+                  ));
+                }
+              })();
+            }
+
             if (parsed.type === 'story_sequence' && parsed.frames) {
               setArtifact({
                 id: Date.now(),
@@ -356,14 +434,31 @@ export default function AiCeo() {
               if (isMobileRef.current) setMobileArtifactOpen(true);
             }
           } catch {
-            // Not JSON — treat as raw content
+            // Not JSON — try to extract HTML from the content
+            let rawHtml = content;
             if (content.includes('<!DOCTYPE') || content.includes('<html')) {
+              // Content is raw HTML
+            } else {
+              // Try to extract HTML from a partial JSON-like string
+              const htmlMatch = content.match(/"html"\s*:\s*"([\s\S]+)/);
+              if (htmlMatch) {
+                let extracted = htmlMatch[1];
+                try { extracted = JSON.parse('"' + extracted.replace(/"\s*[,}]\s*$/, '') + '"'); } catch {
+                  extracted = extracted.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\').replace(/"\s*[,}]\s*$/, '');
+                }
+                if (extracted.includes('<')) rawHtml = extracted;
+              }
+            }
+
+            if (rawHtml.includes('<!DOCTYPE') || rawHtml.includes('<html') || rawHtml.includes('<table')) {
+              const isNewsletter = agentName === 'newsletter';
               setArtifact({
                 id: Date.now(),
-                type: 'html_template',
+                type: isNewsletter ? 'newsletter' : 'html_template',
                 title: `${agentName} output`,
-                content,
+                content: rawHtml,
                 images: [],
+                agentSource: agentName,
               });
               setPanelOpen(true);
               if (isMobileRef.current) setMobileArtifactOpen(true);
@@ -669,16 +764,38 @@ export default function AiCeo() {
                   }
                   if (!msg.content && !msg.hasArtifact) {
                     return (
-                      <div key={msg.id} className="ceo-thinking">
-                        <span className="ceo-thinking-text">
-                          {searchStatus === 'searching' ? (
-                            <><Search size={14} /> Searching the web<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></>
-                          ) : searchStatus === 'writing' ? (
-                            <><PenLine size={14} /> Writing response<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></>
-                          ) : (
-                            <>thinking<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></>
-                          )}
-                        </span>
+                      <div key={msg.id} className={searchStatus === 'searching' ? 'ceo-research-card' : 'ceo-thinking'}>
+                        {searchStatus === 'searching' ? (
+                          <>
+                            <div className="ceo-research-header">
+                              <Globe size={14} className="ceo-research-icon" />
+                              <span>Researching</span>
+                            </div>
+                            <div className="ceo-research-bars">
+                              <div className="ceo-research-bar" style={{ animationDelay: '0s' }} />
+                              <div className="ceo-research-bar" style={{ animationDelay: '0.2s' }} />
+                              <div className="ceo-research-bar" style={{ animationDelay: '0.4s' }} />
+                            </div>
+                            <span className="ceo-research-label">Searching the web for relevant information<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></span>
+                          </>
+                        ) : searchStatus === 'writing' ? (
+                          <>
+                            <div className="ceo-research-header">
+                              <PenLine size={14} className="ceo-research-icon" />
+                              <span>Writing</span>
+                            </div>
+                            <div className="ceo-research-bars">
+                              <div className="ceo-research-bar ceo-research-bar--done" />
+                              <div className="ceo-research-bar ceo-research-bar--done" />
+                              <div className="ceo-research-bar ceo-research-bar--done" />
+                            </div>
+                            <span className="ceo-research-label">Composing response with research<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></span>
+                          </>
+                        ) : msg.status ? (
+                          <span className="ceo-thinking-text">{msg.status}<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></span>
+                        ) : (
+                          <span className="ceo-thinking-text">thinking<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></span>
+                        )}
                       </div>
                     );
                   }

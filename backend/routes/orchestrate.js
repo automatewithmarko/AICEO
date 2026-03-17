@@ -346,6 +346,31 @@ router.post('/api/orchestrate', async (req, res) => {
 
     if (mode === 'direct') {
       await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction });
+    } else if (mode === 'ceo' && currentHtml && currentAgent) {
+      // User is editing an existing artifact — try surgical file-based edit first
+      const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
+      const agent = getAgent(currentAgent);
+      if (agent && lastUserMsg) {
+        console.log(`[orchestrate] CEO edit shortcut: trying file-based edit for ${currentAgent}`);
+        sendSSE(res, { type: 'status', text: 'Editing...' });
+        try {
+          const edited = await tryFileBasedEdit({
+            res, agent, agentName: currentAgent,
+            editInstruction: lastUserMsg,
+            userId, context, currentHtml,
+          });
+          if (edited) {
+            console.log('[orchestrate] CEO edit shortcut succeeded');
+            // Also send a brief text summary
+            sendSSE(res, { type: 'text_delta', content: '' });
+            return;
+          }
+        } catch (err) {
+          console.log(`[orchestrate] CEO edit shortcut failed, falling back to CEO: ${err.message}`);
+        }
+      }
+      // Fall through to full CEO orchestration
+      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent });
     } else {
       await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent });
     }
@@ -453,12 +478,10 @@ ${currentHtml}`,
 // ── File-Based Edit (Claude Code style) ──
 // Returns true if edit succeeded, false/throws if should fall back
 async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml }) {
-  // Get or seed the file
-  let fileHtml = getFile(userId, agentName);
-  if (!fileHtml) {
-    fileHtml = currentHtml;
-    saveFile(userId, agentName, fileHtml);
-  }
+  // Always prefer currentHtml from frontend (most up-to-date, includes cover images etc.)
+  let fileHtml = currentHtml || getFile(userId, agentName);
+  if (!fileHtml) return false;
+  saveFile(userId, agentName, fileHtml);
 
   sendSSE(res, { type: 'status', text: 'Editing...' });
 
@@ -713,7 +736,23 @@ ${currentHtml}`,
     ];
   } else {
     // Tell the agent to skip its question flow — the CEO already gathered context
-    const directInstruction = `IMPORTANT: The AI CEO has already asked the user all necessary questions. You have all the context you need below. Generate the final output IMMEDIATELY — do NOT ask any questions. Respond with the final generated output directly.\n\nHere is what to create:\n${taskDescription}`;
+    const directInstruction = `IMPORTANT: The AI CEO has already asked the user all necessary questions. You have all the context you need below. Generate the final output IMMEDIATELY — do NOT ask any questions.
+
+DESIGN RULES YOU MUST FOLLOW (non-negotiable):
+- WHITE background (#FFFFFF). NEVER use dark/black backgrounds.
+- Dark text (#1a1a1a or #333333) on white. NEVER white text on dark.
+- Single-column layout. NEVER multi-column or side-by-side comparisons.
+- Max 1-3 sentences per paragraph. Break up text aggressively.
+- SINGLE CTA button only. Never 2+ CTAs competing.
+- ONE accent color from brand for links, CTA, headers. Everything else is black/white/gray.
+- No comparison tables. Use bullet points instead.
+- No colored section backgrounds. White background everywhere.
+- No fancy card designs with dark backgrounds.
+- Include a P.S. line after the CTA.
+- Keep it clean, minimal, and readable like Alex Hormozi or Morning Brew newsletters.
+
+Here is what to create:
+${taskDescription}`;
     agentMessages = [{ role: 'user', content: directInstruction }];
   }
 

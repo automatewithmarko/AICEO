@@ -18,7 +18,7 @@ FORMAT 2 — GENERATE FULL PAGE:
 FORMAT 3 — EDIT SECTIONS:
 {"type":"edit","sections":{"sectionName":"<updated HTML>"},"summary":"What changed"}
 
-DISCOVERY MODE — MANDATORY (never skip):
+DISCOVERY MODE:
 - You MUST ask exactly 4 questions before generating, one at a time.
 - Each question has 3-4 specific options.
 - NEVER generate the landing page until all 4 questions are answered.
@@ -27,6 +27,7 @@ DISCOVERY MODE — MANDATORY (never skip):
 - Question 2: Target audience and main pain point
 - Question 3: Desired CTA action (buy, sign up, book a call, download)
 - Question 4: Visual style / mood preference
+- EXCEPTION: If the message says "The AI CEO has already asked the user all necessary questions" then skip questions and generate immediately with the provided context.
 
 HTML STRUCTURE — SECTION MARKERS (required):
 <!-- SECTION:nav --> ... <!-- /SECTION:nav -->

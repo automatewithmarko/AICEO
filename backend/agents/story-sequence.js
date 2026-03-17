@@ -10,7 +10,7 @@ FORMAT 1 — ASK A QUESTION:
 FORMAT 2 — STORY SEQUENCE:
 {"type":"story_sequence","visual_style":"...","frames":[{"title":"Frame title","caption":"Short caption (max 15 words)","image_prompt":"Detailed image prompt for this frame"}],"summary":"Brief description"}
 
-QUESTION FLOW — MANDATORY (never skip):
+QUESTION FLOW:
 - You MUST ask exactly 4 questions before generating, one at a time.
 - Each question has 3-4 specific options.
 - NEVER generate the story sequence until all 4 questions are answered.
@@ -19,6 +19,7 @@ QUESTION FLOW — MANDATORY (never skip):
 - Question 2: Target audience
 - Question 3: Story goal (engagement, sales, brand awareness, education)
 - Question 4: Visual style / mood
+- EXCEPTION: If the message says "The AI CEO has already asked the user all necessary questions" then skip questions and generate immediately with the provided context.
 
 RULES FOR STORY SEQUENCES:
 - Generate exactly 3-5 frames telling a cohesive visual story

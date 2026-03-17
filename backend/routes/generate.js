@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import sharp from 'sharp';
 
 const router = Router();
 
@@ -19,6 +20,23 @@ function getApiKey() {
 }
 
 const PLATFORM_IMAGE_RULES = {
+  newsletter: `NEWSLETTER COVER IMAGE RULES:
+- Aspect ratio: LANDSCAPE approximately 1200x628 (roughly 2:1) — wide format for email headers
+- Style: editorial illustration, flat design, isometric 3D, or bold minimal line art. NEVER photorealistic photography.
+- This is a hero/cover image for an email newsletter — it needs to be visually striking at small sizes
+- Composition: rule of thirds, focal point at a left or right intersection, 30-40% negative space
+- Subject: ONE clear visual metaphor for the topic. Single focal point, not a collage of ideas
+- Colors: 2-3 dominant colors + 1 accent. Use a dark or medium background (navy, charcoal, deep teal) — NOT white
+- High contrast is mandatory — the image must read clearly at 300px wide on a phone
+- Mood: professional, bold, authoritative
+- Think editorial magazine cover illustration — New Yorker style, not stock photography
+- NEVER include text, words, or letters in the image — text will be added separately in HTML
+- NEVER include realistic human faces — use abstract figures, objects, metaphors, conceptual scenes
+- NEVER make it look like a stock photo (people at laptops, handshakes, etc.)
+- NO busy or cluttered compositions — 2-3 visual elements maximum
+- Clean edges, crisp shapes, premium feel
+- The image should make someone STOP scrolling in their inbox`,
+
   instagram: `INSTAGRAM IMAGE RULES:
 - Aspect ratio: SQUARE (1:1) — this is critical, the image MUST be perfectly square
 - This is an Instagram carousel slide / post graphic
@@ -287,14 +305,32 @@ router.post('/api/generate/upload-image', async (req, res) => {
   if (!base64) return res.status(400).json({ error: 'base64 is required' });
 
   try {
-    const ext = (mimeType || 'image/png').split('/')[1] || 'png';
+    const rawBuffer = Buffer.from(base64, 'base64');
+    const origSize = rawBuffer.length;
+
+    // Compress: resize to max 1200px wide, convert to JPEG quality 80
+    let buffer;
+    let finalMime = 'image/jpeg';
+    let ext = 'jpg';
+    try {
+      buffer = await sharp(rawBuffer)
+        .resize(1200, null, { withoutEnlargement: true, fit: 'inside' })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+      console.log(`[upload-image] Compressed ${Math.round(origSize/1024)}KB → ${Math.round(buffer.length/1024)}KB`);
+    } catch {
+      // If sharp fails, upload original
+      buffer = rawBuffer;
+      finalMime = mimeType || 'image/png';
+      ext = (finalMime).split('/')[1] || 'png';
+    }
+
     const name = filename || `nl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-    const buffer = Buffer.from(base64, 'base64');
 
     const { data, error } = await supabase.storage
       .from('newsletter-images')
       .upload(name, buffer, {
-        contentType: mimeType || 'image/png',
+        contentType: finalMime,
         upsert: true,
       });
 
