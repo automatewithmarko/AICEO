@@ -305,10 +305,80 @@ router.get('/api/contacts/:id/detail', async (req, res) => {
     }
   }
 
+  // 5. Explicitly assigned external recordings (from external_recording_contacts table)
+  const { data: assignedExternal } = await supabase
+    .from('external_recording_contacts')
+    .select('integration_data_id')
+    .eq('contact_id', req.params.id)
+    .eq('user_id', userId);
+
+  if (assignedExternal?.length) {
+    const assignedIds = assignedExternal.map(a => a.integration_data_id);
+    // Filter out any we already found via content matching
+    const existingIds = new Set(recordings.map(r => r.id));
+    const newIds = assignedIds.filter(id => !existingIds.has(id));
+
+    if (newIds.length) {
+      const { data: assignedData } = await supabase
+        .from('integration_data')
+        .select('id, title, provider, metadata, synced_at')
+        .in('id', newIds);
+
+      if (assignedData) {
+        for (const t of assignedData) {
+          recordings.push({
+            id: t.id,
+            name: t.title,
+            date: t.metadata?.date || new Date(t.synced_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+            duration: t.metadata?.duration || '',
+            provider: t.provider,
+            summary: t.metadata?.summary || '',
+          });
+        }
+      }
+    }
+  }
+
   // Merge PurelyPersonal meetings into recordings
   recordings = [...ppMeetings, ...recordings];
 
   res.json({ recordings, emails, products });
+});
+
+// ─── Assign external recording (Fireflies/Fathom) to contact ───
+router.post('/api/contacts/:id/external-recordings', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const { integration_data_id } = req.body;
+  if (!integration_data_id) return res.status(400).json({ error: 'integration_data_id is required' });
+
+  const { error } = await supabase
+    .from('external_recording_contacts')
+    .upsert({
+      integration_data_id,
+      contact_id: req.params.id,
+      user_id: userId,
+    }, { onConflict: 'integration_data_id,contact_id' });
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ─── Remove external recording from contact ───
+router.delete('/api/contacts/:id/external-recordings/:recordingId', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const { error } = await supabase
+    .from('external_recording_contacts')
+    .delete()
+    .eq('integration_data_id', req.params.recordingId)
+    .eq('contact_id', req.params.id)
+    .eq('user_id', userId);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
 });
 
 // ─── Sync contacts from integrations ───

@@ -237,6 +237,34 @@ router.get('/api/sales/calls', async (req, res) => {
   res.json({ calls });
 });
 
+// ─── Get single call detail (for external recording detail page) ───
+router.get('/api/sales/calls/:id', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const { data: record, error } = await supabase
+    .from('integration_data')
+    .select('id, provider, title, content, metadata, synced_at')
+    .eq('id', req.params.id)
+    .eq('user_id', userId)
+    .single();
+
+  if (error || !record) return res.status(404).json({ error: 'Recording not found' });
+
+  res.json({
+    call: {
+      id: record.id,
+      title: record.title,
+      content: record.content,
+      provider: record.provider,
+      date: record.metadata?.date || record.synced_at,
+      duration: record.metadata?.duration || 0,
+      summary: record.metadata?.summary || '',
+      action_items: record.metadata?.action_items || '',
+    },
+  });
+});
+
 // ─── Update call metadata ───
 router.patch('/api/sales/calls/:id', async (req, res) => {
   const userId = req.user.id;

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Share2, Trash2, RotateCw, Edit3, Check, Square, Copy } from 'lucide-react';
-import { getMeeting, deleteMeeting, stopMeeting, reprocessMeeting, retryRecording, updateMeeting, getBotStatus, getStatusInfo, getPlatformInfo, formatDuration } from '../lib/meetings-api';
+import { getMeeting, getExternalRecording, deleteMeeting, stopMeeting, reprocessMeeting, retryRecording, updateMeeting, getBotStatus, getStatusInfo, getPlatformInfo, getSourceInfo, formatDuration } from '../lib/meetings-api';
 import TranscriptViewer from '../components/meetings/TranscriptViewer';
 import SummaryPanel from '../components/meetings/SummaryPanel';
 import RecordingPlayer from '../components/meetings/RecordingPlayer';
@@ -12,6 +12,7 @@ import './MeetingDetail.css';
 export default function MeetingDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [meeting, setMeeting] = useState(null);
   const [segments, setSegments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,25 +23,51 @@ export default function MeetingDetail() {
   const [titleValue, setTitleValue] = useState('');
   const [reprocessing, setReprocessing] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
+  const [isExternal, setIsExternal] = useState(location.state?.external || false);
 
-  const isActive = meeting && ['joining_call', 'in_waiting_room', 'in_call_recording', 'in_call_not_recording'].includes(meeting.recall_bot_status);
+  const isActive = meeting && !isExternal && ['joining_call', 'in_waiting_room', 'in_call_recording', 'in_call_not_recording'].includes(meeting.recall_bot_status);
 
   const load = useCallback(async () => {
     try {
-      const data = await getMeeting(id);
-      setMeeting(data.meeting);
-      setSegments(data.segments || []);
-      setTitleValue(data.meeting.title || '');
+      // If we know it's external (from navigation state), load from main backend
+      if (location.state?.external) {
+        const data = await getExternalRecording(id);
+        if (data) {
+          setMeeting(data.meeting);
+          setSegments(data.segments || []);
+          setTitleValue(data.meeting.title || '');
+          setIsExternal(true);
+          return;
+        }
+      }
+
+      // Try PP backend first
+      try {
+        const data = await getMeeting(id);
+        setMeeting(data.meeting);
+        setSegments(data.segments || []);
+        setTitleValue(data.meeting.title || '');
+        setIsExternal(false);
+      } catch (ppErr) {
+        // PP backend failed (404) — try as external recording
+        const data = await getExternalRecording(id);
+        if (data) {
+          setMeeting(data.meeting);
+          setSegments(data.segments || []);
+          setTitleValue(data.meeting.title || '');
+          setIsExternal(true);
+        }
+      }
     } catch (err) {
       console.error('Failed to load meeting:', err);
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, location.state?.external]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Poll status for active meetings
+  // Poll status for active meetings (PP only)
   useEffect(() => {
     if (!isActive) return;
     const interval = setInterval(async () => {
@@ -48,7 +75,7 @@ export default function MeetingDetail() {
         const { status } = await getBotStatus(id);
         setMeeting(m => m ? { ...m, recall_bot_status: status } : m);
         if (['done', 'processed', 'error', 'fatal'].includes(status)) {
-          load(); // Full reload on completion
+          load();
         }
       } catch (e) {}
     }, 5000);
@@ -110,6 +137,7 @@ export default function MeetingDetail() {
 
   const status = getStatusInfo(meeting.recall_bot_status);
   const platform = getPlatformInfo(meeting.platform);
+  const sourceInfo = isExternal ? getSourceInfo(meeting.source) : null;
 
   return (
     <div className="meeting-detail">
@@ -120,7 +148,7 @@ export default function MeetingDetail() {
         </button>
 
         <div className="meeting-detail-title-row">
-          {editingTitle ? (
+          {!isExternal && editingTitle ? (
             <div className="meeting-detail-title-edit">
               <input
                 value={titleValue}
@@ -131,23 +159,38 @@ export default function MeetingDetail() {
               <button onClick={handleTitleSave}><Check size={16} /></button>
             </div>
           ) : (
-            <h1 className="meeting-detail-title" onClick={() => setEditingTitle(true)}>
+            <h1
+              className="meeting-detail-title"
+              onClick={!isExternal ? () => setEditingTitle(true) : undefined}
+              style={isExternal ? { cursor: 'default' } : undefined}
+            >
               {meeting.title || 'Untitled Meeting'}
-              <Edit3 size={14} className="meeting-detail-edit-icon" />
+              {!isExternal && <Edit3 size={14} className="meeting-detail-edit-icon" />}
             </h1>
           )}
         </div>
 
         <div className="meeting-detail-meta">
-          {platform.icon ? (
+          {isExternal && sourceInfo?.icon ? (
+            <img src={sourceInfo.icon} alt={sourceInfo.name} className="meeting-detail-platform-icon" />
+          ) : platform.icon ? (
             <img src={platform.icon} alt={platform.name} className="meeting-detail-platform-icon" />
           ) : (
             <span className="meeting-detail-platform" style={{ background: platform.color }}>{platform.name}</span>
           )}
-          <span className="meeting-detail-status" style={{ color: status.color }}>
-            {isActive && <span className="meeting-detail-pulse" />}
-            {status.label}
-          </span>
+          {isExternal ? (
+            <span className="meeting-detail-status" style={{ color: '#10b981' }}>
+              Complete
+            </span>
+          ) : (
+            <span className="meeting-detail-status" style={{ color: status.color }}>
+              {isActive && <span className="meeting-detail-pulse" />}
+              {status.label}
+            </span>
+          )}
+          {isExternal && sourceInfo && (
+            <span>via {sourceInfo.name}</span>
+          )}
           {meeting.started_at && (
             <span>{new Date(meeting.started_at).toLocaleString()}</span>
           )}
@@ -160,43 +203,47 @@ export default function MeetingDetail() {
         </div>
 
         <div className="meeting-detail-actions">
-          {isActive && (
+          {!isExternal && isActive && (
             <button className="meeting-detail-action meeting-detail-action--danger" onClick={handleStop}>
               <Square size={14} />
               Stop Recording
             </button>
           )}
-          {meeting.recall_bot_status === 'processed' && (
+          {!isExternal && meeting.recall_bot_status === 'processed' && (
             <button className="meeting-detail-action" onClick={handleReprocess} disabled={reprocessing}>
               <RotateCw size={14} className={reprocessing ? 'spinning' : ''} />
               Reprocess
             </button>
           )}
-          {meeting.recall_bot_status === 'processed' && (
-            <button className="meeting-detail-action" onClick={() => setShowAssign(true)}>
-              <img src="/icon-assign-contact.png" alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
-              Assign Contact
-            </button>
+          <button className="meeting-detail-action" onClick={() => setShowAssign(true)}>
+            <img src="/icon-assign-contact.png" alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
+            Assign Contact
+          </button>
+          {!isExternal && (
+            <>
+              <button className="meeting-detail-action" onClick={() => setShowShare(true)}>
+                <Share2 size={14} />
+                Share
+              </button>
+              <button className="meeting-detail-action meeting-detail-action--danger" onClick={handleDelete}>
+                <Trash2 size={14} />
+                Delete
+              </button>
+            </>
           )}
-          <button className="meeting-detail-action" onClick={() => setShowShare(true)}>
-            <Share2 size={14} />
-            Share
-          </button>
-          <button className="meeting-detail-action meeting-detail-action--danger" onClick={handleDelete}>
-            <Trash2 size={14} />
-            Delete
-          </button>
         </div>
       </div>
 
       <div className="meeting-detail-body">
         <div className="meeting-detail-left">
-          <RecordingPlayer
-            videoUrl={meeting.video_url}
-            audioUrl={meeting.audio_url}
-            onTimeUpdate={setCurrentTime}
-            onRetry={!meeting.video_url && !meeting.audio_url && meeting.recall_bot_status === 'processed' ? handleRetryRecording : undefined}
-          />
+          {!isExternal && (
+            <RecordingPlayer
+              videoUrl={meeting.video_url}
+              audioUrl={meeting.audio_url}
+              onTimeUpdate={setCurrentTime}
+              onRetry={!meeting.video_url && !meeting.audio_url && meeting.recall_bot_status === 'processed' ? handleRetryRecording : undefined}
+            />
+          )}
           <div className="meeting-detail-transcript">
             <div className="meeting-detail-transcript-header">
               <h3>Transcript</h3>
@@ -217,19 +264,19 @@ export default function MeetingDetail() {
             </div>
             <TranscriptViewer
               segments={segments}
-              currentTime={currentTime}
-              onSeek={handleSeek}
+              currentTime={isExternal ? undefined : currentTime}
+              onSeek={isExternal ? undefined : handleSeek}
               isLive={isActive}
             />
           </div>
         </div>
 
         <div className="meeting-detail-right">
-          <SummaryPanel meeting={meeting} onSeek={handleSeek} onUpdate={setMeeting} />
+          <SummaryPanel meeting={meeting} onSeek={isExternal ? undefined : handleSeek} onUpdate={setMeeting} />
         </div>
       </div>
 
-      {showShare && (
+      {showShare && !isExternal && (
         <ShareModal
           meeting={meeting}
           onClose={() => setShowShare(false)}
@@ -240,6 +287,7 @@ export default function MeetingDetail() {
       {showAssign && (
         <AssignContactModal
           meetingId={meeting.id}
+          isExternal={isExternal}
           onClose={() => setShowAssign(false)}
           onAssigned={(contact) => {
             console.log('Assigned contact:', contact.name);

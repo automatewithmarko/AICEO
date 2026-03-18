@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 
 const PP_API_URL = import.meta.env.VITE_PP_API_URL || 'http://localhost:8080';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 async function getAuthHeaders() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -27,21 +28,167 @@ async function ppFetch(path, options = {}) {
   return res.json();
 }
 
+// Normalize a sales/calls record into a meeting-like object for the grid
+function normalizeExternalCall(call) {
+  return {
+    id: call.id,
+    title: call.name || 'Untitled Recording',
+    meeting_url: null,
+    platform: call.platform || 'unknown',
+    recall_bot_status: 'processed',
+    scheduled_at: null,
+    started_at: call.date || null,
+    ended_at: null,
+    duration_seconds: 0,
+    bot_name: null,
+    participants: [],
+    summary: call.summary ? { overview: call.summary } : null,
+    action_items: [],
+    created_at: call.date || new Date().toISOString(),
+    video_url: null,
+    audio_url: null,
+    source: call.recorder || 'unknown',
+    is_external: true,
+  };
+}
+
+// Fetch external recordings (Fireflies/Fathom) from main backend
+async function getExternalRecordings(sourceFilter) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/sales/calls`, { headers });
+  if (!res.ok) return [];
+  const { calls } = await res.json();
+  if (!calls) return [];
+
+  // Filter by source and exclude PurelyPersonal (those come from PP backend)
+  return calls
+    .filter(c => {
+      if (c.recorder === 'purelypersonal') return false;
+      if (sourceFilter === 'fireflies') return c.recorder === 'fireflies';
+      if (sourceFilter === 'fathom') return c.recorder === 'fathom';
+      return true; // 'all' or empty — include all external
+    })
+    .map(normalizeExternalCall);
+}
+
 // Meetings
 export async function getMeetings(params = {}) {
-  const url = new URL(`${PP_API_URL}/api/meetings`);
-  if (params.page) url.searchParams.set('page', params.page);
-  if (params.platform) url.searchParams.set('platform', params.platform);
-  if (params.status) url.searchParams.set('status', params.status);
-  if (params.search) url.searchParams.set('search', params.search);
-  const headers = await getAuthHeaders();
-  const res = await fetch(url.toString(), { headers });
-  if (!res.ok) return { meetings: [], total: 0, page: 1, totalPages: 0 };
-  return res.json();
+  const { source } = params;
+  const limit = 20;
+  const page = params.page || 1;
+
+  // Only external source — fetch from main backend only
+  if (source === 'fireflies' || source === 'fathom') {
+    const external = await getExternalRecordings(source);
+    const offset = (page - 1) * limit;
+    const paginated = external.slice(offset, offset + limit);
+    return {
+      meetings: paginated,
+      total: external.length,
+      page,
+      totalPages: Math.ceil(external.length / limit),
+    };
+  }
+
+  // Purely Personal only — fetch from PP backend only
+  if (source === 'purelypersonal') {
+    const url = new URL(`${PP_API_URL}/api/meetings`);
+    if (params.page) url.searchParams.set('page', params.page);
+    if (params.platform) url.searchParams.set('platform', params.platform);
+    if (params.status) url.searchParams.set('status', params.status);
+    if (params.search) url.searchParams.set('search', params.search);
+    const headers = await getAuthHeaders();
+    const res = await fetch(url.toString(), { headers });
+    if (!res.ok) return { meetings: [], total: 0, page: 1, totalPages: 0 };
+    const data = await res.json();
+    // Tag PP meetings with source
+    data.meetings = (data.meetings || []).map(m => ({ ...m, source: 'purelypersonal', is_external: false }));
+    return data;
+  }
+
+  // All Sources (default) — fetch from both and merge
+  const [ppResult, external] = await Promise.all([
+    (async () => {
+      const url = new URL(`${PP_API_URL}/api/meetings`);
+      if (params.platform) url.searchParams.set('platform', params.platform);
+      if (params.status) url.searchParams.set('status', params.status);
+      if (params.search) url.searchParams.set('search', params.search);
+      // Fetch all for merging (no pagination at this level)
+      url.searchParams.set('limit', '100');
+      const headers = await getAuthHeaders();
+      const res = await fetch(url.toString(), { headers });
+      if (!res.ok) return { meetings: [], total: 0 };
+      const data = await res.json();
+      data.meetings = (data.meetings || []).map(m => ({ ...m, source: 'purelypersonal', is_external: false }));
+      return data;
+    })(),
+    // Skip external if platform/status filters are active (not applicable to external)
+    (params.platform || params.status) ? [] : getExternalRecordings('all'),
+  ]);
+
+  // Merge and sort by date descending
+  const allMeetings = [...(ppResult.meetings || []), ...external].sort((a, b) => {
+    const dateA = new Date(a.started_at || a.created_at || 0);
+    const dateB = new Date(b.started_at || b.created_at || 0);
+    return dateB - dateA;
+  });
+
+  const totalCount = allMeetings.length;
+  const offset = (page - 1) * limit;
+  const paginated = allMeetings.slice(offset, offset + limit);
+
+  return {
+    meetings: paginated,
+    total: totalCount,
+    page,
+    totalPages: Math.ceil(totalCount / limit),
+  };
 }
 
 export async function getMeeting(id) {
   return ppFetch(`/api/meetings/${id}`);
+}
+
+// Parse "Speaker: text" transcript content into segment-like objects
+function parseTranscriptContent(content) {
+  if (!content) return [];
+  return content.split('\n').filter(Boolean).map((line, i) => {
+    const colonIdx = line.indexOf(':');
+    const speaker = colonIdx > 0 ? line.slice(0, colonIdx).trim() : 'Unknown';
+    const text = colonIdx > 0 ? line.slice(colonIdx + 1).trim() : line.trim();
+    return { id: `seg-${i}`, speaker_name: speaker, text, start_time: null, end_time: null, is_partial: false, sequence_index: i };
+  });
+}
+
+export async function getExternalRecording(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/sales/calls/${id}`, { headers });
+  if (!res.ok) return null;
+  const { call } = await res.json();
+  if (!call) return null;
+
+  const segments = parseTranscriptContent(call.content);
+
+  return {
+    meeting: {
+      id: call.id,
+      title: call.title || 'Untitled Recording',
+      platform: 'unknown',
+      recall_bot_status: 'processed',
+      source: call.provider,
+      is_external: true,
+      started_at: call.date || null,
+      created_at: call.date || new Date().toISOString(),
+      duration_seconds: call.duration || 0,
+      participants: [],
+      summary: call.summary ? { overview: call.summary } : null,
+      action_items: [],
+      video_url: null,
+      audio_url: null,
+      transcript_text: call.content || '',
+    },
+    segments,
+  };
 }
 
 export async function createMeeting(data) {
@@ -67,6 +214,20 @@ export async function assignContactToMeeting(meetingId, contactId) {
     method: 'POST',
     body: JSON.stringify({ contact_id: contactId }),
   });
+}
+
+export async function assignExternalRecordingToContact(integrationDataId, contactId) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/contacts/${contactId}/external-recordings`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ integration_data_id: integrationDataId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error);
+  }
+  return res.json();
 }
 
 export async function removeContactFromMeeting(meetingId, contactId) {
@@ -217,6 +378,15 @@ export function getPlatformInfo(platform) {
     unknown: { name: 'Meeting', color: '#666', icon: null },
   };
   return platforms[platform] || platforms.unknown;
+}
+
+export function getSourceInfo(source) {
+  const sources = {
+    purelypersonal: { name: 'Purely Personal', icon: '/our-square-logo.png' },
+    fireflies: { name: 'Fireflies', icon: '/fireflies-square-logo.png' },
+    fathom: { name: 'Fathom', icon: '/fathom-square-logo.png' },
+  };
+  return sources[source] || sources.purelypersonal;
 }
 
 export function getStatusInfo(status) {

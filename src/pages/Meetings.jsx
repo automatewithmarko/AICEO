@@ -13,7 +13,7 @@ export default function Meetings() {
   const [showLauncher, setShowLauncher] = useState(false);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [filter, setFilter] = useState({ platform: '', status: '' });
+  const [filter, setFilter] = useState({ platform: '', status: '', source: '' });
 
   const loadMeetings = async () => {
     setLoading(true);
@@ -34,7 +34,7 @@ export default function Meetings() {
 
   useEffect(() => {
     loadMeetings();
-  }, [page, filter.platform, filter.status]);
+  }, [page, filter.platform, filter.status, filter.source]);
 
   // Poll for active bots
   useEffect(() => {
@@ -71,6 +71,16 @@ export default function Meetings() {
       )}
 
       <div className="meetings-filters">
+        <select
+          value={filter.source}
+          onChange={e => { setFilter(f => ({ ...f, source: e.target.value })); setPage(1); }}
+          className="meetings-filter-select"
+        >
+          <option value="">All Sources</option>
+          <option value="purelypersonal">Purely Personal</option>
+          <option value="fireflies">Fireflies</option>
+          <option value="fathom">Fathom</option>
+        </select>
         <select
           value={filter.platform}
           onChange={e => { setFilter(f => ({ ...f, platform: e.target.value })); setPage(1); }}

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Search, X } from 'lucide-react';
 import { getContacts } from '../../lib/api';
-import { assignContactToMeeting } from '../../lib/meetings-api';
+import { assignContactToMeeting, assignExternalRecordingToContact } from '../../lib/meetings-api';
 import './AssignContactModal.css';
 
-export default function AssignContactModal({ meetingId, onClose, onAssigned }) {
+export default function AssignContactModal({ meetingId, isExternal, onClose, onAssigned }) {
   const [contacts, setContacts] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -44,7 +44,11 @@ export default function AssignContactModal({ meetingId, onClose, onAssigned }) {
   const handleAssign = async (contact) => {
     setAssigning(contact.id);
     try {
-      await assignContactToMeeting(meetingId, contact.id);
+      if (isExternal) {
+        await assignExternalRecordingToContact(meetingId, contact.id);
+      } else {
+        await assignContactToMeeting(meetingId, contact.id);
+      }
       onAssigned?.(contact);
       onClose();
     } catch (err) {

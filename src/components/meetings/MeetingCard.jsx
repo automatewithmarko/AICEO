@@ -1,16 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Clock, Users, FileText, Pencil, Trash2 } from 'lucide-react';
-import { formatDuration, getPlatformInfo, getStatusInfo, updateMeeting, deleteMeeting } from '../../lib/meetings-api';
+import { formatDuration, getPlatformInfo, getStatusInfo, getSourceInfo, updateMeeting, deleteMeeting } from '../../lib/meetings-api';
 import AssignContactModal from './AssignContactModal';
 import './MeetingCard.css';
 
 export default function MeetingCard({ meeting }) {
   const navigate = useNavigate();
+  const isExternal = meeting.is_external;
   const platform = getPlatformInfo(meeting.platform);
+  const sourceInfo = getSourceInfo(meeting.source);
   const status = getStatusInfo(meeting.recall_bot_status);
-  const isActive = ['joining_call', 'in_waiting_room', 'in_call_recording', 'in_call_not_recording'].includes(meeting.recall_bot_status);
-  const showStatus = ['joining_call', 'in_waiting_room', 'in_call_not_recording', 'in_call_recording', 'recording_done', 'call_ended', 'done', 'fatal', 'error', 'creating', 'pending'].includes(meeting.recall_bot_status);
+  const isActive = !isExternal && ['joining_call', 'in_waiting_room', 'in_call_recording', 'in_call_not_recording'].includes(meeting.recall_bot_status);
+  const showStatus = !isExternal && ['joining_call', 'in_waiting_room', 'in_call_not_recording', 'in_call_recording', 'recording_done', 'call_ended', 'done', 'fatal', 'error', 'creating', 'pending'].includes(meeting.recall_bot_status);
 
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(meeting.title || 'Untitled Meeting');
@@ -36,6 +38,7 @@ export default function MeetingCard({ meeting }) {
   }, [editing]);
 
   const startEditing = (e) => {
+    if (isExternal) return;
     e.stopPropagation();
     setEditing(true);
   };
@@ -60,7 +63,6 @@ export default function MeetingCard({ meeting }) {
     if (!window.confirm('Delete this recording?')) return;
     try {
       await deleteMeeting(meeting.id);
-      // Remove card from DOM by hiding it
       e.target.closest('.meeting-card').style.display = 'none';
     } catch (err) {
       console.error('Failed to delete meeting:', err);
@@ -77,20 +79,33 @@ export default function MeetingCard({ meeting }) {
     }
   };
 
+  const handleCardClick = () => {
+    if (editing) return;
+    if (isExternal) {
+      navigate(`/meetings/${meeting.id}`, { state: { external: true, source: meeting.source } });
+    } else {
+      navigate(`/meetings/${meeting.id}`);
+    }
+  };
+
+  // For external recordings, show source logo; for PP, show platform icon
+  const iconSrc = isExternal ? sourceInfo.icon : platform.icon;
+  const iconAlt = isExternal ? sourceInfo.name : platform.name;
+
   return (
     <div
       className={`meeting-card ${isActive ? 'meeting-card--active' : ''}`}
-      onClick={() => !editing && navigate(`/meetings/${meeting.id}`)}
+      onClick={handleCardClick}
     >
       <div className="meeting-card-top">
-        {platform.icon ? (
-          <img src={platform.icon} alt={platform.name} className="meeting-card-platform-icon" />
+        {iconSrc ? (
+          <img src={iconSrc} alt={iconAlt} className="meeting-card-platform-icon" />
         ) : (
-          <span className="meeting-card-platform-fallback">{platform.name}</span>
+          <span className="meeting-card-platform-fallback">{iconAlt}</span>
         )}
         <div className="meeting-card-top-right">
           <div className="meeting-card-header">
-            {editing ? (
+            {!isExternal && editing ? (
               <input
                 ref={inputRef}
                 className="meeting-card-title-input"
@@ -101,12 +116,34 @@ export default function MeetingCard({ meeting }) {
                 onClick={e => e.stopPropagation()}
               />
             ) : (
-              <div className="meeting-card-title-row" onClick={startEditing}>
-                <h3 className="meeting-card-title">{title}</h3>
-                <Pencil size={13} className="meeting-card-edit-icon" />
+              <div className="meeting-card-title-row" onClick={!isExternal ? startEditing : undefined}>
+                <h3
+                  className="meeting-card-title"
+                  onMouseEnter={(e) => {
+                    const el = e.currentTarget;
+                    const overflow = el.scrollWidth - el.clientWidth;
+                    if (overflow > 0) {
+                      const duration = Math.max(3, (overflow / 60) * 2 + 1);
+                      el.style.setProperty('--marquee-distance', `-${overflow}px`);
+                      el.style.setProperty('--marquee-duration', `${duration}s`);
+                      el.classList.add('meeting-card-title--scrolling');
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.classList.remove('meeting-card-title--scrolling');
+                  }}
+                ><span className="meeting-card-title-text">{title}</span></h3>
+                {!isExternal && <Pencil size={13} className="meeting-card-edit-icon" />}
               </div>
             )}
-            {showStatus ? (
+            {isExternal ? (
+              <div className="meeting-card-actions">
+                <button className="meeting-card-assign-btn" onClick={(e) => { e.stopPropagation(); setShowAssign(true); }}>
+                  <img src="/icon-assign-contact.png" alt="" className="meeting-card-assign-icon" />
+                  Assign Contact
+                </button>
+              </div>
+            ) : showStatus ? (
               <div className="meeting-card-status" style={{ color: status.color }}>
                 {isActive && <span className="meeting-card-pulse" />}
                 {status.label}
@@ -148,6 +185,11 @@ export default function MeetingCard({ meeting }) {
             {actionItemCount} action items
           </span>
         )}
+        {isExternal && (
+          <span className="meeting-card-stat" style={{ color: '#999', fontSize: 11 }}>
+            via {sourceInfo.name}
+          </span>
+        )}
       </div>
 
       {meeting.summary?.overview && (
@@ -161,6 +203,7 @@ export default function MeetingCard({ meeting }) {
       {showAssign && (
         <AssignContactModal
           meetingId={meeting.id}
+          isExternal={isExternal}
           onClose={() => setShowAssign(false)}
           onAssigned={(contact) => {
             console.log('Assigned contact:', contact.name);
