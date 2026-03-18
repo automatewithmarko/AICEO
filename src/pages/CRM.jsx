@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Search, Filter, ArrowUpDown, Plus, X, Phone, Mail, Building2, Calendar, Play, Download, ExternalLink, Send, Instagram, Linkedin, Trash2, RefreshCw, Loader2, CloudOff, AlertCircle, CheckCircle2, Upload, UserPlus, Check, Tag, ListPlus, FolderPlus, ChevronDown } from 'lucide-react';
+import { Search, Filter, ArrowUpDown, Plus, X, Phone, Mail, Building2, Calendar, Play, Download, ExternalLink, Send, Instagram, Linkedin, Trash2, RefreshCw, Loader2, CloudOff, AlertCircle, CheckCircle2, Upload, UserPlus, Check, Tag, ListPlus, FolderPlus, ChevronDown, FileText, Share2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { getContacts, createContact, updateContact as updateContactApi, deleteContact as deleteContactApi, getContactDetail, syncContacts, syncContactToGHL } from '../lib/api';
 import './CRM.css';
 
@@ -40,6 +41,7 @@ function saveLists(lists) {
 }
 
 export default function CRM() {
+  const navigate = useNavigate();
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -64,7 +66,8 @@ export default function CRM() {
   // List & filter state
   const [customLists, setCustomLists] = useState(loadSavedLists);
   const [showCreateList, setShowCreateList] = useState(false);
-  const [listForm, setListForm] = useState({ name: '', statuses: [], tags: [] });
+  const [listForm, setListForm] = useState({ name: '', statuses: [], tags: [], businesses: [], contactIds: [] });
+  const [listContactSearch, setListContactSearch] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [activeFilters, setActiveFilters] = useState({ statuses: [], tags: [] });
   const pageRef = useRef(null);
@@ -173,6 +176,7 @@ export default function CRM() {
   };
 
   const [vcfImporting, setVcfImporting] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, input: '' });
 
   const handleVcfImport = async (e) => {
     const file = e.target.files?.[0];
@@ -350,10 +354,10 @@ export default function CRM() {
   // Determine active filter criteria (from list or toolbar)
   const activeListObj = customLists.find(l => l.id === activeList);
   const effectiveFilters = activeListObj
-    ? { statuses: activeListObj.statuses, tags: activeListObj.tags }
-    : activeFilters;
+    ? { statuses: activeListObj.statuses || [], tags: activeListObj.tags || [], businesses: activeListObj.businesses || [], contactIds: activeListObj.contactIds || [] }
+    : { ...activeFilters, businesses: [], contactIds: [] };
 
-  const hasActiveFilters = effectiveFilters.statuses.length > 0 || effectiveFilters.tags.length > 0;
+  const hasActiveFilters = effectiveFilters.statuses.length > 0 || effectiveFilters.tags.length > 0 || effectiveFilters.businesses.length > 0 || effectiveFilters.contactIds.length > 0;
 
   const filtered = contacts.filter((c) => {
     // Search filter
@@ -366,10 +370,18 @@ export default function CRM() {
         !(c.phone || '').includes(q)
       ) return false;
     }
+    // If list has manually selected contacts, only show those (plus any matching filters)
+    if (effectiveFilters.contactIds.length > 0) {
+      if (effectiveFilters.contactIds.includes(c.id)) return true;
+    }
     // Status filter
     if (effectiveFilters.statuses.length > 0 && !effectiveFilters.statuses.includes(c.status)) return false;
     // Tag filter
     if (effectiveFilters.tags.length > 0 && !(c.tags || []).some(t => effectiveFilters.tags.includes(t))) return false;
+    // Business filter
+    if (effectiveFilters.businesses.length > 0 && !effectiveFilters.businesses.includes(c.business)) return false;
+    // If ONLY contactIds were set (no other filters), we already returned true above for matches
+    if (effectiveFilters.contactIds.length > 0 && effectiveFilters.statuses.length === 0 && effectiveFilters.tags.length === 0 && effectiveFilters.businesses.length === 0) return false;
     return true;
   });
 
@@ -400,14 +412,16 @@ export default function CRM() {
       name: listForm.name.trim(),
       statuses: listForm.statuses,
       tags: listForm.tags,
+      businesses: listForm.businesses,
+      contactIds: listForm.contactIds,
     };
     const updated = [...customLists, newList];
     setCustomLists(updated);
     saveLists(updated);
     setActiveList(newList.id);
     setShowCreateList(false);
-    setListForm({ name: '', statuses: [], tags: [] });
-    // Clear toolbar filters when switching to a list
+    setListForm({ name: '', statuses: [], tags: [], businesses: [], contactIds: [] });
+    setListContactSearch('');
     setActiveFilters({ statuses: [], tags: [] });
   };
 
@@ -482,7 +496,7 @@ export default function CRM() {
     setDetailLoading(false);
   }, []);
 
-  const closePopup = () => setPopup(null);
+  const closePopup = () => { setPopup(null); setDeleteConfirm({ open: false, input: '' }); };
 
   const recordings = popupDetail.recordings || [];
   const emails = popupDetail.emails || [];
@@ -556,7 +570,7 @@ export default function CRM() {
             </span>
           </button>
         ))}
-        <button className="crm-list-tab crm-list-tab--create" onClick={() => setShowCreateList(true)}>
+        <button className="crm-list-tab crm-list-tab--create" onClick={() => { setListForm({ name: '', statuses: [], tags: [], businesses: [], contactIds: [] }); setListContactSearch(''); setShowCreateList(true); }}>
           <Plus size={14} />
           Create a new list
         </button>
@@ -634,13 +648,74 @@ export default function CRM() {
                   </div>
                 </div>
               )}
+              {(() => {
+                const allBusinesses = [...new Set(contacts.map(c => c.business).filter(Boolean))].sort();
+                return allBusinesses.length > 0 && (
+                  <div className="crm-modal-field">
+                    <label className="crm-modal-label">Filter by Business</label>
+                    <div className="crm-modal-checks">
+                      {allBusinesses.map((b) => (
+                        <button
+                          key={b}
+                          className={`crm-modal-check-btn ${listForm.businesses.includes(b) ? 'crm-modal-check-btn--active' : ''}`}
+                          onClick={() => setListForm(f => ({
+                            ...f,
+                            businesses: f.businesses.includes(b) ? f.businesses.filter(x => x !== b) : [...f.businesses, b],
+                          }))}
+                        >
+                          {listForm.businesses.includes(b) && <Check size={13} />}
+                          <span>{b}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+              <div className="crm-modal-field">
+                <label className="crm-modal-label">Manually Select Contacts</label>
+                <input
+                  className="crm-modal-input"
+                  placeholder="Search contacts..."
+                  value={listContactSearch}
+                  onChange={(e) => setListContactSearch(e.target.value)}
+                />
+                <div className="crm-modal-contact-list">
+                  {contacts
+                    .filter(c => {
+                      if (!listContactSearch) return listForm.contactIds.includes(c.id);
+                      const q = listContactSearch.toLowerCase();
+                      return (c.name || '').toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q) || (c.business || '').toLowerCase().includes(q);
+                    })
+                    .slice(0, listContactSearch ? 20 : undefined)
+                    .map(c => (
+                      <button
+                        key={c.id}
+                        className={`crm-modal-contact-row ${listForm.contactIds.includes(c.id) ? 'crm-modal-contact-row--active' : ''}`}
+                        onClick={() => setListForm(f => ({
+                          ...f,
+                          contactIds: f.contactIds.includes(c.id) ? f.contactIds.filter(x => x !== c.id) : [...f.contactIds, c.id],
+                        }))}
+                      >
+                        <span className="crm-modal-contact-check">{listForm.contactIds.includes(c.id) && <Check size={13} />}</span>
+                        <span className="crm-modal-contact-name">{c.name || c.email}</span>
+                        {c.business && <span className="crm-modal-contact-biz">{c.business}</span>}
+                      </button>
+                    ))
+                  }
+                  {listForm.contactIds.length > 0 && !listContactSearch && (
+                    <p className="crm-modal-contact-count">{listForm.contactIds.length} contact{listForm.contactIds.length !== 1 ? 's' : ''} selected</p>
+                  )}
+                </div>
+              </div>
               <p className="crm-modal-hint">
-                {listForm.statuses.length === 0 && listForm.tags.length === 0
+                {listForm.statuses.length === 0 && listForm.tags.length === 0 && listForm.businesses.length === 0 && listForm.contactIds.length === 0
                   ? 'No filters selected — list will show all contacts.'
                   : `Will show contacts matching ${[
                       listForm.statuses.length > 0 ? `status: ${listForm.statuses.join(', ')}` : '',
                       listForm.tags.length > 0 ? `tags: ${listForm.tags.join(', ')}` : '',
-                    ].filter(Boolean).join(' and ')}.`
+                      listForm.businesses.length > 0 ? `business: ${listForm.businesses.join(', ')}` : '',
+                      listForm.contactIds.length > 0 ? `${listForm.contactIds.length} manually selected` : '',
+                    ].filter(Boolean).join(' + ')}.`
                 }
               </p>
             </div>
@@ -917,17 +992,12 @@ export default function CRM() {
                     <td className="crm-cell-name">
                       <div className="crm-cell-name-wrap">
                         <span className="crm-cell-name-text">{c.name || '—'}</span>
-                        {(c.ghl_contact_id || c.source === 'gohighlevel') && (
+                        {c.ghl_raw_data && (
                           <img
                             src="/gohighlevel_logoSquare.png"
                             alt="GHL"
                             className="crm-ghl-icon"
-                            title={
-                              c.ghl_sync_status === 'error' ? `GHL sync error: ${c.ghl_sync_error || 'Unknown'}` :
-                              c.ghl_sync_status === 'pending' ? 'Syncing to GHL...' :
-                              c.ghl_sync_status === 'synced' ? 'Synced with GoHighLevel' :
-                              c.source === 'gohighlevel' ? 'Imported from GHL' : 'GHL'
-                            }
+                            title="Imported from GoHighLevel"
                           />
                         )}
                       </div>
@@ -981,8 +1051,8 @@ export default function CRM() {
                     <div key={c.id} className="crm-kb-card" onClick={(e) => openContact(c, e)}>
                       <div className="crm-kb-card-name">
                         <span className="crm-kb-card-name-text">{c.name || c.email}</span>
-                        {(c.ghl_contact_id || c.source === 'gohighlevel') && (
-                          <img src="/gohighlevel_logoSquare.png" alt="GHL" className="crm-ghl-icon" title="GoHighLevel" />
+                        {c.ghl_raw_data && (
+                          <img src="/gohighlevel_logoSquare.png" alt="GHL" className="crm-ghl-icon" title="Imported from GoHighLevel" />
                         )}
                       </div>
                       <div className="crm-kb-card-biz">{c.business || '—'}</div>
@@ -1053,12 +1123,7 @@ export default function CRM() {
 
             {/* Contact info */}
             <div className="crm-popup-info">
-              <div className="crm-popup-name-row">
-                <h2 className="crm-popup-name">{popup.contact.name || popup.contact.email}</h2>
-                <button className="crm-popup-delete" onClick={() => handleDeleteContact(popup.contact.id)} title="Delete contact">
-                  <Trash2 size={14} />
-                </button>
-              </div>
+              <h2 className="crm-popup-name">{popup.contact.name || popup.contact.email}</h2>
               <div className="crm-popup-fields">
                 <div className="crm-popup-field">
                   <Phone size={14} className="crm-popup-field-icon" />
@@ -1313,21 +1378,38 @@ export default function CRM() {
                   {recordings.length === 0 && <p className="crm-popup-empty">No call recordings found for this contact.</p>}
                   {recordings.map((r) => (
                     <div key={r.id} className="crm-rec-item">
-                      <img src="/fireflies-square-logo.png" alt="" className="crm-rec-logo" />
+                      <img
+                        src={r.provider === 'fathom' ? '/fathom-square-logo.png' : r.provider === 'fireflies' ? '/fireflies-square-logo.png' : '/our-square-logo.png'}
+                        alt=""
+                        className="crm-rec-logo"
+                      />
                       <div className="crm-rec-info">
                         <span className="crm-rec-name">{r.name}</span>
                         <span className="crm-rec-meta">{r.date}{r.duration ? ` \u00b7 ${r.duration}` : ''}</span>
                       </div>
                       <div className="crm-rec-actions">
-                        <button className="crm-rec-btn" title="Play">
-                          <Play size={14} />
-                        </button>
-                        <button className="crm-rec-btn" title="Download">
-                          <Download size={14} />
-                        </button>
-                        <button className="crm-rec-btn" title="Open">
-                          <ExternalLink size={14} />
-                        </button>
+                        {r.provider === 'purelypersonal' ? (
+                          <>
+                            <button className="crm-rec-btn" title="Play" onClick={() => navigate(`/meetings/${r.id}`)}>
+                              <Play size={14} />
+                            </button>
+                            <button className="crm-rec-btn" title="Share">
+                              <Share2 size={14} />
+                            </button>
+                            <button className="crm-rec-btn" title="Open" onClick={() => navigate(`/meetings/${r.id}`)}>
+                              <ExternalLink size={14} />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            className="crm-rec-btn crm-rec-btn--transcript"
+                            title="View Transcript"
+                            onClick={() => navigate(`/meetings/${r.id}`, { state: { external: true, source: r.provider } })}
+                          >
+                            <FileText size={14} />
+                            <span>View Transcript</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1382,6 +1464,45 @@ export default function CRM() {
                         </span>
                       </div>
                     ))}
+                </div>
+              )}
+            </div>
+
+            {/* Delete contact — bottom of card */}
+            <div className="crm-popup-delete-section">
+              {!deleteConfirm.open ? (
+                <button
+                  className="crm-popup-delete-btn"
+                  onClick={() => setDeleteConfirm({ open: true, input: '' })}
+                >
+                  <Trash2 size={14} />
+                  Delete Contact
+                </button>
+              ) : (
+                <div className="crm-popup-delete-confirm">
+                  <p className="crm-popup-delete-warn">Type <strong>DELETE</strong> to confirm</p>
+                  <div className="crm-popup-delete-row">
+                    <input
+                      className="crm-popup-delete-input"
+                      value={deleteConfirm.input}
+                      onChange={(e) => setDeleteConfirm(prev => ({ ...prev, input: e.target.value }))}
+                      placeholder="DELETE"
+                      autoFocus
+                    />
+                    <button
+                      className="crm-popup-delete-btn crm-popup-delete-btn--confirm"
+                      disabled={deleteConfirm.input !== 'DELETE'}
+                      onClick={() => handleDeleteContact(popup.contact.id)}
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      className="crm-popup-delete-btn crm-popup-delete-btn--cancel"
+                      onClick={() => setDeleteConfirm({ open: false, input: '' })}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
