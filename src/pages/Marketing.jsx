@@ -4,6 +4,8 @@ import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
 import { generateImage, uploadImageToStorage, deployToNetlify, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems } from '../lib/api';
+import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
+import { getIframeEditScript } from '../lib/iframeEditScript';
 import './Pages.css';
 import './Marketing.css';
 
@@ -1091,6 +1093,8 @@ function ToolTab({ config, activeTool, brandDna }) {
   const templateRef = useRef(null);
   const copyCodeRef = useRef(null);
   const iframeRef = useRef(null);
+  const editMapRef = useRef(new Map());
+  const skipIframeWriteRef = useRef(false);
 
   const chatStarted = chatMessages.length > 0;
 
@@ -1131,8 +1135,14 @@ function ToolTab({ config, activeTool, brandDna }) {
   }, [chatInput]);
 
   // Write HTML directly into iframe document (avoids srcDoc reload flash)
-  // Also inject CTA link editor overlay for hover-to-edit functionality
+  // Also inject CTA link editor overlay and text editing for hover-to-edit functionality
   useEffect(() => {
+    // Skip rewrite if the change came from an inline text edit (preserves cursor/DOM state)
+    if (skipIframeWriteRef.current) {
+      skipIframeWriteRef.current = false;
+      return;
+    }
+
     const iframe = iframeRef.current;
     if (!iframe) return;
     const doc = iframe.contentDocument;
@@ -1147,6 +1157,12 @@ function ToolTab({ config, activeTool, brandDna }) {
         // Catch any remaining bare {{GENERATE:...}}
         displayHtml = displayHtml.replace(/\{\{GENERATE:[\s\S]*?\}\}/g, '');
       }
+
+      // Inject edit IDs for inline text editing (display-only, not stored in state)
+      const { taggedHtml, editMap } = injectEditIds(displayHtml);
+      editMapRef.current = editMap;
+      displayHtml = taggedHtml;
+
       doc.open();
       doc.write(displayHtml);
       doc.close();
@@ -1198,6 +1214,7 @@ function ToolTab({ config, activeTool, brandDna }) {
 
           // Show overlay on link hover
           document.addEventListener('mouseover', function(e) {
+            if (window.__textEditing) return;
             var link = e.target.closest('a[href]');
             if (!link) return;
             clearTimeout(hideTimer);
@@ -1266,6 +1283,11 @@ function ToolTab({ config, activeTool, brandDna }) {
         })();
       `;
       doc.body.appendChild(script);
+
+      // Inject inline text editing script
+      const editScript = doc.createElement('script');
+      editScript.textContent = getIframeEditScript();
+      doc.body.appendChild(editScript);
     } else {
       doc.open();
       doc.write('<html><body></body></html>');
@@ -1273,18 +1295,21 @@ function ToolTab({ config, activeTool, brandDna }) {
     }
   }, [canvasHtml]);
 
-  // Listen for CTA link edits from the iframe
+  // Listen for CTA link edits and text edits from the iframe
   useEffect(() => {
     function handleMessage(e) {
       if (e.data?.type === 'cta-link-edit') {
         const { oldHref, newHref } = e.data;
         setCanvasHtml(prev => {
           if (!prev) return prev;
-          // Replace the href in the HTML — use exact attribute match to avoid false positives
           const escaped = oldHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           const regex = new RegExp('href="' + escaped + '"', 'g');
           return prev.replace(regex, 'href="' + newHref.replace(/"/g, '&quot;') + '"');
         });
+      } else if (e.data?.type === 'text-edit') {
+        const { editId, newHtml } = e.data;
+        skipIframeWriteRef.current = true;
+        setCanvasHtml(prev => applyTextEdit(prev, editMapRef.current, editId, newHtml));
       }
     }
     window.addEventListener('message', handleMessage);

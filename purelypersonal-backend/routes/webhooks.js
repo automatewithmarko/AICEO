@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { Webhook } from 'svix';
 import { supabase } from '../middleware/auth.js';
 import { processCompletedMeeting } from '../services/ai-processor.js';
-import { getTranscript, getBot } from '../services/recall.js';
+import { getTranscript, getBot, getRecordingParticipants, getSpeakerTimeline } from '../services/recall.js';
 import { uploadRecording, downloadFromUrl } from '../services/storage.js';
 import { linkParticipantsToContacts } from '../services/contact-linker.js';
 
@@ -187,7 +187,7 @@ router.post('/api/webhooks/recall', async (req, res) => {
 
         const { data: meeting } = await supabase
           .from('meetings')
-          .select('id, user_id, recall_bot_status')
+          .select('id, user_id, recall_bot_status, participants')
           .eq('recall_bot_id', botId)
           .single();
 
@@ -195,37 +195,90 @@ router.post('/api/webhooks/recall', async (req, res) => {
 
         console.log(`[webhook] Transcript done for meeting ${meeting.id}, recording ${recordingId}, fetching...`);
 
+        // Build speaker map: first from stored participants, then enrich from recording data
+        const speakerMap = {};
+        if (meeting.participants?.length) {
+          for (const p of meeting.participants) {
+            if (p.id != null) speakerMap[p.id] = p.name;
+            if (p.name) speakerMap[p.name] = p.name;
+          }
+        }
+
+        // Also fetch recording participant + speaker timeline data for better mapping
+        try {
+          const bot = await getBot(botId);
+          const recording = bot?.recordings?.[0];
+          if (recording) {
+            const recParticipants = await getRecordingParticipants(recording);
+            if (Array.isArray(recParticipants)) {
+              for (const p of recParticipants) {
+                if (p.id != null) speakerMap[p.id] = p.name;
+                if (p.platform_participant_id) speakerMap[p.platform_participant_id] = p.name;
+              }
+            }
+            const timeline = await getSpeakerTimeline(recording);
+            if (Array.isArray(timeline)) {
+              for (const entry of timeline) {
+                if (entry.participant?.name && entry.participant?.id != null) {
+                  speakerMap[entry.participant.id] = entry.participant.name;
+                }
+                if (entry.speaker_id != null && entry.participant?.name) {
+                  speakerMap[entry.speaker_id] = entry.participant.name;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn(`[webhook] Failed to enrich speaker map from recording: ${e.message}`);
+        }
+
+        console.log(`[webhook] Speaker map for meeting ${meeting.id}:`, JSON.stringify(speakerMap));
+
+        const resolveSpeaker = (entry) => {
+          if (entry.participant?.name) return entry.participant.name;
+          if (entry.participant?.id != null && speakerMap[entry.participant.id]) return speakerMap[entry.participant.id];
+          if (entry.speaker && entry.speaker !== 'Unknown') return entry.speaker;
+          if (entry.speaker_id != null && speakerMap[entry.speaker_id]) return speakerMap[entry.speaker_id];
+          return entry.speaker || 'Unknown';
+        };
+
+        const getWordStartTime = (w) => w?.start_timestamp?.relative ?? w?.start_time ?? null;
+        const getWordEndTime = (w) => w?.end_timestamp?.relative ?? w?.end_time ?? null;
+
         try {
           const transcript = await getTranscript(recordingId);
           if (transcript?.length) {
-            // Get existing max sequence
-            const { data: maxSeq } = await supabase
+            // Replace all existing segments with the final transcript
+            await supabase
               .from('transcript_segments')
-              .select('sequence_index')
-              .eq('meeting_id', meeting.id)
-              .order('sequence_index', { ascending: false })
-              .limit(1)
-              .single();
+              .delete()
+              .eq('meeting_id', meeting.id);
 
-            let seqIndex = (maxSeq?.sequence_index || 0) + 1;
+            let seqIndex = 1;
 
             for (const entry of transcript) {
-              await supabase.from('transcript_segments').upsert({
+              const speakerName = resolveSpeaker(entry);
+              const words = entry.words || [];
+              const text = words.map(w => w.text).join(' ') || entry.text || '';
+              const startTime = getWordStartTime(words[0]);
+              const endTime = getWordEndTime(words[words.length - 1]);
+
+              await supabase.from('transcript_segments').insert({
                 meeting_id: meeting.id,
-                speaker_name: entry.speaker || 'Unknown',
-                speaker_id: entry.speaker_id || null,
-                text: entry.words?.map(w => w.text).join(' ') || entry.text || '',
-                start_time: entry.start_time || entry.words?.[0]?.start_time || null,
-                end_time: entry.end_time || entry.words?.[entry.words?.length - 1]?.end_time || null,
-                words: entry.words || null,
+                speaker_name: speakerName,
+                speaker_id: entry.participant?.id != null ? String(entry.participant.id) : (entry.speaker_id != null ? String(entry.speaker_id) : null),
+                text,
+                start_time: startTime,
+                end_time: endTime,
+                words: words,
                 is_partial: false,
                 sequence_index: seqIndex++,
-              }, { onConflict: 'meeting_id,sequence_index' });
+              });
             }
 
-            // Build full transcript text
+            // Build full transcript text with speaker names
             const fullText = transcript
-              .map(e => `${e.speaker || 'Speaker'}: ${e.words?.map(w => w.text).join(' ') || e.text || ''}`)
+              .map(e => `${resolveSpeaker(e)}: ${(e.words || []).map(w => w.text).join(' ') || e.text || ''}`)
               .join('\n');
 
             await supabase
@@ -233,7 +286,7 @@ router.post('/api/webhooks/recall', async (req, res) => {
               .update({ transcript_text: fullText })
               .eq('id', meeting.id);
 
-            console.log(`[webhook] Stored ${transcript.length} transcript segments for meeting ${meeting.id}`);
+            console.log(`[webhook] Stored ${transcript.length} transcript segments with speakers for meeting ${meeting.id}`);
           }
 
           // If the meeting was already "done" but AI processing hasn't run yet, trigger it now
@@ -335,40 +388,134 @@ async function handleMeetingDone(meetingId, userId, botId) {
   try {
     // 1. Fetch bot details for participants and recording
     const bot = await getBot(botId);
+    const recording = bot?.recordings?.[0];
 
-    // 2. Fetch final transcript using recording ID
-    const recordingId = bot?.recordings?.[0]?.id;
+    // 2. Fetch participant data from the recording's download URLs
+    // This gives us the actual participant names mapped to their IDs
+    const speakerMap = {};
+    let participantsList = [];
+
+    // Fetch from recording's participants_download_url (official participant data)
+    if (recording) {
+      try {
+        const recordingParticipants = await getRecordingParticipants(recording);
+        console.log(`[pipeline] Recording participants:`, JSON.stringify(recordingParticipants));
+        if (Array.isArray(recordingParticipants)) {
+          for (const p of recordingParticipants) {
+            // Map by participant ID (numeric), platform-specific ID, and name
+            if (p.id != null) speakerMap[p.id] = p.name;
+            if (p.platform_participant_id) speakerMap[p.platform_participant_id] = p.name;
+            if (p.name) speakerMap[p.name] = p.name;
+            participantsList.push({
+              name: p.name,
+              id: p.id,
+              is_host: p.is_host || false,
+            });
+          }
+        }
+      } catch (pErr) {
+        console.warn(`[pipeline] Failed to fetch recording participants: ${pErr.message}`);
+      }
+
+      // Also fetch speaker timeline to map speaker IDs to participant names
+      try {
+        const speakerTimeline = await getSpeakerTimeline(recording);
+        console.log(`[pipeline] Speaker timeline (first 3):`, JSON.stringify(speakerTimeline?.slice?.(0, 3)));
+        if (Array.isArray(speakerTimeline)) {
+          for (const entry of speakerTimeline) {
+            // Speaker timeline entries have participant info with name + id
+            if (entry.participant?.name && entry.participant?.id != null) {
+              speakerMap[entry.participant.id] = entry.participant.name;
+            }
+            if (entry.speaker_id != null && entry.participant?.name) {
+              speakerMap[entry.speaker_id] = entry.participant.name;
+            }
+          }
+        }
+      } catch (stErr) {
+        console.warn(`[pipeline] Failed to fetch speaker timeline: ${stErr.message}`);
+      }
+    }
+
+    // Fall back to bot.meeting_participants if recording participants weren't available
+    if (participantsList.length === 0 && bot?.meeting_participants?.length) {
+      participantsList = bot.meeting_participants.map(p => ({
+        name: p.name,
+        id: p.id,
+        is_host: p.is_host || false,
+      }));
+      for (const p of bot.meeting_participants) {
+        if (p.id != null) speakerMap[p.id] = p.name;
+        if (p.name) speakerMap[p.name] = p.name;
+      }
+    }
+
+    console.log(`[pipeline] Speaker map:`, JSON.stringify(speakerMap));
+
+    // Store participants
+    if (participantsList.length) {
+      await supabase
+        .from('meetings')
+        .update({ participants: participantsList })
+        .eq('id', meetingId);
+
+      await linkParticipantsToContacts(meetingId, userId, participantsList);
+      console.log(`[pipeline] Stored ${participantsList.length} participants`);
+    }
+
+    // Helper to resolve speaker name from transcript entry
+    // Recall transcript format: entry.participant.name / entry.participant.id OR entry.speaker / entry.speaker_id
+    const resolveSpeaker = (entry) => {
+      if (entry.participant?.name) return entry.participant.name;
+      if (entry.participant?.id != null && speakerMap[entry.participant.id]) return speakerMap[entry.participant.id];
+      if (entry.speaker && entry.speaker !== 'Unknown') return entry.speaker;
+      if (entry.speaker_id != null && speakerMap[entry.speaker_id]) return speakerMap[entry.speaker_id];
+      return entry.speaker || 'Unknown';
+    };
+
+    // Helper to extract timestamps from transcript words
+    // Recall format: word.start_timestamp.relative / word.end_timestamp.relative OR word.start_time / word.end_time
+    const getWordStartTime = (w) => w?.start_timestamp?.relative ?? w?.start_time ?? null;
+    const getWordEndTime = (w) => w?.end_timestamp?.relative ?? w?.end_time ?? null;
+
+    // 3. Fetch final transcript using recording ID
+    const recordingId = recording?.id;
     if (recordingId) {
       try {
         const transcript = await getTranscript(recordingId);
+        console.log(`[pipeline] Transcript sample (first 3):`, JSON.stringify(transcript?.slice?.(0, 3)));
         if (transcript?.length) {
-          const { data: maxSeq } = await supabase
+          // Clear real-time partial segments and replace with final transcript
+          await supabase
             .from('transcript_segments')
-            .select('sequence_index')
-            .eq('meeting_id', meetingId)
-            .order('sequence_index', { ascending: false })
-            .limit(1)
-            .single();
+            .delete()
+            .eq('meeting_id', meetingId);
 
-          let seqIndex = (maxSeq?.sequence_index || 0) + 1;
+          let seqIndex = 1;
 
           for (const entry of transcript) {
-            await supabase.from('transcript_segments').upsert({
+            const speakerName = resolveSpeaker(entry);
+            const words = entry.words || [];
+            const text = words.map(w => w.text).join(' ') || entry.text || '';
+            const startTime = getWordStartTime(words[0]);
+            const endTime = getWordEndTime(words[words.length - 1]);
+
+            await supabase.from('transcript_segments').insert({
               meeting_id: meetingId,
-              speaker_name: entry.speaker || 'Unknown',
-              speaker_id: entry.speaker_id || null,
-              text: entry.words?.map(w => w.text).join(' ') || entry.text || '',
-              start_time: entry.start_time || entry.words?.[0]?.start_time || null,
-              end_time: entry.end_time || entry.words?.[entry.words?.length - 1]?.end_time || null,
-              words: entry.words || null,
+              speaker_name: speakerName,
+              speaker_id: entry.participant?.id != null ? String(entry.participant.id) : (entry.speaker_id != null ? String(entry.speaker_id) : null),
+              text,
+              start_time: startTime,
+              end_time: endTime,
+              words: words,
               is_partial: false,
               sequence_index: seqIndex++,
-            }, { onConflict: 'meeting_id,sequence_index' });
+            });
           }
 
-          // Build full transcript text
+          // Build full transcript text with speaker names
           const fullText = transcript
-            .map(e => `${e.speaker || 'Speaker'}: ${e.words?.map(w => w.text).join(' ') || e.text || ''}`)
+            .map(e => `${resolveSpeaker(e)}: ${(e.words || []).map(w => w.text).join(' ') || e.text || ''}`)
             .join('\n');
 
           await supabase
@@ -376,26 +523,11 @@ async function handleMeetingDone(meetingId, userId, botId) {
             .update({ transcript_text: fullText })
             .eq('id', meetingId);
 
-          console.log(`[pipeline] Stored ${transcript.length} transcript segments`);
+          console.log(`[pipeline] Stored ${transcript.length} transcript segments with speaker names`);
         }
       } catch (tErr) {
         console.warn(`[pipeline] Transcript fetch failed (will retry via transcript.done webhook): ${tErr.message}`);
       }
-    }
-
-    if (bot?.meeting_participants?.length) {
-      const participants = bot.meeting_participants.map(p => ({
-        name: p.name,
-        id: p.id,
-        is_host: p.is_host || false,
-      }));
-
-      await supabase
-        .from('meetings')
-        .update({ participants })
-        .eq('id', meetingId);
-
-      await linkParticipantsToContacts(meetingId, userId, participants);
     }
 
     // Calculate duration

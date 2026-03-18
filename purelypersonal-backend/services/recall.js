@@ -43,9 +43,15 @@ export async function createBot(meetingUrl, { botName, userId, meetingId, joinAt
     recording_config: {
       transcript: {
         provider: {
-          meeting_captions: {}
-        }
+          recallai_streaming: {
+            language_code: 'en',
+          }
+        },
+        diarization: {
+          use_separate_streams_when_available: true,
+        },
       },
+      audio_separate_raw: {},
     },
     automatic_leave: {
       waiting_room_timeout: 600,
@@ -122,6 +128,36 @@ export async function getRecording(botId) {
   const bot = await getBot(botId);
   // Recordings are in bot.recordings array
   return bot?.recordings || [];
+}
+
+// Fetch participant list from a recording's participants_download_url
+export async function getRecordingParticipants(recording) {
+  const url = recording?.media_shortcuts?.participant_events?.data?.participants_download_url;
+  if (!url) {
+    console.log('[recall] No participants_download_url in recording');
+    return [];
+  }
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.warn(`[recall] Failed to fetch participants: ${res.status}`);
+    return [];
+  }
+  return res.json();
+}
+
+// Fetch speaker timeline from a recording's speaker_timeline_download_url
+export async function getSpeakerTimeline(recording) {
+  const url = recording?.media_shortcuts?.participant_events?.data?.speaker_timeline_download_url;
+  if (!url) {
+    console.log('[recall] No speaker_timeline_download_url in recording');
+    return [];
+  }
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.warn(`[recall] Failed to fetch speaker timeline: ${res.status}`);
+    return [];
+  }
+  return res.json();
 }
 
 export async function listBots({ status, meetingUrl, metadata } = {}) {

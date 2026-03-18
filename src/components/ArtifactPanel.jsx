@@ -5,9 +5,11 @@ import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
 import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate } from '../lib/api';
+import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
+import { getIframeEditScript } from '../lib/iframeEditScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange }) {
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -16,6 +18,8 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
   const [deploying, setDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState(null);
   const iframeRef = useRef(null);
+  const editMapRef = useRef(new Map());
+  const skipIframeWriteRef = useRef(false);
 
   // Send Email modal state
   const [sendModalOpen, setSendModalOpen] = useState(false);
@@ -54,7 +58,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
     }
   }, [externalAccounts]);
 
-  // Listen for CTA link edits from the iframe
+  // Listen for CTA link edits and text edits from the iframe
   useEffect(() => {
     function handleMessage(e) {
       if (e.data?.type === 'cta-link-edit') {
@@ -63,13 +67,23 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
           if (!prev) return prev;
           const escaped = oldHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           const regex = new RegExp('href="' + escaped + '"', 'g');
-          return prev.replace(regex, 'href="' + newHref.replace(/"/g, '&quot;') + '"');
+          const updated = prev.replace(regex, 'href="' + newHref.replace(/"/g, '&quot;') + '"');
+          if (onContentChange) onContentChange(updated);
+          return updated;
+        });
+      } else if (e.data?.type === 'text-edit') {
+        const { editId, newHtml } = e.data;
+        skipIframeWriteRef.current = true;
+        setHtmlContent(prev => {
+          const updated = applyTextEdit(prev, editMapRef.current, editId, newHtml);
+          if (onContentChange) onContentChange(updated);
+          return updated;
         });
       }
     }
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [onContentChange]);
 
   if (!artifact) return null;
 
@@ -332,8 +346,8 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
 
       <div className="ap-body">
         {type === 'email' && <EmailRenderer content={content} />}
-        {type === 'newsletter' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} />}
-        {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} />}
+        {type === 'newsletter' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
+        {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
         {type === 'content_post' && <ContentPostRenderer content={content} images={images} />}
         {type === 'code_block' && <CodeRenderer content={content} />}
         {type === 'markdown_doc' && <MarkdownRenderer content={content} />}
@@ -500,19 +514,29 @@ function replaceGeneratePlaceholders(html) {
   return result;
 }
 
-function HtmlRenderer({ content, iframeRef }) {
+function HtmlRenderer({ content, iframeRef, editMapRef, skipIframeWriteRef }) {
   const containerRef = useRef(null);
 
-  // Write HTML to iframe with CTA link editor
+  // Write HTML to iframe with CTA link editor and text editor
   useEffect(() => {
+    if (skipIframeWriteRef?.current) {
+      skipIframeWriteRef.current = false;
+      return;
+    }
+
     const iframe = iframeRef.current;
     if (!iframe) return;
     const doc = iframe.contentDocument;
     if (!doc) return;
 
     if (content) {
+      // Inject edit IDs for inline text editing
+      let displayHtml = replaceGeneratePlaceholders(content);
+      const { taggedHtml, editMap } = injectEditIds(displayHtml);
+      if (editMapRef) editMapRef.current = editMap;
+
       doc.open();
-      doc.write(replaceGeneratePlaceholders(content));
+      doc.write(taggedHtml);
       doc.close();
 
       // Inject CTA link editor script
@@ -559,6 +583,7 @@ function HtmlRenderer({ content, iframeRef }) {
           }
 
           document.addEventListener('mouseover', function(e) {
+            if (window.__textEditing) return;
             var link = e.target.closest('a[href]');
             if (!link) return;
             clearTimeout(hideTimer);
@@ -624,6 +649,11 @@ function HtmlRenderer({ content, iframeRef }) {
         })();
       `;
       doc.body.appendChild(script);
+
+      // Inject inline text editing script
+      const editScript = doc.createElement('script');
+      editScript.textContent = getIframeEditScript();
+      doc.body.appendChild(editScript);
     } else {
       doc.open();
       doc.write('<html><body></body></html>');
