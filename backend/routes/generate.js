@@ -4,8 +4,23 @@ import sharp from 'sharp';
 
 const router = Router();
 
-const GEMINI_MODEL = 'gemini-3.1-flash-image-preview';
+const GEMINI_MODEL_FAST = 'gemini-3.1-flash-image-preview';
+const GEMINI_MODEL_PRO = 'gemini-3-pro-image-preview'; // Best text rendering + reasoning
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_TIMEOUT_MS = 90_000; // 90s for fast model
+const GEMINI_PRO_TIMEOUT_MS = 120_000; // 120s for pro model (more thinking time)
+
+// Per-platform config: model, aspect ratio, image size, thinking level
+const PLATFORM_CONFIG = {
+  newsletter:       { model: GEMINI_MODEL_FAST, aspectRatio: '16:9', imageSize: '1K' },
+  instagram:        { model: GEMINI_MODEL_FAST, aspectRatio: '1:1',  imageSize: '1K' },
+  instagram_story:  { model: GEMINI_MODEL_PRO,  aspectRatio: '9:16', imageSize: '2K', thinkingLevel: 'High' },
+  youtube:          { model: GEMINI_MODEL_FAST, aspectRatio: '16:9', imageSize: '1K' },
+  tiktok:           { model: GEMINI_MODEL_PRO,  aspectRatio: '9:16', imageSize: '2K', thinkingLevel: 'High' },
+  x:                { model: GEMINI_MODEL_FAST, aspectRatio: '16:9', imageSize: '1K' },
+  linkedin:         { model: GEMINI_MODEL_FAST, aspectRatio: '4:3',  imageSize: '1K' },
+  facebook:         { model: GEMINI_MODEL_FAST, aspectRatio: '1:1',  imageSize: '1K' },
+};
 
 // Supabase client for fetching brand data as fallback
 const supabase = createClient(
@@ -19,22 +34,38 @@ function getApiKey() {
   return key;
 }
 
+// ─── Caches ───
+// Brand asset base64 cache — keyed by URL, avoids re-downloading the same images
+const brandImageCache = new Map(); // url -> { data, expiry }
+const BRAND_IMAGE_TTL = 10 * 60 * 1000; // 10 minutes
+
+// Brand data cache — keyed by userId, avoids re-querying DB every call
+const brandDataCache = new Map(); // userId -> { data, expiry }
+const BRAND_DATA_TTL = 5 * 60 * 1000; // 5 minutes
+
 const PLATFORM_IMAGE_RULES = {
   newsletter: `NEWSLETTER COVER IMAGE RULES:
 - Aspect ratio: LANDSCAPE approximately 1200x628 (roughly 2:1) — wide format for email headers
-- Style: editorial illustration, flat design, isometric 3D, or bold minimal line art. NEVER photorealistic photography.
 - This is a hero/cover image for an email newsletter — it needs to be visually striking at small sizes
-- Composition: rule of thirds, focal point at a left or right intersection, 30-40% negative space
-- Subject: ONE clear visual metaphor for the topic. Single focal point, not a collage of ideas
-- Colors: 2-3 dominant colors + 1 accent. Use a dark or medium background (navy, charcoal, deep teal) — NOT white
-- High contrast is mandatory — the image must read clearly at 300px wide on a phone
-- Mood: professional, bold, authoritative
-- Think editorial magazine cover illustration — New Yorker style, not stock photography
-- NEVER include text, words, or letters in the image — text will be added separately in HTML
-- NEVER include realistic human faces — use abstract figures, objects, metaphors, conceptual scenes
-- NEVER make it look like a stock photo (people at laptops, handshakes, etc.)
-- NO busy or cluttered compositions — 2-3 visual elements maximum
-- Clean edges, crisp shapes, premium feel
+
+TEXT & BRANDING — CRITICAL:
+- INCLUDE bold, large, readable headline text on the image — this is the newsletter title/hook
+- Text should be the primary visual element: big, clean sans-serif typography with clear hierarchy
+- If a brand logo is attached, place it prominently in the design (corner, top-center, or integrated into the layout)
+- Use the brand colors and fonts as the design foundation — this should look like it came from the brand's design team
+
+PERSON/FOUNDER:
+- If reference photos of the user/founder are attached, include their likeness in the cover image
+- Show them naturally — as the face behind the newsletter, a professional headshot style, or contextually related to the topic
+- The person adds authenticity and personal connection — newsletters perform better with a human face
+
+COMPOSITION & STYLE:
+- Bold, magazine-cover quality — think Morning Brew, The Hustle, or Milk Road cover graphics
+- High contrast, readable at 300px wide on a phone
+- Clean background (solid color, gradient, or subtle texture) that makes text pop
+- 2-3 visual elements maximum — text + logo + person/graphic
+- Colors: use brand colors as dominant palette. Dark or medium backgrounds work best for contrast
+- Premium, polished feel — like a designer made it in Figma
 - The image should make someone STOP scrolling in their inbox`,
 
   instagram: `INSTAGRAM IMAGE RULES:
@@ -59,38 +90,40 @@ const PLATFORM_IMAGE_RULES = {
 - NO cluttered designs, NO small text, NO generic stock imagery`,
 
   instagram_story: `INSTAGRAM STORY RULES:
-- Aspect ratio: PORTRAIT 9:16 (1080x1920) — the image MUST be tall vertical portrait format
-- This is an Instagram Story frame — full-screen vertical content shot on an iPhone
+- Aspect ratio: PORTRAIT 9:16 (1080x1920) — enforced via API, but composition must be vertical-first
+- This is an Instagram Story frame — it must look like a REAL Instagram Story screenshot
 
-TEXT OVERLAY — MUST LOOK EXACTLY LIKE INSTAGRAM'S NATIVE TEXT TOOL:
-Instagram has a specific text sticker UI. When you open Instagram Stories and tap the "Aa" text button, then tap the "A" button to cycle through styles, the "Classic" style looks like this:
-- A solid opaque WHITE rectangular pill/block sits on top of the photo
-- Inside the white block: BLACK text in a clean sans-serif font (SF Pro / Helvetica Neue style)
-- The white block has rounded corners (about 8-10px radius), with horizontal padding (~16px) and vertical padding (~8px)
-- The block is exactly the width of the text content plus padding — it does NOT stretch edge to edge
-- The block casts NO shadow, has NO border, NO gradient — just a flat solid white rectangle
-- The text inside is regular weight (not bold, not thin), clean, simple, perfectly legible
-- The text block FLOATS on top of the photo — it is clearly a separate UI element overlaid on the image, NOT burned into or blended with the photo
-- Position the text block in the center or upper-third of the frame
-- Multiple lines of text = one white block containing all lines, NOT separate blocks per line
-- The white block should look like it was placed there by the Instagram app's text editor, not designed in Photoshop
-- This is the SINGLE MOST IMPORTANT visual element — if the text doesn't look like Instagram's native text sticker, the image is wrong
-- Reference: Google "Instagram story text classic style" to see exactly what this looks like
+=== TEXT OVERLAY — THIS IS THE #1 PRIORITY ===
 
-DO NOT:
-- Do NOT use fancy fonts, script fonts, serif fonts, or decorative typography
-- Do NOT render text with gradients, shadows, outlines, 3D effects, or neon glow
-- Do NOT burn text directly into the photo without the white background block
-- Do NOT use colored text blocks — the block is WHITE with BLACK text (classic style)
-- Do NOT stretch the text block to fill the width of the image
+You are replicating Instagram's NATIVE text sticker tool. This is what it looks like when someone taps "Aa" in Instagram Stories and uses the "Classic" style:
 
-PHOTO STYLE:
-- iPhone quality — natural mobile photography, casual but polished
-- Real lighting, real textures, real environments, slight natural grain
-- NOT overly produced studio shots
-- NO illustrations, NO SVG, NO flat design, NO vector art
-- The photo should look like something a creator actually shot on their phone
-- NO landscape images, NO square crops`,
+EXACT SPECIFICATIONS:
+1. BACKGROUND BLOCK: A solid, flat, fully opaque #FFFFFF white rectangle. Corners are rounded (~8px radius). The block fits snugly around the text — it is NOT full-width, it is only as wide as the text + ~16px horizontal padding on each side, + ~8px vertical padding top and bottom.
+2. TEXT: #000000 pure black. Font is SF Pro Display or Helvetica Neue — a clean, modern, system sans-serif at regular weight (400). NOT bold, NOT light. Size is medium-large, easily readable.
+3. POSITIONING: The white text block sits on TOP of the photo as a floating UI sticker. There must be a clear visual separation — the block is a distinct layer hovering over the photo, NOT blended, NOT transparent, NOT part of the photo.
+4. ALIGNMENT: Center-aligned horizontally on the frame. Vertically positioned in the center or upper third.
+5. SINGLE BLOCK: If there are multiple lines, they are ALL inside ONE white rectangle. Do NOT create separate blocks per line.
+6. LOOK & FEEL: It should look IDENTICAL to taking a screenshot of an actual Instagram Story with text added via the app's built-in text tool. If someone saw this image, they should think "that person typed text on their Instagram Story" — NOT "a graphic designer made this."
+
+ABSOLUTE PROHIBITIONS FOR TEXT:
+- NO fancy fonts, NO serif fonts, NO handwriting, NO decorative type
+- NO text shadows, NO text outlines, NO text glow, NO neon effects
+- NO gradient text, NO colored text (must be black on white)
+- NO colored background blocks (must be white)
+- NO text burned directly onto the photo without the white block
+- NO text block stretching edge-to-edge across the image
+- NO semi-transparent or frosted glass text blocks
+- NO text that looks designed, artistic, or typographic — it must look like Instagram's simple text tool
+
+BACKGROUND PHOTO:
+- iPhone-quality photograph — natural mobile photography, casual but polished
+- Real lighting, real textures, real environments, natural color grading
+- Slight natural grain is fine — looks more authentic
+- The photo fills the entire 9:16 frame edge to edge
+- NOT a studio shot, NOT overly edited, NOT HDR
+- NO illustrations, NO vector art, NO flat design, NO abstract backgrounds
+- Should look like something a real creator actually shot on their phone camera
+- The photo is the BACKGROUND — the text sticker sits ON TOP of it as a separate layer`,
 
   tiktok: `TIKTOK COVER RULES:
 - Aspect ratio: PORTRAIT 9:16 — tall vertical format
@@ -115,18 +148,59 @@ PHOTO STYLE:
 - Clear text overlay if needed, high contrast`,
 };
 
-// Fetch an image URL and return as base64 inline data for Gemini
+// Fetch an image URL and return as base64 inline data for Gemini (with cache)
 async function fetchImageAsBase64(url) {
   try {
-    const res = await fetch(url);
+    // Check cache first
+    const cached = brandImageCache.get(url);
+    if (cached && cached.expiry > Date.now()) {
+      return cached.data;
+    }
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
     if (!res.ok) return null;
     const buffer = await res.arrayBuffer();
     const base64 = Buffer.from(buffer).toString('base64');
     const contentType = res.headers.get('content-type') || 'image/jpeg';
-    return { inlineData: { data: base64, mimeType: contentType } };
+    const result = { inlineData: { data: base64, mimeType: contentType } };
+
+    // Store in cache
+    brandImageCache.set(url, { data: result, expiry: Date.now() + BRAND_IMAGE_TTL });
+
+    return result;
   } catch {
     return null;
   }
+}
+
+// Fetch brand data from DB with cache
+async function getCachedBrandData(userId) {
+  const cached = brandDataCache.get(userId);
+  if (cached && cached.expiry > Date.now()) {
+    return cached.data;
+  }
+
+  const { data: dbBrandRows } = await supabase
+    .from('brand_dna')
+    .select('logo_url, logos, photo_urls, colors, main_font')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: true })
+    .limit(1);
+  const dbBrand = dbBrandRows?.[0] || null;
+
+  let brand = null;
+  if (dbBrand) {
+    const dbDefaultLogo = dbBrand.logos?.find(l => l.isDefault) || dbBrand.logos?.[0];
+    brand = {
+      logoUrl: dbDefaultLogo?.url || dbBrand.logo_url || null,
+      photoUrls: dbBrand.photo_urls || [],
+      colors: dbBrand.colors || {},
+      mainFont: dbBrand.main_font || null,
+    };
+  }
+
+  brandDataCache.set(userId, { data: brand, expiry: Date.now() + BRAND_DATA_TTL });
+  return brand;
 }
 
 // ─── Image generation ───
@@ -140,29 +214,15 @@ router.post('/api/generate/image', async (req, res) => {
     const apiKey = getApiKey();
     const platformRules = PLATFORM_IMAGE_RULES[platform] || PLATFORM_IMAGE_RULES.instagram;
 
-    // Resolve brand data — use provided data or fetch from DB as fallback
+    // Resolve brand data — use provided data or fetch from cache/DB as fallback
     let brand = brandData;
     if (!brand || (!brand.logoUrl && !brand.photoUrls?.length)) {
-      // Try to fetch brand data from DB using the authenticated user
       const userId = req.user?.id;
       if (userId && userId !== 'anonymous') {
-        console.log(`[generate/image] No brand data from frontend — fetching from DB for user ${userId}`);
-        const { data: dbBrandRows } = await supabase
-          .from('brand_dna')
-          .select('logo_url, logos, photo_urls, colors, main_font')
-          .eq('user_id', userId)
-          .order('updated_at', { ascending: true })
-          .limit(1);
-        const dbBrand = dbBrandRows?.[0] || null;
-        if (dbBrand) {
-          const dbDefaultLogo = dbBrand.logos?.find(l => l.isDefault) || dbBrand.logos?.[0];
-          brand = {
-            logoUrl: dbDefaultLogo?.url || dbBrand.logo_url || null,
-            photoUrls: dbBrand.photo_urls || [],
-            colors: dbBrand.colors || {},
-            mainFont: dbBrand.main_font || null,
-          };
-          console.log(`[generate/image] Brand data from DB — logo: ${!!brand.logoUrl}, photos: ${brand.photoUrls.length}, colors: ${JSON.stringify(brand.colors)}`);
+        console.log(`[generate/image] No brand data from frontend — checking cache/DB for user ${userId}`);
+        brand = await getCachedBrandData(userId);
+        if (brand) {
+          console.log(`[generate/image] Brand data resolved — logo: ${!!brand.logoUrl}, photos: ${brand.photoUrls.length}, colors: ${JSON.stringify(brand.colors)}`);
         }
       }
     }
@@ -244,21 +304,40 @@ ${prompt}`;
       console.log(`[generate/image] ⚠️ No brand data available — generating without brand references`);
     }
 
-    console.log(`[generate/image] Platform: ${platform || 'default'}, Parts: ${requestParts.length} (1 text + ${requestParts.length - 1} images), Prompt: ${prompt.slice(0, 120)}...`);
+    // Select model + config based on platform
+    const pConfig = PLATFORM_CONFIG[platform] || PLATFORM_CONFIG.instagram;
+    const model = pConfig.model;
+    const timeout = model === GEMINI_MODEL_PRO ? GEMINI_PRO_TIMEOUT_MS : GEMINI_TIMEOUT_MS;
+
+    console.log(`[generate/image] Platform: ${platform || 'default'}, Model: ${model}, Parts: ${requestParts.length} (1 text + ${requestParts.length - 1} images), Prompt: ${prompt.slice(0, 120)}...`);
+
+    // Build request body with imageConfig and optional thinking
+    const requestBody = {
+      contents: [{ parts: requestParts }],
+      generationConfig: {
+        responseModalities: ['TEXT', 'IMAGE'],
+        imageConfig: {
+          aspectRatio: pConfig.aspectRatio,
+          imageSize: pConfig.imageSize,
+        },
+      },
+    };
+
+    // Enable high reasoning for platforms that need precise text rendering
+    if (pConfig.thinkingLevel) {
+      requestBody.thinkingConfig = {
+        thinkingLevel: pConfig.thinkingLevel,
+        includeThoughts: false,
+      };
+    }
 
     const geminiRes = await fetch(
-      `${GEMINI_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: requestParts,
-          }],
-          generationConfig: {
-            responseModalities: ['TEXT', 'IMAGE'],
-          },
-        }),
+        signal: AbortSignal.timeout(timeout),
+        body: JSON.stringify(requestBody),
       }
     );
 
@@ -295,8 +374,11 @@ ${prompt}`;
       } : null,
     });
   } catch (err) {
-    console.log(`[generate/image] Error: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
+    console.log(`[generate/image] ${isTimeout ? 'TIMEOUT' : 'Error'}: ${err.message}`);
+    res.status(isTimeout ? 504 : 500).json({
+      error: isTimeout ? 'Image generation timed out — try again or simplify the prompt' : err.message,
+    });
   }
 });
 
@@ -328,7 +410,7 @@ router.post('/api/generate/upload-image', async (req, res) => {
 
     const name = filename || `nl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
       .from('newsletter-images')
       .upload(name, buffer, {
         contentType: finalMime,

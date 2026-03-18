@@ -724,6 +724,7 @@ export async function generateImage(prompt, platform, brandData) {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt, platform, brandData }),
+    signal: AbortSignal.timeout(120_000), // 120s client-side timeout
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Image generation failed' }));

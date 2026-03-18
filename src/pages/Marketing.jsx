@@ -395,6 +395,11 @@ function StoryPhoneViewer({ frames }) {
             </div>
           ) : frame.imageSrc ? (
             <img src={frame.imageSrc} alt={frame.caption || ''} className="sp-frame-img" />
+          ) : frame.error ? (
+            <div className="sp-frame-empty" style={{ background: '#1a1a1a' }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <span style={{ color: '#ef4444', fontSize: 12, marginTop: 8, fontWeight: 500 }}>Failed to generate</span>
+            </div>
           ) : (
             <div className="sp-frame-empty">
               <div className="mkt-story-ig-icon" />
@@ -1586,14 +1591,24 @@ function ToolTab({ config, activeTool, brandDna }) {
               prevImageData = result.image; // Save for next frame's reference
               setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, imageSrc: src, loading: false } : f));
             } else {
-              setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, loading: false } : f));
+              setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, loading: false, error: true } : f));
             }
-          } catch {
-            setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, loading: false } : f));
+          } catch (err) {
+            console.error(`Story frame ${idx + 1} failed:`, err.message);
+            setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, loading: false, error: true } : f));
           }
         }
 
-        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-done`, role: 'assistant', text: 'All story frames generated! Check the canvas.' }]);
+        setStoryFrames((current) => {
+          const failCount = current.filter(f => f.error).length;
+          setChatMessages((prev) => [...prev, {
+            id: `msg-${Date.now()}-done`, role: 'assistant',
+            text: failCount > 0
+              ? `Story frames done — ${frames.length - failCount}/${frames.length} generated (${failCount} failed)`
+              : 'All story frames generated! Check the canvas.',
+          }]);
+          return current;
+        });
       } else if (parsed?.type === 'edit' && parsed.sections) {
         // Section-based edit — merge only changed sections into current HTML
         const mergedHtml = mergeSectionEdits(canvasHtml, parsed.sections);
@@ -1615,6 +1630,14 @@ function ToolTab({ config, activeTool, brandDna }) {
             genMatches.push({ full: genMatch[0], prompt: genMatch[1] });
           }
           const ERROR_IMG = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200" viewBox="0 0 600 200"><rect width="598" height="198" x="1" y="1" fill="#fff" rx="8" stroke="#dc2626" stroke-width="2"/><text x="300" y="105" text-anchor="middle" fill="#dc2626" font-family="Inter,system-ui,sans-serif" font-size="13" font-weight="600">Image generation failed</text></svg>');
+
+          // Show status message
+          const total = genMatches.length;
+          let completed = 0;
+          let failed = 0;
+          const statusId = `msg-${Date.now()}-imgstatus`;
+          setChatMessages((prev) => [...prev, { id: statusId, role: 'assistant', text: `Generating ${total} image${total > 1 ? 's' : ''}...`, isStatus: true }]);
+
           genMatches.forEach((m) => {
             (async () => {
               let imgSrc = null;
@@ -1627,6 +1650,22 @@ function ToolTab({ config, activeTool, brandDna }) {
               } catch (err) {
                 console.error('Image gen failed:', err.message);
               }
+
+              // Update progress
+              completed++;
+              if (!imgSrc) failed++;
+              const done = completed === total;
+              setChatMessages((prev) => prev.map((msg) =>
+                msg.id === statusId
+                  ? { ...msg, text: done
+                      ? (failed > 0
+                        ? `Generated ${total - failed}/${total} images (${failed} failed)`
+                        : `All ${total} image${total > 1 ? 's' : ''} generated`)
+                      : `Generating images... ${completed}/${total}${failed > 0 ? ` (${failed} failed)` : ''}`,
+                    isStatus: !done }
+                  : msg
+              ));
+
               setCanvasHtml((prev) => {
                 const replacement = imgSrc || ERROR_IMG;
                 return prev.replaceAll(m.full, replacement);

@@ -13,16 +13,23 @@ import './AiCeo.css';
 // Generate AI images for {{GENERATE:prompt}} placeholders in newsletter HTML
 // Images are uploaded to Supabase storage and replaced with public URLs (not base64)
 // Each image swaps in immediately when ready (true parallel, not wait-for-all)
-function generateNewsletterImages(html, setArtifactFn) {
+// Returns { total, statusRef } so caller can show progress
+function generateNewsletterImages(html, setArtifactFn, onProgress) {
   const regex = /\{\{GENERATE:([\s\S]*?)\}\}/g;
   const matches = [];
   let match;
   while ((match = regex.exec(html)) !== null) {
     matches.push({ full: match[0], prompt: match[1] });
   }
-  if (matches.length === 0) return;
+  if (matches.length === 0) return null;
 
   const ERROR_IMG = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200" viewBox="0 0 600 200"><rect width="598" height="198" x="1" y="1" fill="#fff" rx="8" stroke="#dc2626" stroke-width="2"/><text x="300" y="105" text-anchor="middle" fill="#dc2626" font-family="Inter,system-ui,sans-serif" font-size="13" font-weight="600">Image generation failed</text></svg>');
+
+  const total = matches.length;
+  let completed = 0;
+  let failed = 0;
+
+  if (onProgress) onProgress({ completed: 0, failed: 0, total, done: false });
 
   // Fire all in parallel — each one updates the artifact independently as it finishes
   matches.forEach((m) => {
@@ -38,6 +45,10 @@ function generateNewsletterImages(html, setArtifactFn) {
         console.error('Image gen failed:', err.message);
       }
 
+      completed++;
+      if (!imgSrc) failed++;
+      if (onProgress) onProgress({ completed, failed, total, done: completed === total });
+
       // Swap just the src value — keep the original <img> tag and all its styling intact
       if (setArtifactFn) {
         setArtifactFn(prev => {
@@ -49,6 +60,8 @@ function generateNewsletterImages(html, setArtifactFn) {
       }
     })();
   });
+
+  return { total };
 }
 
 // Merge section-based edits into existing HTML using section markers
@@ -348,46 +361,72 @@ export default function AiCeo() {
 
               // Generate AI images for {{GENERATE:...}} placeholders
               if (html && html.includes('{{GENERATE:')) {
-                generateNewsletterImages(html, setArtifact).catch(err => {
-                  console.error('Newsletter image generation failed:', err);
+                const imgStatusId = `msg-${Date.now()}-imgstatus`;
+                generateNewsletterImages(html, setArtifact, ({ completed, failed, total, done }) => {
+                  setMessages(prev => {
+                    const exists = prev.some(m => m.id === imgStatusId);
+                    const statusMsg = {
+                      id: imgStatusId,
+                      role: 'assistant',
+                      content: done
+                        ? (failed > 0
+                          ? `Generated ${total - failed}/${total} images (${failed} failed)`
+                          : `All ${total} image${total > 1 ? 's' : ''} generated`)
+                        : `Generating images... ${completed}/${total}${failed > 0 ? ` (${failed} failed)` : ''}`,
+                    };
+                    return exists
+                      ? prev.map(m => m.id === imgStatusId ? statusMsg : m)
+                      : [...prev, statusMsg];
+                  });
                 });
               }
 
-              // For newsletters, automatically ask about cover image
-              if (isNewsletter) {
+              // Generate cover image in parallel if the agent included a prompt
+              if (isNewsletter && parsed.cover_image_prompt) {
+                const coverMsgId = `msg-${Date.now()}-cover`;
+                setMessages(prev => [...prev, { id: coverMsgId, role: 'assistant', content: 'Generating cover image...' }]);
                 (async () => {
                   try {
-                    const coverMsg = { role: 'user', content: 'Now suggest 4 creative cover image options for this newsletter I just generated. Respond with a question offering 4 vivid cover image concepts plus a "No cover image" option.' };
-                    let coverContent = '';
-                    await streamFromBackend('/api/orchestrate', {
-                      messages: [
-                        { role: 'user', content: 'Generate a newsletter' },
-                        { role: 'assistant', content: content },
-                        coverMsg,
-                      ],
-                      mode: 'direct',
-                      agent: 'newsletter',
-                      searchMode: false,
-                    }, {
-                      onAgentChunk: (_n, c) => { coverContent = c; },
-                      onAgentResult: (_n, c) => { coverContent = c; },
-                    });
-                    let coverParsed;
-                    try { coverParsed = JSON.parse(coverContent); } catch {
-                      const m = coverContent.match(/\{[\s\S]*\}/);
-                      if (m) try { coverParsed = JSON.parse(m[0]); } catch {}
-                    }
-                    if (coverParsed?.type === 'question' && coverParsed.text && coverParsed.options) {
-                      setCurrentQuestion({ question: coverParsed.text, options: coverParsed.options });
+                    const imgResult = await generateImage(parsed.cover_image_prompt, 'newsletter', null);
+                    if (imgResult.image) {
+                      const uploaded = await uploadImageToStorage(imgResult.image.data, imgResult.image.mimeType);
+                      if (uploaded.url) {
+                        setArtifact(prev => {
+                          if (!prev?.content) return prev;
+                          let h = prev.content;
+                          const heroStart = h.indexOf('<!-- SECTION:hero -->');
+                          if (heroStart !== -1) {
+                            const tdMatch = h.indexOf('<td', heroStart);
+                            const tdEnd = tdMatch !== -1 ? h.indexOf('>', tdMatch) + 1 : -1;
+                            if (tdEnd > 0) {
+                              const imgTag = `<img src="${uploaded.url}" alt="Newsletter Cover" style="width:100%;height:auto;display:block;border-radius:8px;margin-bottom:16px;" />`;
+                              h = h.slice(0, tdEnd) + imgTag + h.slice(tdEnd);
+                            }
+                          }
+                          return { ...prev, content: h };
+                        });
+                        setMessages(prev => prev.map(m =>
+                          m.id === coverMsgId ? { ...m, content: 'Cover image added to your newsletter!' } : m
+                        ));
+                      } else {
+                        setMessages(prev => prev.map(m =>
+                          m.id === coverMsgId ? { ...m, content: 'Cover image generation returned no image — try regenerating.' } : m
+                        ));
+                      }
+                    } else {
                       setMessages(prev => prev.map(m =>
-                        m.id === assistantMsgId ? { ...m, content: coverParsed.text, status: null } : m
+                        m.id === coverMsgId ? { ...m, content: 'Cover image generation returned no image — try regenerating.' } : m
                       ));
                     }
-                  } catch {}
+                  } catch (err) {
+                    setMessages(prev => prev.map(m =>
+                      m.id === coverMsgId ? { ...m, content: `Cover image failed: ${err.message}` } : m
+                    ));
+                  }
                 })();
               }
             }
-            // Cover image prompt — generate and inject into newsletter
+            // Cover image prompt — generate and inject into newsletter (fallback for manual requests)
             if (parsed.type === 'cover_image' && parsed.prompt) {
               setMessages(prev => prev.map(m =>
                 m.id === assistantMsgId ? { ...m, content: 'Generating your cover image...' } : m
@@ -415,7 +454,15 @@ export default function AiCeo() {
                       setMessages(prev => prev.map(m =>
                         m.id === assistantMsgId ? { ...m, content: 'Cover image added to your newsletter!' } : m
                       ));
+                    } else {
+                      setMessages(prev => prev.map(m =>
+                        m.id === assistantMsgId ? { ...m, content: 'Cover image generation returned no image — try again.' } : m
+                      ));
                     }
+                  } else {
+                    setMessages(prev => prev.map(m =>
+                      m.id === assistantMsgId ? { ...m, content: 'Cover image generation returned no image — try again.' } : m
+                    ));
                   }
                 } catch (err) {
                   setMessages(prev => prev.map(m =>
