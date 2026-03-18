@@ -23,11 +23,17 @@ export function buildBrandContext(brandDna) {
     if (brandDna.secondary_font) parts.push(`- Secondary font: "${brandDna.secondary_font}" (body text)`);
   }
 
-  // Logo
-  if (brandDna.logo_url) {
+  // Logo(s)
+  const logos = brandDna.logos?.length ? brandDna.logos : (brandDna.logo_url ? [{ url: brandDna.logo_url, name: 'Logo', isDefault: true }] : []);
+  if (logos.length > 0) {
     parts.push('\n### Logo');
-    parts.push(`- Logo URL: ${brandDna.logo_url}`);
-    parts.push('- Use as <img> in headers/navbars and footers');
+    const defaultLogo = logos.find(l => l.isDefault) || logos[0];
+    parts.push(`- Default logo "${defaultLogo.name}": ${defaultLogo.url}`);
+    parts.push('- Use the default logo as <img> in headers/navbars and footers');
+    if (logos.length > 1) {
+      logos.filter(l => !l.isDefault).forEach(l => parts.push(`- Alternate logo "${l.name}": ${l.url}`));
+      parts.push('- Use alternate logos only when the user specifically requests them by name');
+    }
   }
 
   // Photos

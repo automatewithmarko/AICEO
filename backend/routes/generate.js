@@ -149,14 +149,15 @@ router.post('/api/generate/image', async (req, res) => {
         console.log(`[generate/image] No brand data from frontend — fetching from DB for user ${userId}`);
         const { data: dbBrandRows } = await supabase
           .from('brand_dna')
-          .select('logo_url, photo_urls, colors, main_font')
+          .select('logo_url, logos, photo_urls, colors, main_font')
           .eq('user_id', userId)
           .order('updated_at', { ascending: true })
           .limit(1);
         const dbBrand = dbBrandRows?.[0] || null;
         if (dbBrand) {
+          const dbDefaultLogo = dbBrand.logos?.find(l => l.isDefault) || dbBrand.logos?.[0];
           brand = {
-            logoUrl: dbBrand.logo_url || null,
+            logoUrl: dbDefaultLogo?.url || dbBrand.logo_url || null,
             photoUrls: dbBrand.photo_urls || [],
             colors: dbBrand.colors || {},
             mainFont: dbBrand.main_font || null,

@@ -83,13 +83,15 @@ export default function Settings() {
   const [brandColors, setBrandColors] = useState({ primary: '', text: '', secondary: '' });
   const [mainFont, setMainFont] = useState('');
   const [secondaryFont, setSecondaryFont] = useState('');
-  const [logo, setLogo] = useState(null);
+  const [logos, setLogos] = useState([]);
   const [brandDnaPulse, setBrandDnaPulse] = useState(false);
   const [brandDnaList, setBrandDnaList] = useState([]);
   const [activeBrandDnaId, setActiveBrandDnaId] = useState(null);
   const [showAddBrandDnaModal, setShowAddBrandDnaModal] = useState(false);
   const [newBrandName, setNewBrandName] = useState('');
   const [brandSelectorOpen, setBrandSelectorOpen] = useState(false);
+  const [brandBrainOpen, setBrandBrainOpen] = useState(false);
+  const brandBrainIframeRef = useRef(null);
   const fileInputRef = useRef(null);
   const logoInputRef = useRef(null);
   const docInputRefs = useRef({});
@@ -114,7 +116,13 @@ export default function Settings() {
     setPhotos(data.photo_urls?.length
       ? data.photo_urls.map((url, i) => ({ id: `db-photo-${i}`, url }))
       : []);
-    setLogo(data.logo_url ? { url: data.logo_url } : null);
+    if (data.logos?.length) {
+      setLogos(data.logos);
+    } else if (data.logo_url) {
+      setLogos([{ url: data.logo_url, name: 'Logo', isDefault: true }]);
+    } else {
+      setLogos([]);
+    }
     setBrandColors(data.colors && Object.keys(data.colors).length
       ? { primary: '', text: '', secondary: '', ...data.colors }
       : { primary: '', text: '', secondary: '' });
@@ -123,7 +131,7 @@ export default function Settings() {
     if (data.documents && Object.keys(data.documents).length) {
       const docs = {};
       for (const [key, val] of Object.entries(data.documents)) {
-        docs[key] = { name: val.name, url: val.url, extractedText: val.extracted_text };
+        docs[key] = { name: val.name, url: val.url, extractedText: val.extracted_text, rawData: val.raw_data || null };
       }
       setDocuments(docs);
     } else {
@@ -182,7 +190,7 @@ export default function Settings() {
   useEffect(() => {
     if (!initialLoadDone.current || !brandDnaCreated || !activeBrandDnaId) return;
     if (photos.some(p => p.uploading)) return;
-    if (logo?.uploading) return;
+    if (logos.some(l => l.uploading)) return;
     if (Object.values(documents).some(d => d?.uploading)) return;
 
     clearTimeout(saveTimer.current);
@@ -191,14 +199,15 @@ export default function Settings() {
       if (!session?.user) return;
       const updatePayload = {
         photo_urls: photos.map(p => p.url).filter(Boolean),
-        logo_url: logo?.url || null,
+        logos: logos.filter(l => l.url).map(l => ({ url: l.url, name: l.name, isDefault: !!l.isDefault })),
+        logo_url: logos.find(l => l.isDefault)?.url || logos[0]?.url || null,
         colors: brandColors,
         main_font: mainFont || null,
         secondary_font: secondaryFont || null,
         documents: Object.fromEntries(
           Object.entries(documents)
-            .filter(([, v]) => v && v.url)
-            .map(([k, v]) => [k, { name: v.name, url: v.url, extracted_text: v.extractedText || '' }])
+            .filter(([, v]) => v && (v.url || v.extractedText))
+            .map(([k, v]) => [k, { name: v.name, url: v.url || null, extracted_text: v.extractedText || '', raw_data: v.rawData || null }])
         ),
         updated_at: new Date().toISOString(),
       };
@@ -207,7 +216,29 @@ export default function Settings() {
       setBrandDnaList(prev => prev.map(b => b.id === activeBrandDnaId ? { ...b, ...updatePayload } : b));
     }, 1000);
     return () => clearTimeout(saveTimer.current);
-  }, [brandDnaCreated, activeBrandDnaId, photos, logo, documents, brandColors, mainFont, secondaryFont]);
+  }, [brandDnaCreated, activeBrandDnaId, photos, logos, documents, brandColors, mainFont, secondaryFont]);
+
+  // Brand Brain iframe message handler
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.data?.type === 'brand-brain-ready') {
+        // Send saved data to iframe when it's ready
+        const saved = documents.brandBrain;
+        if (saved?.rawData && brandBrainIframeRef.current?.contentWindow) {
+          brandBrainIframeRef.current.contentWindow.postMessage({ type: 'brand-brain-load', rawData: saved.rawData }, '*');
+        }
+      }
+      if (e.data?.type === 'brand-brain-save') {
+        setDocuments(prev => ({
+          ...prev,
+          brandBrain: { name: 'Brand Brain', extractedText: e.data.extractedText, rawData: e.data.rawData }
+        }));
+        setBrandBrainOpen(false);
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [documents.brandBrain]);
 
   const handleResetPassword = () => {
     setPasswordReset(true);
@@ -440,24 +471,43 @@ export default function Settings() {
 
   const handleLogoUpload = async (e) => {
     const file = e.target.files[0];
-    if (!file) return;
+    if (!file || logos.length >= 3) return;
     e.target.value = '';
-    if (logo?.localUrl) URL.revokeObjectURL(logo.localUrl);
-    setLogo({ localUrl: URL.createObjectURL(file), uploading: true });
+    const tempId = Date.now();
+    const localUrl = URL.createObjectURL(file);
+    const isFirst = logos.length === 0;
+    setLogos(prev => [...prev, { localUrl, uploading: true, name: 'Logo', isDefault: isFirst, _tempId: tempId }]);
 
     try {
       const result = await uploadBrandDnaFiles([file]);
       const uploaded = result.files.find(f => f.type !== 'error');
       if (!uploaded) throw new Error('Upload failed');
-      setLogo({ url: uploaded.url });
+      setLogos(prev => prev.map(l => l._tempId === tempId ? { url: uploaded.url, name: l.name, isDefault: l.isDefault } : l));
+      URL.revokeObjectURL(localUrl);
     } catch {
-      setLogo(null);
+      setLogos(prev => prev.filter(l => l._tempId !== tempId));
+      URL.revokeObjectURL(localUrl);
     }
   };
 
-  const removeLogo = () => {
-    if (logo?.localUrl) URL.revokeObjectURL(logo.localUrl);
-    setLogo(null);
+  const removeLogo = (index) => {
+    setLogos(prev => {
+      const logo = prev[index];
+      if (logo?.localUrl) URL.revokeObjectURL(logo.localUrl);
+      const updated = prev.filter((_, i) => i !== index);
+      if (logo?.isDefault && updated.length > 0) {
+        updated[0] = { ...updated[0], isDefault: true };
+      }
+      return updated;
+    });
+  };
+
+  const setDefaultLogo = (index) => {
+    setLogos(prev => prev.map((l, i) => ({ ...l, isDefault: i === index })));
+  };
+
+  const renameLogo = (index, name) => {
+    setLogos(prev => prev.map((l, i) => i === index ? { ...l, name } : l));
   };
 
   const handleDocUpload = async (docId, e) => {
@@ -806,7 +856,7 @@ export default function Settings() {
                             className="settings-photo-remove"
                             onClick={(e) => { e.stopPropagation(); removePhoto(photo.id); }}
                           >
-                            <Trash2 size={14} />
+                            <X size={10} strokeWidth={2.5} />
                           </button>
                         </div>
                       ))}
@@ -829,41 +879,88 @@ export default function Settings() {
             </div>
 
             {/* Logo Upload */}
-            <div className="settings-card settings-doc-card">
+            <div className="settings-card settings-doc-card settings-logos-card">
               <div className="settings-brand-dna-header">
-                <h3 className="settings-brand-dna-title">Your Logo</h3>
+                <h3 className="settings-brand-dna-title">Your Logos</h3>
               </div>
 
-              {logo ? (
-                <div className="settings-logo-uploaded">
-                  <img src={logo.url || logo.localUrl} alt="Logo" className="settings-logo-preview" />
-                  {logo.uploading ? (
-                    <Loader size={18} className="settings-spinner" />
-                  ) : (
-                    <button
-                      className="settings-btn settings-btn--danger"
-                      onClick={removeLogo}
-                    >
+              <div className="settings-logos-list">
+                {logos.map((lg, idx) => (
+                  <div key={idx} className="settings-logo-row">
+                    <div className="settings-logo-thumb">
+                      <img src={lg.url || lg.localUrl} alt={lg.name} />
+                      {lg.uploading && <Loader size={12} className="settings-spinner" />}
+                    </div>
+                    {!lg.uploading ? (
+                      <input
+                        className="settings-logo-name"
+                        value={lg.name}
+                        onChange={(e) => renameLogo(idx, e.target.value)}
+                        placeholder="Logo name"
+                        maxLength={24}
+                      />
+                    ) : (
+                      <span className="settings-logo-name-uploading">Uploading...</span>
+                    )}
+                    <div className="settings-logo-row-actions">
+                      <button
+                        className={`settings-logo-default-pill${lg.isDefault ? ' settings-logo-default-pill--active' : ''}`}
+                        onClick={() => setDefaultLogo(idx)}
+                      >
+                        Default
+                      </button>
+                      {!lg.uploading && (
+                        <button className="settings-logo-remove" onClick={() => removeLogo(idx)} title="Remove">
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {logos.length < 3 && (
+                  <button className="settings-logo-add" onClick={() => logoInputRef.current?.click()}>
+                    <Plus size={14} />
+                    <span>{logos.length === 0 ? 'Upload logo' : 'Add logo'}</span>
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/*,.svg"
+                      onChange={handleLogoUpload}
+                      style={{ display: 'none' }}
+                    />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Brand Brain */}
+            <div className="settings-card settings-doc-card">
+              <div className="settings-brand-dna-header">
+                <h3 className="settings-brand-dna-title">Brand Brain</h3>
+              </div>
+              {documents.brandBrain ? (
+                <div className="settings-doc-uploaded">
+                  <div className="settings-doc-file">
+                    <FileText size={20} />
+                    <span className="settings-doc-filename">Brand Brain</span>
+                  </div>
+                  <div className="settings-brand-brain-actions">
+                    <button className="settings-brand-brain-edit" onClick={() => setBrandBrainOpen(true)}>
+                      Edit
+                    </button>
+                    <button className="settings-btn settings-btn--danger" onClick={() => removeDoc('brandBrain')}>
                       <Trash2 size={14} />
                       Remove
                     </button>
-                  )}
+                  </div>
                 </div>
               ) : (
-                <div
-                  className="settings-upload-box settings-upload-box--doc"
-                  onClick={() => logoInputRef.current?.click()}
-                >
-                  <Upload size={28} />
-                  <span>Upload your logo</span>
-                  <span className="settings-upload-hint">PNG, SVG, or JPG</span>
-                  <input
-                    ref={logoInputRef}
-                    type="file"
-                    accept="image/*,.svg"
-                    onChange={handleLogoUpload}
-                    style={{ display: 'none' }}
-                  />
+                <div className="settings-brand-brain-empty">
+                  <button className="settings-brand-brain-build" onClick={() => setBrandBrainOpen(true)}>
+                    Build Brand Brain
+                  </button>
+                  <span className="settings-upload-hint">Fill out your brand workbook</span>
                 </div>
               )}
             </div>
@@ -1531,6 +1628,22 @@ export default function Settings() {
             >
               Purchase Additional Brand DNA
             </button>
+          </div>
+        </div>
+      )}
+      {/* Brand Brain Modal */}
+      {brandBrainOpen && (
+        <div className="settings-brand-brain-overlay" onClick={() => setBrandBrainOpen(false)}>
+          <div className="settings-brand-brain-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="settings-brand-brain-close" onClick={() => setBrandBrainOpen(false)}>
+              <X size={18} />
+            </button>
+            <iframe
+              ref={brandBrainIframeRef}
+              src="/brand-brain-workbook.html"
+              className="settings-brand-brain-iframe"
+              title="Brand Brain Workbook"
+            />
           </div>
         </div>
       )}

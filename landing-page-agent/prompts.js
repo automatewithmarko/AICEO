@@ -219,12 +219,17 @@ export function buildSystemPrompt(brandDna) {
     if (secondary) parts.push(`- Secondary font: "${secondary}" (use for body text)`);
   }
 
-  // Logo
-  if (brandDna.logo_url || brandDna.logoUrl) {
-    const logo = brandDna.logo_url || brandDna.logoUrl;
+  // Logo(s)
+  const lpLogos = brandDna.logos?.length ? brandDna.logos : (brandDna.logo_url || brandDna.logoUrl ? [{ url: brandDna.logo_url || brandDna.logoUrl, name: 'Logo', isDefault: true }] : []);
+  if (lpLogos.length > 0) {
     parts.push('\n### Logo');
-    parts.push(`- Logo URL: ${logo}`);
+    const defaultLpLogo = lpLogos.find(l => l.isDefault) || lpLogos[0];
+    parts.push(`- Default logo "${defaultLpLogo.name}": ${defaultLpLogo.url}`);
     parts.push('- USE THIS as an <img> in the navbar and footer');
+    if (lpLogos.length > 1) {
+      lpLogos.filter(l => !l.isDefault).forEach(l => parts.push(`- Alternate logo "${l.name}": ${l.url}`));
+      parts.push('- Use alternate logos only when the user specifically requests them by name');
+    }
   }
 
   // Photos

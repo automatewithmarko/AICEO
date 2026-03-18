@@ -159,7 +159,12 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
       if (c.secondary) prompt += `Secondary Color: ${c.secondary}\n`;
     }
     if (brandDna.photo_urls?.length) prompt += `Brand Photos: ${brandDna.photo_urls.length} photos available\n`;
-    if (brandDna.logo_url) prompt += `Logo: available\n`;
+    const orchLogos = brandDna.logos?.length ? brandDna.logos : (brandDna.logo_url ? [{ url: brandDna.logo_url, name: 'Logo', isDefault: true }] : []);
+    if (orchLogos.length === 1) {
+      prompt += `Logo: "${orchLogos[0].name}" available\n`;
+    } else if (orchLogos.length > 1) {
+      prompt += `Logos: ${orchLogos.map(l => `"${l.name}"${l.isDefault ? ' (default)' : ''}`).join(', ')}\n`;
+    }
     if (brandDna.documents && Object.keys(brandDna.documents).length) {
       for (const [key, doc] of Object.entries(brandDna.documents)) {
         if (doc.extracted_text) {

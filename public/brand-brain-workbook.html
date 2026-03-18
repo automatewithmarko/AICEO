@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brand Brain Workbook</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #f0eeea; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1a1a1a; padding: 32px 40px; max-width: 1020px; margin: 0 auto; font-size: 13px; line-height: 1.6; }
+.progress-wrap button { border: none; cursor: pointer; font-size: 11px; font-weight: 700; padding: 5px 14px; letter-spacing: 0.04em; transition: opacity 0.15s; font-family: inherit; margin-left: auto; border-radius: 4px; }
+.progress-wrap button:hover { opacity: 0.85; }
+.btn-save { background: #e90d41; color: #fff; }
+.save-msg { font-size: 10px; color: #4caf50; opacity: 0; transition: opacity 0.4s; }
+.save-msg.show { opacity: 1; }
+.progress-wrap { background: #1a1a1a; padding: 6px 40px; margin: 0 -40px 0; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 10; }
+.progress-label { font-size: 10px; color: #888; white-space: nowrap; }
+.progress-track { flex: 1; height: 4px; background: #333; border-radius: 2px; }
+.progress-fill { height: 4px; background: #e90d41; transition: width 0.4s; width: 0%; border-radius: 2px; }
+.progress-pct { font-size: 10px; color: #e90d41; font-weight: 700; min-width: 36px; text-align: right; }
+.top-spacer { height: 28px; }
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 18px; border-bottom: 1px solid #d0cdc8; margin-bottom: 24px; }
+.page-header h1 { font-family: Georgia, serif; font-size: 24px; font-weight: 700; color: #1a1a1a; line-height: 1.15; margin-bottom: 4px; }
+.meta-row { display: flex; gap: 24px; flex-wrap: wrap; }
+.meta-field { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
+.meta-field input[type="text"] { border: none; border-bottom: 1px solid #888; background: transparent; font-size: 12px; color: #1a1a1a; padding: 2px 4px; width: 160px; outline: none; font-family: inherit; }
+.meta-field input:focus { border-bottom-color: #e90d41; }
+.callout { background: #fff; border-left: 4px solid #e90d41; padding: 14px 18px; margin-bottom: 24px; font-size: 13px; color: #444; line-height: 1.7; }
+.callout strong { color: #1a1a1a; }
+.section-block { margin-bottom: 28px; }
+.section-num-header { display: flex; align-items: center; gap: 12px; background: #1a1a1a; padding: 10px 16px; margin-bottom: 14px; }
+.section-num { background: #e90d41; color: #fff; font-family: Georgia, serif; font-size: 16px; font-weight: 700; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.section-num-header h2 { font-size: 14px; font-weight: 700; color: #fff; letter-spacing: 0.04em; }
+.section-num-header .section-desc { font-size: 11px; color: #aaa; margin-top: 1px; }
+.field-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #888; margin-bottom: 5px; }
+.field-hint { font-size: 11px; color: #aaa; font-style: italic; margin-bottom: 6px; }
+[contenteditable="true"] { outline: none; width: 100%; font-size: 13px; color: #1a1a1a; line-height: 1.7; cursor: text; background: #fff; border: 1px solid #d0cdc8; padding: 10px 12px; min-height: 60px; font-family: inherit; }
+[contenteditable="true"]:focus { background: #fffbf0; box-shadow: inset 0 0 0 2px #e90d41; border-color: #e90d41; }
+[contenteditable="true"]:empty:before { content: attr(data-placeholder); color: #bbb; font-style: italic; font-size: 12px; pointer-events: none; }
+[contenteditable="true"].short { min-height: 38px; }
+[contenteditable="true"].tall { min-height: 110px; }
+.numbered-rows { border: 1px solid #d0cdc8; margin-bottom: 14px; }
+.numbered-row { display: grid; grid-template-columns: 32px 1fr; border-bottom: 1px solid #d0cdc8; }
+.numbered-row:last-child { border-bottom: none; }
+.row-num { background: #1a1a1a; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; border-right: 1px solid #333; }
+.row-cell [contenteditable] { min-height: 36px; border: none; padding: 8px 12px; font-size: 12px; background: #fff; }
+.row-cell [contenteditable]:focus { background: #fffbf0; box-shadow: none; border: 1px solid #e90d41; }
+.row-num.red { background: #e90d41; }
+.icp-grid { display: grid; grid-template-columns: 200px 1fr; border: 1px solid #d0cdc8; margin-bottom: 14px; }
+.icp-label { background: #f5f3f0; padding: 10px 14px; font-size: 11px; font-weight: 700; color: #1a1a1a; border-bottom: 1px solid #d0cdc8; border-right: 1px solid #d0cdc8; display: flex; align-items: center; }
+.icp-field { border-bottom: 1px solid #d0cdc8; }
+.icp-field:last-child { border-bottom: none; }
+.icp-field [contenteditable] { min-height: 38px; border: none; padding: 8px 12px; font-size: 12px; background: #fff; }
+.icp-field [contenteditable]:focus { background: #fffbf0; box-shadow: none; border: 1px solid #e90d41; }
+.voice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid #d0cdc8; margin-bottom: 14px; }
+.voice-col { background: #fff; }
+.voice-header { padding: 8px 14px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 1px solid #d0cdc8; }
+.voice-header.red { background: #e90d41; color: #fff; }
+.voice-header.dark { background: #1a1a1a; color: #fff; border-right: 1px solid #333; }
+.voice-body { padding: 10px 14px; border-right: 1px solid #d0cdc8; min-height: 120px; }
+.voice-col:last-child .voice-body { border-right: none; }
+.voice-body [contenteditable] { min-height: 90px; border: none; padding: 4px 0; font-size: 12px; background: transparent; }
+.voice-body [contenteditable]:focus { background: #fffbf0; box-shadow: none; border-bottom: 1px solid #e90d41; }
+.upload-checklist { background: #fff; border: 1px solid #d0cdc8; margin-bottom: 14px; }
+.upload-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #e8e5e0; cursor: pointer; user-select: none; }
+.upload-row:last-child { border-bottom: none; }
+.upload-row:hover { background: #fafaf8; }
+.custom-check { width: 18px; height: 18px; border: 1.5px solid #d0cdc8; background: #fff; flex-shrink: 0; margin-top: 1px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+.upload-row.checked .custom-check, .preflight-row.checked .custom-check { background: #e90d41; border-color: #e90d41; }
+.upload-row.checked .custom-check::after, .preflight-row.checked .custom-check::after { content: ''; width: 9px; height: 5px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translateY(-1px); display: block; }
+.check-label { font-size: 13px; color: #1a1a1a; line-height: 1.5; flex: 1; }
+.upload-row.checked .check-label { color: #888; text-decoration: line-through; }
+.check-note { font-size: 11px; color: #888; margin-top: 2px; font-style: italic; }
+.optional-tag { font-size: 9px; font-weight: 700; color: #888; background: #e8e5e0; padding: 1px 6px; letter-spacing: 0.06em; text-transform: uppercase; margin-left: 6px; }
+.teammate-builder { border: 1px solid #d0cdc8; margin-bottom: 14px; }
+.teammate-builder-header { background: #e90d41; padding: 10px 16px; }
+.teammate-builder-header h3 { font-size: 13px; font-weight: 700; color: #fff; }
+.teammate-builder-header p { font-size: 11px; color: rgba(255,255,255,0.7); margin-top: 2px; }
+.teammate-fields { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; }
+.tf { padding: 12px 14px; border-right: 1px solid #d0cdc8; border-bottom: 1px solid #d0cdc8; background: #fff; }
+.tf:nth-child(3n) { border-right: none; }
+.tf:nth-last-child(-n+3) { border-bottom: none; }
+.tf-label { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #888; margin-bottom: 5px; }
+.tf input[type="text"] { width: 100%; border: none; border-bottom: 1px solid #d0cdc8; background: transparent; font-size: 13px; color: #1a1a1a; padding: 4px 2px; outline: none; font-family: inherit; }
+.tf input:focus { border-bottom-color: #e90d41; background: #fffbf0; }
+.name-preview { background: #f5f3f0; border: 1px solid #d0cdc8; padding: 12px 16px; display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.name-preview-label { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #888; white-space: nowrap; }
+.name-preview-value { font-family: Georgia, serif; font-size: 18px; font-weight: 700; color: #e90d41; }
+.preflight { background: #fff; border: 1px solid #d0cdc8; margin-bottom: 28px; }
+.preflight-header { background: #1a1a1a; color: #fff; padding: 10px 16px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.preflight-body { padding: 12px 16px; }
+.preflight-row { display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid #e8e5e0; cursor: pointer; user-select: none; transition: background 0.1s; }
+.preflight-row:last-child { border-bottom: none; }
+.preflight-row:hover { background: #fafaf8; }
+.preflight-row .check-text { font-size: 13px; color: #1a1a1a; line-height: 1.5; }
+.preflight-row.checked .check-text { color: #888; text-decoration: line-through; }
+@media print { .progress-wrap { display: none !important; } body { padding: 16px 24px; } }
+</style>
+</head>
+<body>
+
+<div class="progress-wrap">
+  <span class="progress-label">Workbook completion</span>
+  <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+  <span class="progress-pct" id="progressPct">0%</span>
+  <button class="btn-save" onclick="saveAndNotify()">Save</button>
+  <span class="save-msg" id="saveMsg">Saved</span>
+</div>
+
+<div class="top-spacer"></div>
+
+<div class="page-header">
+  <div>
+    <h1>Brand Brain Workbook</h1>
+    <div class="meta-row">
+      <div class="meta-field"><label>Name:</label><input type="text" id="m_name" placeholder="Your name" autocomplete="off"></div>
+      <div class="meta-field"><label>Date:</label><input type="text" id="m_date" placeholder="Today's date" autocomplete="off"></div>
+      <div class="meta-field"><label>Company:</label><input type="text" id="m_company" placeholder="Your company" autocomplete="off"></div>
+    </div>
+  </div>
+</div>
+
+<div class="callout">
+  In Day 1 you will build your first AI teammate from scratch — live, in the room. But the session moves fast. The more you prepare now, the better your teammate performs.<br><br>
+  <strong>Your job before the session:</strong> Complete this Brand Brain Workbook. It becomes the onboarding manual you upload directly into your Claude Project.<br><br>
+  <em>"Just like a real hire — the better the onboarding manual, the faster they get to work."</em>
+</div>
+
+<!-- SECTION 1: IDEAL CUSTOMER PROFILE -->
+<div class="section-block">
+  <div class="section-num-header">
+    <div class="section-num">1</div>
+    <div>
+      <h2>Ideal Customer Profile (ICP) — Who You're Talking To</h2>
+      <div class="section-desc">Your AI teammate needs to know exactly who they're writing for. Vague audience = generic content.</div>
+    </div>
+  </div>
+  <div class="icp-grid">
+    <div class="icp-label">Job Title / Role</div>
+    <div class="icp-field"><div contenteditable="true" id="icp_title" class="short" data-placeholder="e.g. Founder, VP of Marketing, Head of Growth..."></div></div>
+    <div class="icp-label">Industry / Niche</div>
+    <div class="icp-field"><div contenteditable="true" id="icp_industry" class="short" data-placeholder="e.g. B2B SaaS, E-commerce, Health &amp; Wellness..."></div></div>
+    <div class="icp-label">Company Size</div>
+    <div class="icp-field"><div contenteditable="true" id="icp_size" class="short" data-placeholder="e.g. 1–10 employees / $1M–$10M revenue / Series A..."></div></div>
+    <div class="icp-label">Geography</div>
+    <div class="icp-field"><div contenteditable="true" id="icp_geo" class="short" data-placeholder="e.g. Southeast Asia, US, UK, global..."></div></div>
+    <div class="icp-label">Primary Goal</div>
+    <div class="icp-field"><div contenteditable="true" id="icp_goal" class="short" data-placeholder="What are they trying to achieve? e.g. Scale revenue, reduce churn..."></div></div>
+    <div class="icp-label">Biggest Fear / Pain</div>
+    <div class="icp-field"><div contenteditable="true" id="icp_pain" class="short" data-placeholder="What keeps them up at night? e.g. Running out of runway, invisible online..."></div></div>
+  </div>
+  <div class="field-label">1.1 — Describe your ICP in 2–3 sentences as if introducing them to a new team member</div>
+  <div class="field-hint">The more specific and human, the better. Avoid demographic clichés.</div>
+  <div contenteditable="true" id="icp_description" class="tall" data-placeholder="e.g. Our ICP is a bootstrapped SaaS founder in Southeast Asia, 2–5 years into their business. They're generating $30–$150K/month but struggling to build a personal brand that opens doors..."></div>
+  <br>
+  <div class="field-label">1.2 — What words and phrases does your ICP actually use?</div>
+  <div contenteditable="true" id="icp_language" class="tall" data-placeholder="e.g. 'I don't have time for content', 'I need more qualified leads', 'Nobody knows who I am'..."></div>
+</div>
+
+<!-- SECTION 2: PRODUCT / SERVICE CONTEXT -->
+<div class="section-block">
+  <div class="section-num-header">
+    <div class="section-num">2</div>
+    <div>
+      <h2>Product &amp; Service Context — What You Sell</h2>
+      <div class="section-desc">Your AI teammate needs to know what they're selling and why it matters before they write a single word.</div>
+    </div>
+  </div>
+  <div class="icp-grid">
+    <div class="icp-label">Product / Service Name</div>
+    <div class="icp-field"><div contenteditable="true" id="prod_name" class="short" data-placeholder="What is it called?"></div></div>
+    <div class="icp-label">One-Line Description</div>
+    <div class="icp-field"><div contenteditable="true" id="prod_oneliner" class="short" data-placeholder="What is it in one sentence? No jargon."></div></div>
+    <div class="icp-label">Price Point</div>
+    <div class="icp-field"><div contenteditable="true" id="prod_price" class="short" data-placeholder="e.g. $997/month retainer, $5K one-time, $49/month SaaS..."></div></div>
+    <div class="icp-label">Core Outcome</div>
+    <div class="icp-field"><div contenteditable="true" id="prod_outcome" class="short" data-placeholder="What specific result does the client get? Be quantifiable."></div></div>
+    <div class="icp-label">Delivery Method</div>
+    <div class="icp-field"><div contenteditable="true" id="prod_delivery" class="short" data-placeholder="e.g. Done-for-you, online course, group coaching, software..."></div></div>
+    <div class="icp-label">Biggest Differentiator</div>
+    <div class="icp-field"><div contenteditable="true" id="prod_diff" class="short" data-placeholder="What makes you the only logical choice? Not just better — different."></div></div>
+  </div>
+  <div class="field-label">2.1 — Why does your product exist? What problem does it solve that nothing else adequately solves?</div>
+  <div contenteditable="true" id="prod_why" class="tall" data-placeholder="Tell the story of why you built this. Your AI teammate will use this to write from a place of conviction..."></div>
+  <br>
+  <div class="field-label">2.2 — List your top 3 client results / case studies</div>
+  <div class="numbered-rows">
+    <div class="numbered-row"><div class="row-num red">1</div><div class="row-cell"><div contenteditable="true" id="result1" class="short" data-placeholder="e.g. [Client name], [industry] — went from 0 to 12K followers in 90 days..."></div></div></div>
+    <div class="numbered-row"><div class="row-num red">2</div><div class="row-cell"><div contenteditable="true" id="result2" class="short" data-placeholder="e.g. [Client name], [role] — landed 3 enterprise deals directly from content..."></div></div></div>
+    <div class="numbered-row"><div class="row-num red">3</div><div class="row-cell"><div contenteditable="true" id="result3" class="short" data-placeholder="e.g. [Client name], [niche] — built a waitlist of 400 before launching..."></div></div></div>
+  </div>
+</div>
+
+<!-- SECTION 3: BRAND VOICE -->
+<div class="section-block">
+  <div class="section-num-header">
+    <div class="section-num">3</div>
+    <div>
+      <h2>Brand Voice &amp; Style — How You Sound</h2>
+      <div class="section-desc">This is the most critical section. Negative constraints (what NOT to do) are more useful than positive ones.</div>
+    </div>
+  </div>
+  <div class="field-label">3.1 — Positive Voice Traits</div>
+  <div class="field-hint">Bad: "Professional, friendly, engaging." Good: "Blunt, evidence-led, zero corporate fluff."</div>
+  <div class="numbered-rows">
+    <div class="numbered-row"><div class="row-num">1</div><div class="row-cell"><div contenteditable="true" id="voice1" class="short" data-placeholder="Voice trait #1 + brief description..."></div></div></div>
+    <div class="numbered-row"><div class="row-num">2</div><div class="row-cell"><div contenteditable="true" id="voice2" class="short" data-placeholder="Voice trait #2..."></div></div></div>
+    <div class="numbered-row"><div class="row-num">3</div><div class="row-cell"><div contenteditable="true" id="voice3" class="short" data-placeholder="Voice trait #3..."></div></div></div>
+    <div class="numbered-row"><div class="row-num">4</div><div class="row-cell"><div contenteditable="true" id="voice4" class="short" data-placeholder="Voice trait #4..."></div></div></div>
+    <div class="numbered-row"><div class="row-num">5</div><div class="row-cell"><div contenteditable="true" id="voice5" class="short" data-placeholder="Voice trait #5..."></div></div></div>
+  </div>
+  <div class="voice-grid">
+    <div class="voice-col">
+      <div class="voice-header dark">Banned Words &amp; Phrases</div>
+      <div class="voice-body"><div contenteditable="true" id="banned_words" data-placeholder="List every word, phrase, or pattern that must NEVER appear in your content. One per line.&#10;e.g.&#10;Synergy&#10;In today's fast-paced world&#10;Game-changer&#10;Unlock your potential"></div></div>
+    </div>
+    <div class="voice-col">
+      <div class="voice-header red">Formatting Preferences</div>
+      <div class="voice-body"><div contenteditable="true" id="fmt_prefs" data-placeholder="How should content look and flow?&#10;e.g.&#10;Short sentences — max 15 words&#10;Line breaks every 1–2 sentences&#10;No hashtags on LinkedIn"></div></div>
+    </div>
+  </div>
+  <div class="field-label">3.3 — Describe your writing style in your own words</div>
+  <div contenteditable="true" id="writing_style" class="tall" data-placeholder="Think about what people say when they compliment your best content. What do they notice? e.g. 'I write like I'm texting a smart friend. Direct, a little provocative, always grounded in a real example...'"></div>
+</div>
+
+<!-- SECTION 4: KNOWLEDGE BASE FILES -->
+<div class="section-block">
+  <div class="section-num-header">
+    <div class="section-num">4</div>
+    <div>
+      <h2>Knowledge Base Files — What to Upload</h2>
+      <div class="section-desc">These are the files you'll upload directly into your Claude Project. The more context, the better the output.</div>
+    </div>
+  </div>
+  <div class="upload-checklist" id="uploadChecklist">
+    <div class="upload-row" onclick="toggleCheck(this)" id="uc1"><div class="custom-check"></div><div><div class="check-label">This completed Brand Brain Workbook (exported as PDF or text)</div><div class="check-note">The single most important file. Export before the session.</div></div></div>
+    <div class="upload-row" onclick="toggleCheck(this)" id="uc2"><div class="custom-check"></div><div><div class="check-label">Your best-performing blog post or article (PDF or text)</div><div class="check-note">Teaches Claude your writing style through example, not just description.</div></div></div>
+    <div class="upload-row" onclick="toggleCheck(this)" id="uc3"><div class="custom-check"></div><div><div class="check-label">A sales call or client interview transcript <span class="optional-tag">Optional</span></div><div class="check-note">Reveals the exact language your customers use.</div></div></div>
+    <div class="upload-row" onclick="toggleCheck(this)" id="uc4"><div class="custom-check"></div><div><div class="check-label">Brand guidelines or style guide document <span class="optional-tag">Optional</span></div><div class="check-note">Colours, fonts, visual rules — for full brand consistency.</div></div></div>
+    <div class="upload-row" onclick="toggleCheck(this)" id="uc5"><div class="custom-check"></div><div><div class="check-label">3–5 customer testimonials or reviews <span class="optional-tag">Optional</span></div><div class="check-note">Social proof language in the customer's own words.</div></div></div>
+    <div class="upload-row" onclick="toggleCheck(this)" id="uc6"><div class="custom-check"></div><div><div class="check-label">A competitor's homepage or landing page content <span class="optional-tag">Optional</span></div><div class="check-note">Helps Claude understand market positioning and differentiation.</div></div></div>
+  </div>
+</div>
+
+<!-- SECTION 5: YOUR TEAMMATE -->
+<div class="section-block">
+  <div class="section-num-header">
+    <div class="section-num">5</div>
+    <div>
+      <h2>Design Your Teammate — Who Are You Hiring?</h2>
+      <div class="section-desc">Give your teammate a name, a role, and a personality. You interact with this entity every single day — make it feel real.</div>
+    </div>
+  </div>
+  <div class="teammate-builder">
+    <div class="teammate-builder-header">
+      <h3>Teammate Configuration</h3>
+      <p>This becomes the ROLE AND PERSONA section of your Master Prompt.</p>
+    </div>
+    <div class="teammate-fields">
+      <div class="tf"><div class="tf-label">First Name</div><input type="text" id="tm_name" placeholder="e.g. Alex, Sam, Jordan..."></div>
+      <div class="tf"><div class="tf-label">Role Title</div><input type="text" id="tm_role" placeholder="e.g. Lead Content Writer, SEO Strategist..."></div>
+      <div class="tf"><div class="tf-label">Primary Platform</div><input type="text" id="tm_platform" placeholder="e.g. LinkedIn, Email, Blog..."></div>
+      <div class="tf"><div class="tf-label">Personality in 3 words</div><input type="text" id="tm_personality" placeholder="e.g. Sharp, direct, strategic..."></div>
+      <div class="tf"><div class="tf-label">Superpower</div><input type="text" id="tm_superpower" placeholder="e.g. Turning raw ideas into viral hooks..."></div>
+      <div class="tf"><div class="tf-label">Would never say</div><input type="text" id="tm_never" placeholder="e.g. 'synergy', 'leverage', corporate speak..."></div>
+    </div>
+  </div>
+  <div class="name-preview">
+    <span class="name-preview-label">Your project will be named:</span>
+    <span class="name-preview-value" id="namePreview">[Name] — [Role Title]</span>
+  </div>
+  <div class="field-label">5.1 — What is the one primary task you most want this teammate to execute for you?</div>
+  <div class="field-hint">Be specific. Not "write content" — "turn my podcast transcripts into LinkedIn posts every week."</div>
+  <div contenteditable="true" id="primary_task" class="tall" data-placeholder="Describe the task, the cadence, and the expected output format..."></div>
+  <br>
+  <div class="field-label">5.2 — What does success look like after 30 days with this teammate?</div>
+  <div contenteditable="true" id="success_30" class="short" data-placeholder="e.g. 10 LinkedIn posts published per month, all on-brand, zero edits needed from me..."></div>
+</div>
+
+<!-- Pre-Class Checklist -->
+<div class="preflight">
+  <div class="preflight-header">Checklist — Confirm Before You Walk In</div>
+  <div class="preflight-body">
+    <div class="preflight-row" onclick="togglePreflight(this)" id="pre1"><div class="custom-check"></div><span class="check-text">I have a Claude account (free or paid) and can log in at claude.ai</span></div>
+    <div class="preflight-row" onclick="togglePreflight(this)" id="pre2"><div class="custom-check"></div><span class="check-text">I have completed Sections 1–3 of this Brand Brain Workbook</span></div>
+    <div class="preflight-row" onclick="togglePreflight(this)" id="pre3"><div class="custom-check"></div><span class="check-text">I have exported this workbook as a PDF or saved it as a text file on my computer</span></div>
+    <div class="preflight-row" onclick="togglePreflight(this)" id="pre4"><div class="custom-check"></div><span class="check-text">I have at least one writing sample ready to upload (blog post, LinkedIn post, email)</span></div>
+    <div class="preflight-row" onclick="togglePreflight(this)" id="pre5"><div class="custom-check"></div><span class="check-text">I have decided on my teammate's name and role title (Section 5)</span></div>
+    <div class="preflight-row" onclick="togglePreflight(this)" id="pre6"><div class="custom-check"></div><span class="check-text">I have my laptop or device ready with browser access for the session</span></div>
+  </div>
+</div>
+
+<script>
+const contentIds = ['icp_description','icp_language','prod_why','prod_oneliner','prod_diff','result1','result2','result3',
+  'voice1','voice2','voice3','voice4','voice5','banned_words','fmt_prefs','writing_style','primary_task','success_30',
+  'icp_title','icp_industry','icp_size','icp_geo','icp_goal','icp_pain','prod_name','prod_price','prod_outcome','prod_delivery'];
+const inputIds = ['m_name','m_date','m_company','tm_name','tm_role','tm_platform','tm_personality','tm_superpower','tm_never'];
+const checkIds = ['uc1','uc2','uc3','uc4','uc5','uc6','pre1','pre2','pre3','pre4','pre5','pre6'];
+
+function updatePreview() {
+  const n = document.getElementById('tm_name').value.trim() || '[Name]';
+  const r = document.getElementById('tm_role').value.trim() || '[Role Title]';
+  document.getElementById('namePreview').textContent = n + ' \u2014 ' + r;
+}
+
+function toggleCheck(el) { el.classList.toggle('checked'); updateProgress(); }
+function togglePreflight(el) { el.classList.toggle('checked'); updateProgress(); }
+
+function updateProgress() {
+  let filled = 0, total = 0;
+  contentIds.forEach(id => { const el = document.getElementById(id); if (el) { total++; if ((el.innerText || '').trim().length > 3) filled++; } });
+  ['m_name','tm_name','tm_role'].forEach(id => { const el = document.getElementById(id); if (el) { total++; if (el.value.trim().length > 1) filled++; } });
+  const pct = Math.round(filled / total * 100);
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressPct').textContent = pct + '%';
+}
+
+function collectData() {
+  const data = {};
+  contentIds.forEach(id => { const el = document.getElementById(id); if (el) data[id] = el.innerHTML; });
+  inputIds.forEach(id => { const el = document.getElementById(id); if (el) data[id] = el.value; });
+  checkIds.forEach(id => { const el = document.getElementById(id); if (el) data[id] = el.classList.contains('checked'); });
+  return data;
+}
+
+function buildExtractedText(data) {
+  const t = (id) => { const v = data[id]; if (!v) return ''; const div = document.createElement('div'); div.innerHTML = v; return (div.textContent || div.innerText || '').trim(); };
+  let text = '=== BRAND BRAIN WORKBOOK ===\n';
+  if (data.m_name) text += 'Name: ' + data.m_name + '\n';
+  if (data.m_company) text += 'Company: ' + data.m_company + '\n';
+  text += '\n--- SECTION 1: IDEAL CUSTOMER PROFILE ---\n';
+  if (t('icp_title')) text += 'Job Title/Role: ' + t('icp_title') + '\n';
+  if (t('icp_industry')) text += 'Industry/Niche: ' + t('icp_industry') + '\n';
+  if (t('icp_size')) text += 'Company Size: ' + t('icp_size') + '\n';
+  if (t('icp_geo')) text += 'Geography: ' + t('icp_geo') + '\n';
+  if (t('icp_goal')) text += 'Primary Goal: ' + t('icp_goal') + '\n';
+  if (t('icp_pain')) text += 'Biggest Pain: ' + t('icp_pain') + '\n';
+  if (t('icp_description')) text += 'ICP Description: ' + t('icp_description') + '\n';
+  if (t('icp_language')) text += 'ICP Language: ' + t('icp_language') + '\n';
+  text += '\n--- SECTION 2: PRODUCT & SERVICE ---\n';
+  if (t('prod_name')) text += 'Product Name: ' + t('prod_name') + '\n';
+  if (t('prod_oneliner')) text += 'One-Liner: ' + t('prod_oneliner') + '\n';
+  if (t('prod_price')) text += 'Price: ' + t('prod_price') + '\n';
+  if (t('prod_outcome')) text += 'Core Outcome: ' + t('prod_outcome') + '\n';
+  if (t('prod_delivery')) text += 'Delivery Method: ' + t('prod_delivery') + '\n';
+  if (t('prod_diff')) text += 'Differentiator: ' + t('prod_diff') + '\n';
+  if (t('prod_why')) text += 'Why It Exists: ' + t('prod_why') + '\n';
+  if (t('result1')) text += 'Case Study 1: ' + t('result1') + '\n';
+  if (t('result2')) text += 'Case Study 2: ' + t('result2') + '\n';
+  if (t('result3')) text += 'Case Study 3: ' + t('result3') + '\n';
+  text += '\n--- SECTION 3: BRAND VOICE ---\n';
+  for (let i = 1; i <= 5; i++) { if (t('voice' + i)) text += 'Voice Trait ' + i + ': ' + t('voice' + i) + '\n'; }
+  if (t('banned_words')) text += 'Banned Words: ' + t('banned_words') + '\n';
+  if (t('fmt_prefs')) text += 'Formatting Preferences: ' + t('fmt_prefs') + '\n';
+  if (t('writing_style')) text += 'Writing Style: ' + t('writing_style') + '\n';
+  text += '\n--- SECTION 5: AI TEAMMATE ---\n';
+  if (data.tm_name) text += 'Teammate Name: ' + data.tm_name + '\n';
+  if (data.tm_role) text += 'Role: ' + data.tm_role + '\n';
+  if (data.tm_platform) text += 'Platform: ' + data.tm_platform + '\n';
+  if (data.tm_personality) text += 'Personality: ' + data.tm_personality + '\n';
+  if (data.tm_superpower) text += 'Superpower: ' + data.tm_superpower + '\n';
+  if (data.tm_never) text += 'Would Never Say: ' + data.tm_never + '\n';
+  if (t('primary_task')) text += 'Primary Task: ' + t('primary_task') + '\n';
+  if (t('success_30')) text += '30-Day Success: ' + t('success_30') + '\n';
+  return text;
+}
+
+function loadData(data) {
+  if (!data) return;
+  contentIds.forEach(id => { const el = document.getElementById(id); if (el && data[id] !== undefined) el.innerHTML = data[id]; });
+  inputIds.forEach(id => { const el = document.getElementById(id); if (el && data[id] !== undefined) el.value = data[id]; });
+  checkIds.forEach(id => { const el = document.getElementById(id); if (el && data[id]) el.classList.add('checked'); });
+  updatePreview();
+  updateProgress();
+}
+
+function saveAndNotify() {
+  const data = collectData();
+  const extractedText = buildExtractedText(data);
+  // Notify parent
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: 'brand-brain-save', rawData: data, extractedText: extractedText }, '*');
+  }
+  const msg = document.getElementById('saveMsg');
+  msg.classList.add('show');
+  setTimeout(() => msg.classList.remove('show'), 2000);
+}
+
+// Listen for data from parent
+window.addEventListener('message', function(e) {
+  if (e.data && e.data.type === 'brand-brain-load' && e.data.rawData) {
+    loadData(e.data.rawData);
+  }
+});
+
+// Wire up input listeners
+contentIds.forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('input', updateProgress); });
+inputIds.forEach(id => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('input', updateProgress);
+    if (id === 'tm_name' || id === 'tm_role') el.addEventListener('input', updatePreview);
+  }
+});
+
+updateProgress();
+
+// Signal ready to parent
+if (window.parent !== window) {
+  window.parent.postMessage({ type: 'brand-brain-ready' }, '*');
+}
+</script>
+</body>
+</html>

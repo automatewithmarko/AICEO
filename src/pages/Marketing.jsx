@@ -1136,7 +1136,7 @@ function ToolTab({ config, activeTool, brandDna }) {
       // Replace {{GENERATE:...}} placeholders with loading spinners for display
       let displayHtml = canvasHtml;
       if (displayHtml.includes('{{GENERATE:')) {
-        const placeholderDiv = '<div style="width:100%;height:250px;background:#fff;border:2px dashed #E91A44;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;"><div style="width:20px;height:20px;border:2.5px solid #E91A44;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div><span style="color:#E91A44;font-size:12px;font-weight:600;font-family:Inter,system-ui,sans-serif;">Generating image...</span></div><style>@keyframes spin{to{transform:rotate(360deg)}}</style>';
+        const placeholderDiv = '<div class="gen-shimmer"><span class="gen-shimmer-text">Generating</span></div><style>.gen-shimmer{width:100%;height:250px;background:#e2e2e2;border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}.gen-shimmer::before{content:"";position:absolute;width:300%;height:300%;top:-100%;left:-100%;background:linear-gradient(135deg,transparent 35%,rgba(255,255,255,0.5) 48%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 52%,transparent 65%);animation:genShimmer 2s linear infinite}.gen-shimmer-text{color:#9e9e9e;font-size:13px;font-weight:600;font-family:Inter,system-ui,sans-serif;position:relative;z-index:1;letter-spacing:0.5px}@keyframes genShimmer{0%{transform:translate(-33%,-33%)}100%{transform:translate(33%,33%)}}</style>';
         // Replace full <img> tags containing {{GENERATE:...}}
         displayHtml = displayHtml.replace(/<img[^>]*\{\{GENERATE:[\s\S]*?\}\}[^>]*\/?>/gi, placeholderDiv);
         // Catch any remaining bare {{GENERATE:...}}
@@ -1521,9 +1521,10 @@ function ToolTab({ config, activeTool, brandDna }) {
         // Generate cover image and inject into newsletter
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-generating`, role: 'assistant', text: 'Generating your cover image...' }]);
         try {
+          const mktDefaultLogo = brandDna.logos?.find(l => l.isDefault) || brandDna.logos?.[0];
           const brandData = brandDna ? {
             photoUrls: brandDna.photo_urls || [],
-            logoUrl: brandDna.logo_url || null,
+            logoUrl: mktDefaultLogo?.url || brandDna.logo_url || null,
             colors: brandDna.colors || {},
             mainFont: brandDna.main_font || null,
           } : null;
@@ -1555,9 +1556,10 @@ function ToolTab({ config, activeTool, brandDna }) {
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || `Generating ${frames.length} story frames...` }]);
 
         // Generate images sequentially — each frame references the previous for visual continuity
+        const storyDefaultLogo = brandDna?.logos?.find(l => l.isDefault) || brandDna?.logos?.[0];
         const brandData = brandDna ? {
           photoUrls: brandDna.photo_urls || [],
-          logoUrl: brandDna.logo_url || null,
+          logoUrl: storyDefaultLogo?.url || brandDna.logo_url || null,
           colors: brandDna.colors || {},
           mainFont: brandDna.main_font || null,
         } : null;

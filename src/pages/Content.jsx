@@ -165,7 +165,13 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       if (c.secondary) prompt += `Secondary Color: ${c.secondary}\n`;
     }
     if (brandDna.photo_urls?.length) prompt += `Brand Photos: ${brandDna.photo_urls.length} reference photo(s) of the user are attached to image generation\n`;
-    if (brandDna.logo_url) prompt += `Logo: The user's brand logo is attached to image generation\n`;
+    const allLogos = brandDna.logos?.length ? brandDna.logos : (brandDna.logo_url ? [{ url: brandDna.logo_url, name: 'Logo', isDefault: true }] : []);
+    if (allLogos.length === 1) {
+      prompt += `Logo: The user's brand logo "${allLogos[0].name}" is attached to image generation\n`;
+    } else if (allLogos.length > 1) {
+      prompt += `Logos: The user has ${allLogos.length} logos:\n`;
+      allLogos.forEach(l => { prompt += `  - "${l.name}"${l.isDefault ? ' (default — use this unless told otherwise)' : ''}\n`; });
+    }
     if (brandDna.documents && Object.keys(brandDna.documents).length) {
       for (const [key, doc] of Object.entries(brandDna.documents)) {
         if (doc.extracted_text) {
@@ -580,7 +586,7 @@ export default function Content() {
         .order('updated_at', { ascending: true })
         .limit(1);
       const brandRow = data?.[0] || null;
-      console.log('[Content] Brand DNA loaded:', brandRow ? { logo: !!brandRow.logo_url, photos: brandRow.photo_urls?.length, colors: brandRow.colors, fonts: { main: brandRow.main_font } } : null, error?.message || '');
+      console.log('[Content] Brand DNA loaded:', brandRow ? { logos: brandRow.logos?.length || (brandRow.logo_url ? 1 : 0), photos: brandRow.photo_urls?.length, colors: brandRow.colors, fonts: { main: brandRow.main_font } } : null, error?.message || '');
       if (brandRow) setBrandDna(brandRow);
     });
     getIntegrationContext().then(({ context }) => {
@@ -633,9 +639,10 @@ export default function Content() {
           const results = await Promise.allSettled(
             imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
               console.log(`  🎨 [${idx + 1}/${imageCalls.length}] ${imgPrompt.slice(0, 80)}...`);
+              const defaultLogo = brandDna.logos?.find(l => l.isDefault) || brandDna.logos?.[0];
               const brandImageData = brandDna ? {
                 photoUrls: brandDna.photo_urls || [],
-                logoUrl: brandDna.logo_url || null,
+                logoUrl: defaultLogo?.url || brandDna.logo_url || null,
                 colors: brandDna.colors || {},
                 mainFont: brandDna.main_font || null,
               } : null;
@@ -1138,11 +1145,11 @@ export default function Content() {
       {/* Brand DNA */}
       <div className="cs-branddna cs-branddna--expanded">
         <div className="cs-branddna-top">
-          {brandDna?.logo_url ? (
-            <img src={brandDna.logo_url} alt="Logo" className="cs-branddna-logo" crossOrigin="anonymous" onError={(e) => { e.target.src = '/favicon.png'; }} />
+          {(() => { const u = brandDna?.logos?.find(l => l.isDefault)?.url || brandDna?.logos?.[0]?.url || brandDna?.logo_url; return u ? (
+            <img src={u} alt="Logo" className="cs-branddna-logo" crossOrigin="anonymous" onError={(e) => { e.target.src = '/favicon.png'; }} />
           ) : (
             <img src="/favicon.png" alt="Brand DNA" className="cs-branddna-logo" />
-          )}
+          ); })()}
           <span className="cs-branddna-title cs-branddna-title--show">Brand DNA</span>
         </div>
 
@@ -1392,11 +1399,11 @@ export default function Content() {
           {sidebarOpen ? (
             <div className="cs-branddna">
               <div className="cs-branddna-top">
-                {brandDna?.logo_url ? (
-                  <img src={brandDna.logo_url} alt="Logo" className="cs-branddna-logo" crossOrigin="anonymous" onError={(e) => { e.target.src = '/favicon.png'; }} />
+                {(() => { const u = brandDna?.logos?.find(l => l.isDefault)?.url || brandDna?.logos?.[0]?.url || brandDna?.logo_url; return u ? (
+                  <img src={u} alt="Logo" className="cs-branddna-logo" crossOrigin="anonymous" onError={(e) => { e.target.src = '/favicon.png'; }} />
                 ) : (
                   <img src="/favicon.png" alt="Brand DNA" className="cs-branddna-logo" />
-                )}
+                ); })()}
                 <span className="cs-branddna-title">Brand DNA</span>
               </div>
               {brandDna?.photo_urls?.length > 0 && (
@@ -1435,11 +1442,11 @@ export default function Content() {
               onClick={(e) => { e.stopPropagation(); navigate('/settings', { state: { scrollTo: 'brand-dna' } }); }}
               title={brandDna ? 'Edit Brand DNA' : 'Set Up Brand DNA'}
             >
-              {brandDna?.logo_url ? (
-                <img src={brandDna.logo_url} alt="Logo" className="cs-branddna-collapsed-logo" crossOrigin="anonymous" onError={(e) => { e.target.src = '/favicon.png'; }} />
+              {(() => { const u = brandDna?.logos?.find(l => l.isDefault)?.url || brandDna?.logos?.[0]?.url || brandDna?.logo_url; return u ? (
+                <img src={u} alt="Logo" className="cs-branddna-collapsed-logo" crossOrigin="anonymous" onError={(e) => { e.target.src = '/favicon.png'; }} />
               ) : (
                 <img src="/favicon.png" alt="Brand DNA" className="cs-branddna-collapsed-logo" />
-              )}
+              ); })()}
               {brandDna?.colors && Object.values(brandDna.colors).some(Boolean) && (
                 <div className="cs-branddna-collapsed-dots">
                   {brandDna.colors.primary && <span className="cs-branddna-collapsed-dot" style={{ background: brandDna.colors.primary }} />}
