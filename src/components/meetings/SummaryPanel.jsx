@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { CheckCircle, Circle, Clock, BookOpen, ChevronDown, ChevronRight, Sparkles, Loader2 } from 'lucide-react';
-import { formatTimestamp, generateActionItems, updateMeeting } from '../../lib/meetings-api';
+import { formatTimestamp, generateActionItems, generateExternalActionItems, updateMeeting } from '../../lib/meetings-api';
 import './SummaryPanel.css';
 
 export default function SummaryPanel({ meeting, onSeek, onUpdate }) {
@@ -32,12 +34,21 @@ export default function SummaryPanel({ meeting, onSeek, onUpdate }) {
           <ActionItemsContent
             items={meeting.action_items}
             meetingId={meeting.id}
+            isExternal={meeting.is_external}
             onUpdate={onUpdate}
           />
         )}
         {tab === 'chapters' && <ChaptersContent chapters={meeting.chapters} onSeek={onSeek} />}
       </div>
     </div>
+  );
+}
+
+function MarkdownText({ children }) {
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+      {children}
+    </ReactMarkdown>
   );
 }
 
@@ -49,7 +60,7 @@ function SummaryContent({ summary }) {
   return (
     <div className="summary-body">
       {typeof summary === 'string' ? (
-        <p>{summary}</p>
+        <MarkdownText>{summary}</MarkdownText>
       ) : (
         Object.entries(summary).map(([key, value]) => {
           if (key === 'error') return null;
@@ -59,11 +70,11 @@ function SummaryContent({ summary }) {
               {Array.isArray(value) ? (
                 <ul>
                   {value.map((item, i) => (
-                    <li key={i}>{typeof item === 'string' ? item : JSON.stringify(item)}</li>
+                    <li key={i}>{typeof item === 'string' ? <MarkdownText>{item}</MarkdownText> : JSON.stringify(item)}</li>
                   ))}
                 </ul>
               ) : (
-                <p>{String(value)}</p>
+                <MarkdownText>{String(value)}</MarkdownText>
               )}
             </div>
           );
@@ -73,7 +84,7 @@ function SummaryContent({ summary }) {
   );
 }
 
-function ActionItemsContent({ items, meetingId, onUpdate }) {
+function ActionItemsContent({ items, meetingId, isExternal, onUpdate }) {
   const [generating, setGenerating] = useState(false);
   const [expandedIdx, setExpandedIdx] = useState(null);
   const [localItems, setLocalItems] = useState(items || []);
@@ -81,7 +92,9 @@ function ActionItemsContent({ items, meetingId, onUpdate }) {
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      const result = await generateActionItems(meetingId);
+      const result = isExternal
+        ? await generateExternalActionItems(meetingId)
+        : await generateActionItems(meetingId);
       const newItems = result.action_items || [];
       setLocalItems(newItems);
       onUpdate?.(m => ({ ...m, action_items: newItems }));

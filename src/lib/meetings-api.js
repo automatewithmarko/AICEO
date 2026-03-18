@@ -110,10 +110,11 @@ export async function getMeetings(params = {}) {
   const [ppResult, external] = await Promise.all([
     (async () => {
       const url = new URL(`${PP_API_URL}/api/meetings`);
+      // Only fetch PurelyPersonal meetings from PP backend; external recordings come from main backend
+      url.searchParams.set('source', 'purelypersonal');
       if (params.platform) url.searchParams.set('platform', params.platform);
       if (params.status) url.searchParams.set('status', params.status);
       if (params.search) url.searchParams.set('search', params.search);
-      // Fetch all for merging (no pagination at this level)
       url.searchParams.set('limit', '100');
       const headers = await getAuthHeaders();
       const res = await fetch(url.toString(), { headers });
@@ -236,6 +237,19 @@ export async function removeContactFromMeeting(meetingId, contactId) {
 
 export async function generateActionItems(id) {
   return ppFetch(`/api/meetings/${id}/generate-action-items`, { method: 'POST' });
+}
+
+export async function generateExternalActionItems(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/sales/calls/${id}/generate-action-items`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error);
+  }
+  return res.json();
 }
 
 export async function stopMeeting(id) {

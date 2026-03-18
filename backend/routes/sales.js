@@ -1,7 +1,13 @@
 import { Router } from 'express';
+import OpenAI from 'openai';
 import { supabase } from '../services/storage.js';
 
 const router = Router();
+
+const xai = new OpenAI({
+  apiKey: process.env.XAI_API_KEY,
+  baseURL: 'https://api.x.ai/v1',
+});
 
 // ─── Get revenue chart data ───
 // Returns aggregated revenue from Stripe, Whop, and manual sales
@@ -286,6 +292,70 @@ router.patch('/api/sales/calls/:id', async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
   res.json({ metadata: data });
+});
+
+// ─── Generate action items for external recording ───
+router.post('/api/sales/calls/:id/generate-action-items', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const { data: record, error } = await supabase
+    .from('integration_data')
+    .select('id, content, metadata')
+    .eq('id', req.params.id)
+    .eq('user_id', userId)
+    .single();
+
+  if (error || !record) return res.status(404).json({ error: 'Recording not found' });
+  if (!record.content) return res.json({ action_items: [] });
+
+  const transcript = record.content.length > 30000
+    ? record.content.slice(0, 30000) + '\n\n[...transcript truncated]'
+    : record.content;
+
+  try {
+    const completion = await xai.chat.completions.create({
+      model: 'grok-3-mini-fast',
+      messages: [
+        { role: 'system', content: 'You are an expert at extracting action items from meeting transcripts. Return valid JSON only with an "action_items" key.' },
+        { role: 'user', content: `Analyze this meeting transcript and extract ALL action items, to-dos, commitments, and follow-ups. Be thorough — even implicit commitments like "I'll send that over" or "let's circle back on that" count as action items.
+
+For each action item, identify:
+- text: a short, clear title of what needs to be done (1 sentence max)
+- description: a brief explanation with context about why this task matters or how to approach it (1-2 sentences)
+- assignee: who is responsible (use the speaker name if mentioned, otherwise "Unassigned")
+- due_date: any mentioned deadline (null if none)
+- completed: always false
+
+Return a JSON object with an "action_items" key containing the array.
+
+Format: {"action_items": [{"text": "...", "description": "...", "assignee": "...", "due_date": null, "completed": false}]}
+
+If genuinely no action items exist, return: {"action_items": []}
+
+Transcript:
+${transcript}` },
+      ],
+      temperature: 0.3,
+      response_format: { type: 'json_object' },
+    });
+
+    const raw = completion.choices[0]?.message?.content || '{}';
+    const parsed = JSON.parse(raw);
+    const items = Array.isArray(parsed) ? parsed : parsed.action_items || [];
+
+    // Save action items back to integration_data metadata
+    const updatedMetadata = { ...(record.metadata || {}), action_items: items };
+    await supabase
+      .from('integration_data')
+      .update({ metadata: updatedMetadata })
+      .eq('id', req.params.id);
+
+    res.json({ action_items: items });
+  } catch (err) {
+    console.error('[sales] Action items generation failed:', err.message);
+    res.status(500).json({ error: 'Failed to generate action items' });
+  }
 });
 
 // ─── Get products (from Whop + manual) ───
