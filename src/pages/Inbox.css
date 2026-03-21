@@ -571,6 +571,30 @@
   background: transparent;
 }
 
+/* ── Email Body Loading Skeleton ── */
+.inbox-detail-body--loading {
+  padding: 24px;
+}
+
+.inbox-body-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.inbox-body-skeleton-line {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: inboxSkeletonShimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes inboxSkeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* ── Reply Bar ── */
 .inbox-reply-bar {
   display: flex;

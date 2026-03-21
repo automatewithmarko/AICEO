@@ -90,6 +90,7 @@ export default function Inbox() {
   const [emails, setEmails] = useState([]);
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [selectedEmailFull, setSelectedEmailFull] = useState(null);
+  const [loadingEmailBody, setLoadingEmailBody] = useState(false);
   const [activeFolder, setActiveFolder] = useState('inbox');
   const [searchQuery, setSearchQuery] = useState('');
   const [counts, setCounts] = useState({});
@@ -367,16 +368,21 @@ export default function Inbox() {
 
   const openEmail = async (email) => {
     setSelectedEmail(email);
+    setSelectedEmailFull(null);
+    setLoadingEmailBody(true);
     setReplyText('');
     // Mark as read
     if (!email.is_read) {
-      await updateEmail(email.id, { is_read: true });
+      updateEmail(email.id, { is_read: true }).then(() => loadCounts(selectedAccountId));
       setEmails((prev) => prev.map((em) => em.id === email.id ? { ...em, is_read: true } : em));
-      loadCounts(selectedAccountId);
     }
     // Load full body
-    const full = await getEmail(email.id);
-    setSelectedEmailFull(full);
+    try {
+      const full = await getEmail(email.id);
+      setSelectedEmailFull(full);
+    } finally {
+      setLoadingEmailBody(false);
+    }
   };
 
   const toggleStar = async (id, e) => {
@@ -766,7 +772,18 @@ export default function Inbox() {
                   ))}
                 </div>
               )}
-              {displayEmail.body_html ? (
+              {loadingEmailBody ? (
+                <div className="inbox-detail-body inbox-detail-body--loading">
+                  <div className="inbox-body-skeleton">
+                    <div className="inbox-body-skeleton-line" style={{ width: '90%' }} />
+                    <div className="inbox-body-skeleton-line" style={{ width: '75%' }} />
+                    <div className="inbox-body-skeleton-line" style={{ width: '85%' }} />
+                    <div className="inbox-body-skeleton-line" style={{ width: '60%' }} />
+                    <div className="inbox-body-skeleton-line" style={{ width: '80%' }} />
+                    <div className="inbox-body-skeleton-line" style={{ width: '45%' }} />
+                  </div>
+                </div>
+              ) : displayEmail.body_html ? (
                 <div className="inbox-detail-body inbox-detail-body--html">
                   <iframe
                     className="inbox-html-frame"
@@ -785,7 +802,8 @@ export default function Inbox() {
                         body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:14px;line-height:1.6;color:#333;word-wrap:break-word;overflow-wrap:break-word;padding:0;margin:0;background:transparent}
                         img{max-width:100%;height:auto}
                         a{color:#1a73e8;text-decoration:underline}
-                        table{max-width:100%!important;width:auto!important}
+                        table{border-collapse:collapse}
+                        body>table,body>div>table,body>center>table{margin:0 auto}
                         pre{white-space:pre-wrap;overflow-x:auto}
                         blockquote{border-left:3px solid #ddd;padding-left:12px;margin:8px 0;color:#555}
                       </style></head><body>${clean}</body></html>`;

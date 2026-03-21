@@ -59,7 +59,7 @@ IMPORTANT RULES:
 // ── Tool Configs ──
 const TOOL_CONFIGS = {
   newsletter: {
-    systemPrompt: `You are an elite newsletter copywriter and email designer working inside the PuerlyPersonal AI CEO platform. Your job is to help users create stunning, high-converting email newsletters.\n\n${SHARED_RULES}\n\nHTML REQUIREMENTS:\n- Generate a COMPLETE, standalone HTML email document with <!DOCTYPE html>, <html>, <head>, <body>\n- Use ONLY inline CSS styles — no <style> blocks, no external stylesheets, no <script> tags\n- Use table-based layout for email client compatibility\n- Make it visually stunning: clean typography, good whitespace, professional color palette\n- Include: branded header area, compelling headline, body sections with engaging copy, a prominent CTA button, footer with unsubscribe placeholder\n- Use a max-width of 600px centered layout (standard email width)\n- Default color scheme: clean white background, dark text (#333), accent color #E91A44 for CTA buttons and highlights\n- Write STELLAR copywriting: compelling headlines, engaging opening hooks, scannable body with subheadings, clear and urgent CTAs\n- Make the copy feel human, warm, and persuasive — not robotic or generic\n- The HTML must be production-ready email code that renders beautifully\n- If the user provides image URLs or data URIs, embed them directly in the HTML using <img> tags\n- Typical question flow: topic/angle → target audience → tone/voice → key CTA/goal\n\nCOVER IMAGE FLOW (newsletters only):\n- When the user says "Now suggest 4 creative cover image options for this newsletter", respond with a FORMAT 1 question\n- Your question text should be: "Would you like me to generate a cover image for this newsletter? Here are 4 concepts inspired by your content:"\n- Provide exactly 4 creative, SPECIFIC cover image concepts as options — each one should be a vivid 1-2 sentence visual description tied to the newsletter topic, mentioning style (photographic/illustration/3D/etc.), key visual elements, and mood\n- Add a 5th option: "No thanks, the newsletter looks great as is"\n- Example options: "A cinematic wide-angle photo of [specific subject from newsletter] bathed in warm golden light, with bold sans-serif headline overlay in brand colors", "A sleek 3D render of [concept from newsletter] floating on a gradient from [brand color] to deep navy, modern and premium feel"\n- When the user selects a cover image option (not the 'No thanks' option), respond with FORMAT 3 (cover_image type) with a 150-250 word art-director-quality prompt\n- If the user says "No thanks" or similar, respond with a simple question asking if there is anything else they want to change\n- NEVER generate a cover image without asking first`,
+    systemPrompt: `You are an elite newsletter copywriter and email designer working inside the PuerlyPersonal AI CEO platform. Your job is to help users create stunning, high-converting email newsletters.\n\n${SHARED_RULES}\n\nHTML REQUIREMENTS:\n- Generate a COMPLETE, standalone HTML email document with <!DOCTYPE html>, <html>, <head>, <body>\n- Use ONLY inline CSS styles — no <style> blocks, no external stylesheets, no <script> tags\n- Use table-based layout for email client compatibility\n- Make it visually stunning: clean typography, good whitespace, professional color palette\n- Include: branded header area, compelling headline, body sections with engaging copy, a prominent CTA button, footer with unsubscribe placeholder\n- Use a max-width of 600px centered layout (standard email width)\n- Default color scheme: clean white background, dark text (#333), accent color #E91A44 for CTA buttons and highlights\n- Write STELLAR copywriting: compelling headlines, engaging opening hooks, scannable body with subheadings, clear and urgent CTAs\n- Make the copy feel human, warm, and persuasive — not robotic or generic\n- The HTML must be production-ready email code that renders beautifully\n- If the user provides image URLs or data URIs, embed them directly in the HTML using <img> tags\n- Typical question flow: topic/angle → target audience → tone/voice → key CTA/goal\n\nCOVER IMAGE:\n- The cover image is generated automatically from the cover_image_prompt field in the backend agent response. No need to ask the user about it.`,
     placeholder: 'Describe your newsletter idea...',
     ctaText: 'Ask the Newsletter AI to help you come up with ideas, edit your newsletter or even write one from scratch! Make sure to give it good context!',
     canvasTitle: 'Canvas',
@@ -220,7 +220,10 @@ function tryParseAIResponse(text) {
 
 // System prompts with brand DNA are now built server-side in backend/agents/
 
-// Insert cover image into newsletter HTML
+// Cover image placeholder marker — inserted at top of newsletter while generating
+const COVER_IMAGE_PLACEHOLDER = '{{COVER_IMAGE_PLACEHOLDER}}';
+
+// Insert cover image (or placeholder) into newsletter HTML right after <body>
 function insertCoverImage(html, imgSrc) {
   const bodyMatch = html.match(/<body[^>]*>/i);
   if (bodyMatch) {
@@ -229,6 +232,16 @@ function insertCoverImage(html, imgSrc) {
     return html.slice(0, idx) + imgTag + html.slice(idx);
   }
   return `<img src="${imgSrc}" alt="Newsletter Cover" style="width:100%;max-width:600px;height:auto;display:block;margin:0 auto;" />` + html;
+}
+
+// Insert the cover image placeholder marker into the HTML (will be rendered as shimmer)
+function insertCoverPlaceholder(html) {
+  const bodyMatch = html.match(/<body[^>]*>/i);
+  if (bodyMatch) {
+    const idx = html.indexOf(bodyMatch[0]) + bodyMatch[0].length;
+    return html.slice(0, idx) + COVER_IMAGE_PLACEHOLDER + html.slice(idx);
+  }
+  return COVER_IMAGE_PLACEHOLDER + html;
 }
 
 // Merge section-based edits into existing HTML using section markers
@@ -1148,15 +1161,19 @@ function ToolTab({ config, activeTool, brandDna }) {
     const doc = iframe.contentDocument;
     if (!doc) return;
     if (canvasHtml) {
-      // Replace {{GENERATE:...}} placeholders with shimmer animation divs
+      // Replace {{GENERATE:...}} and cover image placeholders with shimmer for display
       let displayHtml = canvasHtml;
-      const needsShimmer = displayHtml.includes('{{GENERATE:');
-      if (needsShimmer) {
-        const placeholderDiv = '<div class="gen-shimmer"><span class="gen-shimmer-text">Generating</span></div>';
+      const placeholderDiv = '<div class="gen-shimmer"><span class="gen-shimmer-text">Generating</span></div>';
+      if (displayHtml.includes('{{GENERATE:')) {
         // Replace full <img> tags containing {{GENERATE:...}}
         displayHtml = displayHtml.replace(/<img[^>]*\{\{GENERATE:[\s\S]*?\}\}[^>]*\/?>/gi, placeholderDiv);
         // Catch any remaining bare {{GENERATE:...}}
         displayHtml = displayHtml.replace(/\{\{GENERATE:[\s\S]*?\}\}/g, placeholderDiv);
+      }
+      // Replace cover image placeholder with shimmer
+      if (displayHtml.includes(COVER_IMAGE_PLACEHOLDER)) {
+        const coverShimmer = `<div style="max-width:600px;margin:0 auto;">${placeholderDiv}</div>`;
+        displayHtml = displayHtml.replace(COVER_IMAGE_PLACEHOLDER, coverShimmer);
       }
 
       // Inject edit IDs for inline text editing (display-only, not stored in state)
@@ -1297,6 +1314,192 @@ function ToolTab({ config, activeTool, brandDna }) {
       const editScript = doc.createElement('script');
       editScript.textContent = getIframeEditScript();
       doc.body.appendChild(editScript);
+
+      // Inject image resize/move script
+      const imgScript = doc.createElement('script');
+      imgScript.textContent = `
+        (function() {
+          var style = document.createElement('style');
+          style.textContent = [
+            '.img-edit-wrap { position: relative; display: inline-block; cursor: move; }',
+            '.img-edit-wrap:hover { outline: 2px solid #a78bfa; outline-offset: 2px; }',
+            '.img-edit-wrap.img-editing { outline: 2px solid #a78bfa; outline-offset: 2px; }',
+            '.img-resize-handle { position: absolute; width: 12px; height: 12px; background: #a78bfa; border: 2px solid #fff; border-radius: 2px; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }',
+            '.img-resize-handle--se { bottom: -6px; right: -6px; cursor: nwse-resize; }',
+            '.img-resize-handle--sw { bottom: -6px; left: -6px; cursor: nesw-resize; }',
+            '.img-resize-handle--ne { top: -6px; right: -6px; cursor: nesw-resize; }',
+            '.img-resize-handle--nw { top: -6px; left: -6px; cursor: nwse-resize; }',
+            '.img-size-label { position: absolute; bottom: -24px; left: 50%; transform: translateX(-50%); background: #1a1a2e; color: #fff; font: 10px/1 Inter,system-ui,sans-serif; padding: 3px 6px; border-radius: 4px; white-space: nowrap; z-index: 10; pointer-events: none; }',
+            '.img-align-bar { position: absolute; top: -32px; left: 50%; transform: translateX(-50%); display: none; gap: 2px; background: #1a1a2e; padding: 4px 6px; border-radius: 6px; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }',
+            '.img-editing .img-align-bar { display: flex; }',
+            '.img-editing .img-resize-handle { display: block; }',
+            '.img-resize-handle { display: none; }',
+            '.img-align-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 3px 6px; border-radius: 3px; font: 11px/1 Inter,system-ui,sans-serif; opacity: 0.7; }',
+            '.img-align-btn:hover, .img-align-btn.active { opacity: 1; background: rgba(255,255,255,0.15); }',
+            '.img-align-btn svg { width: 14px; height: 14px; vertical-align: middle; }',
+          ].join('\\n');
+          document.head.appendChild(style);
+
+          var activeWrap = null;
+
+          // SVG icons for alignment
+          var icons = {
+            left: '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="3" width="10" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="1" y="11" width="10" height="2" rx="1"/></svg>',
+            center: '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="3" y="11" width="10" height="2" rx="1"/></svg>',
+            right: '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="5" y="3" width="10" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="5" y="11" width="10" height="2" rx="1"/></svg>',
+          };
+
+          function wrapImage(img) {
+            if (img.closest('.img-edit-wrap') || img.closest('.gen-shimmer')) return;
+            // Skip tiny images (logos, icons)
+            if (img.naturalWidth && img.naturalWidth < 40) return;
+            if (img.width && img.width < 40) return;
+
+            var wrap = document.createElement('div');
+            wrap.className = 'img-edit-wrap';
+            wrap.style.width = img.style.width || (img.getAttribute('width') ? img.getAttribute('width') + 'px' : '100%');
+            wrap.style.maxWidth = '100%';
+
+            // Alignment bar
+            var alignBar = document.createElement('div');
+            alignBar.className = 'img-align-bar';
+            ['left','center','right'].forEach(function(align) {
+              var btn = document.createElement('button');
+              btn.className = 'img-align-btn';
+              btn.setAttribute('data-align', align);
+              btn.innerHTML = icons[align];
+              btn.title = align.charAt(0).toUpperCase() + align.slice(1);
+              alignBar.appendChild(btn);
+            });
+            wrap.appendChild(alignBar);
+
+            // Resize handles
+            ['se','sw','ne','nw'].forEach(function(pos) {
+              var handle = document.createElement('div');
+              handle.className = 'img-resize-handle img-resize-handle--' + pos;
+              handle.setAttribute('data-handle', pos);
+              wrap.appendChild(handle);
+            });
+
+            // Size label
+            var sizeLabel = document.createElement('div');
+            sizeLabel.className = 'img-size-label';
+            sizeLabel.style.display = 'none';
+            wrap.appendChild(sizeLabel);
+
+            img.parentNode.insertBefore(wrap, img);
+            wrap.insertBefore(img, alignBar.nextSibling);
+            img.style.width = '100%';
+            img.style.height = 'auto';
+            img.style.display = 'block';
+            img.draggable = false;
+          }
+
+          function wrapAllImages() {
+            var imgs = document.querySelectorAll('img[src]:not([src*="GENERATE"])');
+            imgs.forEach(function(img) {
+              if (img.complete) { wrapImage(img); }
+              else { img.addEventListener('load', function() { wrapImage(img); }, { once: true }); }
+            });
+          }
+
+          // Observe DOM for dynamically added images
+          var observer = new MutationObserver(function() { wrapAllImages(); });
+          observer.observe(document.body, { childList: true, subtree: true });
+          wrapAllImages();
+
+          // Click to select/deselect
+          document.addEventListener('mousedown', function(e) {
+            var wrap = e.target.closest('.img-edit-wrap');
+            var handle = e.target.closest('.img-resize-handle');
+            var alignBtn = e.target.closest('.img-align-btn');
+
+            if (alignBtn && activeWrap) {
+              e.preventDefault();
+              e.stopPropagation();
+              var align = alignBtn.getAttribute('data-align');
+              var parent = activeWrap.parentNode;
+              if (align === 'left') {
+                activeWrap.style.marginLeft = '0'; activeWrap.style.marginRight = 'auto';
+                if (parent) parent.style.textAlign = 'left';
+              } else if (align === 'center') {
+                activeWrap.style.marginLeft = 'auto'; activeWrap.style.marginRight = 'auto';
+                if (parent) parent.style.textAlign = 'center';
+              } else {
+                activeWrap.style.marginLeft = 'auto'; activeWrap.style.marginRight = '0';
+                if (parent) parent.style.textAlign = 'right';
+              }
+              notifyChange(activeWrap);
+              return;
+            }
+
+            if (handle && activeWrap) {
+              e.preventDefault();
+              e.stopPropagation();
+              startResize(e, handle);
+              return;
+            }
+
+            if (wrap) {
+              e.preventDefault();
+              if (activeWrap && activeWrap !== wrap) activeWrap.classList.remove('img-editing');
+              activeWrap = wrap;
+              wrap.classList.add('img-editing');
+            } else {
+              if (activeWrap) { activeWrap.classList.remove('img-editing'); activeWrap = null; }
+            }
+          });
+
+          // Resize logic
+          function startResize(e, handle) {
+            if (!activeWrap) return;
+            var pos = handle.getAttribute('data-handle');
+            var startX = e.clientX;
+            var startW = activeWrap.offsetWidth;
+            var img = activeWrap.querySelector('img');
+            var sizeLabel = activeWrap.querySelector('.img-size-label');
+            var maxW = activeWrap.parentNode ? activeWrap.parentNode.offsetWidth : 600;
+            sizeLabel.style.display = 'block';
+
+            function onMove(ev) {
+              var dx = ev.clientX - startX;
+              if (pos === 'sw' || pos === 'nw') dx = -dx;
+              var newW = Math.max(80, Math.min(maxW, startW + dx));
+              activeWrap.style.width = newW + 'px';
+              sizeLabel.textContent = Math.round(newW) + 'px';
+            }
+
+            function onUp() {
+              document.removeEventListener('mousemove', onMove);
+              document.removeEventListener('mouseup', onUp);
+              sizeLabel.style.display = 'none';
+              notifyChange(activeWrap);
+            }
+
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+          }
+
+          function notifyChange(wrap) {
+            var img = wrap.querySelector('img');
+            if (!img) return;
+            var src = img.getAttribute('src') || '';
+            var w = wrap.style.width || '';
+            var ml = wrap.style.marginLeft || '';
+            var mr = wrap.style.marginRight || '';
+            var parentAlign = wrap.parentNode ? wrap.parentNode.style.textAlign || '' : '';
+            window.parent.postMessage({
+              type: 'image-edit',
+              src: src,
+              width: w,
+              marginLeft: ml,
+              marginRight: mr,
+              textAlign: parentAlign,
+            }, '*');
+          }
+        })();
+      `;
+      doc.body.appendChild(imgScript);
     } else {
       doc.open();
       doc.write('<html><body></body></html>');
@@ -1319,6 +1522,42 @@ function ToolTab({ config, activeTool, brandDna }) {
         const { editId, newHtml } = e.data;
         skipIframeWriteRef.current = true;
         setCanvasHtml(prev => applyTextEdit(prev, editMapRef.current, editId, newHtml));
+      } else if (e.data?.type === 'image-edit') {
+        const { src, width, marginLeft, marginRight, textAlign } = e.data;
+        if (!src) return;
+        skipIframeWriteRef.current = true;
+        setCanvasHtml(prev => {
+          if (!prev) return prev;
+          // Find the img tag with this src and update its container styles
+          const escapedSrc = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          // Match the parent div/container that wraps the image
+          const containerRegex = new RegExp('(<(?:div|td)[^>]*style="[^"]*text-align:\\s*(?:left|center|right)[^"]*"[^>]*>\\s*<img[^>]*src="' + escapedSrc + '"[^>]*/?>)', 'i');
+          const simpleImgRegex = new RegExp('(<div[^>]*>\\s*)?(<img[^>]*src="' + escapedSrc + '"[^>]*/?>)(\\s*</div>)?', 'i');
+          const match = prev.match(simpleImgRegex);
+          if (match) {
+            const imgTag = match[2];
+            // Update width on the img tag
+            let newImg = imgTag;
+            if (width) {
+              newImg = newImg.replace(/style="[^"]*"/, (s) => {
+                let style = s.slice(7, -1);
+                style = style.replace(/width:\s*[^;]+;?/g, '');
+                style = 'width:' + width + ';' + style;
+                return 'style="' + style + '"';
+              });
+              // If no style attr, add one
+              if (!/style="/.test(newImg)) {
+                newImg = newImg.replace(/<img/, '<img style="width:' + width + ';height:auto;display:block;"');
+              }
+            }
+            // Wrap with alignment div
+            const alignStyle = textAlign ? 'text-align:' + textAlign + ';' : 'text-align:center;';
+            const mStyle = (marginLeft ? 'margin-left:' + marginLeft + ';' : '') + (marginRight ? 'margin-right:' + marginRight + ';' : '');
+            const wrapDiv = '<div style="' + alignStyle + 'margin:0 auto;max-width:600px;"><div style="display:inline-block;' + mStyle + 'width:' + (width || '100%') + ';max-width:100%;">' + newImg + '</div></div>';
+            return prev.replace(match[0], wrapDiv);
+          }
+          return prev;
+        });
       }
     }
     window.addEventListener('message', handleMessage);
@@ -1465,9 +1704,8 @@ function ToolTab({ config, activeTool, brandDna }) {
     // Capture files before clearing so we can replace placeholders later
     const filesSnapshot = [...uploadedFiles];
 
-    // Build the content — inject context on first message, files always
-    const isFirstMessage = messages.length === 0;
-    const contextStr = isFirstMessage ? buildContextString() : '';
+    // Build the content — inject context on every message so AI always has it
+    const contextStr = buildContextString();
     const fileContext = buildFileContext();
     const userContent = contextStr + fileContext + text.trim();
 
@@ -1557,10 +1795,9 @@ function ToolTab({ config, activeTool, brandDna }) {
         setCurrentQuestion({ text: parsed.text, options: parsed.options });
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.text }]);
       } else if (parsed?.type === 'cover_image') {
-        // Generate cover image and inject into newsletter
-        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-generating`, role: 'assistant', text: 'Generating your cover image...' }]);
+        // Legacy cover_image responses — generate and insert directly
         try {
-          const mktDefaultLogo = brandDna.logos?.find(l => l.isDefault) || brandDna.logos?.[0];
+          const mktDefaultLogo = brandDna?.logos?.find(l => l.isDefault) || brandDna?.logos?.[0];
           const brandData = brandDna ? {
             photoUrls: brandDna.photo_urls || [],
             logoUrl: mktDefaultLogo?.url || brandDna.logo_url || null,
@@ -1572,16 +1809,9 @@ function ToolTab({ config, activeTool, brandDna }) {
           if (result.image && allowedMime.includes(result.image.mimeType)) {
             const src = `data:${result.image.mimeType};base64,${result.image.data}`;
             setCanvasHtml((prev) => insertCoverImage(prev, src));
-            setChatMessages((prev) => [
-              ...prev.filter((m) => !m.id?.includes('-generating')),
-              { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: 'Cover image generated and added to your newsletter!' },
-            ]);
           }
         } catch (imgErr) {
-          setChatMessages((prev) => [
-            ...prev.filter((m) => !m.id?.includes('-generating')),
-            { id: `msg-${Date.now()}-err`, role: 'assistant', text: `Failed to generate cover image: ${imgErr.message}` },
-          ]);
+          console.error('Cover image gen failed:', imgErr.message);
         }
       } else if (parsed?.type === 'story_sequence') {
         // Initialize frames with loading state
@@ -1652,8 +1882,19 @@ function ToolTab({ config, activeTool, brandDna }) {
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || `Updated sections: ${sectionNames}` }]);
       } else if (parsed?.type === 'newsletter' || parsed?.type === 'html') {
         let finalHtml = replaceImagePlaceholders(parsed.html, filesSnapshot);
+
+        // If the agent included a cover_image_prompt, insert a placeholder at the top
+        // so the shimmer shows while the cover image generates
+        const hasCoverPrompt = parsed.cover_image_prompt && activeTool === 'newsletter';
+        if (hasCoverPrompt) {
+          finalHtml = insertCoverPlaceholder(finalHtml);
+        }
+
         setCanvasHtml(finalHtml);
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || config.readyText }]);
+
+        // Collect image generation promises — isGenerating stays true until all resolve
+        const imagePromises = [];
 
         // Generate AI images for {{GENERATE:...}} placeholders — each swaps in independently
         if (finalHtml.includes('{{GENERATE:')) {
@@ -1672,66 +1913,75 @@ function ToolTab({ config, activeTool, brandDna }) {
           const statusId = `msg-${Date.now()}-imgstatus`;
           setChatMessages((prev) => [...prev, { id: statusId, role: 'assistant', text: `Generating ${total} image${total > 1 ? 's' : ''}...`, isStatus: true }]);
 
-          genMatches.forEach((m) => {
-            (async () => {
-              let imgSrc = null;
-              try {
-                const result = await generateImage(m.prompt.trim(), 'newsletter', null);
-                if (result.image) {
-                  const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
-                  if (uploaded.url) imgSrc = uploaded.url;
-                }
-              } catch (err) {
-                console.error('Image gen failed:', err.message);
+          const inlinePromise = Promise.all(genMatches.map(async (m) => {
+            let imgSrc = null;
+            try {
+              const result = await generateImage(m.prompt.trim(), 'newsletter', null);
+              if (result.image) {
+                const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
+                if (uploaded.url) imgSrc = uploaded.url;
               }
+            } catch (err) {
+              console.error('Image gen failed:', err.message);
+            }
 
-              // Update progress
-              completed++;
-              if (!imgSrc) failed++;
-              const done = completed === total;
-              setChatMessages((prev) => prev.map((msg) =>
-                msg.id === statusId
-                  ? { ...msg, text: done
-                      ? (failed > 0
-                        ? `Generated ${total - failed}/${total} images (${failed} failed)`
-                        : `All ${total} image${total > 1 ? 's' : ''} generated`)
-                      : `Generating images... ${completed}/${total}${failed > 0 ? ` (${failed} failed)` : ''}`,
-                    isStatus: !done }
-                  : msg
-              ));
+            // Update progress
+            completed++;
+            if (!imgSrc) failed++;
+            const done = completed === total;
+            setChatMessages((prev) => prev.map((msg) =>
+              msg.id === statusId
+                ? { ...msg, text: done
+                    ? (failed > 0
+                      ? `Generated ${total - failed}/${total} images (${failed} failed)`
+                      : `All ${total} image${total > 1 ? 's' : ''} generated`)
+                    : `Generating images... ${completed}/${total}${failed > 0 ? ` (${failed} failed)` : ''}`,
+                  isStatus: !done }
+                : msg
+            ));
 
-              setCanvasHtml((prev) => {
-                const replacement = imgSrc || ERROR_IMG;
-                return prev.replaceAll(m.full, replacement);
-              });
-            })();
-          });
+            setCanvasHtml((prev) => {
+              const replacement = imgSrc || ERROR_IMG;
+              return prev.replaceAll(m.full, replacement);
+            });
+          }));
+          imagePromises.push(inlinePromise);
         }
 
-        // For newsletters, automatically ask about cover image generation
-        if (activeTool === 'newsletter') {
-          try {
-            const coverSuggestMsg = { role: 'user', content: 'Now suggest 4 creative cover image options for this newsletter.' };
-            const coverMessages = [...newMessages, assistantMsg, coverSuggestMsg];
-            let coverContent = '';
-            await streamFromBackend('/api/orchestrate', {
-              messages: coverMessages,
-              mode: 'direct',
-              agent: 'newsletter',
-              searchMode: false,
-            }, {
-              onAgentChunk: (_name, content) => { coverContent = content; },
-              onAgentResult: (_name, content) => { coverContent = content; },
-            }, abortRef.current.signal);
-            const coverParsed = tryParseAIResponse(coverContent);
-            if (coverParsed?.type === 'question') {
-              setMessages((prev) => [...prev, coverSuggestMsg, { role: 'assistant', content: coverContent }]);
-              setCurrentQuestion({ text: coverParsed.text, options: coverParsed.options });
-              setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-cover-q`, role: 'assistant', text: coverParsed.text }]);
+        // Generate cover image async — shimmer placeholder is already in the HTML
+        if (hasCoverPrompt) {
+          const coverPromise = (async () => {
+            try {
+              const mktDefaultLogo = brandDna?.logos?.find(l => l.isDefault) || brandDna?.logos?.[0];
+              const brandData = brandDna ? {
+                photoUrls: brandDna.photo_urls || [],
+                logoUrl: mktDefaultLogo?.url || brandDna.logo_url || null,
+                colors: brandDna.colors || {},
+                mainFont: brandDna.main_font || null,
+              } : null;
+              const result = await generateImage(parsed.cover_image_prompt.trim(), 'newsletter', brandData);
+              const allowedMime = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+              if (result.image && allowedMime.includes(result.image.mimeType)) {
+                const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
+                const imgSrc = uploaded?.url || `data:${result.image.mimeType};base64,${result.image.data}`;
+                setCanvasHtml((prev) => {
+                  const coverTag = `<div style="text-align:center;margin:0 auto;max-width:600px;"><img src="${imgSrc}" alt="Newsletter Cover" style="width:100%;height:auto;display:block;" /></div>`;
+                  return prev.replace(COVER_IMAGE_PLACEHOLDER, coverTag);
+                });
+              } else {
+                setCanvasHtml((prev) => prev.replace(COVER_IMAGE_PLACEHOLDER, ''));
+              }
+            } catch (err) {
+              console.error('Cover image gen failed:', err.message);
+              setCanvasHtml((prev) => prev.replace(COVER_IMAGE_PLACEHOLDER, ''));
             }
-          } catch {
-            // Cover image suggestion failed silently — not critical
-          }
+          })();
+          imagePromises.push(coverPromise);
+        }
+
+        // Wait for all image generation to complete before marking as done
+        if (imagePromises.length > 0) {
+          await Promise.allSettled(imagePromises);
         }
       } else {
         // Fallback — show raw text

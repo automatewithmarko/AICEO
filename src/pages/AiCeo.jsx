@@ -3,7 +3,8 @@ import { useOutletContext } from 'react-router-dom';
 import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { generateImage, uploadImageToStorage, streamFromBackend } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getSalesCalls, getContentItems, getProducts } from '../lib/api';
+import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
 import ArtifactPanel from '../components/ArtifactPanel';
 import './AiCeo.css';
@@ -31,37 +32,35 @@ function generateNewsletterImages(html, setArtifactFn, onProgress) {
 
   if (onProgress) onProgress({ completed: 0, failed: 0, total, done: false });
 
-  // Fire all in parallel — each one updates the artifact independently as it finishes
-  matches.forEach((m) => {
-    (async () => {
-      let imgSrc = null;
-      try {
-        const result = await generateImage(m.prompt.trim(), 'newsletter', null);
-        if (result.image) {
-          const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
-          if (uploaded.url) imgSrc = uploaded.url;
-        }
-      } catch (err) {
-        console.error('Image gen failed:', err.message);
+  // Fire all in parallel — returns a promise that resolves when ALL images are done
+  const promise = Promise.all(matches.map(async (m) => {
+    let imgSrc = null;
+    try {
+      const result = await generateImage(m.prompt.trim(), 'newsletter', null);
+      if (result.image) {
+        const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
+        if (uploaded.url) imgSrc = uploaded.url;
       }
+    } catch (err) {
+      console.error('Image gen failed:', err.message);
+    }
 
-      completed++;
-      if (!imgSrc) failed++;
-      if (onProgress) onProgress({ completed, failed, total, done: completed === total });
+    completed++;
+    if (!imgSrc) failed++;
+    if (onProgress) onProgress({ completed, failed, total, done: completed === total });
 
-      // Swap just the src value — keep the original <img> tag and all its styling intact
-      if (setArtifactFn) {
-        setArtifactFn(prev => {
-          if (!prev?.content) return prev;
-          const replacement = imgSrc || ERROR_IMG;
-          const updated = prev.content.replaceAll(m.full, replacement);
-          return { ...prev, content: updated };
-        });
-      }
-    })();
-  });
+    // Swap just the src value — keep the original <img> tag and all its styling intact
+    if (setArtifactFn) {
+      setArtifactFn(prev => {
+        if (!prev?.content) return prev;
+        const replacement = imgSrc || ERROR_IMG;
+        const updated = prev.content.replaceAll(m.full, replacement);
+        return { ...prev, content: updated };
+      });
+    }
+  }));
 
-  return { total };
+  return { total, promise };
 }
 
 // Merge section-based edits into existing HTML using section markers
@@ -108,6 +107,7 @@ export default function AiCeo() {
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
   const abortRef = useRef(null);
+  const pendingImagesRef = useRef([]);
   const splitRef = useRef(null);
   const isMobileRef = useRef(isMobile);
   const ctxMenuRef = useRef(null);
@@ -123,44 +123,57 @@ export default function AiCeo() {
     'Build a strategy to increase my conversion rate this month.',
   ];
 
-  const CEO_CONTEXT_CATEGORIES = [
-    {
-      id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png',
-      items: [
-        { id: 'nl-1', name: 'Weekly Growth Tips #42', date: 'Mar 3' },
-        { id: 'nl-2', name: 'Product Launch Announcement', date: 'Feb 24' },
-        { id: 'nl-3', name: 'Year-End Recap & Vision', date: 'Feb 10' },
-      ],
-    },
-    {
-      id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png',
-      items: [
-        { id: 'em-1', name: 'Re: Partnership Proposal', date: 'Mar 8', sub: 'client@example.com' },
-        { id: 'em-2', name: 'Invoice Follow-up', date: 'Mar 5', sub: 'billing@example.com' },
-      ],
-    },
-    {
-      id: 'calls', label: 'Calls', iconSrc: '/icon-call-recording.png',
-      items: [
-        { id: 'cl-1', name: 'Sales Discovery Call', date: 'Mar 7', sub: 'Sales Call' },
-        { id: 'cl-2', name: 'Client Onboarding', date: 'Mar 4', sub: 'Onboarding' },
-      ],
-    },
-    {
-      id: 'content', label: 'Content', iconSrc: '/icon-create-content.png',
-      items: [
-        { id: 'ct-1', name: '5 Tips for Scaling Your Biz', date: 'Mar 6', sub: 'Instagram' },
-        { id: 'ct-2', name: 'Behind the Scenes — My Morning', date: 'Mar 4', sub: 'YouTube' },
-      ],
-    },
-    {
-      id: 'products', label: 'Products', iconSrc: '/icon-products.png',
-      items: [
-        { id: 'pr-1', name: '1:1 Coaching Program', sub: 'Coaching · $500' },
-        { id: 'pr-2', name: 'Growth Masterclass', sub: 'Course · $197' },
-      ],
-    },
-  ];
+  const [ceoContextCategories, setCeoContextCategories] = useState([
+    { id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png', items: [] },
+    { id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png', items: [] },
+    { id: 'calls', label: 'Calls', iconSrc: '/icon-call-recording.png', items: [] },
+    { id: 'meetings', label: 'Meetings', iconSrc: '/icon-call-recording.png', items: [] },
+    { id: 'content', label: 'Content', iconSrc: '/icon-create-content.png', items: [] },
+    { id: 'products', label: 'Products', iconSrc: '/icon-products.png', items: [] },
+  ]);
+
+  // Fetch real context data from APIs
+  useEffect(() => {
+    let cancelled = false;
+    const fmt = (d) => { try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } };
+    Promise.all([
+      getTemplates('newsletter').catch(() => ({ templates: [] })),
+      getEmails({ limit: 20 }).catch(() => ({ emails: [] })),
+      getSalesCalls().catch(() => ({ calls: [] })),
+      getMeetings({ limit: 20 }).catch(() => ({ meetings: [] })),
+      getContentItems().catch(() => ({ items: [] })),
+      getProducts().catch(() => ({ products: [] })),
+    ]).then(([nlRes, emRes, clRes, mtRes, ctRes, prRes]) => {
+      if (cancelled) return;
+      setCeoContextCategories([
+        {
+          id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png',
+          items: (nlRes.templates || []).map((t) => ({ id: `nl-${t.id}`, name: t.name || t.description || 'Untitled', date: fmt(t.created_at) })),
+        },
+        {
+          id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png',
+          items: (emRes.emails || []).map((e) => ({ id: `em-${e.id}`, name: e.subject || '(no subject)', date: fmt(e.date), sub: e.from_name || e.from_email || '' })),
+        },
+        {
+          id: 'calls', label: 'Calls', iconSrc: '/icon-call-recording.png',
+          items: (clRes.calls || []).map((c) => ({ id: `cl-${c.id}`, name: c.title || c.name || 'Untitled Call', date: fmt(c.date || c.created_at), sub: c.call_type || c.callType || '' })),
+        },
+        {
+          id: 'meetings', label: 'Meetings', iconSrc: '/icon-call-recording.png',
+          items: (mtRes.meetings || []).map((m) => ({ id: `mt-${m.id}`, name: m.title || m.name || 'Untitled Meeting', date: fmt(m.started_at || m.created_at), sub: m.platform || '' })),
+        },
+        {
+          id: 'content', label: 'Content', iconSrc: '/icon-create-content.png',
+          items: (ctRes.items || []).map((c) => ({ id: `ct-${c.id}`, name: c.title || c.name || c.file_name || 'Untitled', date: fmt(c.created_at), sub: c.type || c.platform || '' })),
+        },
+        {
+          id: 'products', label: 'Products', iconSrc: '/icon-products.png',
+          items: (prRes.products || []).map((p) => ({ id: `pr-${p.id}`, name: p.name || 'Untitled Product', sub: `${p.type || p.product_type || ''} · $${p.price || 0}` })),
+        },
+      ]);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const toggleCtxItem = (id) => {
     setSelectedCtxItems((prev) => {
@@ -172,12 +185,20 @@ export default function AiCeo() {
 
   const getSelectedCtxDetails = () => {
     const all = [];
-    for (const cat of CEO_CONTEXT_CATEGORIES) {
+    for (const cat of ceoContextCategories) {
       for (const item of cat.items) {
-        if (selectedCtxItems.has(item.id)) all.push(item);
+        if (selectedCtxItems.has(item.id)) all.push({ ...item, catLabel: cat.label });
       }
     }
     return all;
+  };
+
+  // Build context string to inject into messages for the AI
+  const buildCeoContextString = () => {
+    const items = getSelectedCtxDetails();
+    if (items.length === 0) return '';
+    const parts = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? ` — ${i.date}` : ''}`);
+    return `[CONTEXT — The user has selected the following items for reference:\n${parts.join('\n')}\nPrioritize this context when responding. Use it to inform your suggestions, decisions, and any generated content.]\n\n`;
   };
 
   // Click outside context menu
@@ -299,10 +320,11 @@ export default function AiCeo() {
             }
             if (html.length > 50) {
               const isNewsletter = agentName === 'newsletter' || content.includes('"type":"newsletter"') || content.includes('"type": "newsletter"');
+              const streamTitle = isNewsletter ? 'Crafting your Newsletter...' : `Crafting your ${agentName === 'landing' ? 'Landing Page' : agentName === 'squeeze' ? 'Squeeze Page' : 'content'}...`;
               setArtifact(prev => ({
                 id: prev?.id || Date.now(),
                 type: isNewsletter ? 'newsletter' : 'html_template',
-                title: `${agentName} output`,
+                title: streamTitle,
                 content: html,
                 images: prev?.images || [],
                 agentSource: agentName,
@@ -310,7 +332,7 @@ export default function AiCeo() {
               setPanelOpen(true);
               if (isMobileRef.current) setMobileArtifactOpen(true);
               setMessages(prev => prev.map(m =>
-                m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: `${agentName} output`, artifactType: 'html_template' } : m
+                m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: streamTitle, artifactType: 'html_template' } : m
               ));
             }
           }
@@ -345,47 +367,39 @@ export default function AiCeo() {
             } else if (parsed.html || parsed.type === 'newsletter' || parsed.type === 'html') {
               const html = parsed.html;
               const isNewsletter = agentName === 'newsletter' || parsed.type === 'newsletter';
+              const hasImages = (html && html.includes('{{GENERATE:')) || (isNewsletter && parsed.cover_image_prompt);
+              const finalTitle = isNewsletter ? 'Crafting your Newsletter...' : `Crafting your ${agentName === 'landing' ? 'Landing Page' : agentName === 'squeeze' ? 'Squeeze Page' : 'content'}...`;
               setArtifact({
                 id: Date.now(),
                 type: isNewsletter ? 'newsletter' : 'html_template',
-                title: parsed.summary || `${agentName} output`,
+                title: hasImages ? finalTitle : (parsed.summary || finalTitle),
                 content: html,
                 images: [],
                 agentSource: agentName,
               });
               setPanelOpen(true);
               if (isMobileRef.current) setMobileArtifactOpen(true);
-              setMessages(prev => prev.map(m =>
-                m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: parsed.summary || `${agentName} output`, artifactType: 'html_template' } : m
-              ));
+
+              // If images need generating, don't show the artifact card yet — wait until done
+              if (hasImages) {
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantMsgId ? { ...m, content: 'Generating images for your newsletter...', status: 'Generating images...' } : m
+                ));
+              } else {
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: parsed.summary || finalTitle, artifactType: 'html_template' } : m
+                ));
+              }
 
               // Generate AI images for {{GENERATE:...}} placeholders
               if (html && html.includes('{{GENERATE:')) {
-                const imgStatusId = `msg-${Date.now()}-imgstatus`;
-                generateNewsletterImages(html, setArtifact, ({ completed, failed, total, done }) => {
-                  setMessages(prev => {
-                    const exists = prev.some(m => m.id === imgStatusId);
-                    const statusMsg = {
-                      id: imgStatusId,
-                      role: 'assistant',
-                      content: done
-                        ? (failed > 0
-                          ? `Generated ${total - failed}/${total} images (${failed} failed)`
-                          : `All ${total} image${total > 1 ? 's' : ''} generated`)
-                        : `Generating images... ${completed}/${total}${failed > 0 ? ` (${failed} failed)` : ''}`,
-                    };
-                    return exists
-                      ? prev.map(m => m.id === imgStatusId ? statusMsg : m)
-                      : [...prev, statusMsg];
-                  });
-                });
+                const imgResult = generateNewsletterImages(html, setArtifact, () => {});
+                if (imgResult?.promise) pendingImagesRef.current.push(imgResult.promise);
               }
 
-              // Generate cover image in parallel if the agent included a prompt
+              // Generate cover image silently — no separate message
               if (isNewsletter && parsed.cover_image_prompt) {
-                const coverMsgId = `msg-${Date.now()}-cover`;
-                setMessages(prev => [...prev, { id: coverMsgId, role: 'assistant', content: 'Generating cover image...' }]);
-                (async () => {
+                const coverPromise = (async () => {
                   try {
                     const imgResult = await generateImage(parsed.cover_image_prompt, 'newsletter', null);
                     if (imgResult.image) {
@@ -405,24 +419,25 @@ export default function AiCeo() {
                           }
                           return { ...prev, content: h };
                         });
-                        setMessages(prev => prev.map(m =>
-                          m.id === coverMsgId ? { ...m, content: 'Cover image added to your newsletter!' } : m
-                        ));
-                      } else {
-                        setMessages(prev => prev.map(m =>
-                          m.id === coverMsgId ? { ...m, content: 'Cover image generation returned no image — try regenerating.' } : m
-                        ));
                       }
-                    } else {
-                      setMessages(prev => prev.map(m =>
-                        m.id === coverMsgId ? { ...m, content: 'Cover image generation returned no image — try regenerating.' } : m
-                      ));
                     }
                   } catch (err) {
-                    setMessages(prev => prev.map(m =>
-                      m.id === coverMsgId ? { ...m, content: `Cover image failed: ${err.message}` } : m
-                    ));
+                    console.error('Cover image gen failed:', err.message);
                   }
+                })();
+                pendingImagesRef.current.push(coverPromise);
+              }
+
+              // After all images are done, mark the message as complete with the artifact card
+              if (hasImages) {
+                const allImagePromises = [...pendingImagesRef.current];
+                (async () => {
+                  await Promise.allSettled(allImagePromises);
+                  const doneTitle = parsed.summary || (isNewsletter ? 'Your Newsletter is ready' : `Your ${agentName === 'landing' ? 'Landing Page' : agentName === 'squeeze' ? 'Squeeze Page' : 'content'} is ready`);
+                  setArtifact(prev => prev ? { ...prev, title: doneTitle } : prev);
+                  setMessages(prev => prev.map(m =>
+                    m.id === assistantMsgId ? { ...m, content: doneTitle, status: null, hasArtifact: true, artifactTitle: doneTitle, artifactType: 'html_template' } : m
+                  ));
                 })();
               }
             }
@@ -585,6 +600,12 @@ export default function AiCeo() {
       }
     } finally {
       abortRef.current = null;
+      // Wait for any pending image generation before marking as complete
+      if (pendingImagesRef.current.length > 0) {
+        const pending = [...pendingImagesRef.current];
+        pendingImagesRef.current = [];
+        await Promise.allSettled(pending);
+      }
       setIsGenerating(false);
     }
   }, [researchMode]);
@@ -603,18 +624,22 @@ export default function AiCeo() {
     setCustomTyping(false);
     setCustomText('');
     shouldScrollRef.current = true;
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: answer.trim() };
+    const contextStr = buildCeoContextString();
+    const userContent = contextStr + answer.trim();
+    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: userContent };
     const updated = [...messages, userMsg];
     setMessages(updated);
     sendToAI(updated);
-  }, [isGenerating, messages, sendToAI]);
+  }, [isGenerating, messages, sendToAI, selectedCtxItems, ceoContextCategories]);
 
   const sendMessage = useCallback(() => {
     const text = input.trim();
     if (!text || isGenerating) return;
     setCurrentQuestion(null);
     shouldScrollRef.current = true;
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: text };
+    const contextStr = buildCeoContextString();
+    const userContent = contextStr + text;
+    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: userContent };
     const updated = [...messages, userMsg];
     setMessages(updated);
     setInput('');
@@ -622,16 +647,18 @@ export default function AiCeo() {
     const textarea = document.querySelector('.ceo-input-area--bottom .ceo-input');
     if (textarea) textarea.style.height = 'auto';
     sendToAI(updated);
-  }, [input, isGenerating, messages, sendToAI]);
+  }, [input, isGenerating, messages, sendToAI, selectedCtxItems, ceoContextCategories]);
 
   const handleStarter = useCallback((text) => {
     if (isGenerating) return;
     shouldScrollRef.current = true;
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: text };
+    const contextStr = buildCeoContextString();
+    const userContent = contextStr + text;
+    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: userContent };
     const updated = [userMsg];
     setMessages(updated);
     sendToAI(updated);
-  }, [isGenerating, sendToAI]);
+  }, [isGenerating, sendToAI, selectedCtxItems, ceoContextCategories]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -710,7 +737,7 @@ export default function AiCeo() {
                       {ctxMenuOpen && (
                         <div className="ceo-ctx-dropdown">
                           <div className="ceo-ctx-dropdown-header">Select Context</div>
-                          {CEO_CONTEXT_CATEGORIES.map((cat) => {
+                          {ceoContextCategories.map((cat) => {
                             const selectedCount = cat.items.filter((i) => selectedCtxItems.has(i.id)).length;
                             return (
                               <div
@@ -946,7 +973,7 @@ export default function AiCeo() {
                       {ctxMenuOpen && (
                         <div className="ceo-ctx-dropdown">
                           <div className="ceo-ctx-dropdown-header">Select Context</div>
-                          {CEO_CONTEXT_CATEGORIES.map((cat) => {
+                          {ceoContextCategories.map((cat) => {
                             const selectedCount = cat.items.filter((i) => selectedCtxItems.has(i.id)).length;
                             return (
                               <div

@@ -23,11 +23,11 @@ QUESTION FLOW:
 - Question 4: Primary CTA / goal
 - EXCEPTION: If the message says "The AI CEO has already asked the user all necessary questions" then skip questions and generate immediately with the provided context.
 
-COVER IMAGE — ALWAYS INCLUDE WITH NEWSLETTER:
-- When generating FORMAT 2, you MUST ALWAYS include a "cover_image_prompt" field in your JSON response alongside the newsletter HTML.
+COVER IMAGE — OPTIONAL:
+- You MAY include a "cover_image_prompt" field if the user asks for a cover image or if you think the newsletter would benefit from one.
 - Format: {"type":"newsletter","html":"<complete HTML>","summary":"Brief description","cover_image_prompt":"Detailed 150-250 word image generation prompt"}
-- The cover image will be generated in parallel while the newsletter renders.
-- Choose the cover image style yourself based on the newsletter topic and tone — no need to ask the user.
+- Do NOT include cover_image_prompt by default. Only include it when the user explicitly asks for a cover image.
+- If you include cover_image_prompt, do NOT also put a {{GENERATE:...}} hero image in the HTML — the cover image replaces it. Never generate two images for the same newsletter.
 
 === NEWSLETTER DESIGN RULES (from top creators) ===
 
@@ -140,15 +140,16 @@ LOGO (header only):
 ALL OTHER IMAGES — AI GENERATED:
 - Do NOT use the user's brand photos as content images.
 - For hero images or body illustrations, use: src="{{GENERATE:description}}"
-- Keep images minimal. Most top newsletters use 0-1 images. Don't overdo it.
+- Keep images minimal. Most top newsletters use 0-1 images total. Don't overdo it.
 - Authority/Hormozi style: NO images. Pure text.
 - Witty/Brew style: 1 hero image max.
 - Wisdom/Clear style: NO images.
 - Growth/Bloom style: 0-1 images.
 - Style images with: width="600" style="width:100%;height:auto;display:block;border-radius:8px;"
 - NEVER set a fixed height. Always height:auto.
+- NEVER use both cover_image_prompt AND {{GENERATE:...}} in the same newsletter. Pick one or neither.
 
-COVER IMAGE PROMPT RULES (for the cover_image_prompt field):
+COVER IMAGE PROMPT RULES (only when cover_image_prompt is included):
 When generating a cover image prompt, follow these rules exactly:
 - TEXT IS REQUIRED: Include a bold, catchy headline or hook text ON the image — this is the newsletter title that grabs attention. Large, clean sans-serif typography.
 - LOGO: Always mention placing the brand logo prominently in the design (corner, top-center, or integrated).

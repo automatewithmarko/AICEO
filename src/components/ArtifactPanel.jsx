@@ -507,11 +507,20 @@ const SHIMMER_CSS = '.gen-shimmer{width:100%;height:250px;background:#e2e2e2;bor
 const SHIMMER_PLACEHOLDER = '<div class="gen-shimmer"><span class="gen-shimmer-text">Generating</span></div>';
 
 function replaceGeneratePlaceholders(html) {
-  if (!html || !html.includes('{{GENERATE:')) return html;
-  // Replace full <img ... {{GENERATE:...}} ... > tags with shimmer div
-  let result = html.replace(/<img[^>]*\{\{GENERATE:[\s\S]*?\}\}[^>]*\/?>/gi, SHIMMER_PLACEHOLDER);
-  // Also replace any remaining bare {{GENERATE:...}} (e.g., in src attributes not caught above)
-  result = result.replace(/\{\{GENERATE:[\s\S]*?\}\}/g, SHIMMER_PLACEHOLDER);
+  if (!html) return html;
+  const hasGenerate = html.includes('{{GENERATE:');
+  const hasCoverPlaceholder = html.includes('{{COVER_IMAGE_PLACEHOLDER}}');
+  if (!hasGenerate && !hasCoverPlaceholder) return html;
+  let result = html;
+  if (hasGenerate) {
+    // Replace full <img ... {{GENERATE:...}} ... > tags with shimmer div
+    result = result.replace(/<img[^>]*\{\{GENERATE:[\s\S]*?\}\}[^>]*\/?>/gi, SHIMMER_PLACEHOLDER);
+    // Also replace any remaining bare {{GENERATE:...}}
+    result = result.replace(/\{\{GENERATE:[\s\S]*?\}\}/g, SHIMMER_PLACEHOLDER);
+  }
+  if (hasCoverPlaceholder) {
+    result = result.replace('{{COVER_IMAGE_PLACEHOLDER}}', `<div style="max-width:600px;margin:0 auto;">${SHIMMER_PLACEHOLDER}</div>`);
+  }
   return result;
 }
 
