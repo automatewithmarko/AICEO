@@ -369,14 +369,14 @@ export default function AiCeo() {
               const isNewsletter = agentName === 'newsletter' || parsed.type === 'newsletter';
               const hasImages = (html && html.includes('{{GENERATE:')) || (isNewsletter && parsed.cover_image_prompt);
               const finalTitle = isNewsletter ? 'Crafting your Newsletter...' : `Crafting your ${agentName === 'landing' ? 'Landing Page' : agentName === 'squeeze' ? 'Squeeze Page' : 'content'}...`;
-              setArtifact({
-                id: Date.now(),
+              setArtifact(prev => ({
+                id: prev?.id || Date.now(),
                 type: isNewsletter ? 'newsletter' : 'html_template',
                 title: hasImages ? finalTitle : (parsed.summary || finalTitle),
                 content: html,
                 images: [],
                 agentSource: agentName,
-              });
+              }));
               setPanelOpen(true);
               if (isMobileRef.current) setMobileArtifactOpen(true);
 
@@ -397,32 +397,62 @@ export default function AiCeo() {
                 if (imgResult?.promise) pendingImagesRef.current.push(imgResult.promise);
               }
 
-              // Generate cover image silently — no separate message
+              // Generate cover image — insert shimmer placeholder immediately, swap when done
               if (isNewsletter && parsed.cover_image_prompt) {
+                const COVER_PLACEHOLDER_ID = 'cover-img-placeholder';
+                const coverShimmer = `<div id="${COVER_PLACEHOLDER_ID}" style="width:100%;height:250px;background:#e2e2e2;border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;margin-bottom:16px"><style>#${COVER_PLACEHOLDER_ID}::before{content:'';position:absolute;width:300%;height:300%;top:-100%;left:-100%;background:linear-gradient(135deg,transparent 35%,rgba(255,255,255,0.5) 48%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 52%,transparent 65%);animation:genShimmer 2s linear infinite}@keyframes genShimmer{0%{transform:translate(-33%,-33%)}100%{transform:translate(33%,33%)}}</style><span style="color:#9e9e9e;font-size:13px;font-weight:600;font-family:Inter,system-ui,sans-serif;position:relative;z-index:1;letter-spacing:0.5px">Generating cover image</span></div>`;
+
+                // Insert shimmer into hero section right away
+                setArtifact(prev => {
+                  if (!prev?.content) return prev;
+                  let h = prev.content;
+                  const heroStart = h.indexOf('<!-- SECTION:hero -->');
+                  if (heroStart !== -1) {
+                    const tdMatch = h.indexOf('<td', heroStart);
+                    const tdEnd = tdMatch !== -1 ? h.indexOf('>', tdMatch) + 1 : -1;
+                    if (tdEnd > 0) {
+                      h = h.slice(0, tdEnd) + coverShimmer + h.slice(tdEnd);
+                    }
+                  }
+                  return { ...prev, content: h };
+                });
+
                 const coverPromise = (async () => {
                   try {
                     const imgResult = await generateImage(parsed.cover_image_prompt, 'newsletter', null);
                     if (imgResult.image) {
                       const uploaded = await uploadImageToStorage(imgResult.image.data, imgResult.image.mimeType);
                       if (uploaded.url) {
+                        const imgTag = `<img src="${uploaded.url}" alt="Newsletter Cover" style="width:100%;height:auto;display:block;border-radius:8px;margin-bottom:16px;" />`;
                         setArtifact(prev => {
                           if (!prev?.content) return prev;
-                          let h = prev.content;
-                          const heroStart = h.indexOf('<!-- SECTION:hero -->');
-                          if (heroStart !== -1) {
-                            const tdMatch = h.indexOf('<td', heroStart);
-                            const tdEnd = tdMatch !== -1 ? h.indexOf('>', tdMatch) + 1 : -1;
-                            if (tdEnd > 0) {
-                              const imgTag = `<img src="${uploaded.url}" alt="Newsletter Cover" style="width:100%;height:auto;display:block;border-radius:8px;margin-bottom:16px;" />`;
-                              h = h.slice(0, tdEnd) + imgTag + h.slice(tdEnd);
-                            }
-                          }
+                          // Replace the shimmer placeholder with the real image
+                          const placeholderRegex = new RegExp(`<div id="${COVER_PLACEHOLDER_ID}"[\\s\\S]*?<\\/div>`);
+                          const h = prev.content.replace(placeholderRegex, imgTag);
                           return { ...prev, content: h };
                         });
+                      } else {
+                        // Remove placeholder on failure
+                        setArtifact(prev => {
+                          if (!prev?.content) return prev;
+                          const placeholderRegex = new RegExp(`<div id="${COVER_PLACEHOLDER_ID}"[\\s\\S]*?<\\/div>`);
+                          return { ...prev, content: prev.content.replace(placeholderRegex, '') };
+                        });
                       }
+                    } else {
+                      setArtifact(prev => {
+                        if (!prev?.content) return prev;
+                        const placeholderRegex = new RegExp(`<div id="${COVER_PLACEHOLDER_ID}"[\\s\\S]*?<\\/div>`);
+                        return { ...prev, content: prev.content.replace(placeholderRegex, '') };
+                      });
                     }
                   } catch (err) {
                     console.error('Cover image gen failed:', err.message);
+                    setArtifact(prev => {
+                      if (!prev?.content) return prev;
+                      const placeholderRegex = new RegExp(`<div id="${COVER_PLACEHOLDER_ID}"[\\s\\S]*?<\\/div>`);
+                      return { ...prev, content: prev.content.replace(placeholderRegex, '') };
+                    });
                   }
                 })();
                 pendingImagesRef.current.push(coverPromise);

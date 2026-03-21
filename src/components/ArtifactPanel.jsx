@@ -503,8 +503,8 @@ function EmailRenderer({ content }) {
 // Shimmer CSS for image generation placeholders — injected into iframe <head> to survive DOMParser
 const SHIMMER_CSS = '.gen-shimmer{width:100%;height:250px;background:#e2e2e2;border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}.gen-shimmer::before{content:"";position:absolute;width:300%;height:300%;top:-100%;left:-100%;background:linear-gradient(135deg,transparent 35%,rgba(255,255,255,0.5) 48%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 52%,transparent 65%);animation:genShimmer 2s linear infinite}.gen-shimmer-text{color:#9e9e9e;font-size:13px;font-weight:600;font-family:Inter,system-ui,sans-serif;position:relative;z-index:1;letter-spacing:0.5px}@keyframes genShimmer{0%{transform:translate(-33%,-33%)}100%{transform:translate(33%,33%)}}';
 
-// Replace {{GENERATE:...}} placeholders with a shimmer div for display
-const SHIMMER_PLACEHOLDER = '<div class="gen-shimmer"><span class="gen-shimmer-text">Generating</span></div>';
+// Replace {{GENERATE:...}} placeholders with a shimmer div for display (self-contained with inline styles)
+const SHIMMER_PLACEHOLDER = `<div class="gen-shimmer" style="width:100%;height:250px;background:#e2e2e2;border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden"><style>.gen-shimmer::before{content:'';position:absolute;width:300%;height:300%;top:-100%;left:-100%;background:linear-gradient(135deg,transparent 35%,rgba(255,255,255,0.5) 48%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 52%,transparent 65%);animation:genShimmer 2s linear infinite}@keyframes genShimmer{0%{transform:translate(-33%,-33%)}100%{transform:translate(33%,33%)}}</style><span style="color:#9e9e9e;font-size:13px;font-weight:600;font-family:Inter,system-ui,sans-serif;position:relative;z-index:1;letter-spacing:0.5px">Generating</span></div>`;
 
 function replaceGeneratePlaceholders(html) {
   if (!html) return html;
@@ -540,7 +540,7 @@ function HtmlRenderer({ content, iframeRef, editMapRef, skipIframeWriteRef }) {
     if (!doc) return;
 
     if (content) {
-      const needsShimmer = content.includes('{{GENERATE:');
+      const needsShimmer = content.includes('{{GENERATE:') || content.includes('{{COVER_IMAGE_PLACEHOLDER}}');
       // Inject edit IDs for inline text editing
       let displayHtml = replaceGeneratePlaceholders(content);
       const { taggedHtml, editMap } = injectEditIds(displayHtml);
