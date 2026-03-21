@@ -768,16 +768,106 @@
   width: 100%;
   max-width: 660px;
   background: var(--bg-white);
-  border: 2px solid var(--border-light);
+  border: 2px solid transparent;
   border-radius: 24px;
   padding: 10px 14px 14px 22px;
   box-shadow: 0 4px 24px rgba(233, 26, 68, 0.08), var(--shadow-md);
   transition: border-color 0.2s, box-shadow 0.2s;
+  isolation: isolate;
+}
+
+/* ── SVG orbiting glow — constant perimeter speed via stroke-dashoffset ── */
+/* Each layer's dash is centered at position 0 on the path via offset = dashSize/2 */
+/* All animations change by exactly -1 (one full perimeter cycle) for identical speed */
+@keyframes orbitCore { from { stroke-dashoffset: 0.03; } to { stroke-dashoffset: -0.97; } }
+@keyframes orbitMid  { from { stroke-dashoffset: 0.06; } to { stroke-dashoffset: -0.94; } }
+@keyframes orbitEdge { from { stroke-dashoffset: 0.10; } to { stroke-dashoffset: -0.90; } }
+@keyframes orbitGlow { from { stroke-dashoffset: 0.11; } to { stroke-dashoffset: -0.89; } }
+
+.ceo-orbit-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: -1;
+  overflow: visible;
+}
+
+.ceo-orbit-svg rect {
+  fill: none;
+}
+
+/* Core — bright concentrated center of the glow */
+.ceo-orbit-core {
+  x: 0.75px;
+  y: 0.75px;
+  width: calc(100% - 1.5px);
+  height: calc(100% - 1.5px);
+  stroke: #e91a44;
+  stroke-width: 1.5;
+  stroke-dasharray: 0.06 0.94;
+  stroke-linecap: round;
+  animation: orbitCore 4s linear infinite;
+}
+
+/* Mid — medium opacity fadeoff around the core */
+.ceo-orbit-mid {
+  x: 0.75px;
+  y: 0.75px;
+  width: calc(100% - 1.5px);
+  height: calc(100% - 1.5px);
+  stroke: #e91a44;
+  stroke-width: 1.5;
+  stroke-opacity: 0.35;
+  stroke-dasharray: 0.12 0.88;
+  stroke-linecap: round;
+  animation: orbitMid 4s linear infinite;
+}
+
+/* Edge — faint outer rim for smooth trail */
+.ceo-orbit-edge {
+  x: 0.75px;
+  y: 0.75px;
+  width: calc(100% - 1.5px);
+  height: calc(100% - 1.5px);
+  stroke: #e91a44;
+  stroke-width: 1.5;
+  stroke-opacity: 0.12;
+  stroke-dasharray: 0.20 0.80;
+  stroke-linecap: round;
+  animation: orbitEdge 4s linear infinite;
+}
+
+/* Glow — soft blurred halo extending beyond the border */
+.ceo-orbit-glow {
+  x: -1px;
+  y: -1px;
+  width: calc(100% + 2px);
+  height: calc(100% + 2px);
+  stroke: #e91a44;
+  stroke-width: 4;
+  stroke-opacity: 0.35;
+  stroke-dasharray: 0.22 0.78;
+  stroke-linecap: round;
+  filter: blur(4px);
+  animation: orbitGlow 4s linear infinite;
+}
+
+/* Active chat state — restore static border */
+.ceo-input-area--bottom .ceo-input-wrapper {
+  border: 2px solid var(--border-light);
 }
 
 .ceo-input-wrapper:focus-within {
   border-color: var(--brand-red);
   box-shadow: 0 4px 32px rgba(233, 26, 68, 0.14), var(--shadow-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ceo-orbit-svg rect {
+    animation: none;
+  }
 }
 
 /* Top row — context + research + pills */

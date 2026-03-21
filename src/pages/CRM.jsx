@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { Search, Filter, ArrowUpDown, Plus, X, Phone, Mail, Building2, Calendar, Play, Download, ExternalLink, Send, Instagram, Linkedin, Trash2, RefreshCw, Loader2, CloudOff, AlertCircle, CheckCircle2, Upload, UserPlus, Check, Tag, ListPlus, FolderPlus, ChevronDown, FileText, Share2 } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { Search, Filter, ArrowUpDown, Plus, X, Phone, Mail, Building2, Calendar, Play, Download, ExternalLink, Send, Instagram, Linkedin, Trash2, RefreshCw, Loader2, CloudOff, AlertCircle, CheckCircle2, Upload, UserPlus, Check, Tag, ListPlus, FolderPlus, ChevronDown, FileText, Share2, Settings, GripVertical, Webhook, Copy, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getContacts, createContact, updateContact as updateContactApi, deleteContact as deleteContactApi, getContactDetail, syncContacts, syncContactToGHL } from '../lib/api';
 import './CRM.css';
@@ -18,14 +18,50 @@ const SOCIAL_PLATFORMS = [
   { key: 'x', label: 'X', Icon: XIcon, color: '#000000' },
 ];
 
-const STATUSES = ['New Lead', 'Contacted', 'Qualified', 'Proposal Sent'];
+const DEFAULT_STATUSES = ['New Lead', 'Contacted', 'Qualified', 'Proposal Sent'];
 
-const STATUS_COLORS = {
+const DEFAULT_STATUS_COLORS = {
   'New Lead': { bg: '#eff6ff', color: '#2563eb' },
   'Contacted': { bg: '#fefce8', color: '#ca8a04' },
   'Qualified': { bg: '#f0fdf4', color: '#16a34a' },
   'Proposal Sent': { bg: '#fdf4ff', color: '#9333ea' },
 };
+
+const STATUS_COLOR_PALETTE = [
+  { bg: '#fef2f2', color: '#dc2626' },
+  { bg: '#fff7ed', color: '#ea580c' },
+  { bg: '#ecfdf5', color: '#059669' },
+  { bg: '#f0f9ff', color: '#0284c7' },
+  { bg: '#faf5ff', color: '#7c3aed' },
+  { bg: '#fdf2f8', color: '#db2777' },
+  { bg: '#f7fee7', color: '#65a30d' },
+  { bg: '#fffbeb', color: '#d97706' },
+];
+
+const STATUSES_STORAGE_KEY = 'crm_lead_statuses';
+const STATUS_COLORS_STORAGE_KEY = 'crm_lead_status_colors';
+
+function loadSavedStatuses() {
+  try {
+    const raw = localStorage.getItem(STATUSES_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function loadSavedStatusColors() {
+  try {
+    const raw = localStorage.getItem(STATUS_COLORS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function saveStatuses(statuses) {
+  localStorage.setItem(STATUSES_STORAGE_KEY, JSON.stringify(statuses));
+}
+
+function saveStatusColors(colors) {
+  localStorage.setItem(STATUS_COLORS_STORAGE_KEY, JSON.stringify(colors));
+}
 
 const STORAGE_KEY = 'crm_custom_lists';
 
@@ -59,10 +95,20 @@ export default function CRM() {
   const [bulkMenu, setBulkMenu] = useState(null); // 'tag' | 'status' | 'addToList' | 'createList' | null
   const [bulkTagInput, setBulkTagInput] = useState('');
   const [bulkListName, setBulkListName] = useState('');
+  const [popupStatusOpen, setPopupStatusOpen] = useState(false);
+  const [popupTagInput, setPopupTagInput] = useState('');
+  const [popupTagAdding, setPopupTagAdding] = useState(false);
+  const popupStatusRef = useRef(null);
   const [addingContact, setAddingContact] = useState(false);
   const [newContact, setNewContact] = useState({ name: '', email: '', phone: '', business: '' });
   const [csvImporting, setCsvImporting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [showWebhookModal, setShowWebhookModal] = useState(false);
+  const [webhookExpandedAction, setWebhookExpandedAction] = useState(null);
+  const [webhookCopied, setWebhookCopied] = useState(null);
+  const [inlineStatusId, setInlineStatusId] = useState(null); // contact id with open inline status dropdown
+  const [inlineTagId, setInlineTagId] = useState(null); // contact id with open inline tag input
+  const [inlineTagInput, setInlineTagInput] = useState('');
   // List & filter state
   const [customLists, setCustomLists] = useState(loadSavedLists);
   const [showCreateList, setShowCreateList] = useState(false);
@@ -70,6 +116,25 @@ export default function CRM() {
   const [listContactSearch, setListContactSearch] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [activeFilters, setActiveFilters] = useState({ statuses: [], tags: [] });
+  // Lead status management
+  const [statuses, setStatuses] = useState(() => loadSavedStatuses() || DEFAULT_STATUSES);
+  const [savedStatusColors, setSavedStatusColors] = useState(() => loadSavedStatusColors() || {});
+  const [showStatusSettings, setShowStatusSettings] = useState(false);
+  const [statusInput, setStatusInput] = useState('');
+  const statusSettingsRef = useRef(null);
+
+  const statusColors = useMemo(() => {
+    const colors = { ...DEFAULT_STATUS_COLORS, ...savedStatusColors };
+    let paletteIdx = 0;
+    statuses.forEach((s) => {
+      if (!colors[s]) {
+        colors[s] = STATUS_COLOR_PALETTE[paletteIdx % STATUS_COLOR_PALETTE.length];
+        paletteIdx++;
+      }
+    });
+    return colors;
+  }, [statuses, savedStatusColors]);
+
   const pageRef = useRef(null);
   const saveTimerRef = useRef(null);
   const csvInputRef = useRef(null);
@@ -405,6 +470,67 @@ export default function CRM() {
     return () => document.removeEventListener('mousedown', handler);
   }, [bulkMenu]);
 
+  // Close popup status dropdown on outside click
+  useEffect(() => {
+    if (!popupStatusOpen) return;
+    const handler = (e) => {
+      if (popupStatusRef.current && !popupStatusRef.current.contains(e.target)) setPopupStatusOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [popupStatusOpen]);
+
+  // Close status settings on outside click
+  useEffect(() => {
+    if (!showStatusSettings) return;
+    const handler = (e) => {
+      if (statusSettingsRef.current && !statusSettingsRef.current.contains(e.target)) setShowStatusSettings(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showStatusSettings]);
+
+  // Close inline status dropdown on outside click
+  useEffect(() => {
+    if (!inlineStatusId) return;
+    const handler = (e) => {
+      if (!e.target.closest('.crm-inline-status-picker')) setInlineStatusId(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [inlineStatusId]);
+
+  const addStatus = (name) => {
+    const trimmed = name.trim();
+    if (!trimmed || statuses.includes(trimmed)) return;
+    const next = [...statuses, trimmed];
+    setStatuses(next);
+    saveStatuses(next);
+    setStatusInput('');
+  };
+
+  const removeStatus = (name) => {
+    if (statuses.length <= 1) return;
+    const next = statuses.filter(s => s !== name);
+    setStatuses(next);
+    saveStatuses(next);
+    // Move any contacts with this status to the first remaining status
+    contacts.forEach(c => {
+      if (c.status === name) {
+        updateLocalContact(c.id, prev => ({ ...prev, status: next[0] }));
+        updateContactApi(c.id, { status: next[0] }).catch(() => {});
+      }
+    });
+  };
+
+  const reorderStatus = (fromIdx, toIdx) => {
+    const next = [...statuses];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    setStatuses(next);
+    saveStatuses(next);
+  };
+
   const handleCreateList = () => {
     if (!listForm.name.trim()) return;
     const newList = {
@@ -496,7 +622,7 @@ export default function CRM() {
     setDetailLoading(false);
   }, []);
 
-  const closePopup = () => { setPopup(null); setDeleteConfirm({ open: false, input: '' }); };
+  const closePopup = () => { setPopup(null); setDeleteConfirm({ open: false, input: '' }); setPopupStatusOpen(false); setPopupTagAdding(false); setPopupTagInput(''); };
 
   const recordings = popupDetail.recordings || [];
   const emails = popupDetail.emails || [];
@@ -523,6 +649,7 @@ export default function CRM() {
             <thead>
               <tr>
                 <th>Contact Name</th><th>Phone</th><th>Email</th><th>Business Name</th><th>Created At</th><th>Lead Status</th><th>Tags</th>
+
               </tr>
             </thead>
             <tbody>
@@ -613,7 +740,7 @@ export default function CRM() {
               <div className="crm-modal-field">
                 <label className="crm-modal-label">Filter by Status</label>
                 <div className="crm-modal-checks">
-                  {STATUSES.map((s) => (
+                  {statuses.map((s) => (
                     <button
                       key={s}
                       className={`crm-modal-check-btn ${listForm.statuses.includes(s) ? 'crm-modal-check-btn--active' : ''}`}
@@ -623,7 +750,7 @@ export default function CRM() {
                       }))}
                     >
                       {listForm.statuses.includes(s) && <Check size={13} />}
-                      <span className="crm-status" style={{ background: STATUS_COLORS[s].bg, color: STATUS_COLORS[s].color }}>{s}</span>
+                      <span className="crm-status" style={{ background: statusColors[s].bg, color: statusColors[s].color }}>{s}</span>
                     </button>
                   ))}
                 </div>
@@ -727,6 +854,97 @@ export default function CRM() {
         </>
       )}
 
+      {/* Webhook Modal */}
+      {showWebhookModal && (() => {
+        const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+        const webhookUrl = `${apiBase}/api/contacts/webhook`;
+        const copyToClipboard = (text, key) => {
+          navigator.clipboard.writeText(text);
+          setWebhookCopied(key);
+          setTimeout(() => setWebhookCopied(null), 2000);
+        };
+        const actions = [
+          {
+            key: 'add',
+            title: 'Add A Contact',
+            desc: 'Automate adding contacts to your Puerly Personal AI CEO',
+            curl: `curl -X POST ${webhookUrl} \\\n  -H "Content-Type: application/json" \\\n  -d '{"action": "add", "name": "John Doe", "email": "john@example.com", "phone": "+1234567890", "business": "Acme Inc", "status": "New Lead"}'`,
+          },
+          {
+            key: 'delete',
+            title: 'Delete A Contact',
+            desc: 'Delete a contact from the AI CEO automatically',
+            curl: `curl -X POST ${webhookUrl} \\\n  -H "Content-Type: application/json" \\\n  -d '{"action": "delete", "email": "john@example.com"}'`,
+          },
+          {
+            key: 'update',
+            title: 'Update A Contact',
+            desc: 'Update the contact\'s phone, email, status and description',
+            curl: `curl -X POST ${webhookUrl} \\\n  -H "Content-Type: application/json" \\\n  -d '{"action": "update", "email": "john@example.com", "name": "John Updated", "phone": "+0987654321", "status": "Contacted", "notes": "Updated via webhook"}'`,
+          },
+          {
+            key: 'tag',
+            title: 'Add A Tag',
+            desc: 'Automatically add a tag to any contact in your AI CEO',
+            curl: `curl -X POST ${webhookUrl} \\\n  -H "Content-Type: application/json" \\\n  -d '{"action": "add_tag", "email": "john@example.com", "tag": "VIP"}'`,
+          },
+        ];
+        return (
+          <>
+            <div className="crm-modal-overlay" onClick={() => { setShowWebhookModal(false); setWebhookExpandedAction(null); }} />
+            <div className="crm-webhook-modal">
+              <button className="crm-modal-close" onClick={() => { setShowWebhookModal(false); setWebhookExpandedAction(null); }}>
+                <X size={18} />
+              </button>
+              <div className="crm-webhook-modal-header">
+                <Webhook size={20} />
+                <h2>Manage contacts with a webhook</h2>
+              </div>
+              <p className="crm-webhook-modal-desc">
+                If you need to add, update, or delete any contact, you can do so effortlessly and automatically using the webhook URL below.
+              </p>
+              <div className="crm-webhook-url-row">
+                <input className="crm-webhook-url-input" readOnly value={webhookUrl} />
+                <button className="crm-webhook-copy-btn" onClick={() => copyToClipboard(webhookUrl, 'url')}>
+                  {webhookCopied === 'url' ? <Check size={14} /> : <Copy size={14} />}
+                  {webhookCopied === 'url' ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <div className="crm-webhook-actions">
+                {actions.map((a, i) => (
+                  <div key={a.key} className="crm-webhook-action">
+                    <div className="crm-webhook-action-header">
+                      <div className="crm-webhook-action-info">
+                        <span className="crm-webhook-action-num">{i + 1}</span>
+                        <div>
+                          <div className="crm-webhook-action-title">{a.title}</div>
+                          <div className="crm-webhook-action-desc">{a.desc}</div>
+                        </div>
+                      </div>
+                      <div className="crm-webhook-action-btns">
+                        <button className="crm-webhook-action-copy" onClick={() => copyToClipboard(a.curl, a.key)} title="Copy cURL">
+                          {webhookCopied === a.key ? <Check size={13} /> : <Copy size={13} />}
+                        </button>
+                        <button
+                          className={`crm-webhook-action-expand ${webhookExpandedAction === a.key ? 'expanded' : ''}`}
+                          onClick={() => setWebhookExpandedAction(webhookExpandedAction === a.key ? null : a.key)}
+                          title="View cURL"
+                        >
+                          <ChevronRight size={14} />
+                        </button>
+                      </div>
+                    </div>
+                    {webhookExpandedAction === a.key && (
+                      <pre className="crm-webhook-curl">{a.curl}</pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
       {/* Add contact inline form */}
       {addingContact && (
         <div className="crm-add-bar">
@@ -766,14 +984,14 @@ export default function CRM() {
               <div className="crm-filter-dropdown">
                 <div className="crm-filter-section">
                   <span className="crm-filter-section-label">Status</span>
-                  {STATUSES.map((s) => (
+                  {statuses.map((s) => (
                     <button
                       key={s}
                       className={`crm-filter-option ${activeFilters.statuses.includes(s) ? 'crm-filter-option--active' : ''}`}
                       onClick={() => toggleFilterStatus(s)}
                     >
                       <span className="crm-filter-check">{activeFilters.statuses.includes(s) && <Check size={12} />}</span>
-                      <span className="crm-status" style={{ background: STATUS_COLORS[s].bg, color: STATUS_COLORS[s].color }}>{s}</span>
+                      <span className="crm-status" style={{ background: statusColors[s].bg, color: statusColors[s].color }}>{s}</span>
                     </button>
                   ))}
                 </div>
@@ -841,7 +1059,7 @@ export default function CRM() {
                 </button>
                 {bulkMenu === 'status' && (
                   <div className="crm-bulk-dropdown">
-                    {STATUSES.map(s => (
+                    {statuses.map(s => (
                       <button key={s} className="crm-bulk-dropdown-item" onClick={() => bulkChangeStatus(s)}>{s}</button>
                     ))}
                   </div>
@@ -915,6 +1133,9 @@ export default function CRM() {
                 <UserPlus size={15} />
                 <span className="crm-add-contact-label">Add Contact</span>
               </button>
+              <button className="crm-webhook-btn" onClick={() => setShowWebhookModal(true)} title="Webhook">
+                <Webhook size={15} />
+              </button>
             </>
           )}
         </div>
@@ -963,13 +1184,56 @@ export default function CRM() {
                 <th>Email</th>
                 <th>Business Name</th>
                 <th>Created At</th>
-                <th>Lead Status</th>
+                <th>
+                  <div className="crm-th-status" ref={statusSettingsRef}>
+                    Lead Status
+                    <button className="crm-th-settings-btn" onClick={() => setShowStatusSettings(prev => !prev)} title="Manage statuses">
+                      <Settings size={13} />
+                    </button>
+                    {showStatusSettings && (
+                      <div className="crm-status-settings">
+                        <div className="crm-status-settings-title">Manage Statuses</div>
+                        <div className="crm-status-settings-list">
+                          {statuses.map((s, idx) => (
+                            <div key={s} className="crm-status-settings-item">
+                              <span className="crm-status-settings-grip">
+                                {idx > 0 && (
+                                  <button className="crm-status-settings-move" onClick={() => reorderStatus(idx, idx - 1)} title="Move up">&#8593;</button>
+                                )}
+                                {idx < statuses.length - 1 && (
+                                  <button className="crm-status-settings-move" onClick={() => reorderStatus(idx, idx + 1)} title="Move down">&#8595;</button>
+                                )}
+                              </span>
+                              <span className="crm-status" style={{ background: (statusColors[s] || {}).bg, color: (statusColors[s] || {}).color }}>{s}</span>
+                              {statuses.length > 1 && (
+                                <button className="crm-status-settings-remove" onClick={() => removeStatus(s)} title="Remove status">
+                                  <X size={12} />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <form className="crm-status-settings-add" onSubmit={(e) => { e.preventDefault(); addStatus(statusInput); }}>
+                          <input
+                            className="crm-status-settings-input"
+                            placeholder="New status…"
+                            value={statusInput}
+                            onChange={(e) => setStatusInput(e.target.value)}
+                          />
+                          <button type="submit" className="crm-status-settings-add-btn" disabled={!statusInput.trim()}>
+                            <Plus size={14} />
+                          </button>
+                        </form>
+                      </div>
+                    )}
+                  </div>
+                </th>
                 <th>Tags</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((c) => {
-                const st = STATUS_COLORS[c.status] || { bg: '#f3f4f6', color: '#374151' };
+                const st = statusColors[c.status] || { bg: '#f3f4f6', color: '#374151' };
                 return (
                   <tr key={c.id} onClick={(e) => openContact(c, e)} className="crm-row-clickable">
                     <td className="crm-cell-check" onClick={(e) => e.stopPropagation()}>
@@ -1006,16 +1270,70 @@ export default function CRM() {
                     <td className="crm-cell-email">{c.email || '—'}</td>
                     <td>{c.business || '—'}</td>
                     <td className="crm-cell-date">{c.created}</td>
-                    <td>
-                      <span className="crm-status" style={{ background: st.bg, color: st.color }}>
-                        {c.status}
-                      </span>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div className="crm-inline-status-picker">
+                        <button
+                          className="crm-status crm-status--clickable"
+                          style={{ background: st.bg, color: st.color }}
+                          onClick={() => setInlineStatusId(inlineStatusId === c.id ? null : c.id)}
+                        >
+                          {c.status}
+                        </button>
+                        {inlineStatusId === c.id && (
+                          <div className="crm-status-dropdown crm-status-dropdown--table">
+                            {statuses.map(s => (
+                              <button
+                                key={s}
+                                className={`crm-status-option${s === c.status ? ' active' : ''}`}
+                                style={{ background: (statusColors[s] || {}).bg, color: (statusColors[s] || {}).color }}
+                                onClick={() => {
+                                  updateLocalContact(c.id, prev => ({ ...prev, status: s }));
+                                  debouncedSave(c.id, { status: s });
+                                  setInlineStatusId(null);
+                                }}
+                              >
+                                {s}
+                                {s === c.status && <Check size={12} style={{ marginLeft: 4 }} />}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </td>
-                    <td>
-                      <div className="crm-tags">
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div className="crm-tags crm-tags--inline">
                         {(c.tags || []).map((t) => (
                           <span key={t} className="crm-tag">{t}</span>
                         ))}
+                        {inlineTagId === c.id ? (
+                          <form
+                            className="crm-tag-add-form"
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              const val = inlineTagInput.trim();
+                              if (!val) return;
+                              if ((c.tags || []).includes(val)) { setInlineTagInput(''); return; }
+                              const newTags = [...(c.tags || []), val];
+                              updateLocalContact(c.id, prev => ({ ...prev, tags: newTags }));
+                              debouncedSave(c.id, { tags: newTags });
+                              setInlineTagInput('');
+                            }}
+                          >
+                            <input
+                              className="crm-tag-add-input"
+                              autoFocus
+                              placeholder="Tag…"
+                              value={inlineTagInput}
+                              onChange={(e) => setInlineTagInput(e.target.value)}
+                              onBlur={() => { setInlineTagId(null); setInlineTagInput(''); }}
+                              onKeyDown={(e) => { if (e.key === 'Escape') { setInlineTagId(null); setInlineTagInput(''); } }}
+                            />
+                          </form>
+                        ) : (
+                          <button className="crm-tag-add-btn crm-tag-add-btn--table" onClick={() => setInlineTagId(c.id)}>
+                            <Plus size={10} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1036,8 +1354,8 @@ export default function CRM() {
       {/* Kanban View */}
       {view === 'kanban' && (
         <div className="crm-kanban">
-          {STATUSES.map((status) => {
-            const st = STATUS_COLORS[status];
+          {statuses.map((status) => {
+            const st = statusColors[status];
             const cards = filtered.filter((c) => c.status === status);
             return (
               <div key={status} className="crm-kb-col">
@@ -1124,6 +1442,43 @@ export default function CRM() {
             {/* Contact info */}
             <div className="crm-popup-info">
               <h2 className="crm-popup-name">{popup.contact.name || popup.contact.email}</h2>
+              <div className="crm-popup-meta">
+                <div className="crm-status-picker" ref={popupStatusRef}>
+                  <button
+                    className="crm-status-pill-btn"
+                    style={{
+                      background: statusColors[popup.contact.status]?.bg,
+                      color: statusColors[popup.contact.status]?.color,
+                    }}
+                    onClick={() => setPopupStatusOpen(prev => !prev)}
+                  >
+                    {popup.contact.status}
+                    <ChevronDown size={12} style={{ marginLeft: 2, opacity: 0.7 }} />
+                  </button>
+                  {popupStatusOpen && (
+                    <div className="crm-status-dropdown">
+                      {statuses.map(s => (
+                        <button
+                          key={s}
+                          className={`crm-status-option${s === popup.contact.status ? ' active' : ''}`}
+                          style={{
+                            background: statusColors[s]?.bg,
+                            color: statusColors[s]?.color,
+                          }}
+                          onClick={() => {
+                            updateLocalContact(popup.contact.id, c => ({ ...c, status: s }));
+                            debouncedSave(popup.contact.id, { status: s });
+                            setPopupStatusOpen(false);
+                          }}
+                        >
+                          {s}
+                          {s === popup.contact.status && <Check size={12} style={{ marginLeft: 4 }} />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
               <div className="crm-popup-fields">
                 <div className="crm-popup-field">
                   <Phone size={14} className="crm-popup-field-icon" />
@@ -1142,99 +1497,130 @@ export default function CRM() {
                   <span>Created {popup.contact.created}</span>
                 </div>
               </div>
-              <div className="crm-popup-meta">
-                {/* Status dropdown */}
-                <select
-                  className="crm-status-select"
-                  value={popup.contact.status}
-                  style={{
-                    background: STATUS_COLORS[popup.contact.status]?.bg,
-                    color: STATUS_COLORS[popup.contact.status]?.color,
-                  }}
-                  onChange={(e) => {
-                    const newStatus = e.target.value;
-                    updateLocalContact(popup.contact.id, c => ({ ...c, status: newStatus }));
-                    debouncedSave(popup.contact.id, { status: newStatus });
-                  }}
-                >
-                  {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                {(popup.contact.tags || []).map((t) => (
-                  <span key={t} className="crm-tag">{t}</span>
-                ))}
+              {/* Tags section */}
+              <div className="crm-popup-tags-section">
+                <span className="crm-popup-section-label"><Tag size={11} style={{ marginRight: 4, verticalAlign: -1 }} />Tags</span>
+                <div className="crm-popup-tags-row">
+                  {(popup.contact.tags || []).map((t) => (
+                    <span key={t} className="crm-tag crm-tag--removable">
+                      {t}
+                      <button
+                        className="crm-tag-remove"
+                        onClick={() => {
+                          const newTags = (popup.contact.tags || []).filter(x => x !== t);
+                          updateLocalContact(popup.contact.id, c => ({ ...c, tags: newTags }));
+                          debouncedSave(popup.contact.id, { tags: newTags });
+                        }}
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                  {popupTagAdding ? (
+                    <form
+                      className="crm-tag-add-form"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const val = popupTagInput.trim();
+                        if (!val) return;
+                        if ((popup.contact.tags || []).includes(val)) { setPopupTagInput(''); return; }
+                        const newTags = [...(popup.contact.tags || []), val];
+                        updateLocalContact(popup.contact.id, c => ({ ...c, tags: newTags }));
+                        debouncedSave(popup.contact.id, { tags: newTags });
+                        setPopupTagInput('');
+                      }}
+                    >
+                      <input
+                        className="crm-tag-add-input"
+                        autoFocus
+                        placeholder="Tag name…"
+                        value={popupTagInput}
+                        onChange={(e) => setPopupTagInput(e.target.value)}
+                        onBlur={() => {
+                          if (!popupTagInput.trim()) { setPopupTagAdding(false); setPopupTagInput(''); }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') { setPopupTagAdding(false); setPopupTagInput(''); }
+                        }}
+                      />
+                    </form>
+                  ) : (
+                    <button className="crm-tag-add-btn" onClick={() => setPopupTagAdding(true)}>
+                      <Plus size={12} />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* GHL Sync Status */}
-              {(popup.contact.ghl_contact_id || popup.contact.ghl_sync_status === 'error' || popup.contact.ghl_sync_status === 'pending') && (
-                <div className="crm-popup-ghl-sync">
-                  {popup.contact.ghl_sync_status === 'synced' && (
-                    <span className="crm-ghl-status crm-ghl-status--synced">
-                      <CheckCircle2 size={14} />
-                      Synced with GoHighLevel
-                    </span>
-                  )}
-                  {popup.contact.ghl_sync_status === 'pending' && (
-                    <span className="crm-ghl-status crm-ghl-status--pending">
-                      <Loader2 size={14} className="crm-spin" />
-                      Syncing to GoHighLevel...
-                    </span>
-                  )}
-                  {popup.contact.ghl_sync_status === 'error' && (
-                    <div className="crm-ghl-error-row">
-                      <span className="crm-ghl-status crm-ghl-status--error">
-                        <AlertCircle size={14} />
-                        Sync error: {popup.contact.ghl_sync_error || 'Unknown'}
+              {(popup.contact.ghl_contact_id || popup.contact.ghl_raw_data || popup.contact.ghl_sync_status === 'error' || popup.contact.ghl_sync_status === 'pending') && (
+                <div className={`crm-ghl-badge${popup.contact.ghl_sync_status === 'error' ? ' crm-ghl-badge--error' : ''}`}>
+                  <img src="/gohighlevel_logoSquare.png" alt="GoHighLevel" className="crm-ghl-badge-logo" />
+                  <div className="crm-ghl-badge-content">
+                    {popup.contact.ghl_sync_status === 'synced' && (
+                      <span className="crm-ghl-badge-text">
+                        {popup.contact.ghl_raw_data ? 'Imported from GoHighLevel' : 'Synced to GoHighLevel'}
                       </span>
-                      <button
-                        className="crm-ghl-retry-btn"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          updateLocalContact(popup.contact.id, c => ({ ...c, ghl_sync_status: 'pending', ghl_sync_error: null }));
-                          try {
-                            const { contact: updated } = await syncContactToGHL(popup.contact.id);
-                            if (updated) updateLocalContact(popup.contact.id, () => ({
-                              ...popup.contact,
-                              ...updated,
-                              created: popup.contact.created,
-                            }));
-                          } catch (err) {
-                            updateLocalContact(popup.contact.id, c => ({ ...c, ghl_sync_status: 'error', ghl_sync_error: err.message }));
-                          }
-                        }}
-                      >
-                        <RefreshCw size={12} />
-                        Retry
-                      </button>
-                    </div>
-                  )}
-                  {popup.contact.ghl_sync_status === 'local_only' && (
-                    <div className="crm-ghl-error-row">
-                      <span className="crm-ghl-status crm-ghl-status--local">
-                        <CloudOff size={14} />
-                        Local only (not synced to GHL)
+                    )}
+                    {popup.contact.ghl_sync_status === 'pending' && (
+                      <span className="crm-ghl-badge-text crm-ghl-badge-text--pending">
+                        <Loader2 size={12} className="crm-spin" />
+                        Syncing to GoHighLevel...
                       </span>
-                      <button
-                        className="crm-ghl-retry-btn"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          updateLocalContact(popup.contact.id, c => ({ ...c, ghl_sync_status: 'pending' }));
-                          try {
-                            const { contact: updated } = await syncContactToGHL(popup.contact.id);
-                            if (updated) updateLocalContact(popup.contact.id, () => ({
-                              ...popup.contact,
-                              ...updated,
-                              created: popup.contact.created,
-                            }));
-                          } catch (err) {
-                            updateLocalContact(popup.contact.id, c => ({ ...c, ghl_sync_status: 'error', ghl_sync_error: err.message }));
-                          }
-                        }}
-                      >
-                        <RefreshCw size={12} />
-                        Sync to GHL
-                      </button>
-                    </div>
-                  )}
+                    )}
+                    {popup.contact.ghl_sync_status === 'error' && (
+                      <>
+                        <span className="crm-ghl-badge-text crm-ghl-badge-text--error">
+                          Sync failed: {popup.contact.ghl_sync_error || 'Unknown error'}
+                        </span>
+                        <button
+                          className="crm-ghl-retry-btn"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            updateLocalContact(popup.contact.id, c => ({ ...c, ghl_sync_status: 'pending', ghl_sync_error: null }));
+                            try {
+                              const { contact: updated } = await syncContactToGHL(popup.contact.id);
+                              if (updated) updateLocalContact(popup.contact.id, () => ({
+                                ...popup.contact,
+                                ...updated,
+                                created: popup.contact.created,
+                              }));
+                            } catch (err) {
+                              updateLocalContact(popup.contact.id, c => ({ ...c, ghl_sync_status: 'error', ghl_sync_error: err.message }));
+                            }
+                          }}
+                        >
+                          <RefreshCw size={12} />
+                          Retry
+                        </button>
+                      </>
+                    )}
+                    {popup.contact.ghl_sync_status === 'local_only' && (
+                      <>
+                        <span className="crm-ghl-badge-text crm-ghl-badge-text--local">Not synced</span>
+                        <button
+                          className="crm-ghl-retry-btn"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            updateLocalContact(popup.contact.id, c => ({ ...c, ghl_sync_status: 'pending' }));
+                            try {
+                              const { contact: updated } = await syncContactToGHL(popup.contact.id);
+                              if (updated) updateLocalContact(popup.contact.id, () => ({
+                                ...popup.contact,
+                                ...updated,
+                                created: popup.contact.created,
+                              }));
+                            } catch (err) {
+                              updateLocalContact(popup.contact.id, c => ({ ...c, ghl_sync_status: 'error', ghl_sync_error: err.message }));
+                            }
+                          }}
+                        >
+                          <RefreshCw size={12} />
+                          Sync now
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1320,16 +1706,41 @@ export default function CRM() {
               {/* Editable Notes */}
               <div className="crm-popup-notes">
                 <span className="crm-popup-section-label">Notes</span>
-                <textarea
-                  className="crm-popup-notes-textarea"
-                  value={popup.contact.notes || ''}
-                  onChange={(ev) => {
-                    const val = ev.target.value;
-                    updateLocalContact(popup.contact.id, (c) => ({ ...c, notes: val }));
-                    debouncedSave(popup.contact.id, { notes: val });
+                <div className="crm-notes-toolbar">
+                  <button
+                    className="crm-notes-toolbar-btn"
+                    title="Bold (Ctrl+B)"
+                    onMouseDown={(e) => { e.preventDefault(); document.execCommand('bold'); }}
+                  ><strong>B</strong></button>
+                  <button
+                    className="crm-notes-toolbar-btn"
+                    title="Italic (Ctrl+I)"
+                    onMouseDown={(e) => { e.preventDefault(); document.execCommand('italic'); }}
+                  ><em>I</em></button>
+                  <button
+                    className="crm-notes-toolbar-btn"
+                    title="Underline (Ctrl+U)"
+                    onMouseDown={(e) => { e.preventDefault(); document.execCommand('underline'); }}
+                  ><u>U</u></button>
+                </div>
+                <div
+                  className="crm-popup-notes-editor"
+                  contentEditable
+                  suppressContentEditableWarning
+                  dangerouslySetInnerHTML={{ __html: popup.contact.notes || '' }}
+                  onInput={(ev) => {
+                    const val = ev.currentTarget.innerHTML;
+                    const isEmpty = ev.currentTarget.textContent.trim() === '' && !ev.currentTarget.querySelector('img');
+                    updateLocalContact(popup.contact.id, (c) => ({ ...c, notes: isEmpty ? '' : val }));
+                    debouncedSave(popup.contact.id, { notes: isEmpty ? '' : val });
                   }}
-                  placeholder="Add notes about this contact..."
-                  rows={3}
+                  onKeyDown={(ev) => {
+                    if (ev.key === 'Enter' && !ev.shiftKey) {
+                      ev.preventDefault();
+                      document.execCommand('insertParagraph');
+                    }
+                  }}
+                  data-placeholder="Add notes about this contact..."
                 />
               </div>
             </div>

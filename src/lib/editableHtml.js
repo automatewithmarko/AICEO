@@ -6,6 +6,8 @@ const EDITABLE_TAGS = new Set(['H1','H2','H3','H4','H5','H6','P','LI','SPAN','BU
 
 // Elements that are structural / should NOT be editable even if they match tag names
 function shouldSkip(el) {
+  // Skip shimmer placeholder elements (used during image generation)
+  if (el.classList && (el.classList.contains('gen-shimmer') || el.classList.contains('gen-shimmer-text'))) return true;
   // Skip elements that only contain other elements (no direct text)
   const hasDirectText = Array.from(el.childNodes).some(n => n.nodeType === 3 && n.textContent.trim().length > 0);
   const hasEditableChildren = Array.from(el.children).some(c => EDITABLE_TAGS.has(c.tagName));

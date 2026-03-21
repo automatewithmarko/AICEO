@@ -500,17 +500,18 @@ function EmailRenderer({ content }) {
   );
 }
 
-// Replace {{GENERATE:...}} placeholders with a loading spinner for display
-const GENERATE_PLACEHOLDER_SVG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300" viewBox="0 0 600 300"><rect width="600" height="300" fill="#e2e2e2" rx="12"/><rect width="600" height="300" fill="#eaeaea" rx="12"><animate attributeName="opacity" values="0;0.8;0" dur="2s" repeatCount="indefinite"/></rect><text x="300" y="155" text-anchor="middle" fill="#9e9e9e" font-family="Inter,system-ui,sans-serif" font-size="13" font-weight="600" letter-spacing="0.5">Generating</text></svg>')}`;
+// Shimmer CSS for image generation placeholders — injected into iframe <head> to survive DOMParser
+const SHIMMER_CSS = '.gen-shimmer{width:100%;height:250px;background:#e2e2e2;border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}.gen-shimmer::before{content:"";position:absolute;width:300%;height:300%;top:-100%;left:-100%;background:linear-gradient(135deg,transparent 35%,rgba(255,255,255,0.5) 48%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 52%,transparent 65%);animation:genShimmer 2s linear infinite}.gen-shimmer-text{color:#9e9e9e;font-size:13px;font-weight:600;font-family:Inter,system-ui,sans-serif;position:relative;z-index:1;letter-spacing:0.5px}@keyframes genShimmer{0%{transform:translate(-33%,-33%)}100%{transform:translate(33%,33%)}}';
+
+// Replace {{GENERATE:...}} placeholders with a shimmer div for display
+const SHIMMER_PLACEHOLDER = '<div class="gen-shimmer"><span class="gen-shimmer-text">Generating</span></div>';
 
 function replaceGeneratePlaceholders(html) {
   if (!html || !html.includes('{{GENERATE:')) return html;
-  // Replace the entire <img> tag that contains {{GENERATE:...}} with a visible div placeholder
-  const placeholderDiv = '<div class="gen-shimmer"><span class="gen-shimmer-text">Generating</span></div><style>.gen-shimmer{width:100%;height:250px;background:#e2e2e2;border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}.gen-shimmer::before{content:"";position:absolute;width:300%;height:300%;top:-100%;left:-100%;background:linear-gradient(135deg,transparent 35%,rgba(255,255,255,0.5) 48%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 52%,transparent 65%);animation:genShimmer 2s linear infinite}.gen-shimmer-text{color:#9e9e9e;font-size:13px;font-weight:600;font-family:Inter,system-ui,sans-serif;position:relative;z-index:1;letter-spacing:0.5px}@keyframes genShimmer{0%{transform:translate(-33%,-33%)}100%{transform:translate(33%,33%)}}</style>';
-  // Replace full <img ... {{GENERATE:...}} ... > tags
-  let result = html.replace(/<img[^>]*\{\{GENERATE:[\s\S]*?\}\}[^>]*\/?>/gi, placeholderDiv);
+  // Replace full <img ... {{GENERATE:...}} ... > tags with shimmer div
+  let result = html.replace(/<img[^>]*\{\{GENERATE:[\s\S]*?\}\}[^>]*\/?>/gi, SHIMMER_PLACEHOLDER);
   // Also replace any remaining bare {{GENERATE:...}} (e.g., in src attributes not caught above)
-  result = result.replace(/\{\{GENERATE:[\s\S]*?\}\}/g, GENERATE_PLACEHOLDER_SVG);
+  result = result.replace(/\{\{GENERATE:[\s\S]*?\}\}/g, SHIMMER_PLACEHOLDER);
   return result;
 }
 
@@ -530,6 +531,7 @@ function HtmlRenderer({ content, iframeRef, editMapRef, skipIframeWriteRef }) {
     if (!doc) return;
 
     if (content) {
+      const needsShimmer = content.includes('{{GENERATE:');
       // Inject edit IDs for inline text editing
       let displayHtml = replaceGeneratePlaceholders(content);
       const { taggedHtml, editMap } = injectEditIds(displayHtml);
@@ -538,6 +540,13 @@ function HtmlRenderer({ content, iframeRef, editMapRef, skipIframeWriteRef }) {
       doc.open();
       doc.write(taggedHtml);
       doc.close();
+
+      // Inject shimmer animation CSS directly into iframe head (survives DOMParser processing)
+      if (needsShimmer) {
+        const shimmerStyle = doc.createElement('style');
+        shimmerStyle.textContent = SHIMMER_CSS;
+        doc.head.appendChild(shimmerStyle);
+      }
 
       // Inject CTA link editor script
       const script = doc.createElement('script');

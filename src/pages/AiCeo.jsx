@@ -696,6 +696,12 @@ export default function AiCeo() {
               <div className="ceo-input-area">
                 <div className="ceo-input-glow" />
                 <div className="ceo-input-wrapper">
+                  <svg className="ceo-orbit-svg" aria-hidden="true">
+                    <rect className="ceo-orbit-glow" rx="25" ry="25" pathLength="1" />
+                    <rect className="ceo-orbit-edge" rx="23" ry="23" pathLength="1" />
+                    <rect className="ceo-orbit-mid" rx="23" ry="23" pathLength="1" />
+                    <rect className="ceo-orbit-core" rx="23" ry="23" pathLength="1" />
+                  </svg>
                   <div className="ceo-input-top-row">
                     <div className="ceo-ctx-anchor" ref={ctxMenuRef}>
                       <button className="ceo-ctx-trigger" onClick={() => { setCtxMenuOpen((v) => !v); setHoveredCat(null); }}>
