@@ -402,13 +402,20 @@ export default function AiCeo() {
                 const COVER_PLACEHOLDER_ID = 'cover-img-placeholder';
                 const coverShimmer = `<div id="${COVER_PLACEHOLDER_ID}" style="width:100%;height:250px;background:#e2e2e2;border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;margin-bottom:16px"><style>#${COVER_PLACEHOLDER_ID}::before{content:'';position:absolute;width:300%;height:300%;top:-100%;left:-100%;background:linear-gradient(135deg,transparent 35%,rgba(255,255,255,0.5) 48%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 52%,transparent 65%);animation:genShimmer 2s linear infinite}@keyframes genShimmer{0%{transform:translate(-33%,-33%)}100%{transform:translate(33%,33%)}}</style><span style="color:#9e9e9e;font-size:13px;font-weight:600;font-family:Inter,system-ui,sans-serif;position:relative;z-index:1;letter-spacing:0.5px">Generating cover image</span></div>`;
 
-                // Insert shimmer into hero section right away
+                // Insert shimmer into hero section — strip any existing images first to prevent duplicates
                 setArtifact(prev => {
                   if (!prev?.content) return prev;
                   let h = prev.content;
                   const heroStart = h.indexOf('<!-- SECTION:hero -->');
-                  if (heroStart !== -1) {
-                    const tdMatch = h.indexOf('<td', heroStart);
+                  const heroEnd = h.indexOf('<!-- /SECTION:hero -->');
+                  if (heroStart !== -1 && heroEnd !== -1) {
+                    // Remove any existing <img> tags in the hero section
+                    const heroContent = h.slice(heroStart, heroEnd);
+                    const cleanedHero = heroContent.replace(/<img[^>]*>/gi, '');
+                    h = h.slice(0, heroStart) + cleanedHero + h.slice(heroEnd);
+                    // Re-find positions after cleanup
+                    const newHeroStart = h.indexOf('<!-- SECTION:hero -->');
+                    const tdMatch = h.indexOf('<td', newHeroStart);
                     const tdEnd = tdMatch !== -1 ? h.indexOf('>', tdMatch) + 1 : -1;
                     if (tdEnd > 0) {
                       h = h.slice(0, tdEnd) + coverShimmer + h.slice(tdEnd);
