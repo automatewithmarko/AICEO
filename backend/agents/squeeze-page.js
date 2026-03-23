@@ -51,9 +51,17 @@ HTML REQUIREMENTS:
 - Modern CSS (inline or single <style> block) — no external stylesheets, no <script> tags
 - Visually striking and focused: minimal distractions, one clear action
 - Max-width 600px centered — squeeze pages are narrow and focused
-- Compelling copy: curiosity-driven headline, benefit-focused bullets, action-oriented CTA
 - Mobile-responsive
 - No emoji — use CSS icons or inline SVG
+
+COPYWRITING RULES (Daniel Paul Framework):
+- Headline: result-first and specific. "From [X] to [Y] in [timeframe]" or name the pain directly. Never vague.
+- Benefit bullets: each one must include a specific number or outcome. "Learn 5 post formats that generate inbound leads" not "Learn how to post better."
+- One sentence per bullet. No fluff.
+- CTA: invitation framing. "Get My Free Guide" or "Send Me the Checklist" — not "Submit" or "Sign Up".
+- NEVER use: "leverage", "synergy", "utilize", "paradigm", passive voice, em dashes (—).
+- Real people, real numbers, real situations. Vague claims kill trust instantly.
+- Invite, never sell. Frame as an experience or next step, not a transaction.
 
 IMPORTANT:
 - NEVER wrap response in markdown code fences

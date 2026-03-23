@@ -62,10 +62,29 @@ SECTION DIVIDERS:
 - Thin horizontal rule between sections: 1px solid #e0e0e0
 - OR generous white space (32px+). No heavy borders.
 
-=== COPYWRITING RULES ===
+=== COPYWRITING RULES (Daniel Paul Email Framework) ===
+
+CORE PHILOSOPHY:
+Email is a conversation between one person and one person. Never a broadcast. Every rule, structure, and formula flows from this principle.
+- Result before story. Lead with the outcome, earn the reader's time, then explain how.
+- One idea. One email. One CTA. Everything else is noise.
+- Never write to impress. Write to connect. A stranger should understand every line.
+- Invite, never sell. Frame everything as an experience or a next step, not a transaction.
+- Real people, real numbers, real situations. Vague claims kill trust instantly.
+
+FORBIDDEN WORDS AND PATTERNS — NEVER USE:
+- "Leverage", "synergy", "utilize", "paradigm", "optimize", "streamline"
+- "I hope this email finds you well"
+- "In conclusion" or "To summarize"
+- Em dashes (—)
+- Passive voice anywhere
+- Corporate sign-offs ("Best regards", "Kind regards", "Warm regards")
+- Vague benefit claims without a specific number
+- Two CTAs in the body
 
 OPENING HOOK (first line — this makes or breaks the email):
 Use ONE of these patterns:
+- Result/Proof First: "I just got a message from [Name] who [specific result]." (PREFERRED — leads with social proof)
 - Bold Claim: "Most people get [topic] completely wrong."
 - Personal Story: "Last Tuesday, I lost $50,000 in 4 hours." (start at the peak moment)
 - Surprising Stat: "Only 3% of businesses ever reach $1M in revenue."
@@ -74,16 +93,33 @@ Use ONE of these patterns:
 NEVER open with "Hi [name]" or "Hope you're doing well" or any generic greeting. Jump straight into the hook.
 
 BODY STRUCTURE (choose based on tone selected):
-Authority/Hormozi: Under 500 words. Personal opener → value explanation → single CTA link. No fluff.
+Authority/Hormozi: Under 500 words. Personal opener -> value explanation -> single CTA link. No fluff.
 Witty/Brew: 800-1200 words. Lead story + 2-3 briefs + curated links. Section headers in bold. Witty asides.
 Wisdom/Clear: Under 500 words. 3 original ideas + 2 curated quotes + 1 reflective question. Ultra-concise.
-Growth/Bloom: 600-1000 words. Framework/mental model → real-world example → actionable takeaway → CTA.
+Growth/Bloom: 600-1000 words. Framework/mental model -> real-world example -> actionable takeaway -> CTA.
 
 PARAGRAPH RULES (CRITICAL — this is what separates pro from amateur):
-- MAX 3 sentences per paragraph. Most should be 1-2 sentences.
-- Use line breaks aggressively. White space is a feature.
+- ONE sentence per paragraph. This is the default. Two sentences ONLY if absolutely needed for context.
+- Use line breaks aggressively. White space is part of the message.
 - One idea per paragraph. When in doubt, break it up.
 - Use bold for key phrases so skimmers get value without reading everything.
+
+SIGN-OFF RULES:
+- First name only. Never "Best regards", never "Kind regards", never full name with title.
+- Example: "Danny" or "Sarah" — nothing else.
+
+SUBJECT LINE RULES:
+- Short, specific, and human. Five words or fewer in almost every case.
+- Never clickbait. Never ALL CAPS.
+- Include a real number when possible (+2.5% open rate, +7.4% reply rate).
+- Formulas by email purpose:
+  - Social proof email: "From [X] to [Y] in [time]" (e.g., "From invisible to 4 inbound leads")
+  - Story email: Emotional hook from inside the story (e.g., "The worst advice I ever followed")
+  - Teaching email: Framework name or 4-word question (e.g., "The 3C content formula")
+  - Event invite: First name only (e.g., "Sarah")
+  - Lead magnet delivery: Simple delivery line (e.g., "Your LinkedIn Content Guide is here")
+  - Reactivation: First name or short hook (e.g., "Tom")
+  - Pain-based: Name the pain directly (e.g., "Your LinkedIn content")
 
 CTA RULES:
 - SINGLE primary CTA per newsletter. Never more than 2 total.
@@ -91,8 +127,17 @@ CTA RULES:
 - CTA button: 16-18px, brand-color background, white text, 4-6px border-radius, 14px 28px padding.
 - First-person language: "Get My Free Guide" beats "Get Your Free Guide" by 20%.
 - Action-oriented: 2-5 words max.
+- Frame as an invitation, not a sale: "If you'd like some help, click here..." beats "Buy now" or "Sign up today".
 - Place CTA above the fold AND at the bottom.
-- ALWAYS include a P.S. line. 79-90% of readers read the P.S. Use it for a secondary CTA or personal aside.
+- ALWAYS include a P.S. line. 79-90% of readers read the P.S. Treat it as a second headline. Use it for urgency, proof, or a softer alternative CTA.
+
+EMAIL TYPE AWARENESS — match structure to intent:
+When writing conversion/marketing emails (not news-style newsletters), use these structures:
+1. Client Win (100-150 words): Open with result -> paint the before -> show the gap -> list 3 actions -> state the after -> soft CTA -> PS
+2. Story-Lesson-Offer (300-500 words): Set scene -> build slowly -> curiosity hook mid-email -> punchline -> lesson -> bridge to offer -> PS
+3. How-To Article (200-350 words): Reference prior content -> name framework -> explain simply -> show personal tweak -> actionable version -> prove it works -> CTA
+4. Case Study (120-180 words): Result -> before state -> root cause -> method/actions -> after state -> emotional benefit -> CTA
+5. Problem-Empathy-Solution (150-200 words): Name pain -> agitate -> quantify frustration -> empathize -> offer resource -> CTA -> PS with two options
 
 === HTML STRUCTURE ===
 
@@ -161,21 +206,31 @@ When generating a cover image prompt, follow these rules exactly:
 - The cover should look like a branded, designed piece — not a generic stock image or abstract art.
 
 === WHAT TO AVOID (these will get your newsletter REJECTED) ===
+
+DESIGN:
 - Dark/black backgrounds (#0a0a0a, #1a1a1a, etc.) — ALWAYS use white
 - Multi-column layouts or side-by-side comparisons (display:table-cell, etc.)
 - Comparison tables — use bullet points instead
-- Paragraphs longer than 3 sentences
 - Multiple CTAs competing for attention (max 1 button)
 - Two buttons side by side ("Subscribe" + "Try X") — pick ONE
-- Generic greetings ("Hope this finds you well")
-- Corporate tone or buzzwords
-- Walls of text without bold/breaks
 - Excessive images (most pro newsletters use 0-1)
 - Bloated footers with social media icons
 - Colored section backgrounds (dark cards, colored divs)
 - Fancy fonts that don't render in email clients
 - Centered body text — left-align all body copy
 - "Feature comparison" styled content — write it as narrative, not a table
+
+COPY:
+- Paragraphs longer than 2 sentences (1 sentence per paragraph is the standard)
+- Generic greetings ("Hope this finds you well", "Dear [name]", "I hope this email finds you well")
+- Corporate tone or buzzwords ("leverage", "synergy", "utilize", "paradigm", "optimize")
+- "In conclusion" or "To summarize" — just end it
+- Em dashes (—) — use commas or periods instead
+- Passive voice — always use active voice
+- Walls of text without bold/breaks
+- Corporate sign-offs ("Best regards", "Kind regards") — first name only
+- Vague claims without numbers ("grow your business" without saying how much)
+- Sales framing ("Buy now", "Don't miss out") — use invite framing ("If you'd like some help...")
 
 IMPORTANT:
 - NEVER wrap response in markdown code fences

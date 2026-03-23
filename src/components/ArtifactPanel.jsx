@@ -483,19 +483,28 @@ function EmailRenderer({ content }) {
   const email = parseEmailContent(content);
   return (
     <div className="ap-email">
-      <div className="ap-email-field">
-        <label>To</label>
-        <span>{email.to || '(no recipient specified)'}</span>
+      {(email.to || email.subject) && (
+        <div className="ap-email-header">
+          {email.to && (
+            <div className="ap-email-field">
+              <label>To</label>
+              <span>{email.to}</span>
+            </div>
+          )}
+          {email.subject && (
+            <div className="ap-email-field">
+              <label>Subject</label>
+              <span className="ap-email-subject">{email.subject}</span>
+            </div>
+          )}
+        </div>
+      )}
+      <div className="ap-email-canvas">
+        <div className="ap-email-body" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(email.body_html, {
+          ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'span', 'div', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'img', 'hr', 'b', 'i', 'u', 'blockquote'],
+          ALLOWED_ATTR: ['href', 'src', 'alt', 'style', 'class', 'width', 'height', 'target', 'rel'],
+        }) }} />
       </div>
-      <div className="ap-email-field">
-        <label>Subject</label>
-        <span>{email.subject || '(no subject)'}</span>
-      </div>
-      <div className="ap-email-divider" />
-      <div className="ap-email-body" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(email.body_html, {
-        ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'span', 'div', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'img', 'hr', 'b', 'i', 'u'],
-        ALLOWED_ATTR: ['href', 'src', 'alt', 'style', 'class', 'width', 'height', 'target', 'rel'],
-      }) }} />
     </div>
   );
 }

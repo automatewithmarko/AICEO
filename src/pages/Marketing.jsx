@@ -1186,6 +1186,7 @@ function ToolTab({ config, activeTool, brandDna }) {
       doc.close();
 
       // Inject shimmer animation CSS directly into iframe head (survives DOMParser processing)
+      const needsShimmer = displayHtml.includes('gen-shimmer');
       if (needsShimmer) {
         const shimmerCss = '.gen-shimmer{width:100%;height:250px;background:#e2e2e2;border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}.gen-shimmer::before{content:"";position:absolute;width:300%;height:300%;top:-100%;left:-100%;background:linear-gradient(135deg,transparent 35%,rgba(255,255,255,0.5) 48%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 52%,transparent 65%);animation:genShimmer 2s linear infinite}.gen-shimmer-text{color:#9e9e9e;font-size:13px;font-weight:600;font-family:Inter,system-ui,sans-serif;position:relative;z-index:1;letter-spacing:0.5px}@keyframes genShimmer{0%{transform:translate(-33%,-33%)}100%{transform:translate(33%,33%)}}';
         const shimmerStyle = doc.createElement('style');
@@ -1838,7 +1839,9 @@ function ToolTab({ config, activeTool, brandDna }) {
 
         for (let idx = 0; idx < frames.length; idx++) {
           const frame = frames[idx];
-          const sequencePrompt = `${visualStyle ? `VISUAL STYLE FOR THIS SERIES: ${visualStyle}\n\n` : ''}This is frame ${idx + 1} of ${frames.length} in a cohesive Instagram Story sequence. ${idx > 0 ? 'CRITICAL: Match the EXACT same visual style, color palette, typography, and art direction as the previous frame shown in the attached reference image. The viewer should feel like they are swiping through ONE continuous story.' : 'This is the FIRST frame — establish the visual style that all subsequent frames will match.'}\n\n${frame.image_prompt}`;
+          const captionText = frame.caption || frame.title || '';
+          const captionInstruction = captionText ? `\n\nTEXT OVERLAY (MUST BE IDENTICAL STYLE ON EVERY FRAME):\nOverlaid on the photo is one solid opaque #FFFFFF white rounded-rectangle pill (8px corner radius, no shadow, no border, no gradient, no transparency). Inside: "${captionText}" in #000000 black, SF Pro Display / Helvetica Neue, regular weight 400, NOT bold. The pill is only as wide as the text + 16px horizontal padding + 8px vertical padding. Centered horizontally, positioned in the upper third. It floats on top of the photo as a separate flat UI sticker — exactly like Instagram's built-in "Classic" text tool. DO NOT deviate from this exact style on any frame.` : '';
+          const sequencePrompt = `${visualStyle ? `VISUAL STYLE FOR THIS SERIES: ${visualStyle}\n\n` : ''}This is frame ${idx + 1} of ${frames.length} in a cohesive Instagram Story sequence. ${idx > 0 ? 'CRITICAL: Match the EXACT same visual style, color palette, typography, and art direction as the previous frame shown in the attached reference image. The viewer should feel like they are swiping through ONE continuous story.' : 'This is the FIRST frame — establish the visual style that all subsequent frames will match.'}\n\n${frame.image_prompt}${captionInstruction}`;
 
           try {
             // Pass previous frame image as reference for continuity

@@ -16,7 +16,13 @@ export function parseEmailContent(content) {
       body_html: parsed.body_html || parsed.body || '',
     };
   } catch {
-    const escaped = content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return { to: '', subject: '', body_html: `<pre style="white-space:pre-wrap">${escaped}</pre>` };
+    // Plain text email: convert line breaks to paragraphs for proper rendering
+    const lines = content.split(/\n\n+/);
+    const html = lines.map(block => {
+      const escaped = block.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      // Preserve single line breaks within blocks
+      return `<p>${escaped.replace(/\n/g, '<br>')}</p>`;
+    }).join('');
+    return { to: '', subject: '', body_html: html };
   }
 }

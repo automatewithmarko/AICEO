@@ -32,7 +32,9 @@ RULES FOR STORY SEQUENCES:
 CRITICAL — VISUAL CONTINUITY ACROSS FRAMES:
 Your response MUST include a top-level "visual_style" field that defines the shared visual identity for ALL frames. This ensures the entire sequence looks like one cohesive story, not random unrelated images.
 
-visual_style example: "Photorealistic cinematic style, moody warm lighting, shallow depth of field, dark rich backgrounds, person in sharp focus, Instagram-native white text blocks with black sans-serif text overlaid on the scene, brand colors #1a1a2e and #E91A44 as accent highlights"
+visual_style example: "Photorealistic cinematic style, moody warm lighting, shallow depth of field, dark rich backgrounds, person in sharp focus, brand colors #1a1a2e and #E91A44 as accent highlights in clothing/props/lighting"
+
+NOTE: Do NOT mention text overlays, captions, or stickers in the visual_style. The visual_style is about the PHOTO STYLE ONLY. Text is handled separately by the system.
 
 IMAGE PROMPT RULES — READ EVERY WORD:
 
@@ -41,17 +43,14 @@ IMAGE PROMPT RULES — READ EVERY WORD:
 2. PHOTOREALISTIC ONLY: Generate real photographic images. NO illustrations, NO SVG, NO flat design, NO vector art, NO cartoon, NO clip-art, NO generic stock imagery. Think iPhone camera quality — natural mobile photography, slightly casual but polished, the way real influencers and creators shoot their stories. Not overly produced DSLR studio shots. Real lighting, real textures, real environments, slight natural grain. The only exception is if the user explicitly asks for illustrations.
 
 3. INSTAGRAM-STYLE TEXT OVERLAYS — THIS IS THE MOST IMPORTANT RULE:
-   Every frame with text MUST include this exact description in the image_prompt:
+   The caption text will be automatically appended to each frame's image_prompt by the system. You do NOT need to describe the text sticker appearance in the image_prompt.
 
-   "Overlaid on the photo is Instagram's native 'Classic' text sticker: a solid opaque white rounded-rectangle pill (no shadow, no border, no gradient) with black sans-serif text (SF Pro / Helvetica style, regular weight, not bold) reading '[YOUR TEXT HERE]'. The white block is only as wide as the text plus padding. It floats on top of the photo as a separate UI element, positioned in the [center/upper-third]. It looks exactly like the text tool in Instagram Stories app — as if someone tapped the Aa button, typed text, and tapped the A button to add the classic white background style."
-
-   MANDATORY for every frame's image_prompt:
-   - Include the exact text content the block should display
-   - Specify the position (center, upper-third, lower-third)
-   - Always say "solid opaque white rounded-rectangle pill with black sans-serif text"
-   - Always say "floats on top of the photo as a separate UI element"
-   - NEVER describe text as "bold", "stylized", "gradient", "neon", "3D", or any decorative style
-   - NEVER describe text without the white background block
+   INSTEAD, in each frame's image_prompt:
+   - Focus ONLY on describing the photo/scene
+   - Include a field "caption" in each frame with the exact text to display (max 15 words)
+   - Do NOT describe fonts, text boxes, stickers, or text appearance in the image_prompt
+   - Do NOT say "overlaid text", "text sticker", "white pill", etc. — the system handles this automatically
+   - Just describe the PHOTO SCENE — the text overlay is added separately
 
 4. SCENE & ENVIRONMENT: Describe the scene in vivid detail — real locations, natural lighting, specific camera angles, time of day, atmosphere. Make it feel like a high-quality iPhone photo taken by a creator — not a staged studio shoot.
 

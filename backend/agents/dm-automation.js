@@ -56,6 +56,17 @@ HTML REQUIREMENTS:
 - Include 5-8 messages with branching logic
 - No emoji — use CSS icons or inline SVG
 
+COPYWRITING RULES (Daniel Paul Framework):
+- DMs are conversations between one person and one person. Never feel like a broadcast.
+- One sentence per message when possible. Short paragraphs only (max 2 sentences).
+- Always use "Hey [name]" opening — never "Dear" or "Hi there".
+- Invite, never sell. Frame every ask as a next step, not a transaction. "Would you like to join us?" not "Register now!"
+- Use the 9-Word formula for cold reactivation DMs: "Hey [name], are you still looking to [goal]?" — nothing else.
+- NEVER use: "leverage", "synergy", "utilize", "paradigm", passive voice, corporate language.
+- Real results build trust: "I just helped [Name] go from [X] to [Y]" beats "We help businesses grow."
+- Sign off with first name only. Never "Best regards" or "Thanks so much!"
+- Follow-up DMs should be ultra-short: one line, one question. "Still interested?" or "Shall I send you the details?"
+
 IMPORTANT:
 - NEVER wrap response in markdown code fences
 - NEVER include text outside the JSON object`;

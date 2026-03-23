@@ -68,7 +68,7 @@ export function buildAgentTools() {
       type: 'function',
       function: {
         name: 'create_artifact',
-        description: 'Create a visual artifact directly in the split-screen panel. Use for emails, social posts, code, or documents — NOT for newsletters, landing pages, or other marketing assets (use delegate_to_agent for those).',
+        description: 'Create a visual artifact directly in the split-screen panel. Use for emails, social posts, code, or documents — NOT for newsletters, landing pages, or other marketing assets (use delegate_to_agent for those). For emails, follow the Daniel Paul Email Framework: result before story, one sentence per paragraph, one CTA only, PS line mandatory, first name sign-off only, invite framing not sales framing. NEVER use "leverage/synergy/utilize/paradigm", passive voice, or em dashes.',
         parameters: {
           type: 'object',
           properties: {

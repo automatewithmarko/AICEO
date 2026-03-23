@@ -97,12 +97,19 @@ Generate a COMPLETE standalone HTML file:
 
 8. **Color Scheme**: Use brand colors when provided. Default fallback: white backgrounds, dark text (#1a1a2e), accent #E91A44.
 
-9. **Copy Quality**:
+9. **Copy Quality (Daniel Paul Framework)**:
    - Write REAL, compelling marketing copy — never placeholder text
    - If brand documents/content are provided, extract key messaging, value props, and terminology from them
-   - Headlines: benefit-driven and specific
-   - CTAs: action-oriented ("Start Free Trial", "Get Instant Access", "Book Your Call")
-   - Include specific numbers and social proof
+   - Result before story. Lead with the outcome in every headline, then explain how.
+   - Headlines: benefit-driven and specific with real numbers. "From [X] to [Y] in [timeframe]" beats "Grow Your Business".
+   - One sentence per paragraph in body copy sections. White space is part of the message.
+   - Real people, real numbers, real situations. Vague claims kill trust instantly.
+   - Invite, never sell. Frame everything as an experience or a next step, not a transaction.
+   - CTAs: invitation-framed ("Book a Free 20-Minute Call", "Get Your Free Guide") — not pushy ("Buy Now", "Sign Up Today")
+   - NEVER use: "leverage", "synergy", "utilize", "paradigm", "optimize", "streamline", em dashes, passive voice
+   - Testimonials must use real names, real numbers, real results. "From 300 followers to her first $10k client" — not "Great service!"
+   - Social proof: lead with transformation stories and specific before/after numbers, not generic trust badges
+   - Include specific numbers and social proof throughout
 
 ## IMAGE STRATEGY — CRITICAL (read carefully)
 

@@ -14,9 +14,9 @@ const GEMINI_PRO_TIMEOUT_MS = 120_000; // 120s for pro model (more thinking time
 const PLATFORM_CONFIG = {
   newsletter:       { model: GEMINI_MODEL_FAST, aspectRatio: '16:9', imageSize: '1K' },
   instagram:        { model: GEMINI_MODEL_FAST, aspectRatio: '1:1',  imageSize: '1K' },
-  instagram_story:  { model: GEMINI_MODEL_PRO,  aspectRatio: '9:16', imageSize: '2K', thinkingLevel: 'High' },
+  instagram_story:  { model: GEMINI_MODEL_PRO,  aspectRatio: '9:16', imageSize: '2K' },
   youtube:          { model: GEMINI_MODEL_FAST, aspectRatio: '16:9', imageSize: '1K' },
-  tiktok:           { model: GEMINI_MODEL_PRO,  aspectRatio: '9:16', imageSize: '2K', thinkingLevel: 'High' },
+  tiktok:           { model: GEMINI_MODEL_PRO,  aspectRatio: '9:16', imageSize: '2K' },
   x:                { model: GEMINI_MODEL_FAST, aspectRatio: '16:9', imageSize: '1K' },
   linkedin:         { model: GEMINI_MODEL_FAST, aspectRatio: '4:3',  imageSize: '1K' },
   facebook:         { model: GEMINI_MODEL_FAST, aspectRatio: '1:1',  imageSize: '1K' },
@@ -323,13 +323,9 @@ ${prompt}`;
       },
     };
 
-    // Enable high reasoning for platforms that need precise text rendering
-    if (pConfig.thinkingLevel) {
-      requestBody.thinkingConfig = {
-        thinkingLevel: pConfig.thinkingLevel,
-        includeThoughts: false,
-      };
-    }
+    // Note: thinkingConfig is NOT supported by Gemini image-preview models.
+    // The Pro model (gemini-3-pro-image-preview) already has higher reasoning
+    // built in — no separate thinkingConfig needed.
 
     const geminiRes = await fetch(
       `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,

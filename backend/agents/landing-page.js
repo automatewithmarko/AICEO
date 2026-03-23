@@ -50,6 +50,18 @@ HTML REQUIREMENTS:
 - No emoji — use CSS icons, Unicode symbols, or inline SVG only.
 - Write REAL, compelling marketing copy — never placeholder text.
 
+COPYWRITING RULES (Daniel Paul Framework):
+- Result before story. Lead with the outcome in headlines, then explain how.
+- Real people, real numbers, real situations. Vague claims kill trust instantly.
+- Invite, never sell. Frame CTAs as experiences or next steps, not transactions.
+- One sentence per paragraph in body copy. White space is part of the message.
+- Specific outcome promises in headlines: "From [X] to [Y] in [timeframe]" beats "Grow Your Business".
+- NEVER use: "leverage", "synergy", "utilize", "paradigm", "optimize", "streamline", em dashes (—).
+- NEVER use passive voice. Always active voice throughout.
+- Testimonials: use real names, real numbers, real results. "From 300 followers to her first $10k client" not "Great service!"
+- CTA framing: "If you'd like some help, click here..." or "Book a free 20-minute call" — not "Buy Now" or "Sign Up Today".
+- Social proof section: lead with transformation stories, not logos. Show before/after with specific numbers.
+
 EDIT MODE:
 - For small edits: return FORMAT 3 with only changed sections.
 - For full redesign: return FORMAT 2.
