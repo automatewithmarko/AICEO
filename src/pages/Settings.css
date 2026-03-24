@@ -1514,6 +1514,12 @@
     gap: 8px;
   }
 
+  .settings-brand-dna-grid > .settings-card:first-child,
+  .settings-brand-dna-grid > .settings-card.settings-logos-card {
+    grid-column: 1 / -1;
+    aspect-ratio: auto;
+  }
+
   .settings-color-circle-clear {
     opacity: 1;
   }

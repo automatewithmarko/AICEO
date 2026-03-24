@@ -1,35 +1,82 @@
-.bottom-bar {
+.bottom-bar-wrapper {
   display: none;
 }
 
 @media (max-width: 768px) {
-  .bottom-bar {
+  .bottom-bar-wrapper {
+    display: block;
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
+    z-index: 50;
+  }
+
+  .bottom-bar {
     height: var(--bottombar-height);
     background: var(--bg-white);
     border-top: 1px solid var(--border-light);
     display: flex;
     align-items: center;
-    justify-content: space-around;
-    z-index: 50;
     padding-bottom: env(safe-area-inset-bottom, 0);
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
 
+  .bottom-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* ---- Scroll hint fade + arrow ---- */
+  .bottom-bar-scroll-hint {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 44px;
+    display: flex;
+    align-items: center;
+    pointer-events: auto;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .bottom-bar-scroll-hint svg {
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .bottom-bar-scroll-hint--right {
+    right: 0;
+    justify-content: flex-end;
+    padding-right: 6px;
+    background: linear-gradient(to right, transparent 0%, var(--bg-white) 60%);
+  }
+
+  .bottom-bar-scroll-hint--left {
+    left: 0;
+    justify-content: flex-start;
+    padding-left: 6px;
+    background: linear-gradient(to left, transparent 0%, var(--bg-white) 60%);
+  }
+
+  /* ---- Links ---- */
   .bottom-bar-link {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 3px;
-    padding: 6px 12px;
+    padding: 6px 14px;
     border-radius: 10px;
     font-size: 11px;
     font-weight: 500;
     color: var(--text-muted);
     transition: color 0.15s;
     text-decoration: none;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .bottom-bar-link--active {
@@ -45,8 +92,10 @@
     color: var(--brand-red);
   }
 
+  /* ---- Dropdown items ---- */
   .bottom-bar-dropdown {
     position: relative;
+    flex-shrink: 0;
   }
 
   .bottom-bar-dropdown .bottom-bar-link {
@@ -54,29 +103,49 @@
     border: none;
     cursor: pointer;
     position: relative;
-    padding: 6px 12px;
+    padding: 6px 14px;
   }
 
-  .bottom-bar-chevron {
+  /* ---- Icon wrapper with chevron badge ---- */
+  .bottom-bar-icon-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .bottom-bar-badge {
+    position: absolute;
+    top: -6px;
+    right: -16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     transition: transform 0.2s;
-    margin-top: -2px;
   }
 
-  .bottom-bar-chevron--open {
+  .bottom-bar-badge svg {
+    color: var(--text-muted);
+  }
+
+  .bottom-bar-badge--open {
     transform: rotate(180deg);
   }
 
+  .bottom-bar-badge--open svg {
+    color: var(--brand-red);
+  }
+
+  /* ---- Popup (fixed, rendered outside scroll container) ---- */
   .bottom-bar-popup {
-    position: absolute;
-    bottom: calc(100% + 10px);
-    left: 50%;
-    transform: translateX(-50%);
+    position: fixed;
     background: var(--bg-white);
     border: 1px solid var(--border-light);
     border-radius: 12px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
     overflow: hidden;
     min-width: 170px;
+    z-index: 100;
     animation: slideUp 0.15s ease-out;
   }
 

@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, ChevronDown, Phone, FileText, ExternalLink, X, Copy, Loader } from 'lucide-react';
-import { connectIntegration, getIntegrations, getEmailAccounts } from '../lib/api';
+import { Check, ChevronDown, Phone, FileText, ExternalLink, X, Copy, Loader, Upload, Plus } from 'lucide-react';
+import { connectIntegration, getIntegrations, getEmailAccounts, uploadBrandDnaFiles } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
 import './Dashboard.css';
@@ -18,10 +18,14 @@ const NOTE_TAKERS = [
 
 const ONBOARDING_STEPS = [
   { id: 1, label: 'Sign up for PuerlyPersonal', completed: true },
-  { id: 2, label: 'Complete Brand DNA', type: 'brand-dna' },
-  { id: 3, label: 'Connect to track your payments and sales', type: 'payment' },
-  { id: 4, label: 'Connect your AI notetaker to record your calls', type: 'notetaker' },
-  { id: 5, label: 'Connect your social media profiles to automate content posting', type: 'action' },
+  { id: 2, label: 'Upload your photos', type: 'photos' },
+  { id: 3, label: 'Upload your logos', type: 'logos' },
+  { id: 4, label: 'Build your Brand Brain', type: 'brand-brain' },
+  { id: 5, label: 'Connect to track your payments and sales', type: 'payment' },
+  { id: 6, label: 'Connect your AI notetaker to record your calls', type: 'notetaker' },
+  { id: 7, label: 'Connect GoHighLevel to sync with your CRM', type: 'gohighlevel' },
+  { id: 8, label: 'Connect BooSend to automate your DMs', type: 'boosend' },
+  { id: 9, label: 'Connect your social media profiles to automate content posting', type: 'action' },
 ];
 
 export default function Dashboard() {
@@ -35,7 +39,7 @@ export default function Dashboard() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [paymentDropdownOpen, setPaymentDropdownOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalType, setModalType] = useState(null); // 'notetaker' or 'payment'
+  const [modalType, setModalType] = useState(null);
   const [apiKey, setApiKey] = useState('');
   const [firefliesStep, setFirefliesStep] = useState(1);
   const [copiedField, setCopiedField] = useState(null);
@@ -43,12 +47,23 @@ export default function Dashboard() {
   const [connectError, setConnectError] = useState(null);
   const [firefliesWebhook, setFirefliesWebhook] = useState({ url: '', secret: '' });
 
+  // Brand DNA modal state
+  const [brandDnaModal, setBrandDnaModal] = useState(null); // 'photos' | 'logos' | 'brand-brain'
+  const [photos, setPhotos] = useState([]);
+  const [logos, setLogos] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [brandDnaId, setBrandDnaId] = useState(null);
+  const fileInputRef = useRef(null);
+  const logoInputRef = useRef(null);
+  const brandBrainIframeRef = useRef(null);
+  const [brandBrainSaved, setBrandBrainSaved] = useState(false);
+  const [brandBrainRawData, setBrandBrainRawData] = useState(null);
+
   // Load onboarding state + integration status on mount
   useEffect(() => {
     async function load() {
       const steps = new Set([1]); // signup always done
 
-      // Load onboarding from DB
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const { data: onboarding } = await supabase
@@ -60,26 +75,34 @@ export default function Dashboard() {
         if (onboarding) {
           setOnboardingVisible(onboarding.is_visible);
           for (const s of (onboarding.completed_steps || [])) {
-            // Map string steps to IDs
             if (s === 'signup') steps.add(1);
-            if (s === 'brand-dna') steps.add(2);
-            if (s === 'payment') steps.add(3);
-            if (s === 'notetaker') steps.add(4);
-            if (s === 'social') steps.add(5);
+            if (s === 'photos') steps.add(2);
+            if (s === 'logos') steps.add(3);
+            if (s === 'brand-brain') steps.add(4);
+            if (s === 'payment') steps.add(5);
+            if (s === 'notetaker') steps.add(6);
+            if (s === 'gohighlevel') steps.add(7);
+            if (s === 'boosend') steps.add(8);
+            if (s === 'social') steps.add(9);
           }
         }
 
-        // Check Brand DNA
+        // Check Brand DNA for existing photos/logos/brand brain
         const { data: brandDnaRows } = await supabase
           .from('brand_dna')
-          .select('id')
+          .select('id, photo_urls, logos, documents')
           .eq('user_id', session.user.id)
           .limit(1);
-        if (brandDnaRows?.length) steps.add(2);
+        if (brandDnaRows?.length) {
+          const bd = brandDnaRows[0];
+          setBrandDnaId(bd.id);
+          if (bd.photo_urls?.length) steps.add(2);
+          if (bd.logos?.length) steps.add(3);
+          if (bd.documents?.brandBrain) steps.add(4);
+        }
       }
 
-      // Check connected integrations
-      const [intResult, emailResult] = await Promise.all([
+      const [intResult] = await Promise.all([
         getIntegrations(),
         getEmailAccounts(),
       ]);
@@ -90,9 +113,8 @@ export default function Dashboard() {
       }
       setConnectedIntegrations(intMap);
 
-      // Auto-mark steps based on connections
-      if (intMap.stripe?.is_active || intMap.whop?.is_active) steps.add(3);
-      if (intMap.fireflies?.is_active || intMap.fathom?.is_active) steps.add(4);
+      if (intMap.stripe?.is_active || intMap.whop?.is_active) steps.add(5);
+      if (intMap.fireflies?.is_active || intMap.fathom?.is_active) steps.add(6);
 
       setCompletedSteps(steps);
       setDashLoading(false);
@@ -107,8 +129,7 @@ export default function Dashboard() {
   const handleComplete = (stepId) => {
     setCompletedSteps((prev) => {
       const next = new Set([...prev, stepId]);
-      // Persist to DB
-      const stepMap = { 1: 'signup', 2: 'brand-dna', 3: 'payment', 4: 'notetaker', 5: 'social' };
+      const stepMap = { 1: 'signup', 2: 'photos', 3: 'logos', 4: 'brand-brain', 5: 'payment', 6: 'notetaker', 7: 'gohighlevel', 8: 'boosend', 9: 'social' };
       const stepsArr = [...next].map(id => stepMap[id]).filter(Boolean);
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
@@ -123,66 +144,42 @@ export default function Dashboard() {
     });
   };
 
-  const handleSkip = (stepId) => {
-    handleComplete(stepId);
-  };
+  const handleSkip = (stepId) => handleComplete(stepId);
 
+  // --- Integration modals ---
   const openNotetakerModal = () => {
-    setApiKey('');
-    setFirefliesStep(1);
-    setCopiedField(null);
-    setConnectError(null);
-    setConnecting(false);
-    setFirefliesWebhook({ url: '', secret: '' });
-    setModalType('notetaker');
-    setModalOpen(true);
+    setApiKey(''); setFirefliesStep(1); setCopiedField(null); setConnectError(null); setConnecting(false);
+    setFirefliesWebhook({ url: '', secret: '' }); setModalType('notetaker'); setModalOpen(true);
   };
 
   const openPaymentModal = () => {
-    setApiKey('');
-    setCopiedField(null);
-    setConnectError(null);
-    setConnecting(false);
-    setModalType('payment');
-    setModalOpen(true);
+    setApiKey(''); setCopiedField(null); setConnectError(null); setConnecting(false);
+    setModalType('payment'); setModalOpen(true);
   };
 
   const handleFirefliesNext = async () => {
     if (!apiKey.trim()) return;
-    setConnecting(true);
-    setConnectError(null);
+    setConnecting(true); setConnectError(null);
     try {
       const result = await connectIntegration('fireflies', apiKey);
-      setFirefliesWebhook({
-        url: result.integration.webhook_url || '',
-        secret: result.integration.webhook_secret || '',
-      });
+      setFirefliesWebhook({ url: result.integration.webhook_url || '', secret: result.integration.webhook_secret || '' });
       setFirefliesStep(2);
-    } catch (err) {
-      setConnectError(err.message);
-    } finally {
-      setConnecting(false);
-    }
+    } catch (err) { setConnectError(err.message); }
+    finally { setConnecting(false); }
   };
 
   const handleConnect = async () => {
     if (!apiKey.trim()) return;
-    setConnecting(true);
-    setConnectError(null);
+    setConnecting(true); setConnectError(null);
     try {
       const provider = modalType === 'payment' ? selectedPayment.id : selectedNoteTaker.id;
       await connectIntegration(provider, apiKey);
       setModalOpen(false);
-      if (modalType === 'payment') handleComplete(3);
-      else handleComplete(4);
-      setApiKey('');
-      setFirefliesStep(1);
-      setModalType(null);
-    } catch (err) {
-      setConnectError(err.message);
-    } finally {
-      setConnecting(false);
-    }
+      if (modalType === 'payment') handleComplete(5);
+      else handleComplete(6);
+      setApiKey(''); setFirefliesStep(1); setModalType(null);
+    } catch (err) { setConnectError(err.message); }
+    finally { setConnecting(false); }
   };
 
   const copyToClipboard = (text, field) => {
@@ -190,6 +187,169 @@ export default function Dashboard() {
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2000);
   };
+
+  // --- Brand DNA helpers ---
+  const ensureBrandDna = async () => {
+    if (brandDnaId) return brandDnaId;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return null;
+    // Check if one exists
+    const { data: existing } = await supabase.from('brand_dna').select('id').eq('user_id', session.user.id).limit(1);
+    if (existing?.length) {
+      setBrandDnaId(existing[0].id);
+      return existing[0].id;
+    }
+    // Create new
+    const { data } = await supabase.from('brand_dna').insert({
+      user_id: session.user.id, name: 'My Brand', photo_urls: [], video_urls: [], documents: {}, colors: {},
+    }).select().single();
+    if (data) { setBrandDnaId(data.id); return data.id; }
+    return null;
+  };
+
+  // --- Photos ---
+  const openPhotosModal = async () => {
+    const id = await ensureBrandDna();
+    if (!id) return;
+    const { data } = await supabase.from('brand_dna').select('photo_urls').eq('id', id).single();
+    const urls = data?.photo_urls || [];
+    setPhotos(urls.map((url, i) => ({ id: `existing-${i}`, url, uploading: false })));
+    setBrandDnaModal('photos');
+  };
+
+  const handlePhotoUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    const remaining = 6 - photos.length;
+    const toAdd = files.slice(0, remaining);
+    if (!toAdd.length) return;
+    e.target.value = '';
+    const placeholders = toAdd.map((file, i) => ({
+      id: `photo-${Date.now()}-${i}`, localUrl: URL.createObjectURL(file), uploading: true,
+    }));
+    setPhotos(prev => [...prev, ...placeholders]);
+    try {
+      const result = await uploadBrandDnaFiles(toAdd);
+      const uploadedUrls = result.files.filter(f => f.type !== 'error').map(f => f.url);
+      setPhotos(prev => prev.map(p => {
+        if (!p.uploading) return p;
+        const idx = placeholders.findIndex(ph => ph.id === p.id);
+        if (idx === -1 || !uploadedUrls[idx]) return p;
+        return { ...p, url: uploadedUrls[idx], uploading: false };
+      }));
+    } catch { setPhotos(prev => prev.filter(p => !p.uploading)); }
+  };
+
+  const removePhoto = (id) => {
+    setPhotos(prev => {
+      const photo = prev.find(p => p.id === id);
+      if (photo?.localUrl) URL.revokeObjectURL(photo.localUrl);
+      return prev.filter(p => p.id !== id);
+    });
+  };
+
+  const savePhotos = async () => {
+    setSaving(true);
+    const id = await ensureBrandDna();
+    const urls = photos.map(p => p.url).filter(Boolean);
+    await supabase.from('brand_dna').update({ photo_urls: urls, updated_at: new Date().toISOString() }).eq('id', id);
+    if (urls.length > 0) handleComplete(2);
+    setSaving(false);
+    setBrandDnaModal(null);
+  };
+
+  // --- Logos ---
+  const openLogosModal = async () => {
+    const id = await ensureBrandDna();
+    if (!id) return;
+    const { data } = await supabase.from('brand_dna').select('logos').eq('id', id).single();
+    setLogos((data?.logos || []).map(l => ({ ...l, uploading: false })));
+    setBrandDnaModal('logos');
+  };
+
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file || logos.length >= 3) return;
+    e.target.value = '';
+    const tempId = Date.now();
+    const localUrl = URL.createObjectURL(file);
+    const isFirst = logos.length === 0;
+    setLogos(prev => [...prev, { localUrl, uploading: true, name: 'Logo', isDefault: isFirst, _tempId: tempId }]);
+    try {
+      const result = await uploadBrandDnaFiles([file]);
+      const uploaded = result.files.find(f => f.type !== 'error');
+      if (!uploaded) throw new Error('Upload failed');
+      setLogos(prev => prev.map(l => l._tempId === tempId ? { url: uploaded.url, name: l.name, isDefault: l.isDefault } : l));
+      URL.revokeObjectURL(localUrl);
+    } catch {
+      setLogos(prev => prev.filter(l => l._tempId !== tempId));
+      URL.revokeObjectURL(localUrl);
+    }
+  };
+
+  const removeLogo = (index) => {
+    setLogos(prev => {
+      const logo = prev[index];
+      if (logo?.localUrl) URL.revokeObjectURL(logo.localUrl);
+      const updated = prev.filter((_, i) => i !== index);
+      if (logo?.isDefault && updated.length > 0) updated[0] = { ...updated[0], isDefault: true };
+      return updated;
+    });
+  };
+
+  const setDefaultLogo = (index) => {
+    setLogos(prev => prev.map((l, i) => ({ ...l, isDefault: i === index })));
+  };
+
+  const renameLogo = (index, name) => {
+    setLogos(prev => prev.map((l, i) => i === index ? { ...l, name } : l));
+  };
+
+  const saveLogos = async () => {
+    setSaving(true);
+    const id = await ensureBrandDna();
+    const cleanLogos = logos.filter(l => l.url).map(l => ({ url: l.url, name: l.name, isDefault: !!l.isDefault }));
+    await supabase.from('brand_dna').update({
+      logos: cleanLogos,
+      logo_url: cleanLogos.find(l => l.isDefault)?.url || cleanLogos[0]?.url || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', id);
+    if (cleanLogos.length > 0) handleComplete(3);
+    setSaving(false);
+    setBrandDnaModal(null);
+  };
+
+  // --- Brand Brain ---
+  const openBrandBrainModal = async () => {
+    const id = await ensureBrandDna();
+    if (!id) return;
+    const { data } = await supabase.from('brand_dna').select('documents').eq('id', id).single();
+    setBrandBrainRawData(data?.documents?.brandBrain?.rawData || null);
+    setBrandBrainSaved(!!data?.documents?.brandBrain);
+    setBrandDnaModal('brand-brain');
+  };
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.data?.type === 'brand-brain-ready') {
+        if (brandBrainRawData && brandBrainIframeRef.current?.contentWindow) {
+          brandBrainIframeRef.current.contentWindow.postMessage({ type: 'brand-brain-load', rawData: brandBrainRawData }, '*');
+        }
+      }
+      if (e.data?.type === 'brand-brain-save') {
+        (async () => {
+          const id = await ensureBrandDna();
+          const { data: current } = await supabase.from('brand_dna').select('documents').eq('id', id).single();
+          const docs = current?.documents || {};
+          docs.brandBrain = { name: 'Brand Brain', extractedText: e.data.extractedText, rawData: e.data.rawData };
+          await supabase.from('brand_dna').update({ documents: docs, updated_at: new Date().toISOString() }).eq('id', id);
+          handleComplete(4);
+          setBrandDnaModal(null);
+        })();
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [brandBrainRawData, brandDnaId]);
 
   if (dashLoading) {
     return (
@@ -201,19 +361,10 @@ export default function Dashboard() {
             <div className="skeleton" style={{ width: 80, height: 16 }} />
           </div>
           <div className="skeleton" style={{ height: 8, borderRadius: 6, marginBottom: 24 }} />
-          {[1, 2, 3, 4, 5].map(i => (
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => (
             <div key={i} className="skeleton-row">
               <div className="skeleton" style={{ width: 24, height: 24, borderRadius: '50%' }} />
               <div className="skeleton skeleton-text" style={{ marginBottom: 0 }} />
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: 16 }}>
-          {[1, 2].map(i => (
-            <div key={i} className="skeleton-card" style={{ flex: 1, padding: 24 }}>
-              <div className="skeleton" style={{ width: 40, height: 40, borderRadius: 12, marginBottom: 12 }} />
-              <div className="skeleton" style={{ width: 60, height: 28, marginBottom: 8 }} />
-              <div className="skeleton skeleton-text--short skeleton-text" />
             </div>
           ))}
         </div>
@@ -235,29 +386,18 @@ export default function Dashboard() {
               </span>
             </div>
             {completedCount === totalSteps && (
-              <button
-                className="onboarding-dismiss"
-                onClick={() => setOnboardingVisible(false)}
-              >
-                Dismiss
-              </button>
+              <button className="onboarding-dismiss" onClick={() => setOnboardingVisible(false)}>Dismiss</button>
             )}
           </div>
           <div className="onboarding-progress-bar">
-            <div
-              className="onboarding-progress-fill"
-              style={{ width: `${progressPercent}%` }}
-            />
+            <div className="onboarding-progress-fill" style={{ width: `${progressPercent}%` }} />
           </div>
 
           <div className="onboarding-steps">
             {ONBOARDING_STEPS.map((step) => {
               const done = completedSteps.has(step.id);
               return (
-                <div
-                  key={step.id}
-                  className={`onboarding-step ${done ? 'onboarding-step--done' : ''}`}
-                >
+                <div key={step.id} className={`onboarding-step ${done ? 'onboarding-step--done' : ''}`}>
                   <div className={`step-check ${done ? 'step-check--done' : ''}`}>
                     {done && <Check size={14} strokeWidth={3} />}
                   </div>
@@ -267,28 +407,15 @@ export default function Dashboard() {
                         <>Connect{' '}
                           <span className="notetaker-inline">
                             <div className="notetaker-select" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                className="notetaker-trigger"
-                                onClick={() => setPaymentDropdownOpen(!paymentDropdownOpen)}
-                              >
-                                <img
-                                  src={selectedPayment.logo}
-                                  alt={selectedPayment.name}
-                                  className="notetaker-logo-wide"
-                                />
+                              <button className="notetaker-trigger" onClick={() => setPaymentDropdownOpen(!paymentDropdownOpen)}>
+                                <img src={selectedPayment.logo} alt={selectedPayment.name} className="notetaker-logo-wide" />
                                 <ChevronDown size={14} className={`notetaker-chevron ${paymentDropdownOpen ? 'notetaker-chevron--open' : ''}`} />
                               </button>
                               {paymentDropdownOpen && (
                                 <div className="notetaker-dropdown">
                                   {PAYMENT_TRACKERS.map((pt) => (
-                                    <button
-                                      key={pt.id}
-                                      className={`notetaker-option ${selectedPayment.id === pt.id ? 'notetaker-option--selected' : ''}`}
-                                      onClick={() => {
-                                        setSelectedPayment(pt);
-                                        setPaymentDropdownOpen(false);
-                                      }}
-                                    >
+                                    <button key={pt.id} className={`notetaker-option ${selectedPayment.id === pt.id ? 'notetaker-option--selected' : ''}`}
+                                      onClick={() => { setSelectedPayment(pt); setPaymentDropdownOpen(false); }}>
                                       <img src={pt.logo} alt={pt.name} className="notetaker-logo-wide" />
                                       {selectedPayment.id === pt.id && <Check size={14} />}
                                     </button>
@@ -299,32 +426,29 @@ export default function Dashboard() {
                           </span>
                           {' '}to track your payments and sales
                         </>
+                      ) : step.type === 'gohighlevel' ? (
+                        <>Connect{' '}
+                          <img src="/gohighlevel-logo.png" alt="GoHighLevel" className="step-inline-logo step-inline-logo--ghl" />
+                          {' '}to sync with your CRM
+                        </>
+                      ) : step.type === 'boosend' ? (
+                        <>Connect{' '}
+                          <img src="/boosend-logo.png" alt="BooSend" className="step-inline-logo step-inline-logo--boosend" />
+                          {' '}to automate your DMs
+                        </>
                       ) : step.type === 'notetaker' ? (
                         <>Connect{' '}
                           <span className="notetaker-inline">
                             <div className="notetaker-select" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                className="notetaker-trigger"
-                                onClick={() => setDropdownOpen(!dropdownOpen)}
-                              >
-                                <img
-                                  src={selectedNoteTaker.logo}
-                                  alt={selectedNoteTaker.name}
-                                  className="notetaker-logo-wide"
-                                />
+                              <button className="notetaker-trigger" onClick={() => setDropdownOpen(!dropdownOpen)}>
+                                <img src={selectedNoteTaker.logo} alt={selectedNoteTaker.name} className="notetaker-logo-wide" />
                                 <ChevronDown size={14} className={`notetaker-chevron ${dropdownOpen ? 'notetaker-chevron--open' : ''}`} />
                               </button>
                               {dropdownOpen && (
                                 <div className="notetaker-dropdown">
                                   {NOTE_TAKERS.map((nt) => (
-                                    <button
-                                      key={nt.id}
-                                      className={`notetaker-option ${selectedNoteTaker.id === nt.id ? 'notetaker-option--selected' : ''}`}
-                                      onClick={() => {
-                                        setSelectedNoteTaker(nt);
-                                        setDropdownOpen(false);
-                                      }}
-                                    >
+                                    <button key={nt.id} className={`notetaker-option ${selectedNoteTaker.id === nt.id ? 'notetaker-option--selected' : ''}`}
+                                      onClick={() => { setSelectedNoteTaker(nt); setDropdownOpen(false); }}>
                                       <img src={nt.logo} alt={nt.name} className="notetaker-logo-wide" />
                                       {selectedNoteTaker.id === nt.id && <Check size={14} />}
                                     </button>
@@ -344,21 +468,23 @@ export default function Dashboard() {
                         <button
                           className="step-btn step-btn--primary"
                           onClick={() => {
-                            if (step.type === 'payment') openPaymentModal();
+                            if (step.type === 'photos') openPhotosModal();
+                            else if (step.type === 'logos') openLogosModal();
+                            else if (step.type === 'brand-brain') openBrandBrainModal();
+                            else if (step.type === 'payment') openPaymentModal();
                             else if (step.type === 'notetaker') openNotetakerModal();
-                            else if (step.type === 'brand-dna') navigate('/settings');
+                            else if (step.type === 'gohighlevel') navigate('/settings');
+                            else if (step.type === 'boosend') navigate('/settings');
                             else handleComplete(step.id);
                           }}
                         >
-                          Start
-                          <ExternalLink size={13} />
+                          {['payment', 'notetaker', 'gohighlevel', 'boosend'].includes(step.type) ? 'Connect'
+                            : step.type === 'photos' ? 'Upload Photos'
+                            : step.type === 'logos' ? 'Upload Logos'
+                            : step.type === 'brand-brain' ? 'Build'
+                            : <><span>Start</span><ExternalLink size={13} /></>}
                         </button>
-                        <button
-                          className="step-btn step-btn--skip"
-                          onClick={() => handleSkip(step.id)}
-                        >
-                          Skip
-                        </button>
+                        <button className="step-btn step-btn--skip" onClick={() => handleSkip(step.id)}>Skip</button>
                       </div>
                     )}
                   </div>
@@ -371,18 +497,14 @@ export default function Dashboard() {
 
       <div className="dashboard-stats">
         <div className="stat-card">
-          <div className="stat-icon">
-            <Phone size={22} />
-          </div>
+          <div className="stat-icon"><Phone size={22} /></div>
           <div className="stat-info">
             <span className="stat-value">0</span>
             <span className="stat-label">Sales Calls This Week</span>
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon">
-            <FileText size={22} />
-          </div>
+          <div className="stat-icon"><FileText size={22} /></div>
           <div className="stat-info">
             <span className="stat-value">0</span>
             <span className="stat-label">Posts This Week</span>
@@ -394,131 +516,75 @@ export default function Dashboard() {
       {modalOpen && (
         <div className="modal-overlay" onClick={() => setModalOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={() => setModalOpen(false)}>
-              <X size={18} />
-            </button>
-
+            <button className="modal-close" onClick={() => setModalOpen(false)}><X size={18} /></button>
             <div className="modal-logo">
               <img src={modalType === 'payment' ? selectedPayment.logo : selectedNoteTaker.logo} alt={modalType === 'payment' ? selectedPayment.name : selectedNoteTaker.name} />
             </div>
 
-            {/* PAYMENT: Stripe */}
             {modalType === 'payment' && selectedPayment.id === 'stripe' && (
               <>
                 <p className="modal-description">Connect your Stripe account to automatically track your payments and sales in the PuerlyPersonal AI CEO.</p>
                 <div className="modal-field">
                   <label className="modal-label">Enter your Stripe API key</label>
-                  <input
-                    type="text"
-                    className="modal-input"
-                    placeholder="sk_live_..."
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                  />
+                  <input type="text" className="modal-input" placeholder="sk_live_..." value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
                 </div>
                 {connectError && <p className="modal-error">{connectError}</p>}
-                <button
-                  className="modal-btn modal-btn--primary"
-                  disabled={!apiKey.trim() || connecting}
-                  onClick={handleConnect}
-                >
+                <button className="modal-btn modal-btn--primary" disabled={!apiKey.trim() || connecting} onClick={handleConnect}>
                   {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
                 </button>
               </>
             )}
 
-            {/* PAYMENT: Whop */}
             {modalType === 'payment' && selectedPayment.id === 'whop' && (
               <>
                 <p className="modal-description">Connect your Whop account to automatically track your payments and sales in the PuerlyPersonal AI CEO.</p>
                 <div className="modal-field">
                   <label className="modal-label">Enter your Whop API key</label>
-                  <input
-                    type="text"
-                    className="modal-input"
-                    placeholder="Paste your API key here"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                  />
+                  <input type="text" className="modal-input" placeholder="Paste your API key here" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
                 </div>
                 {connectError && <p className="modal-error">{connectError}</p>}
-                <button
-                  className="modal-btn modal-btn--primary"
-                  disabled={!apiKey.trim() || connecting}
-                  onClick={handleConnect}
-                >
+                <button className="modal-btn modal-btn--primary" disabled={!apiKey.trim() || connecting} onClick={handleConnect}>
                   {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
                 </button>
               </>
             )}
 
-            {/* FATHOM: single step */}
             {modalType === 'notetaker' && selectedNoteTaker.id === 'fathom' && (
               <>
                 <p className="modal-description">Connect your Fathom AI account to automatically sync all of your call recordings to the PuerlyPersonal AI CEO.</p>
                 <div className="modal-field">
                   <label className="modal-label">Enter your Fathom API key</label>
-                  <input
-                    type="text"
-                    className="modal-input"
-                    placeholder="Paste your API key here"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                  />
+                  <input type="text" className="modal-input" placeholder="Paste your API key here" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
                 </div>
                 {connectError && <p className="modal-error">{connectError}</p>}
-                <button
-                  className="modal-btn modal-btn--primary"
-                  disabled={!apiKey.trim() || connecting}
-                  onClick={handleConnect}
-                >
+                <button className="modal-btn modal-btn--primary" disabled={!apiKey.trim() || connecting} onClick={handleConnect}>
                   {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
                 </button>
               </>
             )}
 
-            {/* FIREFLIES: step 1 - enter API key */}
             {modalType === 'notetaker' && selectedNoteTaker.id === 'fireflies' && firefliesStep === 1 && (
               <>
                 <p className="modal-description">Connect your Fireflies AI account to automatically sync all of your call recordings to the PuerlyPersonal AI CEO.</p>
                 <div className="modal-field">
                   <label className="modal-label">Enter your Fireflies API key</label>
-                  <input
-                    type="text"
-                    className="modal-input"
-                    placeholder="Paste your API key here"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                  />
+                  <input type="text" className="modal-input" placeholder="Paste your API key here" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
                 </div>
                 {connectError && <p className="modal-error">{connectError}</p>}
-                <button
-                  className="modal-btn modal-btn--primary"
-                  disabled={!apiKey.trim() || connecting}
-                  onClick={handleFirefliesNext}
-                >
+                <button className="modal-btn modal-btn--primary" disabled={!apiKey.trim() || connecting} onClick={handleFirefliesNext}>
                   {connecting ? <><Loader size={14} className="settings-spinner" /> Validating...</> : 'Next'}
                 </button>
               </>
             )}
 
-            {/* FIREFLIES: step 2 - webhook info */}
             {modalType === 'notetaker' && selectedNoteTaker.id === 'fireflies' && firefliesStep === 2 && (
               <>
                 <p className="modal-instruction">Copy this into your Fireflies AI settings</p>
                 <div className="modal-field">
                   <label className="modal-label">Webhook URL</label>
                   <div className="modal-copy-row">
-                    <input
-                      type="text"
-                      className="modal-input modal-input--readonly"
-                      value={firefliesWebhook.url}
-                      readOnly
-                    />
-                    <button
-                      className="modal-copy-btn"
-                      onClick={() => copyToClipboard(firefliesWebhook.url, 'url')}
-                    >
+                    <input type="text" className="modal-input modal-input--readonly" value={firefliesWebhook.url} readOnly />
+                    <button className="modal-copy-btn" onClick={() => copyToClipboard(firefliesWebhook.url, 'url')}>
                       {copiedField === 'url' ? <Check size={16} /> : <Copy size={16} />}
                     </button>
                   </div>
@@ -526,28 +592,133 @@ export default function Dashboard() {
                 <div className="modal-field">
                   <label className="modal-label">Webhook Secret</label>
                   <div className="modal-copy-row">
-                    <input
-                      type="text"
-                      className="modal-input modal-input--readonly"
-                      value={firefliesWebhook.secret}
-                      readOnly
-                    />
-                    <button
-                      className="modal-copy-btn"
-                      onClick={() => copyToClipboard(firefliesWebhook.secret, 'secret')}
-                    >
+                    <input type="text" className="modal-input modal-input--readonly" value={firefliesWebhook.secret} readOnly />
+                    <button className="modal-copy-btn" onClick={() => copyToClipboard(firefliesWebhook.secret, 'secret')}>
                       {copiedField === 'secret' ? <Check size={16} /> : <Copy size={16} />}
                     </button>
                   </div>
                 </div>
-                <button
-                  className="modal-btn modal-btn--primary"
-                  onClick={() => { handleComplete(4); setModalOpen(false); }}
-                >
-                  Done
-                </button>
+                <button className="modal-btn modal-btn--primary" onClick={() => { handleComplete(6); setModalOpen(false); }}>Done</button>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Photos Modal */}
+      {brandDnaModal === 'photos' && (
+        <div className="modal-overlay" onClick={() => setBrandDnaModal(null)}>
+          <div className="modal modal--brand-dna" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setBrandDnaModal(null)}><X size={18} /></button>
+            <h3 className="modal-title">Upload Your Photos</h3>
+            <p className="modal-description">Upload up to 6 photos of yourself for your brand identity.</p>
+
+            <div
+              className={`dash-upload-box ${photos.length > 0 ? 'dash-upload-box--has-items' : ''}`}
+              onClick={() => photos.length < 6 && fileInputRef.current?.click()}
+            >
+              <input ref={fileInputRef} type="file" multiple accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} />
+              {photos.length > 0 ? (
+                <div className="dash-photo-grid">
+                  {photos.map((photo) => (
+                    <div key={photo.id} className="dash-photo-item">
+                      <img src={photo.url || photo.localUrl} alt="" />
+                      {photo.uploading && (
+                        <div className="dash-photo-uploading"><Loader size={18} className="settings-spinner" /></div>
+                      )}
+                      <button className="dash-photo-remove" onClick={(e) => { e.stopPropagation(); removePhoto(photo.id); }}>
+                        <X size={10} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  ))}
+                  {photos.length < 6 && (
+                    <div className="dash-photo-add"><Upload size={20} /></div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <Upload size={32} />
+                  <span>Click to upload photos</span>
+                  <span className="dash-upload-hint">Up to 6 images</span>
+                </>
+              )}
+            </div>
+
+            <button
+              className="modal-btn modal-btn--primary"
+              disabled={photos.some(p => p.uploading) || saving}
+              onClick={savePhotos}
+            >
+              {saving ? <><Loader size={14} className="settings-spinner" /> Saving...</> : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Logos Modal */}
+      {brandDnaModal === 'logos' && (
+        <div className="modal-overlay" onClick={() => setBrandDnaModal(null)}>
+          <div className="modal modal--brand-dna" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setBrandDnaModal(null)}><X size={18} /></button>
+            <h3 className="modal-title">Upload Your Logos</h3>
+            <p className="modal-description">Add up to 3 logos and set your default.</p>
+
+            <div className="dash-logos-list">
+              {logos.map((lg, idx) => (
+                <div key={idx} className="dash-logo-row">
+                  <div className="dash-logo-thumb">
+                    <img src={lg.url || lg.localUrl} alt={lg.name} />
+                    {lg.uploading && <Loader size={12} className="settings-spinner" />}
+                  </div>
+                  {!lg.uploading ? (
+                    <input className="dash-logo-name" value={lg.name} onChange={(e) => renameLogo(idx, e.target.value)} placeholder="Logo name" maxLength={24} />
+                  ) : (
+                    <span className="dash-logo-uploading">Uploading...</span>
+                  )}
+                  <div className="dash-logo-actions">
+                    <button
+                      className={`dash-logo-default${lg.isDefault ? ' dash-logo-default--active' : ''}`}
+                      onClick={() => setDefaultLogo(idx)}
+                    >Default</button>
+                    {!lg.uploading && (
+                      <button className="dash-logo-remove" onClick={() => removeLogo(idx)}><X size={12} /></button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {logos.length < 3 && (
+                <button className="dash-logo-add" onClick={() => logoInputRef.current?.click()}>
+                  <Plus size={14} />
+                  <span>{logos.length === 0 ? 'Upload logo' : 'Add logo'}</span>
+                  <input ref={logoInputRef} type="file" accept="image/*,.svg" onChange={handleLogoUpload} style={{ display: 'none' }} />
+                </button>
+              )}
+            </div>
+
+            <button
+              className="modal-btn modal-btn--primary"
+              disabled={logos.some(l => l.uploading) || saving}
+              onClick={saveLogos}
+            >
+              {saving ? <><Loader size={14} className="settings-spinner" /> Saving...</> : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Brand Brain Modal */}
+      {brandDnaModal === 'brand-brain' && (
+        <div className="settings-brand-brain-overlay" onClick={() => setBrandDnaModal(null)}>
+          <div className="settings-brand-brain-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="settings-brand-brain-close" onClick={() => setBrandDnaModal(null)}>
+              <X size={18} />
+            </button>
+            <iframe
+              ref={brandBrainIframeRef}
+              src="/brand-brain-workbook.html"
+              className="settings-brand-brain-iframe"
+              title="Brand Brain Workbook"
+            />
           </div>
         </div>
       )}
