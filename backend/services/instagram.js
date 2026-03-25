@@ -1,11 +1,10 @@
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-const HOST = 'instagram-scraper-api2.p.rapidapi.com';
+const HOST = 'instagram120.p.rapidapi.com';
 
 /**
  * Extract username from an Instagram URL or clean up input.
  */
 function extractUsername(input) {
-  // Handle Instagram URLs like https://www.instagram.com/username/ or https://instagram.com/username/reels/
   const urlMatch = input.match(/instagram\.com\/([a-zA-Z0-9_.]+)/i);
   if (urlMatch && !['p', 'reel', 'reels', 'stories', 'explore'].includes(urlMatch[1])) return urlMatch[1];
   return input.replace(/^@/, '').trim();
@@ -13,21 +12,47 @@ function extractUsername(input) {
 
 /**
  * Resolve an Instagram username to profile info.
+ * Tries /api/instagram/userInfo first, falls back to extracting from posts.
  */
 export async function resolveProfile(username) {
   const handle = extractUsername(username);
-  const data = await igFetch('/v1/info', { username_or_id_or_url: handle });
 
-  const user = data?.data;
-  if (!user) throw new Error(`Instagram user not found: ${username}`);
+  try {
+    const data = await igFetch('/api/instagram/userInfo', { username: handle });
+    // instagram120 may nest user data in various ways — try common paths
+    const user = data?.result?.user || data?.result || data?.user || data;
+    if (user?.username || user?.pk || user?.id) {
+      return {
+        userId: user.id || user.pk || String(user.pk),
+        username: user.username || handle,
+        displayName: user.full_name || user.username || handle,
+        avatarUrl: user.hd_profile_pic_url_info?.url || user.profile_pic_url_hd || user.profile_pic_url || null,
+        followerCount: user.follower_count || user.edge_followed_by?.count || 0,
+      };
+    }
+  } catch (err) {
+    console.log(`[instagram] userInfo failed for ${handle}, falling back to posts:`, err.message);
+  }
 
-  return {
-    userId: user.id,
-    username: user.username,
-    displayName: user.full_name || user.username,
-    avatarUrl: user.profile_pic_url_hd || user.profile_pic_url,
-    followerCount: user.follower_count || 0,
-  };
+  // Fallback: fetch first page of posts and extract user from first post
+  try {
+    const postsData = await igFetch('/api/instagram/posts', { username: handle, maxId: '' });
+    const firstNode = postsData?.result?.edges?.[0]?.node;
+    const user = firstNode?.user || firstNode?.owner;
+    if (user) {
+      return {
+        userId: user.id || user.pk || String(user.pk),
+        username: user.username || handle,
+        displayName: user.full_name || user.username || handle,
+        avatarUrl: user.hd_profile_pic_url_info?.url || user.profile_pic_url || null,
+        followerCount: user.follower_count || 0,
+      };
+    }
+  } catch (err2) {
+    console.log(`[instagram] posts fallback also failed for ${handle}:`, err2.message);
+  }
+
+  throw new Error(`Instagram user not found: ${username}`);
 }
 
 /**
@@ -37,34 +62,45 @@ export async function resolveProfile(username) {
 export async function fetchRecentPosts(username, count = 50) {
   const handle = extractUsername(username);
   const posts = [];
-  let paginationToken = null;
+  let maxId = '';
 
   while (posts.length < count) {
-    const params = { username_or_id_or_url: handle };
-    if (paginationToken) params.pagination_token = paginationToken;
+    const data = await igFetch('/api/instagram/reels', { username: handle, maxId });
+    const edges = data?.result?.edges || data?.result?.items || data?.edges || data?.items || [];
+    if (edges.length === 0) break;
 
-    const data = await igFetch('/v1.2/posts', params);
-    const items = data?.data?.items || [];
-    if (items.length === 0) break;
+    for (const edge of edges) {
+      // Try multiple nesting patterns: edge.node.media, edge.node, edge.media, or edge itself
+      const media = edge.node?.media || edge.node || edge.media || edge;
+      if (!media) continue;
 
-    for (const item of items) {
-      const isVideo = item.media_type === 2 || item.video_url;
+      const code = media.code || media.shortcode;
+      const thumbnail = media.image_versions2?.candidates?.[0]?.url
+        || media.thumbnail_url
+        || media.display_url
+        || null;
+
       posts.push({
-        videoId: item.code || item.id,
-        title: (item.caption?.text || '').slice(0, 120),
-        thumbnailUrl: item.thumbnail_url || item.image_versions?.items?.[0]?.url || item.display_url,
-        url: `https://www.instagram.com/reel/${item.code}/`,
-        publishedAt: item.taken_at ? new Date(item.taken_at * 1000).toISOString() : null,
-        views: parseInt(item.play_count || item.view_count || 0),
-        likes: parseInt(item.like_count || 0),
-        comments: parseInt(item.comment_count || 0),
-        durationSeconds: item.video_duration ? Math.round(item.video_duration) : 0,
-        isVideo,
+        videoId: code || media.pk || media.id,
+        title: media.caption?.text || '',
+        thumbnailUrl: thumbnail,
+        url: `https://www.instagram.com/reel/${code || media.pk}/`,
+        publishedAt: media.taken_at ? new Date(media.taken_at * 1000).toISOString() : null,
+        views: parseInt(media.play_count || media.view_count || 0),
+        likes: parseInt(media.like_count || 0),
+        comments: parseInt(media.comment_count || 0),
+        durationSeconds: Math.round(media.video_duration || 0),
+        isVideo: true,
       });
     }
 
-    paginationToken = data?.pagination_token;
-    if (!paginationToken) break;
+    const pageInfo = data?.result?.page_info || data?.page_info;
+    const nextMaxId = pageInfo?.end_cursor || data?.result?.end_cursor || data?.end_cursor;
+    if ((pageInfo?.has_next_page || data?.result?.has_next_page) && nextMaxId) {
+      maxId = nextMaxId;
+    } else {
+      break;
+    }
   }
 
   return posts.slice(0, count);
@@ -101,19 +137,17 @@ export function calculateOutliers(posts, threshold = 2) {
 
 // ─── Helper ───
 
-async function igFetch(endpoint, params) {
+async function igFetch(endpoint, body) {
   if (!RAPIDAPI_KEY) throw new Error('RAPIDAPI_KEY not set');
 
-  const url = new URL(`https://${HOST}${endpoint}`);
-  for (const [k, v] of Object.entries(params)) {
-    if (v != null) url.searchParams.set(k, String(v));
-  }
-
-  const res = await fetch(url.toString(), {
+  const res = await fetch(`https://${HOST}${endpoint}`, {
+    method: 'POST',
     headers: {
       'x-rapidapi-key': RAPIDAPI_KEY,
       'x-rapidapi-host': HOST,
+      'Content-Type': 'application/json',
     },
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {

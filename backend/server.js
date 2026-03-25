@@ -608,8 +608,14 @@ app.get('/api/outlier/videos', requireAuth, async (req, res) => {
     query = query.eq('platform', req.query.platform);
   }
 
-  // Exclude YouTube Shorts (≤ 180s)
-  query = query.gt('duration_seconds', 180);
+  // Exclude YouTube Shorts (≤ 180s) — only apply to YouTube videos
+  // Instagram/TikTok reels have duration_seconds=0, so we can't filter them the same way
+  if (req.query.platform === 'youtube') {
+    query = query.gt('duration_seconds', 180);
+  } else if (!req.query.platform) {
+    // No platform filter: exclude YouTube shorts but keep all Instagram/TikTok
+    query = query.or('duration_seconds.gt.180,platform.neq.youtube');
+  }
 
   query = query.range(Number(offset), Number(offset) + Number(limit) - 1);
 
