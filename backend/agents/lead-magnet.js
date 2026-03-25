@@ -118,10 +118,19 @@ Your strategy document should be a clean, styled HTML advisory document:
 
 HTML REQUIREMENTS:
 - Complete standalone HTML: <!DOCTYPE html>, <html>, <head>, <body>
-- Modern CSS (inline or single <style> block) — no external stylesheets, no <script> tags
-- Clean, professional advisory document layout
-- Max-width 800px centered
-- No emoji — use CSS icons or inline SVG
+- PLAIN DOCUMENT STYLE — like a clean PDF or Google Doc. NOT a fancy themed UI.
+- White background, black text (#111111), simple hierarchy with headings and paragraphs
+- Font: system sans-serif stack only ('Helvetica Neue', Helvetica, Arial, sans-serif)
+- Headings: bold, slightly larger, #111111. No colored headings, no accent colors.
+- Body text: 15-16px, line-height 1.7, #333333
+- Sections separated by thin gray horizontal rules (1px solid #ddd) or generous whitespace
+- Max-width 800px centered with comfortable padding
+- The user's logo may be placed small at the top (max-height: 32px) — that is the ONLY branding element
+- NO colored backgrounds, NO accent colors, NO gradients, NO cards, NO shadows, NO borders
+- NO theme, NO UI components, NO fancy layout, NO sidebar, NO icons, NO decorative elements
+- Think of it as a black-and-white printed document — clean, professional, readable
+- Inline CSS only — no <style> blocks, no external stylesheets, no <script> tags
+- No emoji — plain text only
 - Write REAL, specific advice — never generic filler
 
 IMPORTANT:

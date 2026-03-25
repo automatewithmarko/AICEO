@@ -116,11 +116,10 @@ Generate a COMPLETE standalone HTML file:
 You have TWO types of images available. Choose wisely per section:
 
 ### 1. BRAND PHOTOS (user's provided images)
-Use these ONLY where the USER, their PRODUCT, or their BRAND should literally appear:
-- Testimonials: brand photos work as headshots/avatars
+Use these ONLY in about/founder sections where the actual person should appear:
 - About/founder sections: photos of the actual person
-- Social proof: real product/team/workspace photos
 - Use as: <img src="ACTUAL_PHOTO_URL_FROM_BRAND_DNA"> with the real URL
+- NEVER use brand photos for testimonials, reviews, or social proof — use CSS initials/avatars instead
 
 ### 2. AI-GENERATED IMAGES (use {{GENERATE:prompt}} placeholder)
 Use these for conceptual, illustrative, or lifestyle visuals:
@@ -137,7 +136,7 @@ Use these for conceptual, illustrative, or lifestyle visuals:
 | Hero | Conceptual visual for the offer? | {{GENERATE:...}} |
 | Social Proof | Real metrics/logos? | CSS/text (no image needed) or brand photo |
 | Features | Illustrations for concepts? | {{GENERATE:...}} |
-| Testimonials | Real person headshot? | Brand photo if available, otherwise skip |
+| Testimonials | Initials avatar? | CSS initials (colored circle + letter) — never brand photos |
 | How-it-works | Step illustrations? | {{GENERATE:...}} |
 | FAQ | None needed | No image |
 | Final CTA | Aspirational visual? | {{GENERATE:...}} |
@@ -242,8 +241,8 @@ export function buildSystemPrompt(brandDna) {
   // Photos
   const photos = brandDna.photo_urls || brandDna.photoUrls || [];
   if (photos.length > 0) {
-    parts.push('\n### Brand Photos — USE ONLY WHERE THE USER/PRODUCT SHOULD APPEAR');
-    parts.push('These are photos of the user, their team, or their product. Use them ONLY in sections where a real person/product should appear (testimonials, about, social proof). Do NOT use them as hero images — use {{GENERATE:...}} for conceptual hero visuals instead.');
+    parts.push('\n### Brand Photos — USE ONLY IN ABOUT/FOUNDER SECTIONS');
+    parts.push('These are photos of the user or their team. Use them ONLY in about/founder sections where the actual person should appear. NEVER use them for testimonials, reviews, social proof, or hero images — use {{GENERATE:...}} or CSS initials/avatars instead.');
     photos.forEach((url, i) => {
       parts.push(`- Photo ${i + 1}: ${url}`);
     });

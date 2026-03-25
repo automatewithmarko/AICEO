@@ -323,9 +323,11 @@ ${prompt}`;
       },
     };
 
-    // Note: thinkingConfig is NOT supported by Gemini image-preview models.
-    // The Pro model (gemini-3-pro-image-preview) already has higher reasoning
-    // built in — no separate thinkingConfig needed.
+    // Enable Google Search grounding for story sequences — gives Gemini
+    // access to current trends, styles, and references for better results
+    if (platform === 'instagram_story' || platform === 'tiktok') {
+      requestBody.tools = [{ google_search: {} }];
+    }
 
     const geminiRes = await fetch(
       `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
