@@ -22,6 +22,8 @@ export function getIframeEditScript() {
   // ── Click to edit ──
   document.addEventListener('click', function(e) {
     if (document.body.classList.contains('edit-disabled')) return;
+    // Skip clicks on image editing elements — let the image resize/move script handle those
+    if (e.target.closest('.img-edit-wrap') || e.target.closest('.img-resize-handle') || e.target.closest('.img-align-bar')) return;
     var el = e.target.closest('[data-edit-id]');
     if (!el || el === activeEl) return;
 

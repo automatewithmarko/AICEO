@@ -7,6 +7,7 @@ import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
 import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate } from '../lib/api';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
+import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
 export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange }) {
@@ -78,6 +79,37 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
           const updated = applyTextEdit(prev, editMapRef.current, editId, newHtml);
           if (onContentChange) onContentChange(updated);
           return updated;
+        });
+      } else if (e.data?.type === 'image-edit') {
+        const { src, width, marginLeft, marginRight, textAlign } = e.data;
+        if (!src) return;
+        skipIframeWriteRef.current = true;
+        setHtmlContent(prev => {
+          if (!prev) return prev;
+          const escapedSrc = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const simpleImgRegex = new RegExp('(<div[^>]*>\\s*)?(<img[^>]*src="' + escapedSrc + '"[^>]*/?>)(\\s*</div>)?', 'i');
+          const match = prev.match(simpleImgRegex);
+          if (match) {
+            let newImg = match[2];
+            if (width) {
+              newImg = newImg.replace(/style="[^"]*"/, (s) => {
+                let style = s.slice(7, -1);
+                style = style.replace(/width:\s*[^;]+;?/g, '');
+                style = 'width:' + width + ';' + style;
+                return 'style="' + style + '"';
+              });
+              if (!/style="/.test(newImg)) {
+                newImg = newImg.replace(/<img/, '<img style="width:' + width + ';height:auto;display:block;"');
+              }
+            }
+            const alignStyle = textAlign ? 'text-align:' + textAlign + ';' : 'text-align:center;';
+            const mStyle = (marginLeft ? 'margin-left:' + marginLeft + ';' : '') + (marginRight ? 'margin-right:' + marginRight + ';' : '');
+            const wrapDiv = '<div style="' + alignStyle + 'margin:0 auto;max-width:600px;"><div style="display:inline-block;' + mStyle + 'width:' + (width || '100%') + ';max-width:100%;">' + newImg + '</div></div>';
+            const updated = prev.replace(match[0], wrapDiv);
+            if (onContentChange) onContentChange(updated);
+            return updated;
+          }
+          return prev;
         });
       }
     }
@@ -681,6 +713,11 @@ function HtmlRenderer({ content, iframeRef, editMapRef, skipIframeWriteRef }) {
       const editScript = doc.createElement('script');
       editScript.textContent = getIframeEditScript();
       doc.body.appendChild(editScript);
+
+      // Inject image resize/move/align script
+      const imgScript = doc.createElement('script');
+      imgScript.textContent = getIframeImageScript();
+      doc.body.appendChild(imgScript);
     } else {
       doc.open();
       doc.write('<html><body></body></html>');
