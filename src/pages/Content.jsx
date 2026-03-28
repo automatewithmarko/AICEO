@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, getTemplates, getEmails, getSalesCalls, getProducts } from '../lib/api';
@@ -138,11 +138,11 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `=== GUIDED CONTENT CREATION FLOW ===\n`;
   prompt += `When the user describes content they want to create:\n`;
   prompt += `1. Detect the content type (carousel, reel, story, post, script, etc.)\n`;
-  prompt += `2. Ask 3 quick clarifying questions ONE AT A TIME with 4 selectable options each\n`;
-  prompt += `3. Format questions with this EXACT syntax:\n\n`;
-  prompt += `Your question?\n\n<<OPTIONS>>\nOption 1\nOption 2\nOption 3\nOption 4\n<</OPTIONS>>\n\n`;
-  prompt += `4. After 3 questions, generate the FINAL content — no more questions.\n`;
-  prompt += `5. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
+  prompt += `2. You MUST ask 2-3 quick clarifying questions ONE AT A TIME before generating. These questions shape the output quality.\n`;
+  prompt += `3. Format EVERY question as JSON: {"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}\n`;
+  prompt += `4. After 2-3 questions are answered, generate the FINAL content — no more questions.\n`;
+  prompt += `5. EXCEPTION: If the user explicitly says "just generate it" or "skip questions", generate immediately.\n`;
+  prompt += `6. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
   prompt += `   - CAROUSEL: Call generate_image SEPARATELY for EACH slide (5-7 slides). Each call = one slide with its own text/design.\n`;
   prompt += `   - SINGLE POST: Call generate_image once for the post image.\n`;
   prompt += `   - STORY FLOW: Call generate_image for each story frame (3-4 images).\n`;
@@ -151,7 +151,9 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `QUESTION RULES:\n`;
   prompt += `- Ask smart questions that shape the output (angle, tone, hook style) — not obvious ones\n`;
   prompt += `- 4 options per question, concise (2-5 words)\n`;
-  prompt += `- ONE question per message, keep the preamble to 1-2 sentences max\n\n`;
+  prompt += `- ONE question per message, keep the preamble to 1-2 sentences max\n`;
+  prompt += `- Format: {"type":"question","text":"...","options":["...","...","...","..."]}\n`;
+  prompt += `- NEVER skip questions unless the user explicitly asks to skip\n\n`;
 
   prompt += `=== CONTENT QUALITY STANDARDS ===\n`;
   prompt += `When producing final content:\n`;
@@ -502,6 +504,9 @@ export default function Content() {
   const [searchStatus, setSearchStatus] = useState(null);
   const [contentCtxMenuOpen, setContentCtxMenuOpen] = useState(false);
   const [contentHoveredCat, setContentHoveredCat] = useState(null);
+  const [currentQuestion, setCurrentQuestion] = useState(null);
+  const [customTyping, setCustomTyping] = useState(false);
+  const [customText, setCustomText] = useState('');
   const [contentSelectedCtx, setContentSelectedCtx] = useState(new Set());
   const [showPasteBtn, setShowPasteBtn] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -574,10 +579,17 @@ export default function Content() {
     const all = [];
     for (const cat of contentCtxCategories) {
       for (const item of cat.items) {
-        if (contentSelectedCtx.has(item.id)) all.push(item);
+        if (contentSelectedCtx.has(item.id)) all.push({ ...item, catLabel: cat.label });
       }
     }
     return all;
+  };
+
+  const buildContentContextString = () => {
+    const items = getContentSelectedDetails();
+    if (items.length === 0) return '';
+    const parts = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? ` — ${i.date}` : ''}`);
+    return `[CONTEXT — The user has selected the following items for reference:\n${parts.join('\n')}\nPrioritize this context when creating content. Use it to inform your tone, topics, and generated visuals.]\n\n`;
   };
 
   useEffect(() => {
@@ -653,12 +665,20 @@ export default function Content() {
       console.log('Full System Prompt:\n', systemPrompt);
       console.groupEnd();
 
+      let streamedContent = '';
       await streamContentResponse(
         apiMessages,
         systemPrompt,
-        // onTextChunk — stream text normally
+        // onTextChunk — stream text, but hide raw JSON questions
         (text) => {
-          setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: text } : m)));
+          streamedContent = text;
+          const trimmed = text.trim();
+          // If it looks like a JSON question being streamed, don't show raw JSON — show a subtle status instead
+          if (trimmed.startsWith('{"type"') || trimmed.startsWith('{ "type"')) {
+            setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: '' } : m)));
+          } else {
+            setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: text } : m)));
+          }
         },
         // onToolCalls — all generate_image calls at once, run in parallel
         async (imageCalls) => {
@@ -706,6 +726,33 @@ export default function Content() {
         abort.signal,
         { searchMode: contentResearchMode, onSearchStatus: setSearchStatus },
       );
+      // Check if the response is a JSON question
+      const finalContent = streamedContent || '';
+      let questionParsed = null;
+      try {
+        // Try to parse as JSON question
+        const trimmed = finalContent.trim();
+        if (trimmed.startsWith('{') && trimmed.includes('"type"')) {
+          const parsed = JSON.parse(trimmed);
+          if (parsed.type === 'question' && parsed.text && Array.isArray(parsed.options)) {
+            questionParsed = parsed;
+          }
+        }
+      } catch {}
+      // Also try legacy <<OPTIONS>> format
+      if (!questionParsed) {
+        const { text, options } = parseMessageOptions(finalContent);
+        if (options) questionParsed = { text, options };
+      }
+      if (questionParsed) {
+        setCurrentQuestion(questionParsed);
+        setCustomTyping(false);
+        setCustomText('');
+        // Show the question text as the message, not the raw JSON
+        setMessages((prev) => prev.map((m) =>
+          m.id === assistantMsgId ? { ...m, content: questionParsed.text } : m
+        ));
+      }
     } catch (err) {
       if (err.name !== 'AbortError') {
         setMessages((prev) => prev.map((m) =>
@@ -724,21 +771,26 @@ export default function Content() {
 
   const selectOption = useCallback((option) => {
     if (isGenerating) return;
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: option };
+    setCurrentQuestion(null);
+    setCustomTyping(false);
+    setCustomText('');
+    const contextStr = buildContentContextString();
+    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: contextStr + option };
     const updated = [...messages, userMsg];
     setMessages(updated);
     sendToAI(updated);
-  }, [isGenerating, messages, sendToAI]);
+  }, [isGenerating, messages, sendToAI, contentSelectedCtx, contentCtxCategories]);
 
   const sendMessage = useCallback(() => {
     const text = input.trim();
     if (!text || isGenerating) return;
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: text };
+    const contextStr = buildContentContextString();
+    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: contextStr + text };
     const updated = [...messages, userMsg];
     setMessages(updated);
     setInput('');
     sendToAI(updated);
-  }, [input, isGenerating, messages, sendToAI]);
+  }, [input, isGenerating, messages, sendToAI, contentSelectedCtx, contentCtxCategories]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1703,27 +1755,42 @@ export default function Content() {
                   </div>
                 );
               })}
+              {/* Question overlay — appears right after the last assistant bubble */}
+              {currentQuestion && !isGenerating && (
+                <div className="content-question-overlay">
+                  <p className="content-question-text">{currentQuestion.text}</p>
+                  {!customTyping ? (
+                    <div className="content-question-options">
+                      {currentQuestion.options.map((opt, i) => (
+                        <button key={i} className="content-question-option" onClick={() => selectOption(opt)}>
+                          {opt}
+                        </button>
+                      ))}
+                      <button className="content-question-option content-question-option--custom" onClick={() => setCustomTyping(true)}>
+                        Type your own...
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="content-question-custom-row">
+                      <input
+                        className="content-question-custom-input"
+                        placeholder="Type your answer..."
+                        value={customText}
+                        onChange={(e) => setCustomText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && customText.trim()) selectOption(customText); }}
+                        autoFocus
+                      />
+                      <button className="content-question-custom-send" disabled={!customText.trim()} onClick={() => selectOption(customText)}>
+                        <ArrowUp size={16} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
               <div ref={messagesEndRef} />
             </div>
           )}
         </div>
-
-        {/* Guided Question Options */}
-        {(() => {
-          const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant' && m.content);
-          if (!lastAssistant || isGenerating) return null;
-          const { options } = parseMessageOptions(lastAssistant.content);
-          if (!options) return null;
-          return (
-            <div className="content-options-tray">
-              {options.map((opt, i) => (
-                <button key={i} className="content-option-pill" style={{ animationDelay: `${i * 0.06}s` }} onClick={() => selectOption(opt)}>
-                  {opt}
-                </button>
-              ))}
-            </div>
-          );
-        })()}
 
         {/* Chat Input */}
         <div className="content-input-area">
