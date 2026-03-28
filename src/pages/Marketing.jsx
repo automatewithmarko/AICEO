@@ -3,7 +3,8 @@ import { Mail, Send, Users, BarChart3, Megaphone, Inbox, FileText, PenTool, Arro
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
-import { generateImage, uploadImageToStorage, deployToNetlify, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems } from '../lib/api';
+import { generateImage, uploadImageToStorage, deployToNetlify, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate } from '../lib/api';
+import AutomationGraph from '../components/AutomationGraph';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
@@ -140,19 +141,8 @@ RULES FOR STORY SEQUENCES:
     readyText: 'Your DM sequence is ready! Check the canvas on the right.',
     canvasEmptyType: 'dm-flow',
     canvasActions: [
-      { label: 'Import From Template', style: 'outline', hasChevron: true, isTemplateToggle: true },
+      { label: 'Templates', style: 'outline', hasChevron: true, isBoosendTemplates: true },
       { label: 'Publish In BooSend', style: 'boosend', iconSrc: '/BooSend_Logo_Light.png' },
-    ],
-    templates: [
-      { id: 'bs-1', name: 'Comment → Lead Magnet', desc: 'Watch for a keyword in your comments and deliver your resource to the lead after making sure they follow you.' },
-      { id: 'bs-2', name: 'Comment → Lead Magnet (No Follow Check)', desc: 'Watch for a keyword in your Instagram comments and deliver the free resource without checking if they follow you.' },
-      { id: 'bs-3', name: 'Live Comment → Link', desc: 'Deliver links to live stream viewers that leave a comment with a keyword.' },
-      { id: 'bs-4', name: 'Inbox Lead Watcher', desc: 'AI automation that triggers when someone messages potentially interested in your services and qualifies them for you.' },
-      { id: 'bs-5', name: 'Voice Note Lead Welcome', desc: 'Welcome new leads from your Instagram stories with voice notes and tag them so you can follow up later.' },
-      { id: 'bs-6', name: 'Comment → AI Appt Setter', desc: 'Deliver a lead magnet to people that comment on your post, then use an AI Agent to set up a sales call.' },
-      { id: 'bs-7', name: 'Story → Quiz Funnel', desc: 'Respond when users reply to your story with a keyword and take them through a quiz before sending them to a link.' },
-      { id: 'bs-8', name: 'Comment → Newsletter Signup', desc: 'Monitor your comments for a keyword and automatically collect emails from people before delivering a resource.' },
-      { id: 'bs-9', name: 'Inbox Agent', desc: 'Create an AI Agent that will reply to your incoming messages to either answer questions or book appointments for you.' },
     ],
   },
 };
@@ -431,10 +421,30 @@ function StoryPhoneViewer({ frames }) {
   );
 }
 
-// ── Interactive DM Flow Canvas (pan & zoom, auto-fit) ──
+// ── DM Automation View — shows automation graph canvas ──
+const DEFAULT_DM_NODES = [
+  {
+    id: 'trigger-1',
+    type: 'trigger',
+    position: { x: 250, y: 80 },
+    data: {
+      triggerConditions: [
+        { id: '1', type: 'message', keywords: [], messageDetectionType: 'keywords' }
+      ],
+    },
+  },
+];
+
+function DmFlowView({ graphData }) {
+  const nodes = graphData?.nodes?.length ? graphData.nodes : DEFAULT_DM_NODES;
+  const edges = graphData?.edges || [];
+  return <AutomationGraph nodes={nodes} edges={edges} />;
+}
+
+// ── Legacy static DM flow for fallback ──
 const DM_CW = 1900, DM_CH = 280;
 
-function DmFlowView() {
+function DmFlowViewStatic() {
   const vpRef = useRef(null);
   const [tf, setTf] = useState({ x: 0, y: 0, s: 0.7 });
   const panRef = useRef({ active: false, lx: 0, ly: 0 });
@@ -1090,6 +1100,10 @@ function ToolTab({ config, activeTool, brandDna }) {
   const [uploadedFiles, setUploadedFiles] = useState([]); // { id, name, type, dataUrl?, textContent?, size }
   const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
   const [copyCodeOpen, setCopyCodeOpen] = useState(false);
+  const [bsTemplatesOpen, setBsTemplatesOpen] = useState(false);
+  const [bsTemplates, setBsTemplates] = useState([]);
+  const [bsTemplatesLoading, setBsTemplatesLoading] = useState(false);
+  const [dmGraphData, setDmGraphData] = useState(null); // { nodes, edges }
   const [deploying, setDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState(null); // { url, site_name }
   const [sendModalOpen, setSendModalOpen] = useState(false);
@@ -1106,6 +1120,7 @@ function ToolTab({ config, activeTool, brandDna }) {
   const canvasBodyRef = useRef(null);
   const templateRef = useRef(null);
   const copyCodeRef = useRef(null);
+  const bsTemplatesRef = useRef(null);
   const iframeRef = useRef(null);
   const editMapRef = useRef(new Map());
   const skipIframeWriteRef = useRef(false);
@@ -1546,6 +1561,11 @@ function ToolTab({ config, activeTool, brandDna }) {
 
     abortRef.current = new AbortController();
 
+    // Auto-timeout after 3 minutes to prevent infinite "thinking" hangs
+    const timeoutId = setTimeout(() => {
+      if (abortRef.current) abortRef.current.abort();
+    }, 180_000);
+
     // Detect edit mode — canvas exists and not first message
     const isEdit = canvasHtml && !isFirstMessage;
 
@@ -1816,6 +1836,7 @@ function ToolTab({ config, activeTool, brandDna }) {
         ]);
       }
     } finally {
+      clearTimeout(timeoutId);
       setIsGenerating(false);
     }
   }, [messages, isGenerating, selectedItems, uploadedFiles, canvasHtml, config, activeTool, brandDna, researchMode]);
@@ -1868,6 +1889,18 @@ function ToolTab({ config, activeTool, brandDna }) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [copyCodeOpen]);
+
+  // Close BooSend templates dropdown on outside click
+  useEffect(() => {
+    if (!bsTemplatesOpen) return;
+    const handleClickOutside = (e) => {
+      if (bsTemplatesRef.current && !bsTemplatesRef.current.contains(e.target)) {
+        setBsTemplatesOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [bsTemplatesOpen]);
 
   const handleCopyCode = () => {
     if (!canvasHtml) return;
@@ -2247,6 +2280,58 @@ function ToolTab({ config, activeTool, brandDna }) {
                     {action.label}
                     <ChevronDown size={14} />
                   </button>
+                ) : action.isBoosendTemplates ? (
+                  <div key={i} className="mkt-template-anchor" ref={bsTemplatesRef}>
+                    <button
+                      className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
+                      onClick={() => {
+                        setBsTemplatesOpen(v => !v);
+                        if (!bsTemplates.length && !bsTemplatesLoading) {
+                          setBsTemplatesLoading(true);
+                          getBoosendTemplates()
+                            .then(res => setBsTemplates(res.templates || []))
+                            .catch(() => {})
+                            .finally(() => setBsTemplatesLoading(false));
+                        }
+                      }}
+                    >
+                      {action.label}
+                      <ChevronDown size={14} />
+                    </button>
+                    {bsTemplatesOpen && (
+                      <div className="mkt-bs-dropdown">
+                        {bsTemplatesLoading ? (
+                          <div className="mkt-bs-dropdown-loading">Loading...</div>
+                        ) : bsTemplates.length === 0 ? (
+                          <div className="mkt-bs-dropdown-empty">Connect BooSend in Settings first</div>
+                        ) : (
+                          bsTemplates.map(tpl => (
+                            <button
+                              key={tpl.id}
+                              className="mkt-bs-dropdown-item"
+                              onClick={async () => {
+                                setBsTemplatesOpen(false);
+                                const graph = tpl.automation_graph;
+                                if (graph?.nodes?.length) {
+                                  setDmGraphData({ nodes: graph.nodes, edges: graph.edges || [] });
+                                } else {
+                                  try {
+                                    const full = await getBoosendTemplate(tpl.id);
+                                    const t = full.template || full;
+                                    const g = t.automation_graph || {};
+                                    setDmGraphData({ nodes: g.nodes || [], edges: g.edges || [] });
+                                  } catch { setDmGraphData(null); }
+                                }
+                              }}
+                            >
+                              <div className="mkt-bs-dropdown-item-name">{tpl.name}</div>
+                              {tpl.description && <div className="mkt-bs-dropdown-item-desc">{tpl.description}</div>}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                 ) : action.isSaveTemplate ? (
                   <button
                     key={i}
@@ -2389,9 +2474,9 @@ function ToolTab({ config, activeTool, brandDna }) {
               <p className="mkt-story-flow-text">{config.emptyText}</p>
             </div>
           )}
-          {!canvasHtml && config.canvasEmptyType === 'dm-flow' && (
+          {config.canvasEmptyType === 'dm-flow' && (
             <div className="mkt-canvas-empty mkt-canvas-empty--dmflow">
-              <DmFlowView />
+              <DmFlowView graphData={dmGraphData} />
             </div>
           )}
           {!canvasHtml && !config.canvasEmptyType && (

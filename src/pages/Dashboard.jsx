@@ -115,6 +115,7 @@ export default function Dashboard() {
 
       if (intMap.stripe?.is_active || intMap.whop?.is_active) steps.add(5);
       if (intMap.fireflies?.is_active || intMap.fathom?.is_active) steps.add(6);
+      if (intMap.boosend?.is_active) steps.add(8);
 
       setCompletedSteps(steps);
       setDashLoading(false);

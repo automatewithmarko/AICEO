@@ -18,6 +18,7 @@ const NOTE_TAKERS = [
   { id: 'kajabi', name: 'Kajabi', logo: '/icon-kajabi-text.png', small: true },
   { id: 'gohighlevel', name: 'GoHighLevel', logo: '/gohighlevel-logo.png' },
   { id: 'netlify', name: 'Netlify', logo: '/icon-netlify.png' },
+  { id: 'boosend', name: 'BooSend', logo: '/boosend-logo.png' },
   { id: 'email', name: 'Email (SMTP/IMAP)', logo: '/smtp-logo.png', large: true },
 ];
 
@@ -1311,6 +1312,43 @@ export default function Settings() {
                   onClick={handleConnect}
                 >
                   {connecting ? <><Loader size={14} className="settings-spinner" /> Validating...</> : 'Connect'}
+                </button>
+              </>
+            )}
+
+            {/* BooSend */}
+            {modalOpen === 'boosend' && (
+              <>
+                <p className="modal-description">
+                  Connect your BooSend account to automate DM outreach and follow-ups directly from the AI CEO.
+                </p>
+                <div className="modal-connect-instructions">
+                  <details open>
+                    <summary className="modal-connect-summary">How to get your BooSend API key</summary>
+                    <ol className="modal-connect-steps">
+                      <li>Log in to your <strong>BooSend</strong> dashboard</li>
+                      <li>Go to <strong>Settings</strong> &gt; <strong>API</strong></li>
+                      <li>Copy your <strong>API key</strong> and paste it below</li>
+                    </ol>
+                  </details>
+                </div>
+                <div className="modal-field">
+                  <label className="modal-label">BooSend API Key</label>
+                  <input
+                    type="text"
+                    className="modal-input"
+                    placeholder="Paste your BooSend API key here"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                </div>
+                {connectError && <p className="modal-error">{connectError}</p>}
+                <button
+                  className="modal-btn modal-btn--primary"
+                  disabled={!apiKey.trim() || connecting}
+                  onClick={handleConnect}
+                >
+                  {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
                 </button>
               </>
             )}

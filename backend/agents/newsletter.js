@@ -247,7 +247,7 @@ export default {
     let prompt = SYSTEM_PROMPT;
     if (brandDna) {
       prompt += buildBrandContext(brandDna);
-      prompt += '\n\nCRITICAL: Use brand colors, fonts, logo (header only), and document content. For non-logo images use {{GENERATE:prompt}} placeholders. Match image usage to the selected tone style.';
+      prompt += '\n\nCRITICAL: Use brand colors, fonts, logo (header only), and document content. For non-logo images use {{GENERATE:prompt}} placeholders. Match image usage to the selected tone style. NEVER use both cover_image_prompt AND {{GENERATE:...}} in the same newsletter.';
     }
     return prompt;
   },

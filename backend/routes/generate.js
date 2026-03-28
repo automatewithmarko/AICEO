@@ -68,17 +68,41 @@ COMPOSITION & STYLE:
 - Premium, polished feel — like a designer made it in Figma
 - The image should make someone STOP scrolling in their inbox`,
 
-  instagram: `INSTAGRAM IMAGE RULES:
+  instagram: `INSTAGRAM CAROUSEL SLIDE RULES:
 - Aspect ratio: SQUARE (1:1) — this is critical, the image MUST be perfectly square
-- This is an Instagram carousel slide / post graphic
-- Put bold, large, readable TEXT directly on the image — this is what Instagram posts look like
-- Typography: clean sans-serif font (like Helvetica, Inter, or Montserrat style), high contrast against background
-- Text should be the main focal point — large, centered or left-aligned, with clear hierarchy
-- Background: either a clean solid/gradient color, a blurred photo, or a subtle textured background
-- Style reference: think @garyvee carousel slides, @chriswillx infographic posts, @thedesignmilk aesthetics
-- Colors: bold, high contrast. Dark bg + white text OR light bg + dark text. One accent color max
-- NO tiny text, NO cluttered layouts, NO more than 2-3 lines of text per image
-- Make it look like a real designer made it in Figma or Canva Pro`,
+- This is an Instagram carousel slide — each slide tells part of a story or teaches something
+
+CAROUSEL DESIGN STYLE:
+- Clean, modern, educational carousel slide — like what top creators post on Instagram
+- Style reference: @chriswillx, @thefutur, @garyvee carousel slides — bold text, minimal design, swipeable
+- Background: solid color OR subtle gradient using brand colors. NOT a photograph background for text-heavy slides.
+- For hook/first slides: photorealistic with the founder/person from reference photos as the main subject, with bold overlay text
+- For content/middle slides: clean colored background with large readable text — educational infographic style
+- For CTA/last slides: simple, direct, one clear action
+
+TEXT ON SLIDES:
+- Large, bold, readable headline text — 2-4 lines max per slide
+- Clean sans-serif font (Inter, Helvetica, Montserrat style)
+- High contrast: dark text on light bg OR white text on dark bg
+- Text is the MAIN element — make it big enough to read on a phone
+- Subtext/supporting text in smaller size below the headline
+
+LOGO PLACEMENT:
+- Logo should be SMALL and SUBTLE — bottom corner, max 24px height, low opacity or watermark style
+- The logo should NOT be a focal point. It's a subtle brand mark, not the hero element.
+
+PERSON/FOUNDER (MANDATORY when reference photos are attached):
+- FIRST slide (hook): The person MUST be the main subject — their face, expression, natural confident pose. This is what stops the scroll.
+- Middle/content slides: Focus on TEXT, but can include the person smaller or cropped as a background element
+- Last slide (CTA): Include the person again — builds trust and connection
+- Show them like a real Instagram photo — natural, approachable, not overly posed
+
+WHAT TO AVOID:
+- NO giant logos taking up significant space
+- NO cluttered layouts with too many elements
+- NO tiny unreadable text
+- NO generic stock imagery
+- NO more than 2-3 visual elements per slide (text + optional icon/graphic + optional person)`,
 
   youtube: `YOUTUBE THUMBNAIL RULES:
 - Aspect ratio: LANDSCAPE 16:9 — wide format
@@ -139,8 +163,11 @@ BACKGROUND PHOTO:
   linkedin: `LINKEDIN IMAGE RULES:
 - Aspect ratio: LANDSCAPE 4:3 — this is critical, the image MUST be 4:3 landscape format
 - Professional, clean design with authority
-- Bold headline text, minimal design, corporate-friendly colors
-- Think thought-leader post graphics — clean, sharp, authoritative`,
+- Bold headline text as the main element, minimal layout, corporate-friendly colors
+- If reference photos of the founder/user are attached, FEATURE THEM prominently — LinkedIn posts with a real person get 2-3x more engagement. Show their face, natural expression, professional but approachable.
+- Composition: person on one side, bold text on the other. Or person as background with text overlay.
+- Think thought-leader post graphics — the kind of image that makes someone stop scrolling on their LinkedIn feed
+- Logo: small, subtle, corner watermark only — NOT the main element`,
 
   facebook: `FACEBOOK IMAGE RULES:
 - Aspect ratio: SQUARE 1:1 or LANDSCAPE 16:9
@@ -248,18 +275,17 @@ router.post('/api/generate/image', async (req, res) => {
     let brandImageInstructions = '';
     if (hasLogo && hasPhotos) {
       brandImageInstructions = `
-MANDATORY BRAND ASSET USAGE:
-- The FIRST attached image is the user's BRAND LOGO. You MUST place this logo in the design — typically in a corner or as a watermark. Reproduce the logo exactly as shown.
-- The REMAINING attached images are REFERENCE PHOTOS of the user/founder. If this content features a person, you MUST use their exact face and likeness from these reference photos. Do NOT generate a different person.
-- These brand assets are NON-NEGOTIABLE. Every generated image must include the brand logo and use the person's real appearance.`;
+BRAND ASSETS (attached as reference images):
+- FIRST attached image = BRAND LOGO. Place it small and subtle (corner watermark, max 24px height). The logo is NOT the hero — it's a subtle brand mark.
+- REMAINING attached images = REFERENCE PHOTOS of the user/founder. You MUST include this person in the image — use their exact face and likeness from these photos. They should be a prominent, visible part of the composition. Do NOT generate a random person or leave the person out. Social media content with a real human face gets 2-3x more engagement.`;
     } else if (hasLogo) {
       brandImageInstructions = `
-MANDATORY BRAND ASSET USAGE:
-- The attached image is the user's BRAND LOGO. You MUST incorporate this logo in the design — place it in a corner, header, or as a subtle watermark. Reproduce the logo exactly as shown.`;
+BRAND ASSETS (attached as reference):
+- The attached image is the user's BRAND LOGO. Place it small and subtle — corner watermark, max 24px height. The logo should NOT dominate the design.`;
     } else if (hasPhotos) {
       brandImageInstructions = `
-MANDATORY BRAND ASSET USAGE:
-- The attached images are REFERENCE PHOTOS of the user/founder. If this content features a person, you MUST use their exact face and likeness from these photos. Do NOT generate a different face or body. Match their appearance precisely.`;
+BRAND ASSETS (attached as reference):
+- The attached images are REFERENCE PHOTOS of the user/founder. You MUST include this person in the image — use their exact face and likeness from these photos. They should be a prominent, visible part of the composition. Do NOT generate a random person or leave the person out.`;
     }
 
     const imagePrompt = `You are a professional graphic designer creating social media content. You have a reputation for brand-consistent, on-brand designs.

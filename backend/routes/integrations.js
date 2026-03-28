@@ -9,10 +9,11 @@ import * as gohighlevel from '../services/integrations/gohighlevel.js';
 import * as shopify from '../services/integrations/shopify.js';
 import * as kajabi from '../services/integrations/kajabi.js';
 import * as netlify from '../services/integrations/netlify.js';
+import * as boosend from '../services/integrations/boosend.js';
 
 const router = Router();
 
-const services = { fireflies, fathom, stripe: stripeInt, whop, gohighlevel, shopify, kajabi, netlify };
+const services = { fireflies, fathom, stripe: stripeInt, whop, gohighlevel, shopify, kajabi, netlify, boosend };
 const VALID_PROVIDERS = Object.keys(services);
 
 // ─── List all user integrations (no keys in response) ───

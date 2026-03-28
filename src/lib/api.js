@@ -807,3 +807,47 @@ export async function markAllNotificationsRead() {
     headers,
   });
 }
+
+// ─── BooSend ───
+
+export async function getBoosendTemplates() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/boosend/templates`, { headers });
+  if (!res.ok) return { templates: [] };
+  return res.json();
+}
+
+export async function getBoosendTemplate(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/boosend/templates/${id}`, { headers });
+  if (!res.ok) throw new Error('Failed to fetch template');
+  return res.json();
+}
+
+export async function useBoosendTemplate(templateId, { name, instagram_account_id } = {}) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/boosend/templates/${templateId}/use`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, instagram_account_id }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to create automation' }));
+    throw new Error(err.error || err.message);
+  }
+  return res.json();
+}
+
+export async function getBoosendAutomations() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/boosend/automations`, { headers });
+  if (!res.ok) return { automations: [] };
+  return res.json();
+}
+
+export async function getBoosendAutomation(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/boosend/automations/${id}`, { headers });
+  if (!res.ok) throw new Error('Failed to fetch automation');
+  return res.json();
+}

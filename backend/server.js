@@ -18,6 +18,7 @@ import productRoutes from './routes/products.js';
 import contactRoutes from './routes/contacts.js';
 import generateRoutes from './routes/generate.js';
 import orchestrateRoutes from './routes/orchestrate.js';
+import boosendRoutes from './routes/boosend.js';
 import { startEmailSync } from './services/email-sync.js';
 
 const app = express();
@@ -732,6 +733,13 @@ app.use((req, res, next) => {
   next();
 });
 app.use(orchestrateRoutes);
+
+// ─── BooSend automation routes (auth required) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/boosend')) return requireAuth(req, res, next);
+  next();
+});
+app.use(boosendRoutes);
 
 // ─── CEO Notifications ───
 app.get('/api/notifications', requireAuth, async (req, res) => {

@@ -84,7 +84,38 @@ const PLATFORM_GUIDANCE = {
 - Captions: Lead with a strong first line (it's the hook before "...more"). Write like you talk. Break into short paragraphs. 3-5 relevant hashtags max, not 30.
 - NEVER use generic filler, excessive emojis, or "Hey guys!" energy. Write like a real person, not a marketing bot.`,
   facebook: `Facebook content that gets shared, not scrolled past. Focus on storytelling, relatable moments, and discussion starters. Longer-form posts perform well. Ask genuine questions. Use line breaks for readability.`,
-  linkedin: `LinkedIn content with real authority. Lead with a contrarian take or hard-won insight. Use short paragraphs and line breaks. No corporate jargon. Share real experiences, real numbers, real lessons. Write like a smart person talking, not a press release.`,
+  linkedin: `LinkedIn content that positions you as a thought leader. Study what works on LinkedIn:
+
+HOOK (first 2 lines — before the "...see more" fold):
+- Open with a bold claim, surprising number, contrarian take, or personal story opener
+- These 2 lines determine if anyone reads further — make them impossible to scroll past
+- Examples: "I lost $200k because I ignored one metric." / "Everyone says X. They're wrong." / "3 years ago I almost quit."
+
+STRUCTURE:
+- One sentence per paragraph. White space is your weapon.
+- Short paragraphs (1-3 sentences max). Wall of text = death on LinkedIn.
+- Use line breaks aggressively — every new thought gets its own line.
+- Bold key phrases with asterisks (*like this*) so skimmers get value.
+- Numbered lists and bullet points for frameworks/steps.
+
+TONE:
+- Write like a smart founder talking to another founder over coffee.
+- Share real experiences, real numbers, real results. Vague = invisible.
+- No corporate jargon. No "leveraging synergies." No buzzwords.
+- Be direct and opinionated. Lukewarm takes get zero engagement.
+- First person. "I" not "we." Personal stories outperform everything.
+
+CTA:
+- End with a question, a repost prompt, or a soft CTA.
+- "What's your take?" / "Repost if you agree" / "DM me X for the full framework"
+- Never end with "Let me know your thoughts!" — be specific.
+
+WHAT TO AVOID:
+- Excessive emojis (1-2 max, or none)
+- Hashtags in the body (put 3-5 at the very end if any)
+- Corporate tone or press release energy
+- Generic advice with no specifics
+- Asking for engagement without giving value first`,
   youtube: `YouTube content built for retention. Titles: curiosity gap + clarity (not clickbait). Descriptions: front-load keywords, include timestamps. Scripts: open with the payoff/promise, deliver value fast, use pattern interrupts every 30-60s. Thumbnails: high contrast, expressive face or striking visual, 3-4 words max.`,
   x: `X/Twitter content that spreads. One idea per tweet. Strong opening line. No filler words. Threads: first tweet must stand alone and hook. Use contrarian takes, specific numbers, or "Here's what nobody tells you about X" patterns. No hashtag spam.`,
   tiktok: `TikTok content that hooks immediately. First frame must stop the scroll — movement, text hook, or pattern interrupt. Keep it under 30s for better completion rate. Use trending sounds. Text overlays that tell the story on mute. Raw > polished.`,
@@ -1662,7 +1693,7 @@ export default function Content() {
                               <div className="content-image-skeleton-shimmer" />
                               <div className="content-image-skeleton-label">
                                 <Loader size={16} className="cs-spinner" />
-                                <span>Generating slide {sortedImages.length + i + 1}...</span>
+                                <span>Generating {activePlatform?.id === 'youtube' ? 'thumbnail' : activePlatform?.id === 'linkedin' ? 'image' : `slide ${sortedImages.length + i + 1}`}...</span>
                               </div>
                             </div>
                           ))}
