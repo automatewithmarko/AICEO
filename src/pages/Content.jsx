@@ -78,7 +78,7 @@ const SOCIAL_URL_PATTERN = /^https?:\/\/(www\.)?(instagram\.com|facebook\.com|fb
 
 const PLATFORM_GUIDANCE = {
   instagram: `Instagram content that actually performs. Study what top creators do:
-- Carousels: Bold first slide with a hook statement (not a question). Clean typography, high contrast. Each slide delivers ONE clear point. Last slide = CTA.
+- Carousels: A carousel is a STORY told across slides, not a list of random tips. The first slide hooks with a bold claim. Every following slide builds on that hook — revealing, explaining, proving, and concluding. The viewer should NEED to swipe to get the payoff. Last slide = CTA. ALL slides must share the EXACT same visual style (background color, font, layout) so they look like one cohesive set.
 - Reels: Hook in first 0.5s. Pattern interrupt. Fast cuts. Text overlays that tell the story on mute. Trending audio when relevant.
 - Stories: Raw, authentic, behind-the-scenes. Polls/questions for engagement. Keep it casual.
 - Captions: Lead with a strong first line (it's the hook before "...more"). Write like you talk. Break into short paragraphs. 3-5 relevant hashtags max, not 30.
@@ -192,11 +192,35 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `4. After 2-3 questions are answered, generate the FINAL content — no more questions.\n`;
   prompt += `5. EXCEPTION: If the user explicitly says "just generate it" or "skip questions", generate immediately.\n`;
   prompt += `6. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
-  prompt += `   - CAROUSEL: Call generate_image SEPARATELY for EACH slide (5-7 slides). Each call = one slide with its own text/design.\n`;
+  prompt += `   - CAROUSEL: You MUST plan the FULL carousel as a STORYLINE before generating any slides. Follow this structure:\n`;
+  prompt += `     a) First, decide the narrative arc: Hook → Context/Problem → Key Points (2-3 slides) → Proof/Example → CTA\n`;
+  prompt += `     b) Each slide MUST advance the story — slide 2 builds on slide 1, slide 3 builds on slide 2, etc.\n`;
+  prompt += `     c) Think of it like a mini-presentation: the viewer should NEED to swipe to get the full value\n`;
+  prompt += `     d) Call generate_image SEPARATELY for EACH slide (5-7 slides)\n`;
   prompt += `   - SINGLE POST: Call generate_image once for the post image.\n`;
   prompt += `   - STORY FLOW: Call generate_image for each story frame (3-4 images).\n`;
   prompt += `   - YOUTUBE: Call generate_image for the thumbnail.\n`;
   prompt += `   You can make MULTIPLE generate_image calls in the same response. Each slide needs its own call.\n\n`;
+
+  prompt += `=== CAROUSEL VISUAL CONSISTENCY (CRITICAL) ===\n`;
+  prompt += `Every slide in a carousel MUST look like it belongs to the SAME set. To achieve this:\n`;
+  prompt += `1. PICK ONE background style and use it across ALL slides: e.g. "solid dark navy (#1a1a2e) background" or "clean white background with subtle gray gradient"\n`;
+  prompt += `2. PICK ONE text style and repeat it in EVERY slide prompt: e.g. "bold white sans-serif text, Inter/Helvetica style, centered"\n`;
+  prompt += `3. PICK ONE layout template: e.g. "text centered with small subtext below" — do NOT switch layouts between slides\n`;
+  prompt += `4. In EVERY generate_image call, include the EXACT SAME style prefix, like:\n`;
+  prompt += `   "Style: solid dark navy (#1a1a2e) background, bold white sans-serif headline text centered, thin gray subtext below. [Slide-specific content follows]"\n`;
+  prompt += `5. The ONLY thing that changes between slides is the text content and whether the founder appears\n`;
+  prompt += `6. Slide 1 (hook) may feature the founder photo — all other slides should be TEXT-FOCUSED with the same clean design\n`;
+  prompt += `7. Do NOT alternate between photorealistic and graphic design styles within the same carousel\n\n`;
+
+  prompt += `=== CAROUSEL NARRATIVE STRUCTURE ===\n`;
+  prompt += `A good carousel tells a STORY. Each slide has a role:\n`;
+  prompt += `- Slide 1 (HOOK): Bold statement or surprising claim that creates curiosity. NOT a question. Makes them swipe.\n`;
+  prompt += `- Slide 2 (CONTEXT): Set up the problem or situation. "Here's what most people get wrong..." / "The reality is..."\n`;
+  prompt += `- Slides 3-5 (VALUE): Each slide = ONE clear point that builds on the previous. Number them or use a progression.\n`;
+  prompt += `- Slide 6 (PROOF/RESULT): What happens when you apply this? A result, transformation, or example.\n`;
+  prompt += `- Slide 7 (CTA): Clear next step. "Follow for more" / "Save this for later" / "DM me X"\n`;
+  prompt += `The viewer should feel like they're reading a short story, not 7 random tips.\n\n`;
   prompt += `QUESTION RULES:\n`;
   prompt += `- Ask smart questions that shape the output (angle, tone, hook style) — not obvious ones\n`;
   prompt += `- 4 options per question, concise (2-5 words)\n`;
@@ -222,6 +246,9 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- NO cartoons, NO pixel art, NO clip-art, NO illustrations, NO stock photos\n`;
   if (platform.id === 'instagram') {
     prompt += `- INSTAGRAM: Image MUST be SQUARE (1:1). Bold text as the main element. Clean background (solid color, gradient, or blurred photo). Think carousel slide that @garyvee or @chriswillx would post.\n`;
+    prompt += `- INSTAGRAM CAROUSEL: Every generate_image call for a carousel MUST start with the SAME style prefix so all slides match visually. Example:\n`;
+    prompt += `  "STYLE: Solid dark navy (#1B2838) background, bold white sans-serif headline text centered, light gray subtext below, clean minimal layout. SLIDE CONTENT: [the actual slide text here]"\n`;
+    prompt += `  Copy-paste this exact style prefix into every slide's prompt. Only change the SLIDE CONTENT part.\n`;
   } else if (platform.id === 'youtube') {
     prompt += `- YOUTUBE: Image MUST be LANDSCAPE (16:9). Thumbnail style — dramatic, high contrast, 3-4 words max in huge bold text.\n`;
   } else if (platform.id === 'tiktok') {
@@ -735,6 +762,32 @@ export default function Content() {
             m.id === assistantMsgId ? { ...m, pendingImages: imageCalls.length } : m
           ));
 
+          // Collect previous images from the conversation for regeneration reference
+          // Find the most recent assistant message that has images (the previous generation)
+          const prevImages = [];
+          for (let i = chatHistory.length - 1; i >= 0; i--) {
+            const msg = messages.find(m => m.id === chatHistory[i]?.id) || chatHistory[i];
+            if (msg?.role === 'assistant' && msg.images?.length) {
+              // Extract base64 data from data URLs (strip the data:mime;base64, prefix)
+              for (const img of msg.images) {
+                if (img.src?.startsWith('data:')) {
+                  const commaIdx = img.src.indexOf(',');
+                  if (commaIdx !== -1) {
+                    const mimeMatch = img.src.match(/^data:([^;]+);/);
+                    prevImages.push({
+                      data: img.src.slice(commaIdx + 1),
+                      mimeType: mimeMatch?.[1] || 'image/jpeg',
+                    });
+                  }
+                }
+              }
+              break; // Only use the most recent set of images
+            }
+          }
+          if (prevImages.length) {
+            console.log(`[Content] Regeneration detected — sending ${prevImages.length} previous image(s) as reference`);
+          }
+
           const results = await Promise.allSettled(
             imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
               console.log(`  🎨 [${idx + 1}/${imageCalls.length}] ${imgPrompt.slice(0, 80)}...`);
@@ -753,7 +806,9 @@ export default function Content() {
                 colors: brandDna?.colors || {},
                 mainFont: brandDna?.main_font || null,
               };
-              const result = await generateImage(imgPrompt, selectedPlatform, brandImageData);
+              // Pass the matching previous image for this slide index (if regenerating)
+              const refImages = prevImages.length ? [prevImages[idx] || prevImages[0]] : null;
+              const result = await generateImage(imgPrompt, selectedPlatform, brandImageData, refImages);
               // Update message as each image completes
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;

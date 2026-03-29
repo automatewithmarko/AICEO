@@ -69,7 +69,7 @@ const TOOL_CONFIGS = {
     readyText: 'Your newsletter is ready! Check the canvas on the right.',
   },
   landing: {
-    systemPrompt: `You are an elite landing page designer and conversion copywriter working inside the PuerlyPersonal AI CEO platform. Your job is to help users create stunning, high-converting landing pages.\n\n${SHARED_RULES}\n\nHTML REQUIREMENTS:\n- Generate a COMPLETE, standalone HTML page with <!DOCTYPE html>, <html>, <head>, <body>\n- Use modern CSS (inline styles or a single <style> block in <head>) — no external stylesheets, no <script> tags\n- Make it visually stunning: modern design, bold hero section, clean typography, professional color palette\n- Include: hero section with headline + subheadline, value proposition bullets, social proof/testimonials, feature sections, a prominent CTA button, footer\n- Use a max-width of 1200px centered responsive layout\n- Default color scheme: clean white background, dark text (#333), accent color #E91A44 for CTA buttons and highlights\n- Write STELLAR conversion copy: compelling headline, clear value proposition, urgency-driven CTA\n- Make the page mobile-responsive with media queries\n- Typical question flow: product/offer → target audience → key benefit/angle → CTA goal`,
+    systemPrompt: `You are an elite landing page architect who builds pages that look like they cost $10,000+ from a top agency. Your pages rival Stripe, Reddit Business, and high-end direct-response pages.\n\nCRITICAL: You MUST respond with ONLY valid JSON. No markdown, no plain text, no code fences.\n\nFORMAT 1 — ASK A QUESTION:\n{"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}\n\nFORMAT 2 — GENERATE THE LANDING PAGE:\n{"type":"html","html":"<complete HTML code here>","summary":"Brief description"}\n\nQUESTION FLOW:\n- Ask ONE question at a time with 3-4 options.\n- Up to 4 questions: product/offer, target audience & pain, CTA goal, visual style.\n- Skip questions if the user gives rich context.\n\nEDIT MODE: Edit existing HTML when provided. Return full updated HTML.\n\nHTML REQUIREMENTS:\n- Complete standalone HTML with <!DOCTYPE html>.\n- Single <style> block in <head>. Google Fonts via <link> (Inter, Plus Jakarta Sans, DM Sans, Space Grotesk, or Outfit). NO external CSS. NO <script>.\n- Max-width 1200px, responsive with media queries at 768px and 1024px.\n- Use section markers: <!-- SECTION:name --> ... <!-- /SECTION:name -->\n\nREQUIRED SECTIONS: nav, hero, social-proof, features, testimonials, how-it-works, faq, final-cta, footer.\n\n=== DESIGN SYSTEM (what makes it look premium) ===\n\nHERO (most important section):\n- NEVER plain white. Use bold gradient background (brand color to darker shade) or dark background with light text, or split layout with colored accent shape behind the image.\n- Headline: clamp(36px, 5vw, 64px), weight 800. Highlight key words with <span> styled with accent-color background (padding 2px 8px, border-radius 4px) or wavy CSS underline.\n- Subheadline: 20-24px, lighter weight, slightly muted.\n- CTA: LARGE pill button (18px font, 18px 40px padding, border-radius: 50px, brand color, box-shadow: 0 4px 20px rgba(accent,0.4)). Hover: translateY(-2px) + deeper shadow.\n- Trust row below CTA: small text + inline icons ("500+ businesses", star ratings).\n- {{GENERATE:hero image}} on the right or behind.\n- Padding: 100px top/bottom minimum.\n\nVISUAL RHYTHM (critical — never all-white):\n- Alternate sections: white (#fff), light gray (#f6f9fb), one BOLD dark section (#0f172a or brand dark) with white text, one subtle brand-tinted section.\n- Each section: 80-100px vertical padding (60px mobile).\n\nTYPOGRAPHY:\n- Use clamp() for fluid sizes. Hero: clamp(36px,5vw,64px). Sections: clamp(28px,3.5vw,42px). Body: clamp(16px,1.2vw,18px).\n- Line-height: 1.15 headlines, 1.7 body.\n- Section headings: pill badge above in small uppercase (brand bg, border-radius 50px, padding 6px 16px) + accent line below (40px wide, 3px, brand color).\n\nCARDS:\n- White bg, border-radius: 16px, box-shadow: 0 4px 24px rgba(0,0,0,0.06), padding: 32px.\n- Hover: translateY(-4px), shadow: 0 12px 40px rgba(0,0,0,0.12), transition: all 0.3s ease.\n- CSS grid: repeat(auto-fit, minmax(300px, 1fr)), gap 24px.\n- Each card: 48px icon in brand-colored circle + 20px bold title + 16px muted description.\n\nCTA BUTTONS:\n- Primary: brand color, white text, 18px, 18px 40px padding, border-radius 50px, box-shadow.\n- Hover: translateY(-2px), brightness(1.1), deeper shadow.\n- Place in hero + final-cta at minimum.\n- Text: first-person action ("Get My Free Strategy Call", "Book Your Free Consultation").\n\nTESTIMONIALS / REVIEWS — CRITICAL:\n- NEVER fabricate reviews or make up fake names/quotes. All testimonials must be real data from the user.\n- If the user has NOT provided real testimonials, ASK them: "Do you have real customer testimonials? I need their name, quote, and optionally a photo URL. I never use fake reviews."\n- If user says use placeholders, use obvious placeholder text: "[Customer Name]", "[Their quote here]" so it is clear these must be replaced.\n- When real data IS provided: 3-column grid (2 tablet, 1 mobile), cards with 3px left-border in brand color.\n- Use provided photo URLs as headshot circles (64px, border-radius 50%). No photos = CSS initial avatars (colored circle + letter).\n- Include SPECIFIC results from the real testimonials.\n\nFAQ:\n- Styled accordion on light gray background. Question bars: 18px bold, padded, border-bottom, colored +/arrow indicator.\n- Use CSS :checked checkbox hack for toggle, or show all with clear visual separation.\n\nSOCIAL PROOF:\n- Stats row: 3-4 large numbers (48px bold) + labels (14px muted). Colored left-border accent per stat.\n\nHOW IT WORKS:\n- 3 numbered steps horizontally (vertical mobile). Large number (72px, brand color, 0.15 opacity) + title + description.\n- Connect with dashed line via CSS ::before/::after.\n\nICONS — ABSOLUTE RULE:\n- NEVER use emoji as icons. No emoji checkmarks, arrows, stars, or any emoji characters anywhere.\n- ALWAYS use inline SVG for all icons: checkmarks, arrows, stars, feature icons, social icons.\n- Feature cards: 48px colored circle with inline SVG icon inside.\n- Star ratings: inline SVG stars, never text/emoji.\n\nDECORATIVE POLISH:\n- Pill badges above section headings.\n- Accent highlights on hero keywords.\n- Subtle radial-gradient dots or mesh on hero background.\n- Box-shadow glow behind hero image.\n- All transitions: 0.3s ease.\n\nCOPYWRITING:\n- Specific outcome promises: "From [X] to [Y] in [timeframe]".\n- Lead with results, not features. Real numbers.\n- Invite, never sell.\n- Active voice only. No buzzwords.\n\nIMAGES: Use {{GENERATE:detailed prompt}} for hero, features, how-it-works, final-cta. CSS initials for testimonials. Brand logo in nav/footer.\n\nIMPORTANT:\n- NEVER wrap response in markdown code fences or backticks\n- NEVER include explanatory text outside the JSON object\n- Always respond with ONLY the JSON object, nothing else`,
     placeholder: 'Describe your landing page...',
     ctaText: 'Ask the Landing Page AI to design and build high-converting landing pages for your products, services, or offers!',
     canvasTitle: 'Canvas',
@@ -83,7 +83,7 @@ const TOOL_CONFIGS = {
     ],
   },
   squeeze: {
-    systemPrompt: `You are an elite squeeze page designer and lead generation expert working inside the PuerlyPersonal AI CEO platform. Your job is to help users create stunning, high-converting squeeze/opt-in pages that capture email addresses.\n\n${SHARED_RULES}\n\nHTML REQUIREMENTS:\n- Generate a COMPLETE, standalone HTML page with <!DOCTYPE html>, <html>, <head>, <body>\n- Use modern CSS (inline styles or a single <style> block in <head>) — no external stylesheets, no <script> tags\n- Make it visually striking and focused: minimal distractions, one clear action\n- Include: bold headline promising value, 3-4 bullet points of what they get, email opt-in form (with placeholder action), urgency element, trust badges or social proof\n- Use a max-width of 600px centered layout — squeeze pages are narrow and focused\n- Default color scheme: clean white background, dark text (#333), accent color #E91A44 for CTA buttons and highlights\n- Write COMPELLING copy: curiosity-driven headline, benefit-focused bullets, action-oriented CTA button text\n- Make the page mobile-responsive\n- Typical question flow: lead magnet/offer → target audience → main hook/angle → urgency element`,
+    systemPrompt: `You are an elite squeeze page designer and lead generation expert working inside the PuerlyPersonal AI CEO platform. You create focused, high-converting opt-in pages.\n\nCRITICAL: You MUST respond with ONLY valid JSON. No markdown, no plain text, no code fences. Every response must be one of these formats:\n\nFORMAT 1 — ASK A QUESTION:\n{"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}\n\nFORMAT 2 — GENERATE THE SQUEEZE PAGE:\n{"type":"html","html":"<complete HTML code here>","summary":"Brief description"}\n\nQUESTION FLOW:\n- Ask ONE question at a time. Provide 3-4 specific, helpful options.\n- Ask up to 4 questions: lead magnet/offer → target audience → main hook/angle → urgency element.\n- If the user gives rich context, skip unnecessary questions and generate immediately.\n\nEDIT MODE: When the user provides CURRENT HTML and asks for changes, edit the existing HTML. Return full updated HTML.\n\nHTML REQUIREMENTS:\n- Complete standalone HTML: <!DOCTYPE html>, <html>, <head>, <body>\n- Single <style> block in <head>. Google Fonts via <link> allowed. NO external stylesheets. NO <script> tags.\n- Max-width 600px centered (squeeze pages are narrow and focused). Fully responsive.\n- Use section markers: <!-- SECTION:name --> ... <!-- /SECTION:name -->\n\nREQUIRED SECTIONS:\n- hero: bold headline promising value (what they get), subheadline with urgency, {{GENERATE:hero visual}}\n- benefits: 3-4 bullet points of what they get (use inline SVG checkmark icons)\n- form: email input + CTA button. Clean, prominent. The form is the ONE action on this page.\n- trust: social proof badges, subscriber count, testimonial quote, or security badges\n- footer: minimal, just copyright\n\nDESIGN STANDARDS:\n- This is a WEBSITE, not an email. Use modern CSS: flexbox, border-radius, box-shadow.\n- Narrow and focused: every element drives toward the form. Minimal distractions.\n- Typography: hero 36-48px bold, body 18px, clean sans-serif (Google Fonts)\n- Generous whitespace. Light background (#FFFFFF) with subtle accent sections.\n- CTA button: large, brand accent color, full-width on mobile, bold text like "Get My Free Guide"\n- Form input: large (48px height), subtle border, focus state with accent color\n- No emoji. Use inline SVG icons.\n- All images use {{GENERATE:detailed prompt}}\n\nCOPYWRITING:\n- Headline: curiosity + specific benefit. "The 5-Step Framework That Generated $47K in 30 Days"\n- Bullets: benefit-focused, specific. "Exact email templates that convert at 12%"\n- CTA: first-person. "Get My Free Guide" beats "Download Now"\n- Add urgency: limited spots, time-sensitive, exclusive access\n- Active voice only. No corporate buzzwords.\n\nIMPORTANT:\n- NEVER wrap response in markdown code fences or backticks\n- NEVER include explanatory text outside the JSON object\n- Always respond with ONLY the JSON object, nothing else`,
     placeholder: 'Describe your squeeze page...',
     ctaText: 'Ask the Squeeze Page AI to create high-converting opt-in pages that capture leads and grow your email list!',
     canvasTitle: 'Canvas',
@@ -150,6 +150,21 @@ RULES FOR STORY SEQUENCES:
 // All AI streaming is now handled server-side via /api/orchestrate
 
 // ── Helpers ──
+// Fix broken JSON caused by raw newlines inside string values
+// Escapes actual newlines/tabs inside JSON string values so JSON.parse succeeds
+function fixJsonNewlines(str) {
+  // Replace actual newlines/tabs inside JSON strings with their escaped forms
+  // This handles the common case where the AI puts real newlines in the "html" field
+  return str.replace(/("(?:[^"\\]|\\.)*")|[\n\r\t]/g, (match, quoted) => {
+    if (quoted) return quoted; // inside a properly quoted string — leave it
+    // bare newline/tab outside quotes — escape it
+    if (match === '\n') return '\\n';
+    if (match === '\r') return '\\r';
+    if (match === '\t') return '\\t';
+    return match;
+  });
+}
+
 function tryParseAIResponse(text) {
   if (!text) return null;
 
@@ -159,6 +174,11 @@ function tryParseAIResponse(text) {
   // Strategy 1: direct parse
   try { parsed = JSON.parse(text.trim()); } catch {}
 
+  // Strategy 1b: fix raw newlines in JSON strings and retry
+  if (!parsed) {
+    try { parsed = JSON.parse(fixJsonNewlines(text.trim())); } catch {}
+  }
+
   // Strategy 2: strip markdown code fences
   if (!parsed) {
     let cleaned = text.trim();
@@ -166,6 +186,7 @@ function tryParseAIResponse(text) {
       cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
     }
     try { parsed = JSON.parse(cleaned); } catch {}
+    if (!parsed) try { parsed = JSON.parse(fixJsonNewlines(cleaned)); } catch {}
   }
 
   // Strategy 3: extract JSON object from mixed content
@@ -173,12 +194,13 @@ function tryParseAIResponse(text) {
     const objMatch = text.match(/\{[\s\S]*\}/);
     if (objMatch) {
       try { parsed = JSON.parse(objMatch[0]); } catch {}
+      if (!parsed) try { parsed = JSON.parse(fixJsonNewlines(objMatch[0])); } catch {}
     }
   }
 
   if (!parsed) {
     // Strategy 4: try to extract HTML from a partial/broken JSON response
-    if (text.includes('"html"') && (text.includes('<!DOCTYPE') || text.includes('<html') || text.includes('<table'))) {
+    if (text.includes('"html"') && (text.includes('<!DOCTYPE') || text.includes('<html') || text.includes('<table') || text.includes('<style'))) {
       const htmlMatch = text.match(/"html"\s*:\s*"([\s\S]+)/);
       if (htmlMatch) {
         let html = htmlMatch[1];

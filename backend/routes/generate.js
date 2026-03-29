@@ -105,15 +105,23 @@ COMPOSITION & STYLE:
 
   instagram: `INSTAGRAM CAROUSEL SLIDE RULES:
 - Aspect ratio: SQUARE (1:1) — this is critical, the image MUST be perfectly square
-- This is an Instagram carousel slide — each slide tells part of a story or teaches something
+- This slide is part of a CAROUSEL SET — it must visually match all other slides in the same carousel
+
+VISUAL CONSISTENCY (MOST IMPORTANT RULE):
+- This slide is ONE part of a multi-slide carousel. It MUST look like it belongs with the other slides.
+- Follow the EXACT style described in the prompt — same background color, same font style, same layout, same text positioning
+- If the prompt says "solid dark navy background with white text" — use EXACTLY that. Do not improvise a different background.
+- The background, typography, and layout MUST be identical across all slides — only the text content changes.
+- Think of this as a PowerPoint template: same master slide, different words on each page.
 
 CAROUSEL DESIGN STYLE:
 - Clean, modern, educational carousel slide — like what top creators post on Instagram
 - Style reference: @chriswillx, @thefutur, @garyvee carousel slides — bold text, minimal design, swipeable
 - Background: solid color OR subtle gradient using brand colors. NOT a photograph background for text-heavy slides.
-- For hook/first slides: photorealistic with the founder/person from reference photos as the main subject, with bold overlay text
+- CRITICAL: Use the EXACT background color/style specified in the prompt. Do NOT vary it between slides.
+- For hook/first slides WITH founder: photorealistic with the founder/person, but still using the same color palette
 - For content/middle slides: clean colored background with large readable text — educational infographic style
-- For CTA/last slides: simple, direct, one clear action
+- For CTA/last slides: same background as content slides, simple direct text
 
 TEXT ON SLIDES:
 - Large, bold, readable headline text — 2-4 lines max per slide
@@ -121,23 +129,25 @@ TEXT ON SLIDES:
 - High contrast: dark text on light bg OR white text on dark bg
 - Text is the MAIN element — make it big enough to read on a phone
 - Subtext/supporting text in smaller size below the headline
+- Text positioning must be CONSISTENT: if text is centered on slide 1, it must be centered on all slides
 
 LOGO PLACEMENT:
 - Logo should be SMALL and SUBTLE — bottom corner, max 24px height, low opacity or watermark style
 - The logo should NOT be a focal point. It's a subtle brand mark, not the hero element.
 
-PERSON/FOUNDER (MANDATORY when reference photos are attached):
-- FIRST slide (hook): The person MUST be the main subject — their face, expression, natural confident pose. This is what stops the scroll.
-- Middle/content slides: Focus on TEXT, but can include the person smaller or cropped as a background element
-- Last slide (CTA): Include the person again — builds trust and connection
+PERSON/FOUNDER (when reference photos are attached):
+- FIRST slide (hook) ONLY: The person can be the main subject — their face, expression, natural confident pose
+- ALL other slides: TEXT ONLY on the consistent background. Do NOT include the person on content slides.
 - Show them like a real Instagram photo — natural, approachable, not overly posed
 
 WHAT TO AVOID:
+- NO switching visual styles between slides — every slide must look like the same template
 - NO giant logos taking up significant space
 - NO cluttered layouts with too many elements
 - NO tiny unreadable text
 - NO generic stock imagery
-- NO more than 2-3 visual elements per slide (text + optional icon/graphic + optional person)`,
+- NO random decorative graphics that differ between slides
+- NO photograph backgrounds on text-heavy slides`,
 
   youtube: `YOUTUBE THUMBNAIL RULES:
 - Aspect ratio: LANDSCAPE 16:9 — wide format, this is critical
@@ -288,7 +298,7 @@ async function getCachedBrandData(userId) {
 
 // ─── Image generation ───
 router.post('/api/generate/image', async (req, res) => {
-  const { prompt, platform, brandData } = req.body;
+  const { prompt, platform, brandData, referenceImages } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: 'prompt is required' });
   }
@@ -389,6 +399,17 @@ ${prompt}`;
       }
     } else {
       console.log(`[generate/image] ⚠️ No brand data available — generating without brand references`);
+    }
+
+    // Attach previous images as reference when regenerating
+    if (referenceImages?.length) {
+      requestParts.push({ text: '\n\nPREVIOUS VERSION (the user wants you to IMPROVE on this image — keep the same overall style, layout, and composition but apply the requested changes. Do NOT start from scratch):' });
+      for (const refImg of referenceImages) {
+        if (refImg?.data && refImg?.mimeType) {
+          requestParts.push({ inlineData: { data: refImg.data, mimeType: refImg.mimeType } });
+        }
+      }
+      console.log(`[generate/image] 🔄 Regeneration mode — attached ${referenceImages.length} previous image(s) as reference`);
     }
 
     // Select model + config based on platform

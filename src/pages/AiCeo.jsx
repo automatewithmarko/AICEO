@@ -341,14 +341,24 @@ export default function AiCeo() {
         // Agent finished — parse final result
         onAgentResult: (agentName, content) => {
           try {
-            // Try direct parse, then strip markdown fences, then extract JSON object
+            // Fix broken JSON caused by raw newlines inside string values
+            const fixNl = (s) => s.replace(/("(?:[^"\\]|\\.)*")|[\n\r\t]/g, (m, q) => q ? q : m === '\n' ? '\\n' : m === '\r' ? '\\r' : m === '\t' ? '\\t' : m);
+            // Try direct parse, then fix newlines, then strip fences, then extract JSON
             let parsed;
             try { parsed = JSON.parse(content); } catch {
-              let cleaned = content.trim();
-              if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
-              try { parsed = JSON.parse(cleaned); } catch {
-                const objMatch = cleaned.match(/\{[\s\S]*\}/);
-                if (objMatch) parsed = JSON.parse(objMatch[0]);
+              try { parsed = JSON.parse(fixNl(content)); } catch {
+                let cleaned = content.trim();
+                if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+                try { parsed = JSON.parse(cleaned); } catch {
+                  try { parsed = JSON.parse(fixNl(cleaned)); } catch {
+                    const objMatch = cleaned.match(/\{[\s\S]*\}/);
+                    if (objMatch) {
+                      try { parsed = JSON.parse(objMatch[0]); } catch {
+                        parsed = JSON.parse(fixNl(objMatch[0]));
+                      }
+                    }
+                  }
+                }
               }
             }
             if (!parsed) throw new Error('No valid JSON');

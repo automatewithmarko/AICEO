@@ -11,7 +11,7 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts';
-import { getSalesRevenue, getSalesCalls, getSalesProducts, addManualSale, updateCallMetadata, syncSalesData, getIntegrations } from '../lib/api';
+import { getSalesRevenue, getSalesCalls, getSalesProducts, addManualSale, updateCallMetadata, syncSalesData, getIntegrations, getContacts } from '../lib/api';
 import './Pages.css';
 import './Sales.css';
 
@@ -68,7 +68,11 @@ export default function Sales() {
   const [saleBuyer, setSaleBuyer] = useState('');
   const [saleAmount, setSaleAmount] = useState('');
   const [productDropdownOpen, setProductDropdownOpen] = useState(false);
+  const [buyerSearch, setBuyerSearch] = useState('');
+  const [buyerDropdownOpen, setBuyerDropdownOpen] = useState(false);
+  const [contacts, setContacts] = useState([]);
   const dropdownRef = useRef(null);
+  const buyerDropdownRef = useRef(null);
 
   // Live data state
   const [chartData, setChartData] = useState([]);
@@ -82,27 +86,30 @@ export default function Sales() {
   const [callTypes, setCallTypes] = useState({});
   const [callStatuses, setCallStatuses] = useState({});
 
-  // Fetch revenue data when view changes
+  // Fetch revenue data when view or product changes
   const fetchRevenue = useCallback(async () => {
-    const result = await getSalesRevenue(activeView);
+    const productName = activeProduct === 'all' ? null : products.find(p => p.id === activeProduct)?.name;
+    const result = await getSalesRevenue(activeView, productName);
     console.log('[Sales] Revenue data:', JSON.stringify(result.data?.map(d => ({ label: d.label, platform: d.platform, stripe: d.stripe }))));
     setChartData(result.data || []);
-  }, [activeView]);
+  }, [activeView, activeProduct, products]);
 
   // Initial load
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const [revenueRes, callsRes, productsRes, integrationsRes] = await Promise.all([
+      const [revenueRes, callsRes, productsRes, integrationsRes, contactsRes] = await Promise.all([
         getSalesRevenue(activeView),
         getSalesCalls(),
         getSalesProducts(),
         getIntegrations(),
+        getContacts(),
       ]);
 
       setChartData(revenueRes.data || []);
       setCalls(callsRes.calls || []);
       setProducts(productsRes.products?.length > 0 ? productsRes.products : [{ id: 'all', name: 'All Products' }]);
+      setContacts(contactsRes.contacts || []);
 
       // Determine which payment processors are connected
       const connected = new Set(['platform']); // always on
@@ -145,6 +152,17 @@ export default function Sales() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [productDropdownOpen]);
 
+  useEffect(() => {
+    if (!buyerDropdownOpen) return;
+    const handleClick = (e) => {
+      if (buyerDropdownRef.current && !buyerDropdownRef.current.contains(e.target)) {
+        setBuyerDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [buyerDropdownOpen]);
+
   const toggleSource = (sourceId) => {
     // Only allow toggling connected sources
     if (!connectedSources.has(sourceId)) return;
@@ -159,20 +177,8 @@ export default function Sales() {
     });
   };
 
-  const filteredChartData = useMemo(() => {
-    if (activeProduct === 'all') return chartData;
-    // When a specific product is selected, scale down (we don't have per-product breakdown)
-    const idx = products.findIndex((p) => p.id === activeProduct);
-    const scale = [0.35, 0.25, 0.2, 0.12, 0.08][idx - 1] || 0.2;
-    return chartData.map((d) => ({
-      label: d.label,
-      whop: Math.round((d.whop || 0) * scale),
-      stripe: Math.round((d.stripe || 0) * scale),
-      shopify: Math.round((d.shopify || 0) * scale),
-      kajabi: Math.round((d.kajabi || 0) * scale),
-      platform: Math.round((d.platform || 0) * scale),
-    }));
-  }, [activeProduct, chartData, products]);
+  // Chart data is now filtered server-side when a product is selected
+  const filteredChartData = chartData;
 
   const contentCashData = CONTENT_CASH_DATA[activeView];
 
@@ -257,13 +263,20 @@ export default function Sales() {
     setSaleNewProduct('');
     setSaleBuyer('');
     setSaleAmount('');
+    setBuyerSearch('');
     setProductDropdownOpen(false);
+    setBuyerDropdownOpen(false);
   };
 
   const selectProduct = (id) => {
     setSaleProduct(id);
     setProductDropdownOpen(false);
-    if (id !== '__new') setSaleNewProduct('');
+    if (id !== '__new') {
+      setSaleNewProduct('');
+      // Auto-fill price from product data
+      const product = products.find(p => p.id === id);
+      if (product?.price) setSaleAmount(String(product.price));
+    }
   };
 
   const selectedProductName = saleProduct === '__new'
@@ -776,13 +789,47 @@ export default function Sales() {
                 <User size={13} />
                 Sold to
               </label>
-              <input
-                type="text"
-                className="sales-modal-input"
-                placeholder="Customer name"
-                value={saleBuyer}
-                onChange={(e) => setSaleBuyer(e.target.value)}
-              />
+              <div className="sales-dropdown" ref={buyerDropdownRef}>
+                <input
+                  type="text"
+                  className="sales-modal-input"
+                  placeholder="Search contacts or type a name"
+                  value={saleBuyer}
+                  onChange={(e) => {
+                    setSaleBuyer(e.target.value);
+                    setBuyerSearch(e.target.value);
+                    setBuyerDropdownOpen(true);
+                  }}
+                  onFocus={() => setBuyerDropdownOpen(true)}
+                />
+                {buyerDropdownOpen && contacts.length > 0 && (() => {
+                  const query = buyerSearch.toLowerCase();
+                  const filtered = contacts.filter(c =>
+                    (c.name && c.name.toLowerCase().includes(query)) ||
+                    (c.email && c.email.toLowerCase().includes(query)) ||
+                    (c.business && c.business.toLowerCase().includes(query))
+                  ).slice(0, 8);
+                  if (!filtered.length) return null;
+                  return (
+                    <div className="sales-dropdown-menu">
+                      {filtered.map(c => (
+                        <button
+                          key={c.id}
+                          className={`sales-dropdown-item ${saleBuyer === c.name ? 'sales-dropdown-item--selected' : ''}`}
+                          onClick={() => {
+                            setSaleBuyer(c.name);
+                            setBuyerSearch(c.name);
+                            setBuyerDropdownOpen(false);
+                          }}
+                        >
+                          <span>{c.name}{c.email ? ` — ${c.email}` : ''}</span>
+                          {saleBuyer === c.name && <Check size={14} className="sales-dropdown-check" />}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
 
             <div className="sales-modal-field">

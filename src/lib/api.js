@@ -282,9 +282,12 @@ export async function scanOutlierCreator(creatorId) {
 
 // ─── Sales ───
 
-export async function getSalesRevenue(view = 'Month') {
+export async function getSalesRevenue(view = 'Month', productName) {
   const headers = await getAuthHeaders();
-  const res = await fetch(`${API_URL}/api/sales/revenue?view=${view}`, { headers });
+  const url = new URL(`${API_URL}/api/sales/revenue`);
+  url.searchParams.set('view', view);
+  if (productName && productName !== 'all') url.searchParams.set('product', productName);
+  const res = await fetch(url.toString(), { headers });
   if (!res.ok) return { data: [], totals: {} };
   return res.json();
 }
@@ -718,12 +721,15 @@ export async function deleteEmail(id) {
 
 // ─── Image Generation (Nano Banana 2) ───
 
-export async function generateImage(prompt, platform, brandData) {
+export async function generateImage(prompt, platform, brandData, referenceImages) {
   const headers = await getAuthHeaders();
+  const body = { prompt, platform, brandData };
+  // Include previous images as reference when regenerating
+  if (referenceImages?.length) body.referenceImages = referenceImages;
   const res = await fetch(`${API_URL}/api/generate/image`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, platform, brandData }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(120_000), // 120s client-side timeout
   });
   if (!res.ok) {

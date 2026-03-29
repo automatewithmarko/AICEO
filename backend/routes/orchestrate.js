@@ -746,20 +746,46 @@ ${currentHtml}`,
     ];
   } else {
     // Tell the agent to skip its question flow — the CEO already gathered context
-    const directInstruction = `IMPORTANT: The AI CEO has already asked the user all necessary questions. You have all the context you need below. Generate the final output IMMEDIATELY — do NOT ask any questions.
+    const isLandingAgent = agentName === 'landing-page' || agentName === 'landing' || agentName === 'squeeze-page' || agentName === 'squeeze';
+    const isNewsletterAgent = agentName === 'newsletter';
 
-DESIGN RULES YOU MUST FOLLOW (non-negotiable):
+    let designRules;
+    if (isLandingAgent) {
+      designRules = `DESIGN RULES FOR LANDING PAGES (non-negotiable — this must look like a $10k agency build):
+- Modern CSS in a <style> block. Google Fonts via <link>. NO <script> tags. Max-width 1200px, responsive.
+- REQUIRED SECTIONS with markers: nav, hero, social-proof, features, testimonials, how-it-works, faq, final-cta, footer.
+- HERO: NEVER plain white. Use bold gradient or dark background with light text. Headline 48-64px with highlighted keywords (<span> with accent underline/background). Large pill-shaped CTA button with box-shadow. Trust badges below CTA. {{GENERATE:...}} hero image.
+- VISUAL RHYTHM: Alternate section backgrounds — white, light gray (#f6f9fb), one dark/gradient section. NEVER all-white.
+- CARDS: border-radius 16px, box-shadow 0 4px 24px rgba(0,0,0,0.06), hover: translateY(-4px) + deeper shadow. CSS grid 2-3 columns.
+- CTA BUTTONS: Large (18px, 18px 40px padding), pill-shaped, brand color, shadow, hover: translateY(-2px). In hero AND final-cta.
+- TYPOGRAPHY: clamp() for fluid sizes. 800 weight headlines, section heading badges ("How It Works" pill above).
+- TESTIMONIALS: 3-column grid, cards with left-border accent, specific results with numbers, CSS initial avatars.
+- FAQ: styled accordion with colored expand indicators.
+- DECORATIVE: pill badges above headings, accent underlines on keywords, subtle background patterns on hero.
+- Use {{GENERATE:prompt}} for all visual sections. Brand photos ONLY in about/founder areas.`;
+    } else if (isNewsletterAgent) {
+      designRules = `DESIGN RULES FOR NEWSLETTERS (non-negotiable):
 - WHITE background (#FFFFFF). NEVER use dark/black backgrounds.
 - Dark text (#1a1a1a or #333333) on white. NEVER white text on dark.
-- Single-column layout. NEVER multi-column or side-by-side comparisons.
+- Single-column, table-based layout for email client compatibility. Max-width 600px.
+- ONLY inline CSS. No <style> blocks, no external stylesheets.
 - Max 1-3 sentences per paragraph. Break up text aggressively.
 - SINGLE CTA button only. Never 2+ CTAs competing.
 - ONE accent color from brand for links, CTA, headers. Everything else is black/white/gray.
 - No comparison tables. Use bullet points instead.
 - No colored section backgrounds. White background everywhere.
-- No fancy card designs with dark backgrounds.
 - Include a P.S. line after the CTA.
-- Keep it clean, minimal, and readable like Alex Hormozi or Morning Brew newsletters.
+- Keep it clean, minimal, and readable like Alex Hormozi or Morning Brew newsletters.`;
+    } else {
+      designRules = `DESIGN RULES (non-negotiable):
+- Clean, professional design with white background.
+- Dark text (#1a1a1a or #333333). Brand accent color for CTAs and highlights.
+- Responsive layout with good whitespace and typography.`;
+    }
+
+    const directInstruction = `IMPORTANT: The AI CEO has already asked the user all necessary questions. You have all the context you need below. Generate the final output IMMEDIATELY — do NOT ask any questions.
+
+${designRules}
 
 Here is what to create:
 ${taskDescription}`;

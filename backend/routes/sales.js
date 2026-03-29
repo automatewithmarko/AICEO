@@ -15,22 +15,25 @@ router.get('/api/sales/revenue', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.json({ data: [], totals: {} });
 
-  const { view = 'Month' } = req.query;
+  const { view = 'Month', product: productFilter } = req.query;
 
   // Get all payment data from integrations
   const { data: payments } = await supabase
     .from('integration_data')
-    .select('provider, data_type, title, metadata, synced_at')
+    .select('provider, data_type, title, content, metadata, synced_at')
     .eq('user_id', userId)
     .eq('data_type', 'payment')
     .order('synced_at', { ascending: true });
 
-  // Get manual sales
-  const { data: manualSales, error: manualError } = await supabase
+  // Get manual sales (filter by product if specified)
+  let manualSalesQuery = supabase
     .from('manual_sales')
     .select('*')
-    .eq('user_id', userId)
-    .order('sold_at', { ascending: true });
+    .eq('user_id', userId);
+  if (productFilter && productFilter !== 'all') {
+    manualSalesQuery = manualSalesQuery.eq('product_name', productFilter);
+  }
+  const { data: manualSales, error: manualError } = await manualSalesQuery.order('sold_at', { ascending: true });
 
   if (manualError) console.log('[sales-revenue] manual_sales query error:', manualError.message);
   console.log(`[sales-revenue] Found ${(manualSales || []).length} manual sales for user ${userId}`);
@@ -96,8 +99,17 @@ router.get('/api/sales/revenue', async (req, res) => {
     }
   };
 
-  // Aggregate payments into buckets
+  // Aggregate payments into buckets (with optional product filter)
   for (const p of (payments || [])) {
+    // Filter by product name if specified
+    if (productFilter && productFilter !== 'all') {
+      const pName = productFilter.toLowerCase();
+      const titleMatch = p.title && p.title.toLowerCase().includes(pName);
+      const offerMatch = p.metadata?.offer_title && p.metadata.offer_title.toLowerCase() === pName;
+      const metaProductMatch = p.metadata?.product_name && p.metadata.product_name.toLowerCase() === pName;
+      const contentMatch = p.content && p.content.toLowerCase().includes(pName);
+      if (!titleMatch && !offerMatch && !metaProductMatch && !contentMatch) continue;
+    }
     const amount = (p.metadata?.amount || 0) / 100; // cents to dollars
     const ts = p.metadata?.created || p.synced_at;
     const bucket = findBucket(ts);
@@ -371,6 +383,12 @@ router.get('/api/sales/products', async (req, res) => {
     .eq('data_type', 'product')
     .in('provider', ['whop', 'shopify', 'kajabi']);
 
+  // User-created products (have price_cents)
+  const { data: userProducts } = await supabase
+    .from('products')
+    .select('id, name, price_cents, pricing_options')
+    .eq('user_id', userId);
+
   // Get unique product names from manual sales
   const { data: manualProducts } = await supabase
     .from('manual_sales')
@@ -380,17 +398,34 @@ router.get('/api/sales/products', async (req, res) => {
   const productSet = new Set();
   const products = [{ id: 'all', name: 'All Products' }];
 
+  // User-created products first (they have reliable prices)
+  for (const up of (userProducts || [])) {
+    if (!productSet.has(up.name)) {
+      productSet.add(up.name);
+      const priceCents = up.price_cents || up.pricing_options?.[0]?.price_cents;
+      products.push({ id: up.id, name: up.name, source: 'platform', price: priceCents ? (priceCents / 100) : null });
+    }
+  }
+
   for (const ip of (integrationProducts || [])) {
     if (!productSet.has(ip.title)) {
       productSet.add(ip.title);
-      products.push({ id: ip.id, name: ip.title, source: ip.provider });
+      // Try to extract price from metadata (varies by provider)
+      const rawPrice = ip.metadata?.price ?? ip.metadata?.price_cents ?? ip.metadata?.amount;
+      let price = null;
+      if (rawPrice != null) {
+        const num = Number(rawPrice);
+        // If it looks like cents (> 100), convert to dollars
+        price = num > 0 ? (num >= 100 && Number.isInteger(num) ? num / 100 : num) : null;
+      }
+      products.push({ id: ip.id, name: ip.title, source: ip.provider, price });
     }
   }
 
   for (const ms of (manualProducts || [])) {
     if (!productSet.has(ms.product_name)) {
       productSet.add(ms.product_name);
-      products.push({ id: `manual-${ms.product_name}`, name: ms.product_name, source: 'manual' });
+      products.push({ id: `manual-${ms.product_name}`, name: ms.product_name, source: 'manual', price: null });
     }
   }
 
