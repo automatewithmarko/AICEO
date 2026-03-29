@@ -130,6 +130,52 @@ function parseMessageOptions(content) {
   return { text, options: options.length > 0 ? options : null };
 }
 
+// Fallback: detect plain-text questions with numbered/bullet options
+// e.g. "What tone?\n1. Professional\n2. Bold\n3. Casual\n4. Fun"
+// Also detects bare questions (ending with ?) when no tool calls or HTML were returned
+function parsePlainTextQuestion(content, hadImages) {
+  if (!content) return null;
+  // Don't treat as question if images were generated (post-generation follow-up)
+  if (hadImages) return null;
+  // Strip any JSON blocks to avoid false positives
+  const text = content.replace(/```[\s\S]*?```/g, '').trim();
+  // Skip if the text contains HTML — that's generated content, not a question
+  if (text.includes('<!DOCTYPE') || text.includes('<html') || text.includes('<table')) return null;
+  // Look for numbered options: "1. Option" or "1) Option" patterns
+  const numberedMatch = text.match(/([\s\S]*?\?)\s*\n((?:\s*\d+[.)]\s*.+\n?){3,})/);
+  if (numberedMatch) {
+    const questionText = numberedMatch[1].trim();
+    const optionsBlock = numberedMatch[2].trim();
+    const options = optionsBlock.split('\n').map(l => l.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
+    if (options.length >= 3) return { text: questionText, options };
+  }
+  // Look for bullet/dash options: "- Option" patterns
+  const bulletMatch = text.match(/([\s\S]*?\?)\s*\n((?:\s*[-•]\s*.+\n?){3,})/);
+  if (bulletMatch) {
+    const questionText = bulletMatch[1].trim();
+    const optionsBlock = bulletMatch[2].trim();
+    const options = optionsBlock.split('\n').map(l => l.replace(/^\s*[-•]\s*/, '').trim()).filter(Boolean);
+    if (options.length >= 3) return { text: questionText, options };
+  }
+  // Look for bold/star markdown options: "**Option A**" on separate lines after a question
+  const boldMatch = text.match(/([\s\S]*?\?)\s*\n((?:\s*\*\*.+\*\*.*\n?){3,})/);
+  if (boldMatch) {
+    const questionText = boldMatch[1].trim();
+    const optionsBlock = boldMatch[2].trim();
+    const options = optionsBlock.split('\n').map(l => l.replace(/^\s*\*\*(.+?)\*\*.*$/, '$1').trim()).filter(Boolean);
+    if (options.length >= 3) return { text: questionText, options };
+  }
+  // Bare question: text ends with "?" and is short enough to be a clarifying question (not a long essay)
+  // Extract the last sentence ending with ?
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const lastLine = lines[lines.length - 1] || '';
+  if (lastLine.endsWith('?') && text.length < 500) {
+    // Use the whole text as the question (may include preamble like "Got it.")
+    return { text: text, options: [] };
+  }
+  return null;
+}
+
 function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext) {
   let prompt = `You are a senior content strategist who creates content that actually performs on social media. You study what top creators and brands do — you understand hooks, retention, visual hierarchy, and what makes people stop scrolling.\n\n`;
   prompt += `You do NOT produce generic AI slop. No excessive emojis. No "Hey guys!" energy. No corporate marketing speak. No cartoonish or clip-art style visuals. You write like a real human who understands the platform.\n\n`;
@@ -664,6 +710,7 @@ export default function Content() {
       console.groupEnd();
 
       let streamedContent = '';
+      let hadImageGeneration = false;
       await streamContentResponse(
         apiMessages,
         systemPrompt,
@@ -671,14 +718,18 @@ export default function Content() {
         (text) => {
           streamedContent = text;
           // Strip any JSON question block from display — show only the natural text before it
+          let displayText = text;
           const jsonStart = text.indexOf('{"type"');
           const jsonStart2 = text.indexOf('{ "type"');
-          const cutIdx = jsonStart !== -1 ? jsonStart : jsonStart2;
-          const displayText = cutIdx !== -1 ? text.slice(0, cutIdx).trim() : text;
+          const fenceStart = text.indexOf('```json');
+          const fenceStart2 = text.indexOf('```\n{');
+          const cutIdx = [jsonStart, jsonStart2, fenceStart, fenceStart2].filter(i => i !== -1).sort((a, b) => a - b)[0];
+          if (cutIdx !== undefined) displayText = text.slice(0, cutIdx).trim();
           setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: displayText } : m)));
         },
         // onToolCalls — all generate_image calls at once, run in parallel
         async (imageCalls) => {
+          hadImageGeneration = true;
           console.log(`🖼️ Generating ${imageCalls.length} image(s) in parallel`);
           setMessages((prev) => prev.map((m) =>
             m.id === assistantMsgId ? { ...m, pendingImages: imageCalls.length } : m
@@ -688,8 +739,10 @@ export default function Content() {
             imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
               console.log(`  🎨 [${idx + 1}/${imageCalls.length}] ${imgPrompt.slice(0, 80)}...`);
               // Merge user-uploaded photos with brand photos — user uploads take priority
-              const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url);
+              const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
               const allPhotoUrls = [...uploadedPhotoUrls, ...(brandDna?.photo_urls || [])];
+              console.log(`[Content] Image gen — photos state: ${photos.length}, done: ${photos.filter(p => p.status === 'done').length}, urls: ${uploadedPhotoUrls.length}, brand: ${brandDna?.photo_urls?.length || 0}, total: ${allPhotoUrls.length}`);
+              if (uploadedPhotoUrls.length) console.log(`[Content] Photo URLs:`, uploadedPhotoUrls.map(u => u?.slice(0, 80)));
               // Only include logo if the USER asked for it in their messages (not the AI's prompt)
               const userMessages = chatHistory.filter(m => m.role === 'user').map(m => m.content).join(' ');
               const wantsLogo = /logo/i.test(userMessages);
@@ -733,8 +786,12 @@ export default function Content() {
       const finalContent = streamedContent || '';
       let questionParsed = null;
       try {
+        // Strip markdown code fences before parsing
+        let jsonSource = finalContent;
+        const fenceMatch = finalContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (fenceMatch) jsonSource = fenceMatch[1].trim();
         // Extract JSON object from anywhere in the response
-        const jsonMatch = finalContent.match(/\{[\s\S]*"type"\s*:\s*"question"[\s\S]*\}/);
+        const jsonMatch = jsonSource.match(/\{[\s\S]*"type"\s*:\s*"question"[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
           if (parsed.type === 'question' && parsed.text && Array.isArray(parsed.options)) {
@@ -747,9 +804,14 @@ export default function Content() {
         const { text, options } = parseMessageOptions(finalContent);
         if (options) questionParsed = { text, options };
       }
+      // Fallback: detect plain-text questions with numbered/bullet options or bare questions
+      if (!questionParsed) {
+        questionParsed = parsePlainTextQuestion(finalContent, hadImageGeneration);
+      }
       if (questionParsed) {
         setCurrentQuestion(questionParsed);
-        setCustomTyping(false);
+        // Auto-expand custom input when no predefined options (bare question)
+        setCustomTyping(!questionParsed.options || questionParsed.options.length === 0);
         setCustomText('');
         // Show the question text as the message, not the raw JSON
         setMessages((prev) => prev.map((m) =>
@@ -823,7 +885,7 @@ export default function Content() {
         const result = results[idx];
         return result?.error
           ? { ...item, status: 'error', result }
-          : { ...item, status: 'done', result, dbId: result?.dbId };
+          : { ...item, status: 'done', result, dbId: result?.dbId, url: result?.url || null };
       }));
     } catch {
       setter((prev) => prev.map((item) =>
@@ -1023,9 +1085,23 @@ export default function Content() {
         }
       }
       console.log('[Content] Restored context — photos:', savedPhotos.length, 'docs:', savedDocs.length, 'social:', savedSocial.length);
-      if (savedPhotos.length) setPhotos(savedPhotos);
-      if (savedDocs.length) setDocuments(savedDocs);
-      if (savedSocial.length) setSocialUrls(savedSocial);
+      savedPhotos.forEach((p, i) => console.log(`  [photo ${i}] url: ${p.url?.slice(0, 80)}, result.url: ${p.result?.url?.slice(0, 80)}`));
+      // Merge with existing state instead of replacing (avoids race with fresh uploads)
+      if (savedPhotos.length) setPhotos(prev => {
+        const existingDbIds = new Set(prev.filter(p => p.dbId).map(p => p.dbId));
+        const newFromDb = savedPhotos.filter(p => !existingDbIds.has(p.dbId));
+        return [...prev, ...newFromDb];
+      });
+      if (savedDocs.length) setDocuments(prev => {
+        const existingDbIds = new Set(prev.filter(d => d.dbId).map(d => d.dbId));
+        const newFromDb = savedDocs.filter(d => !existingDbIds.has(d.dbId));
+        return [...prev, ...newFromDb];
+      });
+      if (savedSocial.length) setSocialUrls(prev => {
+        const existingDbIds = new Set(prev.filter(s => s.dbId).map(s => s.dbId));
+        const newFromDb = savedSocial.filter(s => !existingDbIds.has(s.dbId));
+        return [...prev, ...newFromDb];
+      });
     }).catch((err) => { console.error('[Content] Failed to load content items:', err); });
   }, []);
 

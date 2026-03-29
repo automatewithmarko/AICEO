@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getSalesCalls, getContentItems, getProducts } from '../lib/api';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
+import { supabase } from '../lib/supabase';
 import ArtifactPanel from '../components/ArtifactPanel';
 import './AiCeo.css';
 
@@ -15,7 +16,7 @@ import './AiCeo.css';
 // Images are uploaded to Supabase storage and replaced with public URLs (not base64)
 // Each image swaps in immediately when ready (true parallel, not wait-for-all)
 // Returns { total, statusRef } so caller can show progress
-function generateNewsletterImages(html, setArtifactFn, onProgress) {
+function generateNewsletterImages(html, setArtifactFn, onProgress, platform = 'newsletter') {
   const regex = /\{\{GENERATE:([\s\S]*?)\}\}/g;
   const matches = [];
   let match;
@@ -36,7 +37,7 @@ function generateNewsletterImages(html, setArtifactFn, onProgress) {
   const promise = Promise.all(matches.map(async (m) => {
     let imgSrc = null;
     try {
-      const result = await generateImage(m.prompt.trim(), 'newsletter', null);
+      const result = await generateImage(m.prompt.trim(), platform, null);
       if (result.image) {
         const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
         if (uploaded.url) imgSrc = uploaded.url;
@@ -393,7 +394,8 @@ export default function AiCeo() {
 
               // Generate AI images for {{GENERATE:...}} placeholders
               if (html && html.includes('{{GENERATE:')) {
-                const imgResult = generateNewsletterImages(html, setArtifact, () => {});
+                const imgPlatform = (agentName === 'landing-page' || agentName === 'squeeze') ? 'landing_page' : 'newsletter';
+                const imgResult = generateNewsletterImages(html, setArtifact, () => {}, imgPlatform);
                 if (imgResult?.promise) pendingImagesRef.current.push(imgResult.promise);
               }
 
@@ -525,16 +527,67 @@ export default function AiCeo() {
             }
 
             if (parsed.type === 'story_sequence' && parsed.frames) {
+              const storyFrames = parsed.frames.map((f, i) => ({
+                ...f,
+                imageSrc: null,
+                loading: true,
+                id: i,
+              }));
               setArtifact({
                 id: Date.now(),
                 type: 'story_sequence',
                 title: parsed.summary || 'Story Sequence',
                 content: JSON.stringify(parsed),
-                frames: parsed.frames,
+                frames: storyFrames,
                 images: [],
               });
               setPanelOpen(true);
               if (isMobileRef.current) setMobileArtifactOpen(true);
+
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: parsed.summary || 'Story Sequence', artifactType: 'story_sequence' } : m
+              ));
+
+              // Generate images for each frame in parallel
+              (async () => {
+                let brandData = null;
+                try {
+                  const { data: { session } } = await supabase.auth.getSession();
+                  if (session?.user) {
+                    const { data } = await supabase.from('brand_dna').select('*').eq('user_id', session.user.id).order('updated_at', { ascending: true }).limit(1);
+                    if (data?.[0]) {
+                      const bd = data[0];
+                      brandData = {
+                        photoUrls: bd.photo_urls?.length ? [bd.photo_urls[0]] : [],
+                        logoUrl: null,
+                        colors: bd.colors || {},
+                        mainFont: bd.main_font || null,
+                      };
+                    }
+                  }
+                } catch (e) { console.error('Brand DNA load for stories:', e); }
+
+                const visualStyle = parsed.visual_style || '';
+                await Promise.all(storyFrames.map(async (frame, idx) => {
+                  const captionText = frame.caption || frame.title || '';
+                  const captionInstruction = captionText ? `\n\nTEXT OVERLAY (MUST BE IDENTICAL STYLE ON EVERY FRAME):\nOverlaid on the photo is one solid opaque #FFFFFF white rounded-rectangle pill (8px corner radius, no shadow, no border, no gradient, no transparency). Inside: "${captionText}" in #000000 black, SF Pro Display / Helvetica Neue, regular weight 400, NOT bold. The pill is only as wide as the text + 16px horizontal padding + 8px vertical padding. Centered horizontally, positioned in the upper third. It floats on top of the photo as a separate flat UI sticker — exactly like Instagram's built-in "Classic" text tool. DO NOT deviate from this exact style on any frame.` : '';
+                  const sequencePrompt = `${visualStyle ? `VISUAL STYLE FOR THIS SERIES: ${visualStyle}\n\n` : ''}This is frame ${idx + 1} of ${storyFrames.length} in a cohesive Instagram Story sequence. IMPORTANT: Follow the visual style description exactly so all frames feel like ONE continuous story when swiped through.\n\n${frame.image_prompt}${captionInstruction}`;
+
+                  try {
+                    const result = await generateImage(sequencePrompt, 'instagram_story', brandData);
+                    const allowedMime = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+                    if (result.image && allowedMime.includes(result.image.mimeType)) {
+                      const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+                      setArtifact(prev => prev ? { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, imageSrc: src, loading: false } : f) } : prev);
+                    } else {
+                      setArtifact(prev => prev ? { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, loading: false, error: true } : f) } : prev);
+                    }
+                  } catch (err) {
+                    console.error(`Story frame ${idx + 1} failed:`, err.message);
+                    setArtifact(prev => prev ? { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, loading: false, error: true } : f) } : prev);
+                  }
+                }));
+              })();
             }
           } catch {
             // Not JSON — try to extract HTML from the content
@@ -608,6 +661,12 @@ export default function AiCeo() {
           setArtifact(prev => prev ? { ...prev, content: html } : prev);
           setPanelOpen(true);
           if (isMobileRef.current) setMobileArtifactOpen(true);
+          // Check if the edit introduced new {{GENERATE:...}} placeholders
+          if (html && html.includes('{{GENERATE:')) {
+            const currentAgent = artifactRef.current?.agentSource || 'newsletter';
+            const imgPlatform = (currentAgent === 'landing-page' || currentAgent === 'squeeze') ? 'landing_page' : 'newsletter';
+            generateNewsletterImages(html, setArtifact, () => {}, imgPlatform);
+          }
         },
         // Edit summary after file-based edits complete
         onEditSummary: (summary) => {

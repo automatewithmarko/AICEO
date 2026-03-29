@@ -13,6 +13,8 @@ const GEMINI_PRO_TIMEOUT_MS = 120_000; // 120s for pro model (more thinking time
 // Per-platform config: model, aspect ratio, image size, thinking level
 const PLATFORM_CONFIG = {
   newsletter:       { model: GEMINI_MODEL_FAST, aspectRatio: '16:9', imageSize: '1K' },
+  landing_page:     { model: GEMINI_MODEL_FAST, aspectRatio: '16:9', imageSize: '1K' },
+  landing_page_sq:  { model: GEMINI_MODEL_FAST, aspectRatio: '1:1',  imageSize: '1K' },
   instagram:        { model: GEMINI_MODEL_FAST, aspectRatio: '1:1',  imageSize: '1K' },
   instagram_story:  { model: GEMINI_MODEL_PRO,  aspectRatio: '9:16', imageSize: '2K' },
   youtube:          { model: GEMINI_MODEL_FAST, aspectRatio: '16:9', imageSize: '1K' },
@@ -44,6 +46,39 @@ const brandDataCache = new Map(); // userId -> { data, expiry }
 const BRAND_DATA_TTL = 5 * 60 * 1000; // 5 minutes
 
 const PLATFORM_IMAGE_RULES = {
+  landing_page: `LANDING PAGE IMAGE RULES:
+- These images are for a website landing page — they sit INSIDE a designed HTML page that already has its own text, headings, buttons, and layout.
+
+CRITICAL — NO TEXT ON THE IMAGE:
+- Do NOT put any text, headlines, captions, labels, or words on the image. The website already has text.
+- Do NOT put any logos on the image. The website nav/footer already has the logo.
+- Do NOT put watermarks, brand marks, or badges on the image.
+- The image should be PURELY visual — a photo, illustration, or graphic with ZERO text elements.
+
+WHAT TO GENERATE:
+- Hero images: Atmospheric, aspirational lifestyle/product photography. Wide cinematic shots. Think premium SaaS landing pages (Linear, Stripe, Notion) — clean, modern, evocative.
+- Feature illustrations: Clean conceptual visuals representing the feature (e.g. a dashboard mockup, abstract data visualization, hands using a device, workflow diagram). Minimal and modern.
+- How-it-works: Step-by-step visual moments — hands on keyboard, phone screen, person having an aha moment. Real and relatable.
+- Testimonial backgrounds: Subtle, soft, blurred lifestyle shots or abstract gradients. Should not compete with the testimonial text.
+- CTA section: Aspirational result imagery — success, growth, freedom, the "after" state.
+
+PERSON/FOUNDER:
+- If reference photos are attached, include the person naturally in hero or about sections.
+- Show them in context — working, presenting, in their element. Not a passport photo.
+
+STYLE:
+- Modern, premium, editorial quality
+- Clean compositions with breathing room — not cluttered
+- Natural lighting, subtle depth of field
+- Brand colors can influence lighting/mood/color grading but should not be garish
+- Think Unsplash editorial quality, not stock photo cheese`,
+
+  landing_page_sq: `LANDING PAGE SQUARE IMAGE RULES:
+- Same as landing page rules but in SQUARE 1:1 format
+- NO text, NO logos, NO watermarks on the image
+- Clean conceptual visual — feature illustration, icon-style graphic, or product detail shot
+- Minimal, modern, premium quality`,
+
   newsletter: `NEWSLETTER COVER IMAGE RULES:
 - Aspect ratio: LANDSCAPE approximately 1200x628 (roughly 2:1) — wide format for email headers
 - This is a hero/cover image for an email newsletter — it needs to be visually striking at small sizes
@@ -194,6 +229,7 @@ BACKGROUND PHOTO:
 // Fetch an image URL and return as base64 inline data for Gemini (with cache)
 async function fetchImageAsBase64(url) {
   try {
+    if (!url) return null;
     // Check cache first
     const cached = brandImageCache.get(url);
     if (cached && cached.expiry > Date.now()) {
@@ -201,7 +237,10 @@ async function fetchImageAsBase64(url) {
     }
 
     const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[fetchImage] Failed to fetch ${url?.slice(0, 80)}: ${res.status} ${res.statusText}`);
+      return null;
+    }
     const buffer = await res.arrayBuffer();
     const base64 = Buffer.from(buffer).toString('base64');
     const contentType = res.headers.get('content-type') || 'image/jpeg';
@@ -211,7 +250,8 @@ async function fetchImageAsBase64(url) {
     brandImageCache.set(url, { data: result, expiry: Date.now() + BRAND_IMAGE_TTL });
 
     return result;
-  } catch {
+  } catch (err) {
+    console.warn(`[fetchImage] Error fetching ${url?.slice(0, 80)}:`, err.message);
     return null;
   }
 }
@@ -333,12 +373,17 @@ ${prompt}`;
 
       if (imageUrls.length > 0) {
         console.log(`[generate/image] Fetching ${imageUrls.length} brand reference image(s)...`);
+        imageUrls.forEach((url, i) => console.log(`  [${i}] ${url?.slice(0, 100)}`));
         const imageParts = await Promise.all(imageUrls.map(fetchImageAsBase64));
         const attached = imageParts.filter(Boolean);
+        const failed = imageUrls.filter((_, i) => !imageParts[i]);
         for (const part of attached) {
           requestParts.push(part);
         }
         console.log(`[generate/image] ✅ Attached ${attached.length}/${imageUrls.length} reference image(s) to Gemini request`);
+        if (failed.length > 0) {
+          console.warn(`[generate/image] ⚠️ Failed to fetch ${failed.length} image(s):`, failed.map(u => u?.slice(0, 100)));
+        }
       } else {
         console.log(`[generate/image] ⚠️ No brand images to attach`);
       }

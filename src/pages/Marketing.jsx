@@ -1599,6 +1599,38 @@ function ToolTab({ config, activeTool, brandDna }) {
           // File-based edit — backend applied a surgical diff
           editHandled = true;
           setCanvasHtml(html);
+          // Check if the edit introduced new {{GENERATE:...}} placeholders
+          if (html && html.includes('{{GENERATE:')) {
+            const genRegex = /\{\{GENERATE:([\s\S]*?)\}\}/g;
+            const matches = [];
+            let m;
+            while ((m = genRegex.exec(html)) !== null) matches.push({ full: m[0], prompt: m[1] });
+            if (matches.length > 0) {
+              const isLandingTool = activeTool === 'landing' || activeTool === 'squeeze';
+              const imgPlatform = isLandingTool ? 'landing_page' : 'newsletter';
+              matches.forEach((match) => {
+                (async () => {
+                  try {
+                    const mktBrand = brandDna ? {
+                      photoUrls: brandDna.photo_urls || [],
+                      logoUrl: isLandingTool ? null : ((brandDna.logos?.find(l => l.isDefault) || brandDna.logos?.[0])?.url || brandDna.logo_url || null),
+                      colors: brandDna.colors || {},
+                      mainFont: brandDna.main_font || null,
+                    } : null;
+                    const result = await generateImage(match.prompt.trim(), imgPlatform, mktBrand);
+                    if (result.image) {
+                      const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
+                      if (uploaded.url) {
+                        setCanvasHtml(prev => prev.replaceAll(match.full, uploaded.url));
+                      }
+                    }
+                  } catch (err) {
+                    console.error('Edit image gen failed:', err.message);
+                  }
+                })();
+              });
+            }
+          }
         },
         onEditSummary: (summary) => {
           editHandled = true;
@@ -1750,13 +1782,15 @@ function ToolTab({ config, activeTool, brandDna }) {
           const inlinePromise = Promise.all(genMatches.map(async (m) => {
             let imgSrc = null;
             try {
+              const isLandingTool = activeTool === 'landing' || activeTool === 'squeeze';
               const mktBrandData = brandDna ? {
                 photoUrls: brandDna.photo_urls || [],
-                logoUrl: (brandDna.logos?.find(l => l.isDefault) || brandDna.logos?.[0])?.url || brandDna.logo_url || null,
+                logoUrl: isLandingTool ? null : ((brandDna.logos?.find(l => l.isDefault) || brandDna.logos?.[0])?.url || brandDna.logo_url || null),
                 colors: brandDna.colors || {},
                 mainFont: brandDna.main_font || null,
               } : null;
-              const result = await generateImage(m.prompt.trim(), 'newsletter', mktBrandData);
+              const imgPlatform = activeTool === 'landing' || activeTool === 'squeeze' ? 'landing_page' : 'newsletter';
+              const result = await generateImage(m.prompt.trim(), imgPlatform, mktBrandData);
               if (result.image) {
                 const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
                 if (uploaded.url) imgSrc = uploaded.url;

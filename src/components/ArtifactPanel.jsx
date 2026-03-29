@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download } from 'lucide-react';
+import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
@@ -277,6 +277,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
       case 'newsletter': return <Mail size={16} />;
       case 'html_template': return <FileText size={16} />;
       case 'content_post': return <PenTool size={16} />;
+      case 'story_sequence': return <FileText size={16} />;
       case 'code_block': return <Code size={16} />;
       default: return <FileText size={16} />;
     }
@@ -380,6 +381,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
         {type === 'email' && <EmailRenderer content={content} />}
         {type === 'newsletter' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
         {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
+        {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
         {type === 'content_post' && <ContentPostRenderer content={content} images={images} />}
         {type === 'code_block' && <CodeRenderer content={content} />}
         {type === 'markdown_doc' && <MarkdownRenderer content={content} />}
@@ -780,6 +782,114 @@ function MarkdownRenderer({ content }) {
   return (
     <div className="ap-markdown">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+    </div>
+  );
+}
+
+function StorySequenceRenderer({ frames }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const timerRef = useRef(null);
+  const touchStartRef = useRef(null);
+  const DURATION = 5000;
+
+  const total = frames.length;
+  const frame = frames[activeIndex] || {};
+
+  const readyCount = frames.filter(f => f.imageSrc && !f.loading).length;
+  const prevReadyRef = useRef(0);
+  useEffect(() => {
+    if (readyCount > prevReadyRef.current) {
+      const currentFrame = frames[activeIndex];
+      if (!currentFrame?.imageSrc || currentFrame?.loading) {
+        const firstReady = frames.findIndex(f => f.imageSrc && !f.loading);
+        if (firstReady >= 0) setActiveIndex(firstReady);
+      }
+      prevReadyRef.current = readyCount;
+    }
+  }, [readyCount, frames, activeIndex]);
+
+  useEffect(() => {
+    if (total === 0 || paused) return;
+    timerRef.current = setTimeout(() => {
+      setActiveIndex(prev => (prev + 1) % total);
+    }, DURATION);
+    return () => clearTimeout(timerRef.current);
+  }, [paused, total, activeIndex]);
+
+  const goPrev = (e) => { e.stopPropagation(); setActiveIndex(prev => Math.max(0, prev - 1)); };
+  const goNext = (e) => { e.stopPropagation(); setActiveIndex(prev => Math.min(total - 1, prev + 1)); };
+
+  const onTouchStart = (e) => { touchStartRef.current = e.touches[0].clientX; };
+  const onTouchEnd = (e) => {
+    if (touchStartRef.current === null) return;
+    const diff = e.changedTouches[0].clientX - touchStartRef.current;
+    if (Math.abs(diff) > 40) {
+      if (diff < 0) setActiveIndex(prev => Math.min(total - 1, prev + 1));
+      else setActiveIndex(prev => Math.max(0, prev - 1));
+    }
+    touchStartRef.current = null;
+  };
+
+  if (total === 0) return <div className="ap-story-empty">No story frames</div>;
+
+  return (
+    <div className="ap-story-wrapper">
+      <div
+        className="ap-story-phone"
+        onMouseEnter={() => setPaused(true)}
+        onMouseLeave={() => setPaused(false)}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        <div className="ap-story-timeline">
+          {frames.map((_, i) => (
+            <div key={i} className="ap-story-timeline-bar" onClick={() => setActiveIndex(i)}>
+              <div
+                className={`ap-story-timeline-fill ${i === activeIndex ? (paused ? 'ap-story-timeline-fill--paused' : 'ap-story-timeline-fill--active') : i < activeIndex ? 'ap-story-timeline-fill--done' : ''}`}
+                style={i === activeIndex ? { animationDuration: `${DURATION}ms` } : undefined}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="ap-story-tap ap-story-tap--left" onClick={goPrev} />
+        <div className="ap-story-tap ap-story-tap--right" onClick={goNext} />
+
+        {activeIndex > 0 && (
+          <button className="ap-story-arrow ap-story-arrow--left" onClick={goPrev}>
+            <ChevronRight size={20} style={{ transform: 'rotate(180deg)' }} />
+          </button>
+        )}
+        {activeIndex < total - 1 && (
+          <button className="ap-story-arrow ap-story-arrow--right" onClick={goNext}>
+            <ChevronRight size={20} />
+          </button>
+        )}
+
+        <div className="ap-story-frame">
+          {frame.loading ? (
+            <div className="ap-story-frame-loading">
+              <div className="ap-story-spinner" />
+            </div>
+          ) : frame.imageSrc ? (
+            <img src={frame.imageSrc} alt={frame.caption || ''} className="ap-story-frame-img" />
+          ) : frame.error ? (
+            <div className="ap-story-frame-empty" style={{ background: '#1a1a1a' }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <span style={{ color: '#ef4444', fontSize: 12, marginTop: 8, fontWeight: 500 }}>Failed to generate</span>
+            </div>
+          ) : (
+            <div className="ap-story-frame-empty">
+              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Waiting...</span>
+            </div>
+          )}
+          <div className="ap-story-overlay">
+            <span className="ap-story-num">Story {activeIndex + 1} / {total}</span>
+            {frame.caption && <span className="ap-story-caption">{frame.caption}</span>}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
