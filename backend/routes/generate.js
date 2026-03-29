@@ -105,13 +105,29 @@ WHAT TO AVOID:
 - NO more than 2-3 visual elements per slide (text + optional icon/graphic + optional person)`,
 
   youtube: `YOUTUBE THUMBNAIL RULES:
-- Aspect ratio: LANDSCAPE 16:9 — wide format
-- This is a YouTube thumbnail that needs to get clicks
-- Large expressive face or striking visual as the main element
-- Bold text: 3-4 words MAX, huge font, slight outline/shadow for readability
+- Aspect ratio: LANDSCAPE 16:9 — wide format, this is critical
+- This is a YouTube thumbnail that needs to get clicks — it competes with millions of others
+
+PERSON (MANDATORY when reference photos are attached):
+- The person from the reference photos MUST be the main subject — large, expressive face taking up 40-60% of the frame
+- Show a strong emotion: surprise, excitement, shock, curiosity — exaggerated expressions work best
+- The person should be looking at the camera or at the text element
+- Use their EXACT face and likeness from the reference photos
+
+TEXT ON THUMBNAIL:
+- 3-5 words MAX in huge bold text — this text comes from the user's prompt, use their exact words or a punchier version
+- Text should be the second focal point after the face
+- High contrast: white or yellow text with dark outline/shadow for readability on any background
+- Position text on the opposite side of the person
+- The text should create curiosity or urgency
+
+DESIGN:
 - High contrast, saturated colors, dramatic lighting
-- Style reference: think MrBeast, MKBHD, or Ali Abdaal thumbnail quality
-- NO cluttered designs, NO small text, NO generic stock imagery`,
+- Clean background that doesn't compete with the face and text
+- Style reference: MrBeast, MKBHD, Ali Abdaal thumbnail quality
+- NO logos unless explicitly requested — YouTube thumbnails never have logos
+- NO cluttered designs, NO small text, NO generic stock imagery
+- NO brand watermarks — this is YouTube, not a corporate presentation`,
 
   instagram_story: `INSTAGRAM STORY RULES:
 - Aspect ratio: PORTRAIT 9:16 (1080x1920) — enforced via API, but composition must be vertical-first

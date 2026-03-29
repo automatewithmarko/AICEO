@@ -135,6 +135,9 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `You do NOT produce generic AI slop. No excessive emojis. No "Hey guys!" energy. No corporate marketing speak. No cartoonish or clip-art style visuals. You write like a real human who understands the platform.\n\n`;
   prompt += `Platform: ${platform.name}\n\n`;
 
+  prompt += `=== PLATFORM ENFORCEMENT ===\n`;
+  prompt += `You are ONLY creating content for ${platform.name}. If the user asks for content for a different platform (e.g. "make a LinkedIn post" while on YouTube), politely tell them to switch to that platform's tab first. Do NOT generate content for other platforms.\n\n`;
+
   prompt += `=== GUIDED CONTENT CREATION FLOW ===\n`;
   prompt += `When the user describes content they want to create:\n`;
   prompt += `1. Detect the content type (carousel, reel, story, post, script, etc.)\n`;
@@ -197,14 +200,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       if (c.text) prompt += `Text Color: ${c.text}\n`;
       if (c.secondary) prompt += `Secondary Color: ${c.secondary}\n`;
     }
-    if (brandDna.photo_urls?.length) prompt += `Brand Photos: ${brandDna.photo_urls.length} reference photo(s) of the user are attached to image generation\n`;
-    const allLogos = brandDna.logos?.length ? brandDna.logos : (brandDna.logo_url ? [{ url: brandDna.logo_url, name: 'Logo', isDefault: true }] : []);
-    if (allLogos.length === 1) {
-      prompt += `Logo: The user's brand logo "${allLogos[0].name}" is attached to image generation\n`;
-    } else if (allLogos.length > 1) {
-      prompt += `Logos: The user has ${allLogos.length} logos:\n`;
-      allLogos.forEach(l => { prompt += `  - "${l.name}"${l.isDefault ? ' (default — use this unless told otherwise)' : ''}\n`; });
-    }
+    if (brandDna.photo_urls?.length) prompt += `Brand Photos: ${brandDna.photo_urls.length} reference photo(s) of the user are attached to image generation. Use the person's likeness in every generated image.\n`;
     if (brandDna.documents && Object.keys(brandDna.documents).length) {
       for (const [key, doc] of Object.entries(brandDna.documents)) {
         if (doc.extracted_text) {
@@ -213,7 +209,9 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
         }
       }
     }
-    prompt += `\nCRITICAL: Every generate_image call MUST incorporate the user's brand identity. In your image prompts, explicitly instruct: "Use the brand colors [${brandDna.colors?.primary || ''}, ${brandDna.colors?.secondary || ''}], incorporate the brand logo from the reference images, and use ${brandDna.main_font || 'the brand font'} typography." If the content features a person, instruct: "Use the person's face and likeness from the attached reference photos."\n\n`;
+    prompt += `\nCRITICAL: Every generate_image call MUST incorporate the user's brand identity. In your image prompts, explicitly instruct: "Use the brand colors [${brandDna.colors?.primary || ''}, ${brandDna.colors?.secondary || ''}] and use ${brandDna.main_font || 'the brand font'} typography."\n`;
+    prompt += `- Do NOT mention "brand logo" in your image prompts unless the user specifically asks for it. Most social media content (thumbnails, carousels, posts) should NOT have a logo.\n`;
+    prompt += `- ALWAYS instruct: "Use the person's face and likeness from the attached reference photos" — the person MUST appear in every image.\n\n`;
   }
 
   let hasContext = false;
@@ -672,13 +670,12 @@ export default function Content() {
         // onTextChunk — stream text, but hide raw JSON questions
         (text) => {
           streamedContent = text;
-          const trimmed = text.trim();
-          // If it looks like a JSON question being streamed, don't show raw JSON — show a subtle status instead
-          if (trimmed.startsWith('{"type"') || trimmed.startsWith('{ "type"')) {
-            setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: '' } : m)));
-          } else {
-            setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: text } : m)));
-          }
+          // Strip any JSON question block from display — show only the natural text before it
+          const jsonStart = text.indexOf('{"type"');
+          const jsonStart2 = text.indexOf('{ "type"');
+          const cutIdx = jsonStart !== -1 ? jsonStart : jsonStart2;
+          const displayText = cutIdx !== -1 ? text.slice(0, cutIdx).trim() : text;
+          setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: displayText } : m)));
         },
         // onToolCalls — all generate_image calls at once, run in parallel
         async (imageCalls) => {
@@ -690,13 +687,19 @@ export default function Content() {
           const results = await Promise.allSettled(
             imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
               console.log(`  🎨 [${idx + 1}/${imageCalls.length}] ${imgPrompt.slice(0, 80)}...`);
-              const defaultLogo = brandDna.logos?.find(l => l.isDefault) || brandDna.logos?.[0];
-              const brandImageData = brandDna ? {
-                photoUrls: brandDna.photo_urls || [],
-                logoUrl: defaultLogo?.url || brandDna.logo_url || null,
-                colors: brandDna.colors || {},
-                mainFont: brandDna.main_font || null,
-              } : null;
+              // Merge user-uploaded photos with brand photos — user uploads take priority
+              const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url);
+              const allPhotoUrls = [...uploadedPhotoUrls, ...(brandDna?.photo_urls || [])];
+              // Only include logo if the USER asked for it in their messages (not the AI's prompt)
+              const userMessages = chatHistory.filter(m => m.role === 'user').map(m => m.content).join(' ');
+              const wantsLogo = /logo/i.test(userMessages);
+              const defaultLogo = brandDna?.logos?.find(l => l.isDefault) || brandDna?.logos?.[0];
+              const brandImageData = {
+                photoUrls: allPhotoUrls,
+                logoUrl: wantsLogo ? (defaultLogo?.url || brandDna?.logo_url || null) : null,
+                colors: brandDna?.colors || {},
+                mainFont: brandDna?.main_font || null,
+              };
               const result = await generateImage(imgPrompt, selectedPlatform, brandImageData);
               // Update message as each image completes
               if (result.image) {
@@ -726,14 +729,14 @@ export default function Content() {
         abort.signal,
         { searchMode: contentResearchMode, onSearchStatus: setSearchStatus },
       );
-      // Check if the response is a JSON question
+      // Check if the response contains a JSON question (may be preceded by text)
       const finalContent = streamedContent || '';
       let questionParsed = null;
       try {
-        // Try to parse as JSON question
-        const trimmed = finalContent.trim();
-        if (trimmed.startsWith('{') && trimmed.includes('"type"')) {
-          const parsed = JSON.parse(trimmed);
+        // Extract JSON object from anywhere in the response
+        const jsonMatch = finalContent.match(/\{[\s\S]*"type"\s*:\s*"question"[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
           if (parsed.type === 'question' && parsed.text && Array.isArray(parsed.options)) {
             questionParsed = parsed;
           }
