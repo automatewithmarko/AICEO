@@ -104,50 +104,49 @@ COMPOSITION & STYLE:
 - The image should make someone STOP scrolling in their inbox`,
 
   instagram: `INSTAGRAM CAROUSEL SLIDE RULES:
-- Aspect ratio: SQUARE (1:1) — this is critical, the image MUST be perfectly square
-- This slide is part of a CAROUSEL SET — it must visually match all other slides in the same carousel
+- Aspect ratio: SQUARE (1:1) — this is critical
+- This slide is part of a CAROUSEL SET — a series of informational slides, like a thread or mini-article
 
-VISUAL CONSISTENCY (MOST IMPORTANT RULE):
-- This slide is ONE part of a multi-slide carousel. It MUST look like it belongs with the other slides.
-- Follow the EXACT style described in the prompt — same background color, same font style, same layout, same text positioning
-- If the prompt says "solid dark navy background with white text" — use EXACTLY that. Do not improvise a different background.
-- The background, typography, and layout MUST be identical across all slides — only the text content changes.
-- Think of this as a PowerPoint template: same master slide, different words on each page.
+THERE ARE 3 TYPES OF CAROUSEL SLIDES — follow the prompt to determine which type this is:
 
-CAROUSEL DESIGN STYLE:
-- Clean, modern, educational carousel slide — like what top creators post on Instagram
-- Style reference: @chriswillx, @thefutur, @garyvee carousel slides — bold text, minimal design, swipeable
-- Background: solid color OR subtle gradient using brand colors. NOT a photograph background for text-heavy slides.
-- CRITICAL: Use the EXACT background color/style specified in the prompt. Do NOT vary it between slides.
-- For hook/first slides WITH founder: photorealistic with the founder/person, but still using the same color palette
-- For content/middle slides: clean colored background with large readable text — educational infographic style
-- For CTA/last slides: same background as content slides, simple direct text
+TYPE 1 — HOOK SLIDE (slide 1):
+- This is the ONLY slide that can be photographic/visual
+- Bold hook text (large, 2-3 lines) + founder photo if reference images are attached
+- Eye-catching background: can use photography, gradient, or bold color
+- The text should create curiosity and make people swipe
+- If the founder is included, show them naturally — like a real Instagram photo
 
-TEXT ON SLIDES:
-- Large, bold, readable headline text — 2-4 lines max per slide
-- Clean sans-serif font (Inter, Helvetica, Montserrat style)
-- High contrast: dark text on light bg OR white text on dark bg
-- Text is the MAIN element — make it big enough to read on a phone
-- Subtext/supporting text in smaller size below the headline
-- Text positioning must be CONSISTENT: if text is centered on slide 1, it must be centered on all slides
+TYPE 2 — CONTENT SLIDE (slides 2 through N-1) — THE MOST COMMON TYPE:
+- Solid black (#000000) background. ALWAYS black for content slides.
+- Default layout (unless the prompt specifies "tweet-style"):
+  • Numbered point title in large white bold text (e.g. "1. Skill-creator" or "2. Content-ideas")
+  • Below title: 2-3 SHORT PARAGRAPHS of body text in light gray (#b0b0b0 or #cccccc), normal weight (NOT bold), left-aligned, readable (~18-20px feel)
+  • Bottom center: optional small relevant icon or illustration (a folder icon, a gear, a chart — simple, clean)
+- If the prompt says "tweet-style": ALSO add a small circular profile picture + bold white name + gray @handle at the top, and small gray "@username" bottom-left + "save for later" bottom-right
+- This is INFORMATIONAL content — the reader is LEARNING something. Include real substance in the body text.
+- Text is LEFT-ALIGNED. Reads like a social media post, NOT a centered headline.
+- DO NOT just put a big headline. Include actual explanation text that teaches something.
 
-LOGO PLACEMENT:
-- Logo should be SMALL and SUBTLE — bottom corner, max 24px height, low opacity or watermark style
-- The logo should NOT be a focal point. It's a subtle brand mark, not the hero element.
+TYPE 3 — CTA SLIDE (last slide):
+- Same dark/black background as content slides
+- Founder photo (if reference images attached) + product screenshot or visual
+- Clear CTA: "Comment [KEYWORD] for an invite" or "Follow @handle for more"
+- Hand-drawn style arrow pointing to the CTA
+- Bottom: "@username" + "save for later"
 
-PERSON/FOUNDER (when reference photos are attached):
-- FIRST slide (hook) ONLY: The person can be the main subject — their face, expression, natural confident pose
-- ALL other slides: TEXT ONLY on the consistent background. Do NOT include the person on content slides.
-- Show them like a real Instagram photo — natural, approachable, not overly posed
+VISUAL CONSISTENCY:
+- Content slides (type 2) MUST all use identical layout: same black bg, same profile section, same text styling
+- Follow the EXACT style described in the prompt. Do NOT improvise a different background or layout.
+- The ONLY thing that changes between content slides is the numbered point and body text.
 
 WHAT TO AVOID:
-- NO switching visual styles between slides — every slide must look like the same template
-- NO giant logos taking up significant space
-- NO cluttered layouts with too many elements
+- NO making every slide look like a poster with just a big headline — content slides need body text
+- NO switching visual styles between content slides
+- NO photograph backgrounds on content slides (only hook slide)
+- NO centered text on content slides — left-align like a tweet
 - NO tiny unreadable text
-- NO generic stock imagery
-- NO random decorative graphics that differ between slides
-- NO photograph backgrounds on text-heavy slides`,
+- NO cluttered layouts
+- NO generic stock imagery`,
 
   youtube: `YOUTUBE THUMBNAIL RULES:
 - Aspect ratio: LANDSCAPE 16:9 — wide format, this is critical
