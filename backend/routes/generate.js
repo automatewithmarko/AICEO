@@ -175,40 +175,37 @@ DESIGN:
 - NO brand watermarks — this is YouTube, not a corporate presentation`,
 
   instagram_story: `INSTAGRAM STORY RULES:
-- Aspect ratio: PORTRAIT 9:16 (1080x1920) — enforced via API, but composition must be vertical-first
-- This is an Instagram Story frame — it must look like a REAL Instagram Story screenshot
+- Aspect ratio: PORTRAIT 9:16 (1080x1920) — composition must be vertical-first
 
-=== TEXT OVERLAY — THIS IS THE #1 PRIORITY ===
+BACKGROUND PHOTO — THIS IS CRITICAL:
+- Must look like an iPhone photo. Natural mobile photography — the kind of image someone posts to their Instagram Story.
+- NATURAL lighting only: daylight, indoor ambient light, golden hour, overcast. No studio setups.
+- Real environments: office, coffee shop, desk, street, home, gym — wherever a real person would be.
+- Natural color grading — the way an iPhone processes photos. Slightly warm, natural saturation.
+- Slight grain/noise is GOOD — makes it feel authentic and real.
+- The photo fills the entire 9:16 frame edge to edge.
 
-You are replicating Instagram's NATIVE text sticker tool. This is what it looks like when someone taps "Aa" in Instagram Stories and uses the "Classic" style:
-
-EXACT SPECIFICATIONS:
-1. BACKGROUND BLOCK: A solid, flat, fully opaque #FFFFFF white rectangle. Corners are rounded (~8px radius). The block fits snugly around the text — it is NOT full-width, it is only as wide as the text + ~16px horizontal padding on each side, + ~8px vertical padding top and bottom.
-2. TEXT: #000000 pure black. Font is SF Pro Display or Helvetica Neue — a clean, modern, system sans-serif at regular weight (400). NOT bold, NOT light. Size is medium-large, easily readable.
-3. POSITIONING: The white text block sits on TOP of the photo as a floating UI sticker. There must be a clear visual separation — the block is a distinct layer hovering over the photo, NOT blended, NOT transparent, NOT part of the photo.
-4. ALIGNMENT: Center-aligned horizontally on the frame. Vertically positioned in the center or upper third.
-5. SINGLE BLOCK: If there are multiple lines, they are ALL inside ONE white rectangle. Do NOT create separate blocks per line.
-6. LOOK & FEEL: It should look IDENTICAL to taking a screenshot of an actual Instagram Story with text added via the app's built-in text tool. If someone saw this image, they should think "that person typed text on their Instagram Story" — NOT "a graphic designer made this."
-
-ABSOLUTE PROHIBITIONS FOR TEXT:
-- NO fancy fonts, NO serif fonts, NO handwriting, NO decorative type
-- NO text shadows, NO text outlines, NO text glow, NO neon effects
-- NO gradient text, NO colored text (must be black on white)
-- NO colored background blocks (must be white)
-- NO text burned directly onto the photo without the white block
-- NO text block stretching edge-to-edge across the image
-- NO semi-transparent or frosted glass text blocks
-- NO text that looks designed, artistic, or typographic — it must look like Instagram's simple text tool
-
-BACKGROUND PHOTO:
-- iPhone-quality photograph — natural mobile photography, casual but polished
-- Real lighting, real textures, real environments, natural color grading
-- Slight natural grain is fine — looks more authentic
-- The photo fills the entire 9:16 frame edge to edge
-- NOT a studio shot, NOT overly edited, NOT HDR
+WHAT THE PHOTO MUST NOT LOOK LIKE:
+- NO studio lighting, NO dramatic rim lights, NO three-point lighting setups
+- NO neon purple/cyan/magenta color grading — this is the #1 problem. Real iPhone photos do NOT have sci-fi lighting.
+- NO futuristic screens, holographic displays, glowing interfaces, or sci-fi aesthetics
+- NO hyper-saturated HDR look, NO cinematic teal-and-orange color grading
+- NO DSLR shallow depth-of-field bokeh (iPhones have wider DOF)
 - NO illustrations, NO vector art, NO flat design, NO abstract backgrounds
-- Should look like something a real creator actually shot on their phone camera
-- The photo is the BACKGROUND — the text sticker sits ON TOP of it as a separate layer`,
+- NO overly polished commercial photography — it should feel CASUAL, not produced
+- If the scene involves a computer/phone, show a REAL normal screen — not a glowing futuristic hologram
+
+PERSON (when reference photos attached):
+- Show the person naturally — as if they took a selfie or someone nearby snapped the photo
+- Natural expression, casual pose, real environment
+- NOT a model pose, NOT a corporate headshot, NOT a magazine shoot
+
+DO NOT RENDER ANY INSTAGRAM UI:
+- No progress bars, no profile pictures, no usernames, no timestamps
+- No close buttons, no send message bar, no heart/share icons
+- No story viewer interface at all — just the raw photo
+
+TEXT OVERLAY is handled separately by the system — focus ONLY on generating the photo.`,
 
   tiktok: `TIKTOK COVER RULES:
 - Aspect ratio: PORTRAIT 9:16 — tall vertical format
@@ -354,18 +351,41 @@ BRAND ASSETS (attached as reference):
 - The attached images are REFERENCE PHOTOS of the user/founder. You MUST include this person in the image — use their exact face and likeness from these photos. They should be a prominent, visible part of the composition. Do NOT generate a random person or leave the person out.`;
     }
 
-    const imagePrompt = `You are a professional graphic designer creating social media content. You have a reputation for brand-consistent, on-brand designs.
+    // Platform-specific quality framing — stories/social photos need iPhone-natural look, not studio
+    const isPhotoFirst = platform === 'instagram_story' || platform === 'tiktok';
+    const isCarousel = platform === 'instagram';
+    const qualityRules = isPhotoFirst
+      ? `PHOTO STYLE — CRITICAL:
+- iPhone camera quality. Natural mobile photography — the kind of photo a real person takes on their phone.
+- Natural indoor/outdoor lighting. NO studio lighting, NO dramatic rim lights, NO neon/purple/cyan color grading.
+- Real environments, real textures, natural colors. Slight grain is fine — makes it authentic.
+- NO futuristic screens, NO holographic displays, NO sci-fi aesthetics, NO glowing interfaces.
+- NO hyper-edited HDR, NO cinematic color grading, NO teal-and-orange film look.
+- The photo should look like it was taken TODAY by a real person — casual, authentic, relatable.
+- If the prompt describes a scene, imagine how a regular person would photograph it with their iPhone.
+- NO cartoons, NO illustrations, NO vector art, NO AI-looking generic imagery.`
+      : isCarousel
+      ? `DESIGN QUALITY RULES:
+- Clean, modern graphic design for carousel slides — bold text, minimal layout.
+- NOT a photograph for text-heavy slides — use solid/gradient backgrounds with typography.
+- Photorealistic ONLY when showing a person (hook slide). All other slides = designed graphics.
+- NO cartoons, NO pixel art, NO clip-art, NO AI-looking generic imagery.
+- Text must be spelled correctly, large, and perfectly readable.
+- Use brand colors and fonts as specified — they are requirements, not suggestions.`
+      : `GENERAL QUALITY RULES:
+- Photorealistic or modern graphic design — NO cartoons, NO pixel art, NO illustrations, NO clip-art, NO AI-looking generic imagery.
+- Natural, authentic look. Avoid over-produced studio aesthetics, neon lighting, and sci-fi visuals unless explicitly requested.
+- Any text on the image must be spelled correctly, large, and perfectly readable.
+- Clean composition with clear visual hierarchy.
+- Use brand colors and fonts as specified — they are requirements, not suggestions.`;
+
+    const imagePrompt = `You are creating visual content for social media.
 
 ${platformRules}
 ${brandContext}
 ${brandImageInstructions}
 
-GENERAL QUALITY RULES:
-- Photorealistic or modern graphic design ONLY — NO cartoons, NO pixel art, NO illustrations, NO clip-art, NO AI-looking generic imagery
-- Any text on the image must be spelled correctly, large, and perfectly readable
-- Clean composition with clear visual hierarchy
-- ALWAYS use the brand colors and fonts specified above — these are not suggestions, they are requirements
-- The design should look like it came from a professional studio that knows this brand
+${qualityRules}
 
 NOW GENERATE THIS IMAGE:
 ${prompt}`;

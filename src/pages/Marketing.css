@@ -1694,7 +1694,89 @@
 }
 
 .sp-arrow--left { left: 8px; }
-.sp-arrow--right { right: 8px;
+.sp-arrow--right { right: 8px; }
+
+/* Story edit button */
+.sp-edit-btn {
+  position: absolute;
+  top: 28px;
+  right: 8px;
+  z-index: 9;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.sp-phone:hover .sp-edit-btn {
+  opacity: 1;
+}
+
+.sp-edit-btn:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+/* Story edit input bar */
+.sp-edit-bar {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  z-index: 12;
+}
+
+.sp-edit-bar input {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 16px;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  outline: none;
+  backdrop-filter: blur(8px);
+}
+
+.sp-edit-bar input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.sp-edit-bar button {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: var(--brand-red, #e91a44);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sp-edit-bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Story edit spinner */
+.sp-edit-spinner {
+  animation: spEditSpin 0.8s linear infinite;
+}
+
+@keyframes spEditSpin {
+  to { transform: rotate(360deg); }
 }
 
 /* ── DM Flow Canvas Empty State ── */

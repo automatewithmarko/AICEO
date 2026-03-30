@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Mail, Send, Users, BarChart3, Megaphone, Inbox, FileText, PenTool, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine } from 'lucide-react';
+import { Mail, Send, Users, BarChart3, Megaphone, Inbox, FileText, PenTool, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader } from 'lucide-react';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
@@ -102,14 +102,15 @@ ${SHARED_RULES}
 
 ADDITIONAL FORMAT — STORY SEQUENCE (use this instead of newsletter/html when generating stories):
 {"type":"story_sequence","frames":[{"title":"Frame title","caption":"Short caption overlay text (max 15 words)","image_prompt":"Detailed image generation prompt for this frame. Include: style, composition, colors, text overlays, mood."},...],"summary":"Brief description"}
-THE STORY TEXT NEEDS TO BE EXACTLY SIMILAR TO HOW IT IS ON INSTAGRAM STORIES centered, slight tracking, soft shadow, high contrast
 RULES FOR STORY SEQUENCES:
 - Generate exactly 3-5 frames that tell a cohesive visual story
 - Each frame should flow naturally into the next (beginning → middle → end/CTA)
 - Frame 1: Hook/attention grabber
 - Middle frames: Value/story/content
 - Last frame: CTA (swipe up, link in bio, DM us, etc.)
-- Image prompts must be highly detailed for professional Instagram story generation (1080x1920 portrait)
+- Image prompts must describe ONLY the photo/visual content — never mention Instagram UI elements
+- NEVER include in image_prompt: progress bars, profile pictures, usernames, close buttons, send message bar, heart icons, or any Instagram interface elements
+- The image_prompt should describe the SCENE/PHOTO only. The text overlay is added separately by the system.
 - Captions should be punchy, short (max 15 words), suitable for story text overlays
 - Think like a top social media manager — trendy, on-brand, scroll-stopping
 - Typical question flow: brand/topic → target audience → story goal (educate/sell/engage) → visual style preference`,
@@ -322,9 +323,11 @@ function GhostCard({ icon, lines, className }) {
 // Context categories are now fetched dynamically inside ToolTab
 
 // ── Story Sequence Phone Viewer ──
-function StoryPhoneViewer({ frames }) {
+function StoryPhoneViewer({ frames, onEditFrame }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [editingIdx, setEditingIdx] = useState(null);
+  const [editPrompt, setEditPrompt] = useState('');
   const timerRef = useRef(null);
   const touchStartRef = useRef(null);
   const DURATION = 5000;
@@ -337,7 +340,6 @@ function StoryPhoneViewer({ frames }) {
   const prevReadyRef = useRef(0);
   useEffect(() => {
     if (readyCount > prevReadyRef.current) {
-      // A new image just loaded — jump to it if we're on a loading/empty frame
       const currentFrame = frames[activeIndex];
       if (!currentFrame?.imageSrc || currentFrame?.loading) {
         const firstReady = frames.findIndex(f => f.imageSrc && !f.loading);
@@ -347,26 +349,18 @@ function StoryPhoneViewer({ frames }) {
     }
   }, [readyCount, frames, activeIndex]);
 
-  // Autoplay timer — runs even on hover so navigation works, just skips auto-advance when paused
+  // Autoplay timer
   useEffect(() => {
-    if (total === 0) return;
-    if (paused) return;
+    if (total === 0 || paused || editingIdx !== null) return;
     timerRef.current = setTimeout(() => {
       setActiveIndex(prev => (prev + 1) % total);
     }, DURATION);
     return () => clearTimeout(timerRef.current);
-  }, [paused, total, activeIndex]);
+  }, [paused, total, activeIndex, editingIdx]);
 
-  const goPrev = (e) => {
-    e.stopPropagation();
-    setActiveIndex(prev => Math.max(0, prev - 1));
-  };
-  const goNext = (e) => {
-    e.stopPropagation();
-    setActiveIndex(prev => Math.min(total - 1, prev + 1));
-  };
+  const goPrev = (e) => { e.stopPropagation(); setActiveIndex(prev => Math.max(0, prev - 1)); };
+  const goNext = (e) => { e.stopPropagation(); setActiveIndex(prev => Math.min(total - 1, prev + 1)); };
 
-  // Touch/swipe handling
   const onTouchStart = (e) => { touchStartRef.current = e.touches[0].clientX; };
   const onTouchEnd = (e) => {
     if (touchStartRef.current === null) return;
@@ -376,6 +370,13 @@ function StoryPhoneViewer({ frames }) {
       else setActiveIndex(prev => Math.max(0, prev - 1));
     }
     touchStartRef.current = null;
+  };
+
+  const handleEdit = () => {
+    if (!editPrompt.trim() || !onEditFrame) return;
+    onEditFrame(activeIndex, editPrompt.trim());
+    setEditingIdx(null);
+    setEditPrompt('');
   };
 
   return (
@@ -403,7 +404,7 @@ function StoryPhoneViewer({ frames }) {
         <div className="sp-tap sp-tap--left" onClick={goPrev} />
         <div className="sp-tap sp-tap--right" onClick={goNext} />
 
-        {/* Left/Right arrows (visible on hover) */}
+        {/* Left/Right arrows */}
         {activeIndex > 0 && (
           <button className="sp-arrow sp-arrow--left" onClick={goPrev}>
             <ChevronRight size={20} style={{ transform: 'rotate(180deg)' }} />
@@ -415,9 +416,25 @@ function StoryPhoneViewer({ frames }) {
           </button>
         )}
 
+        {/* Edit button — top right */}
+        {frame.imageSrc && !frame.loading && !frame.editing && onEditFrame && (
+          <button
+            className="sp-edit-btn"
+            onClick={(e) => { e.stopPropagation(); setEditingIdx(activeIndex); setEditPrompt(''); }}
+            title="Edit this frame"
+          >
+            <Pencil size={14} />
+          </button>
+        )}
+
         {/* Frame content */}
         <div className="sp-frame">
-          {frame.loading ? (
+          {frame.editing ? (
+            <div className="sp-frame-loading">
+              <Loader size={20} className="sp-edit-spinner" />
+              <span style={{ color: '#fff', fontSize: 12, marginTop: 8 }}>Editing...</span>
+            </div>
+          ) : frame.loading ? (
             <div className="sp-frame-loading">
               <span className="mkt-msg-dots"><span /><span /><span /></span>
             </div>
@@ -438,6 +455,23 @@ function StoryPhoneViewer({ frames }) {
             {frame.caption && <span className="sp-frame-caption">{frame.caption}</span>}
           </div>
         </div>
+
+        {/* Edit input bar */}
+        {editingIdx === activeIndex && (
+          <div className="sp-edit-bar" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="text"
+              placeholder="Describe the edit..."
+              value={editPrompt}
+              onChange={(e) => setEditPrompt(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && editPrompt.trim()) handleEdit(); if (e.key === 'Escape') setEditingIdx(null); }}
+              autoFocus
+            />
+            <button disabled={!editPrompt.trim()} onClick={handleEdit}>
+              <ArrowUp size={14} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1733,8 +1767,8 @@ function ToolTab({ config, activeTool, brandDna }) {
 
         await Promise.all(frames.map(async (frame, idx) => {
           const captionText = frame.caption || frame.title || '';
-          const captionInstruction = captionText ? `\n\nTEXT OVERLAY — INSTAGRAM "CLASSIC" TEXT STICKER (MUST look identical on EVERY frame):\nRender the text "${captionText}" as an Instagram Story text sticker. Here is the EXACT specification — do NOT deviate:\n- Shape: solid opaque #FFFFFF white pill/rounded-rectangle, corner-radius ~20px (very rounded, like a capsule)\n- Border: 2-3px white outline/stroke around the outside of the pill (gives it the "sticker" look — the white pill has a slightly lighter white border making it pop off the background)\n- Text: "${captionText}" in #000000 pure black, BOLD weight (700-800), clean sans-serif font (SF Pro Bold, Helvetica Neue Bold, or similar)\n- Font size: large and readable — approximately 28-36px equivalent at 1080px width. Text should be prominent and easy to read at phone size\n- Padding: snug — about 10-14px horizontal, 6-10px vertical. The pill tightly wraps the text, it is NOT a wide box\n- The pill is only as wide as the text content + padding. Short text = small pill. Long text = wider pill that may wrap to 2 lines\n- Position: centered horizontally on the frame\n- This is a FLAT UI sticker floating on top of the photo — no 3D effects, no gradients, no drop shadows on the pill itself\n- It must look EXACTLY like Instagram's built-in "Classic" text tool — a simple white rounded pill with bold black text inside\n- DO NOT change the style between frames. Every frame must have this identical text sticker look.` : '';
-          const sequencePrompt = `${visualStyle ? `VISUAL STYLE FOR THIS SERIES: ${visualStyle}\n\n` : ''}This is frame ${idx + 1} of ${frames.length} in a cohesive Instagram Story sequence. IMPORTANT: Follow the visual style description exactly so all frames feel like ONE continuous story when swiped through.\n\n${frame.image_prompt}${captionInstruction}`;
+          const captionInstruction = captionText ? `\n\nTEXT OVERLAY — ONE text sticker:\n- Render EXACTLY ONE text sticker: "${captionText}"\n- Flat solid white (#FFFFFF) rectangle with rounded corners (~12px radius). NO border, NO outline, NO stroke around the pill — just a clean flat white shape.\n- Text: "${captionText}" in pure black (#000000), bold weight, clean sans-serif (SF Pro, Helvetica), ~30px\n- Snug padding: pill tightly wraps text. Only as wide as the text needs.\n- Centered horizontally, upper third of frame.\n- ONE sticker only. Do NOT duplicate text. Do NOT add any border or outline around the white pill.\n\nDO NOT RENDER:\n- No Instagram UI (no progress bars, profile pics, usernames, send bar, hearts)\n- No borders or outlines around the text sticker\n- No second copy of the text\n- Just the photo with one clean white text sticker on top.` : '';
+          const sequencePrompt = `${visualStyle ? `VISUAL STYLE FOR THIS SERIES: ${visualStyle}\n\n` : ''}This is frame ${idx + 1} of ${frames.length} in a cohesive Instagram Story sequence. Follow the visual style exactly so all frames feel like ONE continuous story.\n\nIMPORTANT: Generate ONLY the photo/image content. Do NOT render any Instagram UI (no progress bars, no profile icons, no usernames, no send message bar, no close button). Just the raw image with the text sticker overlay.\n\n${frame.image_prompt}${captionInstruction}`;
 
           try {
             const result = await generateImage(sequencePrompt, 'instagram_story', brandData);
@@ -1957,6 +1991,43 @@ function ToolTab({ config, activeTool, brandDna }) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [bsTemplatesOpen]);
+
+  // Edit a single story frame — sends ONLY that image, no brand data
+  const handleEditStoryFrame = useCallback(async (frameIdx, editInstruction) => {
+    const frame = storyFrames[frameIdx];
+    if (!frame?.imageSrc) return;
+
+    // Mark frame as editing
+    setStoryFrames(prev => prev.map((f, i) => i === frameIdx ? { ...f, editing: true } : f));
+
+    // Extract base64 from data URL
+    const commaIdx = frame.imageSrc.indexOf(',');
+    const mimeMatch = frame.imageSrc.match(/^data:([^;]+);/);
+    const refImage = commaIdx !== -1 ? { data: frame.imageSrc.slice(commaIdx + 1), mimeType: mimeMatch?.[1] || 'image/jpeg' } : null;
+
+    try {
+      const result = await generateImage(
+        `EDIT THIS IMAGE: ${editInstruction}. Keep the same overall style, composition, and photo. Only apply the specific change requested.`,
+        'instagram_story',
+        null, // no brand data — only the image itself
+        refImage ? [refImage] : null
+      );
+      if (result.image) {
+        const allowedMime = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+        if (allowedMime.includes(result.image.mimeType)) {
+          const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+          setStoryFrames(prev => prev.map((f, i) => i === frameIdx ? { ...f, imageSrc: src, editing: false } : f));
+        } else {
+          setStoryFrames(prev => prev.map((f, i) => i === frameIdx ? { ...f, editing: false } : f));
+        }
+      } else {
+        setStoryFrames(prev => prev.map((f, i) => i === frameIdx ? { ...f, editing: false } : f));
+      }
+    } catch (err) {
+      console.error(`Story frame edit failed:`, err.message);
+      setStoryFrames(prev => prev.map((f, i) => i === frameIdx ? { ...f, editing: false } : f));
+    }
+  }, [storyFrames]);
 
   const handleCopyCode = () => {
     if (!canvasHtml) return;
@@ -2470,7 +2541,7 @@ function ToolTab({ config, activeTool, brandDna }) {
             sandbox="allow-same-origin allow-scripts"
           />
           {config.canvasEmptyType === 'story-sequence' && storyFrames.length > 0 && (
-            <StoryPhoneViewer frames={storyFrames} />
+            <StoryPhoneViewer frames={storyFrames} onEditFrame={handleEditStoryFrame} />
           )}
           {config.canvasEmptyType === 'story-sequence' && storyFrames.length === 0 && !canvasHtml && (
             <div className="mkt-canvas-empty mkt-canvas-empty--story">
