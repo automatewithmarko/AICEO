@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, getTemplates, getEmails, getSalesCalls, getProducts } from '../lib/api';
@@ -582,6 +582,8 @@ export default function Content() {
   const [showPasteBtn, setShowPasteBtn] = useState(false);
   const [messages, setMessages] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [editingImage, setEditingImage] = useState(null); // { msgId, imgIdx, src }
+  const [editPrompt, setEditPrompt] = useState('');
   const [brandDna, setBrandDna] = useState(null);
   const [integrationCtx, setIntegrationCtx] = useState('');
   const longPressTimer = useRef(null);
@@ -791,18 +793,15 @@ export default function Content() {
           const results = await Promise.allSettled(
             imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
               console.log(`  🎨 [${idx + 1}/${imageCalls.length}] ${imgPrompt.slice(0, 80)}...`);
-              // Merge user-uploaded photos with brand photos — user uploads take priority
+              // Sidebar reference photos (uploaded by user in content context)
               const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
-              const allPhotoUrls = [...uploadedPhotoUrls, ...(brandDna?.photo_urls || [])];
-              console.log(`[Content] Image gen — photos state: ${photos.length}, done: ${photos.filter(p => p.status === 'done').length}, urls: ${uploadedPhotoUrls.length}, brand: ${brandDna?.photo_urls?.length || 0}, total: ${allPhotoUrls.length}`);
-              if (uploadedPhotoUrls.length) console.log(`[Content] Photo URLs:`, uploadedPhotoUrls.map(u => u?.slice(0, 80)));
-              // Only include logo if the USER asked for it in their messages (not the AI's prompt)
-              const userMessages = chatHistory.filter(m => m.role === 'user').map(m => m.content).join(' ');
-              const wantsLogo = /logo/i.test(userMessages);
-              const defaultLogo = brandDna?.logos?.find(l => l.isDefault) || brandDna?.logos?.[0];
+              // Only send 1 brand DNA photo (for likeness reference), no logo
+              const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
+              const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
+              console.log(`[Content] Image gen — sidebar photos: ${uploadedPhotoUrls.length}, brand photo: ${oneBrandPhoto.length}, total: ${allPhotoUrls.length}`);
               const brandImageData = {
                 photoUrls: allPhotoUrls,
-                logoUrl: wantsLogo ? (defaultLogo?.url || brandDna?.logo_url || null) : null,
+                logoUrl: null, // never send logo for content image generation
                 colors: brandDna?.colors || {},
                 mainFont: brandDna?.main_font || null,
               };
@@ -911,6 +910,57 @@ export default function Content() {
     setInput('');
     sendToAI(updated);
   }, [input, isGenerating, messages, sendToAI, contentSelectedCtx, contentCtxCategories]);
+
+  // Direct image edit — sends ONLY the image to Gemini, no brand data, no context
+  const handleImageEdit = useCallback(async (editInstruction) => {
+    if (!editingImage || !editInstruction.trim() || isGenerating) return;
+    const { msgId, imgIdx, src } = editingImage;
+    setEditingImage(null);
+    setEditPrompt('');
+    setIsGenerating(true);
+
+    // Extract base64 from data URL
+    const commaIdx = src.indexOf(',');
+    const mimeMatch = src.match(/^data:([^;]+);/);
+    const refImage = commaIdx !== -1 ? {
+      data: src.slice(commaIdx + 1),
+      mimeType: mimeMatch?.[1] || 'image/jpeg',
+    } : null;
+
+    // Show loading state on the image
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, editingIdx: imgIdx } : m
+    ));
+
+    try {
+      // Send the image + edit instruction + sidebar reference photos (for likeness), but no brand DNA or logo
+      const sidebarPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
+      const editBrandData = sidebarPhotoUrls.length ? { photoUrls: sidebarPhotoUrls, logoUrl: null, colors: {}, mainFont: null } : null;
+      const result = await generateImage(
+        `EDIT THIS IMAGE: ${editInstruction.trim()}. Keep the same overall style and composition. Only apply the specific change requested.`,
+        selectedPlatform,
+        editBrandData,
+        refImage ? [refImage] : null
+      );
+      if (result.image) {
+        const newSrc = `data:${result.image.mimeType};base64,${result.image.data}`;
+        setMessages(prev => prev.map(m => {
+          if (m.id !== msgId) return m;
+          const newImages = [...m.images];
+          const target = newImages.findIndex(img => img.idx === imgIdx);
+          if (target !== -1) newImages[target] = { ...newImages[target], src: newSrc };
+          return { ...m, images: newImages, editingIdx: undefined };
+        }));
+      }
+    } catch (err) {
+      console.error('Image edit failed:', err);
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? { ...m, editingIdx: undefined } : m
+      ));
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [editingImage, isGenerating, selectedPlatform]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1861,8 +1911,21 @@ export default function Content() {
                       {hasImages && (
                         <div className="content-image-carousel">
                           {sortedImages.map((img, i) => (
-                            <div key={i} className="content-carousel-slide content-generated-image--fadein">
+                            <div key={i} className={`content-carousel-slide content-generated-image--fadein${msg.editingIdx === img.idx ? ' content-carousel-slide--editing' : ''}`}>
+                              {msg.editingIdx === img.idx && (
+                                <div className="content-image-edit-overlay">
+                                  <Loader size={20} className="cs-spinner" />
+                                  <span>Editing...</span>
+                                </div>
+                              )}
                               <img src={img.src} alt={`Slide ${i + 1}`} />
+                              <button
+                                className="content-carousel-edit"
+                                onClick={(e) => { e.stopPropagation(); setEditingImage({ msgId: msg.id, imgIdx: img.idx, src: img.src }); setEditPrompt(''); }}
+                                title="Edit this image"
+                              >
+                                <Pencil size={14} />
+                              </button>
                               <a
                                 className="content-carousel-download"
                                 href={img.src}
@@ -1871,6 +1934,21 @@ export default function Content() {
                               >
                                 <Download size={16} />
                               </a>
+                              {editingImage?.msgId === msg.id && editingImage?.imgIdx === img.idx && (
+                                <div className="content-image-edit-input" onClick={(e) => e.stopPropagation()}>
+                                  <input
+                                    type="text"
+                                    placeholder="Describe the edit..."
+                                    value={editPrompt}
+                                    onChange={(e) => setEditPrompt(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter' && editPrompt.trim()) handleImageEdit(editPrompt); if (e.key === 'Escape') setEditingImage(null); }}
+                                    autoFocus
+                                  />
+                                  <button disabled={!editPrompt.trim()} onClick={() => handleImageEdit(editPrompt)}>
+                                    <ArrowUp size={14} />
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           ))}
                           {/* Skeleton placeholders for pending images */}

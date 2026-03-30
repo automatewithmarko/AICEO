@@ -1632,12 +1632,104 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.content-carousel-slide:hover .content-carousel-download {
+.content-carousel-edit {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.content-carousel-edit:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.content-carousel-slide:hover .content-carousel-download,
+.content-carousel-slide:hover .content-carousel-edit {
   opacity: 1;
 }
 
+/* Image edit input bar */
+.content-image-edit-input {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  z-index: 3;
+}
+
+.content-image-edit-input input {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 20px;
+  font-size: 13px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  outline: none;
+  backdrop-filter: blur(8px);
+}
+
+.content-image-edit-input input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.content-image-edit-input button {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--brand-red, #e91a44);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.content-image-edit-input button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Editing overlay */
+.content-image-edit-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 4;
+}
+
+.content-carousel-slide--editing img {
+  opacity: 0.5;
+}
+
 @media (max-width: 768px) {
-  .content-carousel-download {
+  .content-carousel-download,
+  .content-carousel-edit {
     opacity: 1;
   }
 }
