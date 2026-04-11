@@ -470,12 +470,13 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, on
       }));
       conversationMessages.push(assistantMsg);
 
-      // Build tool result messages
+      // Build tool result messages. Handlers can attach `tc.result` to feed
+      // real data back to the model (e.g. check_emails returns the inbox).
       for (const tc of toolCalls) {
         conversationMessages.push({
           role: 'tool',
           tool_call_id: tc.id,
-          content: 'Done',
+          content: typeof tc.result === 'string' && tc.result.length > 0 ? tc.result : 'Done',
         });
       }
 

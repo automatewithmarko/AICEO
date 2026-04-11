@@ -185,6 +185,36 @@ export function buildAgentTools() {
     {
       type: 'function',
       function: {
+        name: 'check_emails',
+        description: "Read the user's recent emails from their connected inbox. Call this IMMEDIATELY whenever the user asks to check/read/review/summarize their emails, find a specific message, or see what's new. NEVER ask follow-up questions before calling this — just call it with sensible defaults (limit 10, folder inbox). You'll get the emails back as structured data so you can summarize them in your own words.",
+        parameters: {
+          type: 'object',
+          properties: {
+            limit: {
+              type: 'number',
+              description: 'Max emails to fetch (1-30). Default 10.',
+            },
+            folder: {
+              type: 'string',
+              enum: ['inbox', 'sent', 'drafts'],
+              description: 'Folder to read from. Default "inbox".',
+            },
+            unread_only: {
+              type: 'boolean',
+              description: 'If true, only return unread emails. Default false.',
+            },
+            search: {
+              type: 'string',
+              description: 'Optional keyword to match subject/sender/body (case-insensitive substring).',
+            },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'send_email',
         description: 'Send an email using the user\'s connected email account. Use when the user asks you to send an email, newsletter, or message to contacts. You can send HTML emails (newsletters) or plain text.',
         parameters: {

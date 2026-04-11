@@ -33,6 +33,7 @@ CRITICAL RULES:
    NEVER fabricate product names, features, or services. If unsure, keep options generic ("Your main product", "Your latest offer") rather than guessing wrong.
 5. For simple stuff (emails, posts, docs, code) just create_artifact directly.
 6. For sending emails, use send_email. Confirm count first if more than 5 recipients.
+7. If the user asks to CHECK / READ / REVIEW / SUMMARIZE their emails or inbox, or asks what's new, or wants to find a specific email — call check_emails IMMEDIATELY with sensible defaults. DO NOT use ask_user to clarify first. DO NOT send them an email asking what they want. Just read the inbox, then summarize in plain talk (who, subject, one-line gist). Only ask follow-ups after you've already shown them what's there.
 
 YOUR TOOLS:
 
@@ -49,7 +50,9 @@ ask_user: Ask a question with clickable options. Use this instead of typing ques
 
 create_artifact: Make content directly in the canvas (emails, posts, code, docs). NOT for newsletters/landing pages/etc.
 
-send_email: Send an email from the user's connected account. Works for newsletters and plain text.
+send_email: Send an email from the user's connected account. Works for newsletters and plain text. NEVER use this to "check" emails — only for outbound sends.
+
+check_emails: Read the user's inbox (or sent/drafts). Use whenever they ask about their emails. Always call this directly, never ask them questions first.
 
 generate_image: Create social graphics, thumbnails, cover images.
 
@@ -592,6 +595,8 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, user
           await handlePushNotification({ res, call, userId });
         } else if (call.name === 'send_email') {
           await handleSendEmail({ res, call, userId });
+        } else if (call.name === 'check_emails') {
+          await handleCheckEmails({ res, call, userId });
         } else if (call.name === 'create_artifact' || call.name === 'generate_image') {
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
@@ -675,6 +680,96 @@ async function handleSendEmail({ res, call, userId }) {
   } catch (err) {
     console.error('[orchestrate] Send email failed:', err.message);
     sendSSE(res, { type: 'text_delta', content: `\n\nFailed to send email: ${err.message}` });
+  }
+}
+
+// ── Check Emails (CEO reads user's inbox from the synced emails table) ──
+async function handleCheckEmails({ res, call, userId }) {
+  let args;
+  try { args = JSON.parse(call.arguments); } catch { args = {}; }
+
+  const limit = Math.min(Math.max(parseInt(args.limit) || 10, 1), 30);
+  const folder = ['inbox', 'sent', 'drafts'].includes(args.folder) ? args.folder : 'inbox';
+  const unreadOnly = !!args.unread_only;
+  const search = (args.search || '').trim();
+
+  console.log(`[orchestrate] check_emails called: folder=${folder} limit=${limit} unread_only=${unreadOnly} search="${search}"`);
+  sendSSE(res, { type: 'status', text: `Reading ${folder}...` });
+
+  try {
+    // Make sure the user actually has an email account connected
+    const { data: accounts } = await supabase
+      .from('email_accounts')
+      .select('id, email, is_active')
+      .eq('user_id', userId)
+      .eq('is_active', true);
+
+    if (!accounts || accounts.length === 0) {
+      call.result = 'The user has no connected email account. Tell them they need to connect one in Settings before you can read their inbox.';
+      console.log('[orchestrate] check_emails: no active email account');
+      return;
+    }
+
+    let query = supabase
+      .from('emails')
+      .select('id, from_name, from_email, subject, body_text, is_read, is_starred, has_attachments, date, folder')
+      .eq('user_id', userId)
+      .eq('folder', folder)
+      .order('date', { ascending: false })
+      .limit(limit);
+
+    if (unreadOnly) query = query.eq('is_read', false);
+    if (search) {
+      const escaped = search.replace(/[%,()]/g, '');
+      query = query.or(
+        `subject.ilike.%${escaped}%,from_email.ilike.%${escaped}%,from_name.ilike.%${escaped}%,body_text.ilike.%${escaped}%`
+      );
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const emails = (data || []).map((e) => ({
+      from: e.from_name ? `${e.from_name} <${e.from_email}>` : e.from_email,
+      subject: e.subject || '(no subject)',
+      date: e.date,
+      unread: !e.is_read,
+      starred: e.is_starred,
+      has_attachments: e.has_attachments,
+      preview: (e.body_text || '').replace(/\s+/g, ' ').trim().slice(0, 300),
+    }));
+
+    // Quick unread total for context (not limited)
+    let unreadTotal = null;
+    try {
+      const { count } = await supabase
+        .from('emails')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('folder', 'inbox')
+        .eq('is_read', false);
+      unreadTotal = count ?? null;
+    } catch {}
+
+    const header = [
+      `Connected account(s): ${accounts.map((a) => a.email).join(', ')}`,
+      `Folder: ${folder}`,
+      unreadTotal != null ? `Total unread in inbox: ${unreadTotal}` : null,
+      `Returned: ${emails.length}${unreadOnly ? ' (unread only)' : ''}${search ? ` (search: "${search}")` : ''}`,
+    ].filter(Boolean).join('\n');
+
+    const body = emails.length === 0
+      ? 'No emails matched.'
+      : emails.map((e, i) => {
+          const when = e.date ? new Date(e.date).toISOString() : '';
+          return `${i + 1}. ${e.unread ? '[UNREAD] ' : ''}${e.starred ? '[*] ' : ''}${when}\n   From: ${e.from}\n   Subject: ${e.subject}\n   Preview: ${e.preview}`;
+        }).join('\n\n');
+
+    call.result = `${header}\n\n${body}\n\nSummarize this for the user in your own casual voice. Mention the unread count, call out anything that looks urgent or important, and ask what they want to do next.`;
+    console.log(`[orchestrate] check_emails returned ${emails.length} emails (unread total: ${unreadTotal})`);
+  } catch (err) {
+    console.error('[orchestrate] check_emails failed:', err.message);
+    call.result = `Error reading inbox: ${err.message}. Tell the user something went wrong pulling their emails and suggest they check their email connection in Settings.`;
   }
 }
 
