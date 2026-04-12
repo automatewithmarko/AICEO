@@ -79,7 +79,7 @@ const SOCIAL_URL_PATTERN = /^https?:\/\/(www\.)?(instagram\.com|facebook\.com|fb
 const PLATFORM_GUIDANCE = {
   instagram: `Instagram content that actually performs. Study what top creators do:
 - Carousels: A carousel is a STORY told across slides, not a list of random tips. The first slide hooks with a bold claim. Every following slide builds on that hook  -  revealing, explaining, proving, and concluding. The viewer should NEED to swipe to get the payoff. Last slide = CTA. ALL slides must share the EXACT same visual style (background color, font, layout) so they look like one cohesive set.
-- Reels/Video Scripts: When the user asks for a reel, write a SCRIPT as your text output. Do NOT generate images for reels. A reel script must include: hook (first 3 seconds that stop the scroll), scene-by-scene breakdown with [VISUAL] descriptions + [VOICEOVER] or [ON-SCREEN TEXT] for each scene, CTA at the end, and suggested trending audio direction. Keep it punchy and formatted for vertical video. The script IS the deliverable.
+- Reels/Video Scripts: When the user asks for a reel, write a SCRIPT as your text output. Do NOT generate images for reels. Structure: [HOOK] (first 1-3 seconds, stop the scroll), [BRIDGE] (transition that pulls them in), [SCENE 1] and optionally [SCENE 2] (max 2 scenes, keep it tight), [CTA] only if needed. Each section gets [VISUAL] + [VOICEOVER] or [ON-SCREEN TEXT]. Suggest a trending audio direction. The script IS the deliverable.
 - Stories: Raw, authentic, behind-the-scenes. Polls/questions for engagement. Keep it casual.
 - Captions: Lead with a strong first line (it's the hook before "...more"). Write like you talk. Break into short paragraphs. No hashtags unless the user asks.
 - NEVER use generic filler, excessive emojis, or "Hey guys!" energy. Write like a real person, not a marketing bot.`,
@@ -118,7 +118,7 @@ WHAT TO AVOID:
 - Asking for engagement without giving value first`,
   youtube: `YouTube content built for retention. Titles: curiosity gap + clarity (not clickbait). Descriptions: front-load keywords, include timestamps. Scripts: open with the payoff/promise, deliver value fast, use pattern interrupts every 30-60s. Thumbnails: high contrast, expressive face or striking visual, 3-4 words max.`,
   x: `X/Twitter content that spreads. One idea per tweet. Strong opening line. No filler words. Threads: first tweet must stand alone and hook. Use contrarian takes, specific numbers, or "Here's what nobody tells you about X" patterns. No hashtag spam.`,
-  tiktok: `TikTok content that hooks immediately. When the user asks for a TikTok or video, write a SCRIPT as your text output. Do NOT generate images for video scripts. A TikTok script must include: hook (first 3 seconds), scene-by-scene breakdown with [VISUAL] descriptions + [VOICEOVER] or [ON-SCREEN TEXT], CTA, and suggested trending sound. Keep it under 30s for better completion rate. Raw > polished. The script IS the deliverable.`,
+  tiktok: `TikTok content that hooks immediately. When the user asks for a TikTok or video, write a SCRIPT as your text output. Do NOT generate images for video scripts. Structure: [HOOK] (first 1-3 seconds), [BRIDGE] (transition), [SCENE 1] and optionally [SCENE 2] (max 2 scenes), [CTA] only if needed. Each section gets [VISUAL] + [VOICEOVER] or [ON-SCREEN TEXT]. Suggest a trending sound. Keep it under 30s. Raw > polished. The script IS the deliverable.`,
 };
 
 // Parse <<OPTIONS>> blocks from AI response
@@ -208,7 +208,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `   - SINGLE POST: Call generate_image once for the post image.\n`;
   prompt += `   - STORY FLOW: Call generate_image for each story frame (3-4 images).\n`;
   prompt += `   - YOUTUBE: Call generate_image for the thumbnail.\n`;
-  prompt += `   - REEL / TIKTOK / VIDEO SCRIPT: Do NOT call generate_image. Write the script directly as your text output. The script is the deliverable. Include: hook (first 3s), scene-by-scene with [VISUAL] + [VOICEOVER]/[ON-SCREEN TEXT], CTA, and suggested audio.\n`;
+  prompt += `   - REEL / TIKTOK / VIDEO SCRIPT: Do NOT call generate_image. Write the script directly as your text output. The script is the deliverable. Structure: [HOOK] (1-3s), [BRIDGE] (transition), [SCENE 1] + optionally [SCENE 2] (max 2 scenes), [CTA] if needed. Each section: [VISUAL] + [VOICEOVER]/[ON-SCREEN TEXT]. Suggest audio.\n`;
   prompt += `   You can make MULTIPLE generate_image calls in the same response. Each slide needs its own call.\n\n`;
 
   prompt += `=== CAROUSEL SLIDE TYPES (CRITICAL  -  each slide type has a DIFFERENT layout) ===\n`;
@@ -613,6 +613,10 @@ export default function Content() {
   const [messages, setMessages] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [editingImage, setEditingImage] = useState(null); // { msgId, imgIdx, src }
+  const [sessionId, setSessionId] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [showSessions, setShowSessions] = useState(false);
+  const saveTimer = useRef(null);
   const [editPrompt, setEditPrompt] = useState('');
   const [brandDna, setBrandDna] = useState(null);
   const [integrationCtx, setIntegrationCtx] = useState('');
@@ -739,6 +743,89 @@ export default function Content() {
       if (context) setIntegrationCtx(context);
     }).catch(() => {});
   }, []);
+
+  // ── Session persistence ──
+  // Load sessions list on mount
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session?.user) return;
+      const { data } = await supabase
+        .from('content_sessions')
+        .select('id, title, platform, updated_at')
+        .eq('user_id', session.user.id)
+        .order('updated_at', { ascending: false })
+        .limit(50);
+      if (data) setSessions(data);
+    });
+  }, []);
+
+  // Debounced auto-save: persist messages to Supabase whenever they change
+  useEffect(() => {
+    if (messages.length === 0) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      const userId = session.user.id;
+      // Strip base64 image data from messages to keep payload small
+      const stripped = messages.map((m) => ({
+        id: m.id, role: m.role, content: m.content,
+        images: (m.images || []).map((img) => ({ idx: img.idx, src: img.src?.startsWith('data:') ? '[image]' : img.src })),
+      }));
+      // Derive title from first user message
+      const firstUser = messages.find((m) => m.role === 'user');
+      const title = firstUser?.content?.replace(/\[CONTEXT[^\]]*\]\n?/g, '').slice(0, 80) || 'New conversation';
+
+      if (sessionId) {
+        // Update existing session
+        await supabase.from('content_sessions').update({
+          messages: stripped, title, platform: selectedPlatform, updated_at: new Date().toISOString(),
+        }).eq('id', sessionId);
+        setSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, title, updated_at: new Date().toISOString() } : s));
+      } else {
+        // Create new session
+        const { data, error } = await supabase.from('content_sessions').insert({
+          user_id: userId, title, platform: selectedPlatform, messages: stripped,
+        }).select('id').single();
+        if (data && !error) {
+          setSessionId(data.id);
+          setSessions((prev) => [{ id: data.id, title, platform: selectedPlatform, updated_at: new Date().toISOString() }, ...prev]);
+        }
+      }
+    }, 1500);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [messages, sessionId, selectedPlatform]);
+
+  // Load a past session
+  const loadSession = useCallback(async (id) => {
+    const { data, error } = await supabase
+      .from('content_sessions')
+      .select('id, title, platform, messages')
+      .eq('id', id)
+      .single();
+    if (error || !data) return;
+    setSessionId(data.id);
+    setSelectedPlatform(data.platform || 'instagram');
+    setMessages(data.messages || []);
+    setCurrentQuestion(null);
+    setShowSessions(false);
+  }, []);
+
+  // Start a fresh conversation
+  const newConversation = useCallback(() => {
+    setSessionId(null);
+    setMessages([]);
+    setCurrentQuestion(null);
+    setShowSessions(false);
+  }, []);
+
+  // Delete a session
+  const deleteSession = useCallback(async (id, e) => {
+    e.stopPropagation();
+    await supabase.from('content_sessions').delete().eq('id', id);
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+    if (sessionId === id) newConversation();
+  }, [sessionId, newConversation]);
 
   // Auto-scroll messages
   useEffect(() => {
@@ -1783,7 +1870,7 @@ export default function Content() {
       <div className="content-main">
         {/* Platform Pill Selector */}
         <div className="content-top-bar">
-          <button className="content-prev-convos" title="Previous conversations">
+          <button className="content-prev-convos" title="Previous conversations" onClick={() => setShowSessions((v) => !v)}>
             <History size={18} className="content-prev-convos-icon" />
             <span className="content-prev-convos-label">Previous conversations</span>
           </button>
@@ -1806,6 +1893,40 @@ export default function Content() {
             </div>
           </div>
         </div>
+
+        {/* Sessions sidebar */}
+        {showSessions && (
+          <div className="content-sessions-panel">
+            <div className="content-sessions-header">
+              <span>Conversations</span>
+              <button className="content-sessions-new" onClick={newConversation} title="New conversation">
+                <Plus size={16} /> New
+              </button>
+            </div>
+            <div className="content-sessions-list">
+              {sessions.length === 0 && (
+                <div className="content-sessions-empty">No past conversations yet</div>
+              )}
+              {sessions.map((s) => (
+                <div
+                  key={s.id}
+                  className={`content-sessions-item ${s.id === sessionId ? 'content-sessions-item--active' : ''}`}
+                  onClick={() => loadSession(s.id)}
+                >
+                  <div className="content-sessions-item-info">
+                    <span className="content-sessions-item-title">{s.title}</span>
+                    <span className="content-sessions-item-meta">
+                      {s.platform} &middot; {new Date(s.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                  <button className="content-sessions-item-delete" onClick={(e) => deleteSession(s.id, e)} title="Delete">
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Chat area */}
         <div className="content-chat-area">
