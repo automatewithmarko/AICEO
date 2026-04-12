@@ -9,9 +9,14 @@ import { getSubtitles as getCaptions } from 'youtube-caption-extractor';
 
 const execFileAsync = promisify(execFile);
 const YTDLP_BIN = process.env.YTDLP_PATH || 'yt-dlp';
+const APIFY_TOKEN = process.env.APIFY_TOKEN;
 
 function isYouTube(url) {
   return /youtube\.com|youtu\.be/i.test(url);
+}
+
+function isInstagram(url) {
+  return /instagram\.com/i.test(url);
 }
 
 function extractVideoId(url) {
@@ -21,14 +26,106 @@ function extractVideoId(url) {
 
 /**
  * Extract content from a social media URL.
- * YouTube uses oEmbed + youtube-caption-extractor (no bot detection issues).
+ * Instagram uses Apify reel scraper (returns transcript natively).
+ * YouTube uses oEmbed + youtube-caption-extractor.
  * All other platforms use yt-dlp.
  */
 export async function extractFromUrl(url) {
+  if (isInstagram(url) && APIFY_TOKEN) {
+    return extractInstagramApify(url);
+  }
   if (isYouTube(url)) {
     return extractYouTube(url);
   }
   return extractWithYtdlp(url);
+}
+
+// ─── Instagram: Apify reel scraper (transcript + metadata in one call) ───
+
+async function extractInstagramApify(url) {
+  console.log(`[social] Extracting Instagram via Apify: ${url}`);
+
+  try {
+    const res = await fetch(
+      `https://api.apify.com/v2/acts/apify~instagram-reel-scraper/run-sync-get-dataset-items?token=${APIFY_TOKEN}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: [url], resultsLimit: 1 }),
+        signal: AbortSignal.timeout(120000),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.log(`[social] Apify error ${res.status}: ${errText.slice(0, 200)}`);
+      throw new Error(`Apify API ${res.status}`);
+    }
+
+    const items = await res.json();
+    if (!items || items.length === 0) {
+      console.log('[social] Apify returned empty results');
+      throw new Error('No results from Apify');
+    }
+
+    const item = items[0];
+    const caption = item.caption || '';
+
+    const result = {
+      url,
+      platform: 'Instagram',
+      title: caption.slice(0, 200) || '(no caption)',
+      description: caption,
+      uploader: item.ownerUsername || '',
+      duration: item.videoDuration || 0,
+      thumbnail: item.displayUrl || null,
+      transcript: null,
+      source: 'apify_metadata',
+    };
+
+    // Apify gives us audioUrl or videoUrl — transcribe with Whisper
+    const mediaUrl = item.audioUrl || item.videoUrl;
+    if (mediaUrl) {
+      try {
+        console.log(`[social] Transcribing via Whisper (${item.audioUrl ? 'audio' : 'video'} URL)...`);
+        const whisperResult = await transcribeFromVideoUrl(mediaUrl);
+        if (whisperResult) {
+          result.transcript = whisperResult.text;
+          result.language = whisperResult.language;
+          result.source = 'apify_whisper';
+        }
+      } catch (err) {
+        console.log(`[social] Whisper transcription failed: ${err.message?.slice(0, 100)}`);
+      }
+    }
+
+    console.log(`[social] Instagram extracted: "${result.title.slice(0, 60)}" by @${result.uploader} (source: ${result.source})`);
+    return result;
+  } catch (err) {
+    console.log(`[social] Apify extraction failed, falling back to yt-dlp: ${err.message}`);
+    return extractWithYtdlp(url);
+  }
+}
+
+// Download video from URL and transcribe with Whisper
+async function transcribeFromVideoUrl(videoUrl) {
+  const tmpDir = path.join(os.tmpdir(), `aiceo-${crypto.randomUUID()}`);
+  await fs.mkdir(tmpDir, { recursive: true });
+
+  try {
+    const res = await fetch(videoUrl, { signal: AbortSignal.timeout(60000) });
+    if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length > 25 * 1024 * 1024) throw new Error('Video too large for Whisper (>25MB)');
+
+    const filePath = path.join(tmpDir, 'video.mp4');
+    await fs.writeFile(filePath, buffer);
+
+    return await transcribe(buffer, 'video.mp4');
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 // ─── YouTube: oEmbed for metadata, youtube-caption-extractor for transcript ───
@@ -47,7 +144,6 @@ async function extractYouTube(url) {
       const data = await res.json();
       title = data.title || '';
       uploader = data.author_name || '';
-      // Use maxresdefault for better quality thumbnail
       thumbnail = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
     }
   } catch (err) {
@@ -94,7 +190,7 @@ async function extractYouTube(url) {
   };
 }
 
-// ─── Other platforms: yt-dlp pipeline ───
+// ─── Other platforms: yt-dlp pipeline (TikTok, Facebook, X, etc.) ───
 
 async function extractWithYtdlp(url) {
   const tmpDir = path.join(os.tmpdir(), `aiceo-${crypto.randomUUID()}`);

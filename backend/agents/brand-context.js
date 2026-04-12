@@ -4,7 +4,7 @@
 export function buildBrandContext(brandDna) {
   if (!brandDna) return '';
 
-  const parts = ['\n=== BRAND DNA — USE ALL OF THESE ==='];
+  const parts = ['\n=== BRAND DNA  -  USE ALL OF THESE ==='];
 
   // Colors
   if (brandDna.colors) {
@@ -40,13 +40,13 @@ export function buildBrandContext(brandDna) {
   const photos = brandDna.photo_urls || [];
   if (photos.length > 0) {
     parts.push('\n### Brand Photos (reference images of the user/product)');
-    parts.push('Use these ONLY where the actual user, their team, or their product should appear (testimonials, about, social proof). Do NOT use as hero images — use {{GENERATE:prompt}} for conceptual hero visuals instead.');
+    parts.push('Use these ONLY where the actual user, their team, or their product should appear (testimonials, about, social proof). Do NOT use as hero images  -  use {{GENERATE:prompt}} for conceptual hero visuals instead.');
     photos.forEach((url, i) => {
       parts.push(`- Photo ${i + 1}: ${url}`);
     });
     parts.push('- Insert as <img src="URL"> tags when contextually appropriate');
-    parts.push('- ALWAYS use width:100%;height:auto; — NEVER set a fixed pixel height');
-    parts.push('- If a photo doesn\'t fit the section context, skip it — don\'t force it in');
+    parts.push('- ALWAYS use width:100%;height:auto;  -  NEVER set a fixed pixel height');
+    parts.push('- If a photo doesn\'t fit the section context, skip it  -  don\'t force it in');
   }
 
   // Brand description
@@ -55,12 +55,12 @@ export function buildBrandContext(brandDna) {
     parts.push(brandDna.description);
   }
 
-  // Documents — extracted text for copywriting context
+  // Documents  -  extracted text for copywriting context
   if (brandDna.documents && typeof brandDna.documents === 'object') {
     const docs = Object.values(brandDna.documents);
     const withText = docs.filter(d => d.extracted_text);
     if (withText.length > 0) {
-      parts.push('\n### Brand Documents — USE FOR COPY');
+      parts.push('\n### Brand Documents  -  USE FOR COPY');
       parts.push('Extract value propositions, features, testimonials, stats, and terminology:');
       for (const doc of withText) {
         parts.push(`\n--- Document: "${doc.name}" ---`);

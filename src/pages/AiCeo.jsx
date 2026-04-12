@@ -33,7 +33,7 @@ function generateNewsletterImages(html, setArtifactFn, onProgress, platform = 'n
 
   if (onProgress) onProgress({ completed: 0, failed: 0, total, done: false });
 
-  // Fire all in parallel — returns a promise that resolves when ALL images are done
+  // Fire all in parallel  -  returns a promise that resolves when ALL images are done
   const promise = Promise.all(matches.map(async (m) => {
     let imgSrc = null;
     try {
@@ -50,7 +50,7 @@ function generateNewsletterImages(html, setArtifactFn, onProgress, platform = 'n
     if (!imgSrc) failed++;
     if (onProgress) onProgress({ completed, failed, total, done: completed === total });
 
-    // Swap just the src value — keep the original <img> tag and all its styling intact
+    // Swap just the src value  -  keep the original <img> tag and all its styling intact
     if (setArtifactFn) {
       setArtifactFn(prev => {
         if (!prev?.content) return prev;
@@ -198,8 +198,8 @@ export default function AiCeo() {
   const buildCeoContextString = () => {
     const items = getSelectedCtxDetails();
     if (items.length === 0) return '';
-    const parts = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? ` — ${i.date}` : ''}`);
-    return `[CONTEXT — The user has selected the following items for reference:\n${parts.join('\n')}\nPrioritize this context when responding. Use it to inform your suggestions, decisions, and any generated content.]\n\n`;
+    const parts = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? `  -  ${i.date}` : ''}`);
+    return `[CONTEXT  -  The user has selected the following items for reference:\n${parts.join('\n')}\nPrioritize this context when responding. Use it to inform your suggestions, decisions, and any generated content.]\n\n`;
   };
 
   // Click outside context menu
@@ -233,7 +233,7 @@ export default function AiCeo() {
 
   // Context is now loaded server-side by the orchestrator
 
-  // ── Auto-scroll — only when user sends a message or generation starts ──
+  // ── Auto-scroll  -  only when user sends a message or generation starts ──
   const shouldScrollRef = useRef(false);
 
   useEffect(() => {
@@ -338,7 +338,7 @@ export default function AiCeo() {
             }
           }
         },
-        // Agent finished — parse final result
+        // Agent finished  -  parse final result
         onAgentResult: (agentName, content) => {
           try {
             // Fix broken JSON caused by raw newlines inside string values
@@ -362,7 +362,7 @@ export default function AiCeo() {
               }
             }
             if (!parsed) throw new Error('No valid JSON');
-            // Section-based edit — merge only changed sections into current artifact HTML
+            // Section-based edit  -  merge only changed sections into current artifact HTML
             if (parsed.type === 'edit' && parsed.sections) {
               const currentArt = artifactRef.current;
               if (currentArt?.content) {
@@ -391,7 +391,7 @@ export default function AiCeo() {
               setPanelOpen(true);
               if (isMobileRef.current) setMobileArtifactOpen(true);
 
-              // If images need generating, don't show the artifact card yet — wait until done
+              // If images need generating, don't show the artifact card yet  -  wait until done
               if (hasImages) {
                 setMessages(prev => prev.map(m =>
                   m.id === assistantMsgId ? { ...m, content: 'Generating images for your newsletter...', status: 'Generating images...' } : m
@@ -409,12 +409,12 @@ export default function AiCeo() {
                 if (imgResult?.promise) pendingImagesRef.current.push(imgResult.promise);
               }
 
-              // Generate cover image — insert shimmer placeholder immediately, swap when done
+              // Generate cover image  -  insert shimmer placeholder immediately, swap when done
               if (isNewsletter && parsed.cover_image_prompt) {
                 const COVER_PLACEHOLDER_ID = 'cover-img-placeholder';
                 const coverShimmer = `<div id="${COVER_PLACEHOLDER_ID}" style="width:100%;height:250px;background:#e2e2e2;border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;margin-bottom:16px"><style>#${COVER_PLACEHOLDER_ID}::before{content:'';position:absolute;width:300%;height:300%;top:-100%;left:-100%;background:linear-gradient(135deg,transparent 35%,rgba(255,255,255,0.5) 48%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 52%,transparent 65%);animation:genShimmer 2s linear infinite}@keyframes genShimmer{0%{transform:translate(-33%,-33%)}100%{transform:translate(33%,33%)}}</style><span style="color:#9e9e9e;font-size:13px;font-weight:600;font-family:Inter,system-ui,sans-serif;position:relative;z-index:1;letter-spacing:0.5px">Generating cover image</span></div>`;
 
-                // Insert shimmer into hero section — strip any existing images first to prevent duplicates
+                // Insert shimmer into hero section  -  strip any existing images first to prevent duplicates
                 setArtifact(prev => {
                   if (!prev?.content) return prev;
                   let h = prev.content;
@@ -490,7 +490,7 @@ export default function AiCeo() {
                 })();
               }
             }
-            // Cover image prompt — generate and inject into newsletter (fallback for manual requests)
+            // Cover image prompt  -  generate and inject into newsletter (fallback for manual requests)
             if (parsed.type === 'cover_image' && parsed.prompt) {
               setMessages(prev => prev.map(m =>
                 m.id === assistantMsgId ? { ...m, content: 'Generating your cover image...' } : m
@@ -520,12 +520,12 @@ export default function AiCeo() {
                       ));
                     } else {
                       setMessages(prev => prev.map(m =>
-                        m.id === assistantMsgId ? { ...m, content: 'Cover image generation returned no image — try again.' } : m
+                        m.id === assistantMsgId ? { ...m, content: 'Cover image generation returned no image  -  try again.' } : m
                       ));
                     }
                   } else {
                     setMessages(prev => prev.map(m =>
-                      m.id === assistantMsgId ? { ...m, content: 'Cover image generation returned no image — try again.' } : m
+                      m.id === assistantMsgId ? { ...m, content: 'Cover image generation returned no image  -  try again.' } : m
                     ));
                   }
                 } catch (err) {
@@ -580,7 +580,7 @@ export default function AiCeo() {
                 const visualStyle = parsed.visual_style || '';
                 await Promise.all(storyFrames.map(async (frame, idx) => {
                   const captionText = frame.caption || frame.title || '';
-                  const captionInstruction = captionText ? `\n\nTEXT OVERLAY — ONE text sticker:\n- Render EXACTLY ONE text sticker: "${captionText}"\n- Flat solid white (#FFFFFF) rectangle with rounded corners (~12px radius). NO border, NO outline, NO stroke around the pill — just a clean flat white shape.\n- Text: "${captionText}" in pure black (#000000), bold weight, clean sans-serif (SF Pro, Helvetica), ~30px\n- Snug padding: pill tightly wraps text. Only as wide as the text needs.\n- Centered horizontally, upper third of frame.\n- ONE sticker only. Do NOT duplicate text. Do NOT add any border or outline around the white pill.\n\nDO NOT RENDER:\n- No Instagram UI (no progress bars, profile pics, usernames, send bar, hearts)\n- No borders or outlines around the text sticker\n- No second copy of the text\n- Just the photo with one clean white text sticker on top.` : '';
+                  const captionInstruction = captionText ? `\n\nTEXT OVERLAY  -  ONE text sticker:\n- Render EXACTLY ONE text sticker: "${captionText}"\n- Flat solid white (#FFFFFF) rectangle with rounded corners (~12px radius). NO border, NO outline, NO stroke around the pill  -  just a clean flat white shape.\n- Text: "${captionText}" in pure black (#000000), bold weight, clean sans-serif (SF Pro, Helvetica), ~30px\n- Snug padding: pill tightly wraps text. Only as wide as the text needs.\n- Centered horizontally, upper third of frame.\n- ONE sticker only. Do NOT duplicate text. Do NOT add any border or outline around the white pill.\n\nDO NOT RENDER:\n- No Instagram UI (no progress bars, profile pics, usernames, send bar, hearts)\n- No borders or outlines around the text sticker\n- No second copy of the text\n- Just the photo with one clean white text sticker on top.` : '';
                   const sequencePrompt = `${visualStyle ? `VISUAL STYLE FOR THIS SERIES: ${visualStyle}\n\n` : ''}This is frame ${idx + 1} of ${storyFrames.length} in a cohesive Instagram Story sequence. Follow the visual style exactly so all frames feel like ONE continuous story.\n\nIMPORTANT: Generate ONLY the photo/image content. Do NOT render any Instagram UI (no progress bars, no profile icons, no usernames, no send message bar, no close button). Just the raw image with the text sticker overlay.\n\n${frame.image_prompt}${captionInstruction}`;
 
                   try {
@@ -600,7 +600,7 @@ export default function AiCeo() {
               })();
             }
           } catch {
-            // Not JSON — try to extract HTML from the content
+            // Not JSON  -  try to extract HTML from the content
             let rawHtml = content;
             if (content.includes('<!DOCTYPE') || content.includes('<html')) {
               // Content is raw HTML

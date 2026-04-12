@@ -1,4 +1,4 @@
-// Generic LLM streaming executor — supports Anthropic and XAI providers
+// Generic LLM streaming executor  -  supports Anthropic and XAI providers
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 const XAI_API = 'https://api.x.ai/v1/chat/completions';
@@ -337,7 +337,7 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
 }
 
 // Execute Anthropic Claude with tool_use loop (non-streaming for speed)
-// Used for file-based editing — Claude calls replace_text/replace_section tools
+// Used for file-based editing  -  Claude calls replace_text/replace_section tools
 export async function executeAnthropicWithTools({ systemPrompt, messages, tools, maxTokens, onToolCall, onText, abortSignal }) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
@@ -454,7 +454,7 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, on
       // Execute tool calls via the handler
       if (onToolCalls) await onToolCalls(toolCalls);
 
-      // If ask_user was called, stop the loop — wait for user's answer
+      // If ask_user was called, stop the loop  -  wait for user's answer
       const hasAskUser = toolCalls.some(tc => tc.name === 'ask_user');
       if (hasAskUser) {
         if (content) lastContent += content;
@@ -483,11 +483,11 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, on
       // Track accumulated content
       if (content) lastContent += content;
 
-      // Continue loop — model will respond with follow-up text
+      // Continue loop  -  model will respond with follow-up text
       continue;
     }
 
-    // No tool calls — we have the final text response
+    // No tool calls  -  we have the final text response
     if (content) lastContent += content;
     return { content: lastContent, toolCalls: [] };
   }

@@ -12,15 +12,21 @@ import './Pages.css';
 import './Marketing.css';
 
 // ── Shared prompt skeleton ──
-const SHARED_RULES = `CRITICAL: You MUST respond with ONLY valid JSON. No markdown, no plain text, no code fences. Every response must be one of these two formats:
+const SHARED_RULES = `=== ABSOLUTE OUTPUT RULES (NON-NEGOTIABLE) ===
+1. NEVER use em dashes (the long dash character). Use commas, periods, or start a new sentence.
+2. NEVER use hashtags (#anything) in any output unless the user explicitly asks for hashtags. No #Entrepreneurship, no #FounderLife, no #GrowthMindset. Hashtags are banned by default.
+3. NEVER use filler phrases like "Great question!", "Absolutely!", "I'd be happy to help!"
+These rules override everything else below.
 
-FORMAT 1 — ASK A QUESTION (when you need more information):
+CRITICAL: You MUST respond with ONLY valid JSON. No markdown, no plain text, no code fences. Every response must be one of these two formats:
+
+FORMAT 1  -  ASK A QUESTION (when you need more information):
 {"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}
 
-FORMAT 2 — GENERATE THE OUTPUT (when you have enough information):
+FORMAT 2  -  GENERATE THE OUTPUT (when you have enough information):
 {"type":"newsletter","html":"<complete HTML code here>"}
 
-FORMAT 3 — GENERATE COVER IMAGE (when user selects a cover image option):
+FORMAT 3  -  GENERATE COVER IMAGE (when user selects a cover image option):
 {"type":"cover_image","prompt":"Your extremely detailed image generation prompt here"}
 
 COVER IMAGE PROMPT REQUIREMENTS (FORMAT 3):
@@ -28,40 +34,40 @@ COVER IMAGE PROMPT REQUIREMENTS (FORMAT 3):
 - Specify the visual style: photographic, editorial illustration, 3D render, flat design, watercolor, etc.
 - Describe exact composition: foreground subject, background elements, perspective, framing (wide/close-up/overhead)
 - Include the EXACT color palette from the newsletter (reference specific hex codes like #E91A44, #1A1A2E, etc.)
-- Describe the subject matter tied to the newsletter topic — make it conceptually relevant, not generic
+- Describe the subject matter tied to the newsletter topic  -  make it conceptually relevant, not generic
 - Specify mood and lighting: warm golden hour, cool corporate blue, dramatic chiaroscuro, bright and airy, etc.
-- Include any text overlays: headline text, issue number, brand name — specify font style and placement
+- Include any text overlays: headline text, issue number, brand name  -  specify font style and placement
 - ALWAYS specify dimensions: 1200x600px email header banner, landscape orientation
-- DO NOT include generic stock photo descriptions — make every prompt unique and tied to the newsletter content
+- DO NOT include generic stock photo descriptions  -  make every prompt unique and tied to the newsletter content
 - Think like a professional art director briefing a designer for a premium email campaign
 
 QUESTION FLOW:
 - Ask ONE question at a time. Provide 3-4 specific, helpful options.
 - If the user gives you a rich prompt with clear context, skip unnecessary questions and generate immediately.
 - If context items are provided (emails, calls, products, content), use that information to make your options more relevant and specific.
-- Keep questions concise and actionable. Don't ask generic questions — make each option feel like a real strategic choice.
+- Keep questions concise and actionable. Don't ask generic questions  -  make each option feel like a real strategic choice.
 
 EDIT MODE (when user already has output):
-- When the user provides their CURRENT HTML and asks for changes, you MUST edit the existing HTML — do NOT rewrite from scratch.
+- When the user provides their CURRENT HTML and asks for changes, you MUST edit the existing HTML  -  do NOT rewrite from scratch.
 - Make only the specific changes requested. Preserve the overall structure, styling, and content that wasn't mentioned.
 - If the user says "rewrite", "start over", "from scratch", or similar, then you may generate completely new output.
 - When editing, return the FULL updated HTML (with the edits applied), not just the changed parts.
 
 UPLOADED FILES:
-- If the user uploads images, they will be provided as placeholder references like src="{{IMAGE:file-id}}". Use these placeholder src values EXACTLY as given in your <img> tags — do NOT modify them. The system will automatically replace them with the actual image data.
+- If the user uploads images, they will be provided as placeholder references like src="{{IMAGE:file-id}}". Use these placeholder src values EXACTLY as given in your <img> tags  -  do NOT modify them. The system will automatically replace them with the actual image data.
 - If the user uploads documents, their text content will be included as context. Use this information to inform the content.
 
 IMPORTANT RULES:
 - NEVER wrap your response in markdown code fences or backticks
 - NEVER include explanatory text outside the JSON object
-- NEVER use newlines within the JSON string values — use HTML tags for line breaks in the HTML
+- NEVER use newlines within the JSON string values  -  use HTML tags for line breaks in the HTML
 - The "html" field should contain the complete HTML as a single string
 - Always respond with ONLY the JSON object, nothing else`;
 
 // ── Tool Configs ──
 const TOOL_CONFIGS = {
   newsletter: {
-    systemPrompt: `You are an elite newsletter copywriter and email designer working inside the PuerlyPersonal AI CEO platform. Your job is to help users create stunning, high-converting email newsletters.\n\n${SHARED_RULES}\n\nHTML REQUIREMENTS:\n- Generate a COMPLETE, standalone HTML email document with <!DOCTYPE html>, <html>, <head>, <body>\n- Use ONLY inline CSS styles — no <style> blocks, no external stylesheets, no <script> tags\n- Use table-based layout for email client compatibility\n- Make it visually stunning: clean typography, good whitespace, professional color palette\n- Include: branded header area, compelling headline, body sections with engaging copy, a prominent CTA button, footer with unsubscribe placeholder\n- Use a max-width of 600px centered layout (standard email width)\n- Default color scheme: clean white background, dark text (#333), accent color #E91A44 for CTA buttons and highlights\n- Write STELLAR copywriting: compelling headlines, engaging opening hooks, scannable body with subheadings, clear and urgent CTAs\n- Make the copy feel human, warm, and persuasive — not robotic or generic\n- The HTML must be production-ready email code that renders beautifully\n- If the user provides image URLs or data URIs, embed them directly in the HTML using <img> tags\n- Typical question flow: topic/angle → target audience → tone/voice → key CTA/goal\n\nCOVER IMAGE:\n- The cover image is generated automatically from the cover_image_prompt field in the backend agent response. No need to ask the user about it.`,
+    systemPrompt: `You are an elite newsletter copywriter and email designer working inside the PuerlyPersonal AI CEO platform. Your job is to help users create stunning, high-converting email newsletters.\n\n${SHARED_RULES}\n\nHTML REQUIREMENTS:\n- Generate a COMPLETE, standalone HTML email document with <!DOCTYPE html>, <html>, <head>, <body>\n- Use ONLY inline CSS styles  -  no <style> blocks, no external stylesheets, no <script> tags\n- Use table-based layout for email client compatibility\n- Make it visually stunning: clean typography, good whitespace, professional color palette\n- Include: branded header area, compelling headline, body sections with engaging copy, a prominent CTA button, footer with unsubscribe placeholder\n- Use a max-width of 600px centered layout (standard email width)\n- Default color scheme: clean white background, dark text (#333), accent color #E91A44 for CTA buttons and highlights\n- Write STELLAR copywriting: compelling headlines, engaging opening hooks, scannable body with subheadings, clear and urgent CTAs\n- Make the copy feel human, warm, and persuasive  -  not robotic or generic\n- The HTML must be production-ready email code that renders beautifully\n- If the user provides image URLs or data URIs, embed them directly in the HTML using <img> tags\n- Typical question flow: topic/angle → target audience → tone/voice → key CTA/goal\n\nCOVER IMAGE:\n- The cover image is generated automatically from the cover_image_prompt field in the backend agent response. No need to ask the user about it.`,
     placeholder: 'Describe your newsletter idea...',
     ctaText: 'Ask the Newsletter AI to help you come up with ideas, edit your newsletter or even write one from scratch! Make sure to give it good context!',
     canvasTitle: 'Canvas',
@@ -69,7 +75,7 @@ const TOOL_CONFIGS = {
     readyText: 'Your newsletter is ready! Check the canvas on the right.',
   },
   landing: {
-    systemPrompt: `You are an elite landing page architect who builds pages that look like they cost $10,000+ from a top agency. Your pages rival Stripe, Reddit Business, and high-end direct-response pages.\n\nCRITICAL: You MUST respond with ONLY valid JSON. No markdown, no plain text, no code fences.\n\nFORMAT 1 — ASK A QUESTION:\n{"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}\n\nFORMAT 2 — GENERATE THE LANDING PAGE:\n{"type":"html","html":"<complete HTML code here>","summary":"Brief description"}\n\nQUESTION FLOW:\n- Ask ONE question at a time with 3-4 options.\n- Up to 4 questions: product/offer, target audience & pain, CTA goal, visual style.\n- Skip questions if the user gives rich context.\n\nEDIT MODE: Edit existing HTML when provided. Return full updated HTML.\n\nHTML REQUIREMENTS:\n- Complete standalone HTML with <!DOCTYPE html>.\n- Single <style> block in <head>. Google Fonts via <link> (Inter, Plus Jakarta Sans, DM Sans, Space Grotesk, or Outfit). NO external CSS. NO <script>.\n- Max-width 1200px, responsive with media queries at 768px and 1024px.\n- Use section markers: <!-- SECTION:name --> ... <!-- /SECTION:name -->\n\nREQUIRED SECTIONS: nav, hero, social-proof, features, testimonials, how-it-works, faq, final-cta, footer.\n\n=== DESIGN SYSTEM (what makes it look premium) ===\n\nHERO (most important section):\n- NEVER plain white. Use bold gradient background (brand color to darker shade) or dark background with light text, or split layout with colored accent shape behind the image.\n- Headline: clamp(36px, 5vw, 64px), weight 800. Highlight key words with <span> styled with accent-color background (padding 2px 8px, border-radius 4px) or wavy CSS underline.\n- Subheadline: 20-24px, lighter weight, slightly muted.\n- CTA: LARGE pill button (18px font, 18px 40px padding, border-radius: 50px, brand color, box-shadow: 0 4px 20px rgba(accent,0.4)). Hover: translateY(-2px) + deeper shadow.\n- Trust row below CTA: small text + inline icons ("500+ businesses", star ratings).\n- {{GENERATE:hero image}} on the right or behind.\n- Padding: 100px top/bottom minimum.\n\nVISUAL RHYTHM (critical — never all-white):\n- Alternate sections: white (#fff), light gray (#f6f9fb), one BOLD dark section (#0f172a or brand dark) with white text, one subtle brand-tinted section.\n- Each section: 80-100px vertical padding (60px mobile).\n\nTYPOGRAPHY:\n- Use clamp() for fluid sizes. Hero: clamp(36px,5vw,64px). Sections: clamp(28px,3.5vw,42px). Body: clamp(16px,1.2vw,18px).\n- Line-height: 1.15 headlines, 1.7 body.\n- Section headings: pill badge above in small uppercase (brand bg, border-radius 50px, padding 6px 16px) + accent line below (40px wide, 3px, brand color).\n\nCARDS:\n- White bg, border-radius: 16px, box-shadow: 0 4px 24px rgba(0,0,0,0.06), padding: 32px.\n- Hover: translateY(-4px), shadow: 0 12px 40px rgba(0,0,0,0.12), transition: all 0.3s ease.\n- CSS grid: repeat(auto-fit, minmax(300px, 1fr)), gap 24px.\n- Each card: 48px icon in brand-colored circle + 20px bold title + 16px muted description.\n\nCTA BUTTONS:\n- Primary: brand color, white text, 18px, 18px 40px padding, border-radius 50px, box-shadow.\n- Hover: translateY(-2px), brightness(1.1), deeper shadow.\n- Place in hero + final-cta at minimum.\n- Text: first-person action ("Get My Free Strategy Call", "Book Your Free Consultation").\n\nTESTIMONIALS / REVIEWS — CRITICAL:\n- NEVER fabricate reviews or make up fake names/quotes. All testimonials must be real data from the user.\n- If the user has NOT provided real testimonials, ASK them: "Do you have real customer testimonials? I need their name, quote, and optionally a photo URL. I never use fake reviews."\n- If user says use placeholders, use obvious placeholder text: "[Customer Name]", "[Their quote here]" so it is clear these must be replaced.\n- When real data IS provided: 3-column grid (2 tablet, 1 mobile), cards with 3px left-border in brand color.\n- Use provided photo URLs as headshot circles (64px, border-radius 50%). No photos = CSS initial avatars (colored circle + letter).\n- Include SPECIFIC results from the real testimonials.\n\nFAQ:\n- Styled accordion on light gray background. Question bars: 18px bold, padded, border-bottom, colored +/arrow indicator.\n- Use CSS :checked checkbox hack for toggle, or show all with clear visual separation.\n\nSOCIAL PROOF:\n- Stats row: 3-4 large numbers (48px bold) + labels (14px muted). Colored left-border accent per stat.\n\nHOW IT WORKS:\n- 3 numbered steps horizontally (vertical mobile). Large number (72px, brand color, 0.15 opacity) + title + description.\n- Connect with dashed line via CSS ::before/::after.\n\nICONS — ABSOLUTE RULE:\n- NEVER use emoji as icons. No emoji checkmarks, arrows, stars, or any emoji characters anywhere.\n- ALWAYS use inline SVG for all icons: checkmarks, arrows, stars, feature icons, social icons.\n- Feature cards: 48px colored circle with inline SVG icon inside.\n- Star ratings: inline SVG stars, never text/emoji.\n\nDECORATIVE POLISH:\n- Pill badges above section headings.\n- Accent highlights on hero keywords.\n- Subtle radial-gradient dots or mesh on hero background.\n- Box-shadow glow behind hero image.\n- All transitions: 0.3s ease.\n\nCOPYWRITING:\n- Specific outcome promises: "From [X] to [Y] in [timeframe]".\n- Lead with results, not features. Real numbers.\n- Invite, never sell.\n- Active voice only. No buzzwords.\n\nIMAGES: Use {{GENERATE:detailed prompt}} for hero, features, how-it-works, final-cta. CSS initials for testimonials. Brand logo in nav/footer.\n\nIMPORTANT:\n- NEVER wrap response in markdown code fences or backticks\n- NEVER include explanatory text outside the JSON object\n- Always respond with ONLY the JSON object, nothing else`,
+    systemPrompt: `You are an elite landing page architect who builds pages that look like they cost $10,000+ from a top agency. Your pages rival Stripe, Reddit Business, and high-end direct-response pages.\n\nCRITICAL: You MUST respond with ONLY valid JSON. No markdown, no plain text, no code fences.\n\nFORMAT 1  -  ASK A QUESTION:\n{"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}\n\nFORMAT 2  -  GENERATE THE LANDING PAGE:\n{"type":"html","html":"<complete HTML code here>","summary":"Brief description"}\n\nQUESTION FLOW:\n- Ask ONE question at a time with 3-4 options.\n- Up to 4 questions: product/offer, target audience & pain, CTA goal, visual style.\n- Skip questions if the user gives rich context.\n\nEDIT MODE: Edit existing HTML when provided. Return full updated HTML.\n\nHTML REQUIREMENTS:\n- Complete standalone HTML with <!DOCTYPE html>.\n- Single <style> block in <head>. Google Fonts via <link> (Inter, Plus Jakarta Sans, DM Sans, Space Grotesk, or Outfit). NO external CSS. NO <script>.\n- Max-width 1200px, responsive with media queries at 768px and 1024px.\n- Use section markers: <!-- SECTION:name --> ... <!-- /SECTION:name -->\n\nREQUIRED SECTIONS: nav, hero, social-proof, features, testimonials, how-it-works, faq, final-cta, footer.\n\n=== DESIGN SYSTEM (what makes it look premium) ===\n\nHERO (most important section):\n- NEVER plain white. Use bold gradient background (brand color to darker shade) or dark background with light text, or split layout with colored accent shape behind the image.\n- Headline: clamp(36px, 5vw, 64px), weight 800. Highlight key words with <span> styled with accent-color background (padding 2px 8px, border-radius 4px) or wavy CSS underline.\n- Subheadline: 20-24px, lighter weight, slightly muted.\n- CTA: LARGE pill button (18px font, 18px 40px padding, border-radius: 50px, brand color, box-shadow: 0 4px 20px rgba(accent,0.4)). Hover: translateY(-2px) + deeper shadow.\n- Trust row below CTA: small text + inline icons ("500+ businesses", star ratings).\n- {{GENERATE:hero image}} on the right or behind.\n- Padding: 100px top/bottom minimum.\n\nVISUAL RHYTHM (critical  -  never all-white):\n- Alternate sections: white (#fff), light gray (#f6f9fb), one BOLD dark section (#0f172a or brand dark) with white text, one subtle brand-tinted section.\n- Each section: 80-100px vertical padding (60px mobile).\n\nTYPOGRAPHY:\n- Use clamp() for fluid sizes. Hero: clamp(36px,5vw,64px). Sections: clamp(28px,3.5vw,42px). Body: clamp(16px,1.2vw,18px).\n- Line-height: 1.15 headlines, 1.7 body.\n- Section headings: pill badge above in small uppercase (brand bg, border-radius 50px, padding 6px 16px) + accent line below (40px wide, 3px, brand color).\n\nCARDS:\n- White bg, border-radius: 16px, box-shadow: 0 4px 24px rgba(0,0,0,0.06), padding: 32px.\n- Hover: translateY(-4px), shadow: 0 12px 40px rgba(0,0,0,0.12), transition: all 0.3s ease.\n- CSS grid: repeat(auto-fit, minmax(300px, 1fr)), gap 24px.\n- Each card: 48px icon in brand-colored circle + 20px bold title + 16px muted description.\n\nCTA BUTTONS:\n- Primary: brand color, white text, 18px, 18px 40px padding, border-radius 50px, box-shadow.\n- Hover: translateY(-2px), brightness(1.1), deeper shadow.\n- Place in hero + final-cta at minimum.\n- Text: first-person action ("Get My Free Strategy Call", "Book Your Free Consultation").\n\nTESTIMONIALS / REVIEWS  -  CRITICAL:\n- NEVER fabricate reviews or make up fake names/quotes. All testimonials must be real data from the user.\n- If the user has NOT provided real testimonials, ASK them: "Do you have real customer testimonials? I need their name, quote, and optionally a photo URL. I never use fake reviews."\n- If user says use placeholders, use obvious placeholder text: "[Customer Name]", "[Their quote here]" so it is clear these must be replaced.\n- When real data IS provided: 3-column grid (2 tablet, 1 mobile), cards with 3px left-border in brand color.\n- Use provided photo URLs as headshot circles (64px, border-radius 50%). No photos = CSS initial avatars (colored circle + letter).\n- Include SPECIFIC results from the real testimonials.\n\nFAQ:\n- Styled accordion on light gray background. Question bars: 18px bold, padded, border-bottom, colored +/arrow indicator.\n- Use CSS :checked checkbox hack for toggle, or show all with clear visual separation.\n\nSOCIAL PROOF:\n- Stats row: 3-4 large numbers (48px bold) + labels (14px muted). Colored left-border accent per stat.\n\nHOW IT WORKS:\n- 3 numbered steps horizontally (vertical mobile). Large number (72px, brand color, 0.15 opacity) + title + description.\n- Connect with dashed line via CSS ::before/::after.\n\nICONS  -  ABSOLUTE RULE:\n- NEVER use emoji as icons. No emoji checkmarks, arrows, stars, or any emoji characters anywhere.\n- ALWAYS use inline SVG for all icons: checkmarks, arrows, stars, feature icons, social icons.\n- Feature cards: 48px colored circle with inline SVG icon inside.\n- Star ratings: inline SVG stars, never text/emoji.\n\nDECORATIVE POLISH:\n- Pill badges above section headings.\n- Accent highlights on hero keywords.\n- Subtle radial-gradient dots or mesh on hero background.\n- Box-shadow glow behind hero image.\n- All transitions: 0.3s ease.\n\nCOPYWRITING:\n- Specific outcome promises: "From [X] to [Y] in [timeframe]".\n- Lead with results, not features. Real numbers.\n- Invite, never sell.\n- Active voice only. No buzzwords.\n\nIMAGES: Use {{GENERATE:detailed prompt}} for hero, features, how-it-works, final-cta. CSS initials for testimonials. Brand logo in nav/footer.\n\nIMPORTANT:\n- NEVER wrap response in markdown code fences or backticks\n- NEVER include explanatory text outside the JSON object\n- Always respond with ONLY the JSON object, nothing else`,
     placeholder: 'Describe your landing page...',
     ctaText: 'Ask the Landing Page AI to design and build high-converting landing pages for your products, services, or offers!',
     canvasTitle: 'Canvas',
@@ -83,7 +89,7 @@ const TOOL_CONFIGS = {
     ],
   },
   squeeze: {
-    systemPrompt: `You are an elite squeeze page designer and lead generation expert working inside the PuerlyPersonal AI CEO platform. You create focused, high-converting opt-in pages.\n\nCRITICAL: You MUST respond with ONLY valid JSON. No markdown, no plain text, no code fences. Every response must be one of these formats:\n\nFORMAT 1 — ASK A QUESTION:\n{"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}\n\nFORMAT 2 — GENERATE THE SQUEEZE PAGE:\n{"type":"html","html":"<complete HTML code here>","summary":"Brief description"}\n\nQUESTION FLOW:\n- Ask ONE question at a time. Provide 3-4 specific, helpful options.\n- Ask up to 4 questions: lead magnet/offer → target audience → main hook/angle → urgency element.\n- If the user gives rich context, skip unnecessary questions and generate immediately.\n\nEDIT MODE: When the user provides CURRENT HTML and asks for changes, edit the existing HTML. Return full updated HTML.\n\nHTML REQUIREMENTS:\n- Complete standalone HTML: <!DOCTYPE html>, <html>, <head>, <body>\n- Single <style> block in <head>. Google Fonts via <link> allowed. NO external stylesheets. NO <script> tags.\n- Max-width 600px centered (squeeze pages are narrow and focused). Fully responsive.\n- Use section markers: <!-- SECTION:name --> ... <!-- /SECTION:name -->\n\nREQUIRED SECTIONS:\n- hero: bold headline promising value (what they get), subheadline with urgency, {{GENERATE:hero visual}}\n- benefits: 3-4 bullet points of what they get (use inline SVG checkmark icons)\n- form: email input + CTA button. Clean, prominent. The form is the ONE action on this page.\n- trust: social proof badges, subscriber count, testimonial quote, or security badges\n- footer: minimal, just copyright\n\nDESIGN STANDARDS:\n- This is a WEBSITE, not an email. Use modern CSS: flexbox, border-radius, box-shadow.\n- Narrow and focused: every element drives toward the form. Minimal distractions.\n- Typography: hero 36-48px bold, body 18px, clean sans-serif (Google Fonts)\n- Generous whitespace. Light background (#FFFFFF) with subtle accent sections.\n- CTA button: large, brand accent color, full-width on mobile, bold text like "Get My Free Guide"\n- Form input: large (48px height), subtle border, focus state with accent color\n- No emoji. Use inline SVG icons.\n- All images use {{GENERATE:detailed prompt}}\n\nCOPYWRITING:\n- Headline: curiosity + specific benefit. "The 5-Step Framework That Generated $47K in 30 Days"\n- Bullets: benefit-focused, specific. "Exact email templates that convert at 12%"\n- CTA: first-person. "Get My Free Guide" beats "Download Now"\n- Add urgency: limited spots, time-sensitive, exclusive access\n- Active voice only. No corporate buzzwords.\n\nIMPORTANT:\n- NEVER wrap response in markdown code fences or backticks\n- NEVER include explanatory text outside the JSON object\n- Always respond with ONLY the JSON object, nothing else`,
+    systemPrompt: `You are an elite squeeze page designer and lead generation expert working inside the PuerlyPersonal AI CEO platform. You create focused, high-converting opt-in pages.\n\nCRITICAL: You MUST respond with ONLY valid JSON. No markdown, no plain text, no code fences. Every response must be one of these formats:\n\nFORMAT 1  -  ASK A QUESTION:\n{"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}\n\nFORMAT 2  -  GENERATE THE SQUEEZE PAGE:\n{"type":"html","html":"<complete HTML code here>","summary":"Brief description"}\n\nQUESTION FLOW:\n- Ask ONE question at a time. Provide 3-4 specific, helpful options.\n- Ask up to 4 questions: lead magnet/offer → target audience → main hook/angle → urgency element.\n- If the user gives rich context, skip unnecessary questions and generate immediately.\n\nEDIT MODE: When the user provides CURRENT HTML and asks for changes, edit the existing HTML. Return full updated HTML.\n\nHTML REQUIREMENTS:\n- Complete standalone HTML: <!DOCTYPE html>, <html>, <head>, <body>\n- Single <style> block in <head>. Google Fonts via <link> allowed. NO external stylesheets. NO <script> tags.\n- Max-width 600px centered (squeeze pages are narrow and focused). Fully responsive.\n- Use section markers: <!-- SECTION:name --> ... <!-- /SECTION:name -->\n\nREQUIRED SECTIONS:\n- hero: bold headline promising value (what they get), subheadline with urgency, {{GENERATE:hero visual}}\n- benefits: 3-4 bullet points of what they get (use inline SVG checkmark icons)\n- form: email input + CTA button. Clean, prominent. The form is the ONE action on this page.\n- trust: social proof badges, subscriber count, testimonial quote, or security badges\n- footer: minimal, just copyright\n\nDESIGN STANDARDS:\n- This is a WEBSITE, not an email. Use modern CSS: flexbox, border-radius, box-shadow.\n- Narrow and focused: every element drives toward the form. Minimal distractions.\n- Typography: hero 36-48px bold, body 18px, clean sans-serif (Google Fonts)\n- Generous whitespace. Light background (#FFFFFF) with subtle accent sections.\n- CTA button: large, brand accent color, full-width on mobile, bold text like "Get My Free Guide"\n- Form input: large (48px height), subtle border, focus state with accent color\n- No emoji. Use inline SVG icons.\n- All images use {{GENERATE:detailed prompt}}\n\nCOPYWRITING:\n- Headline: curiosity + specific benefit. "The 5-Step Framework That Generated $47K in 30 Days"\n- Bullets: benefit-focused, specific. "Exact email templates that convert at 12%"\n- CTA: first-person. "Get My Free Guide" beats "Download Now"\n- Add urgency: limited spots, time-sensitive, exclusive access\n- Active voice only. No corporate buzzwords.\n\nIMPORTANT:\n- NEVER wrap response in markdown code fences or backticks\n- NEVER include explanatory text outside the JSON object\n- Always respond with ONLY the JSON object, nothing else`,
     placeholder: 'Describe your squeeze page...',
     ctaText: 'Ask the Squeeze Page AI to create high-converting opt-in pages that capture leads and grow your email list!',
     canvasTitle: 'Canvas',
@@ -100,7 +106,7 @@ const TOOL_CONFIGS = {
 
 ${SHARED_RULES}
 
-ADDITIONAL FORMAT — STORY SEQUENCE (use this instead of newsletter/html when generating stories):
+ADDITIONAL FORMAT  -  STORY SEQUENCE (use this instead of newsletter/html when generating stories):
 {"type":"story_sequence","frames":[{"title":"Frame title","caption":"Short caption overlay text (max 15 words)","image_prompt":"Detailed image generation prompt for this frame. Include: style, composition, colors, text overlays, mood."},...],"summary":"Brief description"}
 RULES FOR STORY SEQUENCES:
 - Generate exactly 3-5 frames that tell a cohesive visual story
@@ -108,11 +114,11 @@ RULES FOR STORY SEQUENCES:
 - Frame 1: Hook/attention grabber
 - Middle frames: Value/story/content
 - Last frame: CTA (swipe up, link in bio, DM us, etc.)
-- Image prompts must describe ONLY the photo/visual content — never mention Instagram UI elements
+- Image prompts must describe ONLY the photo/visual content  -  never mention Instagram UI elements
 - NEVER include in image_prompt: progress bars, profile pictures, usernames, close buttons, send message bar, heart icons, or any Instagram interface elements
 - The image_prompt should describe the SCENE/PHOTO only. The text overlay is added separately by the system.
 - Captions should be punchy, short (max 15 words), suitable for story text overlays
-- Think like a top social media manager — trendy, on-brand, scroll-stopping
+- Think like a top social media manager  -  trendy, on-brand, scroll-stopping
 - Typical question flow: brand/topic → target audience → story goal (educate/sell/engage) → visual style preference`,
     placeholder: 'Describe your Instagram story sequence...',
     ctaText: 'Ask the Story Sequence AI to craft stunning multi-frame Instagram story sequences that captivate your audience!',
@@ -126,15 +132,15 @@ RULES FOR STORY SEQUENCES:
     canvasEmptyType: 'story-sequence',
   },
   leadmagnet: {
-    systemPrompt: `You are an elite lead magnet designer and content strategist working inside the PuerlyPersonal AI CEO platform. Your job is to help users create irresistible lead magnets (PDFs, checklists, guides, cheat sheets, templates) that attract and convert their ideal audience.\n\n${SHARED_RULES}\n\nHTML REQUIREMENTS:\n- Generate a COMPLETE, standalone HTML document that serves as a beautiful, printable lead magnet\n- Use modern CSS (inline styles or a single <style> block in <head>) — no external stylesheets, no <script> tags\n- Make it visually stunning and professional: clean layout, branded feel, easy to scan\n- Include: eye-catching cover/title section, table of contents (if applicable), well-structured content sections, actionable tips/steps, branded footer with CTA\n- Use a max-width of 800px centered layout (document/PDF style)\n- Default color scheme: clean white background, dark text (#333), accent color #E91A44 for headings and highlights\n- Write HIGH-VALUE content: practical, actionable, specific — make the reader feel they got a steal\n- Format as appropriate for the type: checklist with checkboxes, guide with numbered sections, cheat sheet with quick-reference layout\n- Typical question flow: topic/niche → target audience → lead magnet type (checklist/guide/cheat sheet) → key outcomes`,
+    systemPrompt: `You are an elite lead magnet designer and content strategist working inside the PuerlyPersonal AI CEO platform. Your job is to help users create irresistible lead magnets (PDFs, checklists, guides, cheat sheets, templates) that attract and convert their ideal audience.\n\n${SHARED_RULES}\n\nHTML REQUIREMENTS:\n- Generate a COMPLETE, standalone HTML document that serves as a beautiful, printable lead magnet\n- Use modern CSS (inline styles or a single <style> block in <head>)  -  no external stylesheets, no <script> tags\n- Make it visually stunning and professional: clean layout, branded feel, easy to scan\n- Include: eye-catching cover/title section, table of contents (if applicable), well-structured content sections, actionable tips/steps, branded footer with CTA\n- Use a max-width of 800px centered layout (document/PDF style)\n- Default color scheme: clean white background, dark text (#333), accent color #E91A44 for headings and highlights\n- Write HIGH-VALUE content: practical, actionable, specific  -  make the reader feel they got a steal\n- Format as appropriate for the type: checklist with checkboxes, guide with numbered sections, cheat sheet with quick-reference layout\n- Typical question flow: topic/niche → target audience → lead magnet type (checklist/guide/cheat sheet) → key outcomes`,
     placeholder: 'Describe your lead magnet idea...',
-    ctaText: 'Ask the Lead Magnet AI to create irresistible lead magnets — checklists, guides, cheat sheets, and more — that grow your list!',
+    ctaText: 'Ask the Lead Magnet AI to create irresistible lead magnets  -  checklists, guides, cheat sheets, and more  -  that grow your list!',
     canvasTitle: 'Canvas',
     emptyText: 'Your lead magnet will appear here',
     readyText: 'Your lead magnet is ready! Check the canvas on the right.',
   },
   dm: {
-    systemPrompt: `You are an elite DM (direct message) automation strategist and copywriter working inside the PuerlyPersonal AI CEO platform. Your job is to help users create high-converting DM message sequences for Instagram, LinkedIn, Twitter/X, and other platforms.\n\n${SHARED_RULES}\n\nHTML REQUIREMENTS:\n- Generate a COMPLETE, standalone HTML document that displays the DM sequence as a visual chat-style preview\n- Use modern CSS (inline styles or a single <style> block in <head>) — no external stylesheets, no <script> tags\n- Show each message as a chat bubble with: message number, trigger/condition (e.g. "After they reply YES"), the message text, timing delay\n- Include visual branching for different responses (e.g. "If they say X → send Y")\n- Make it look like a real DM conversation flow: chat bubbles, alternating sides, clear sequence\n- Use a max-width of 500px centered layout (mobile chat feel)\n- Default color scheme: clean white background, dark text (#333), accent color #E91A44 for user's outgoing messages\n- Write NATURAL, conversational copy: no salesy language, feels like a real human DM, builds rapport before pitching\n- Include 5-8 messages in the sequence by default with branching logic\n- Typical question flow: platform → goal (sales/booking/engagement) → product/service → audience type`,
+    systemPrompt: `You are an elite DM (direct message) automation strategist and copywriter working inside the PuerlyPersonal AI CEO platform. Your job is to help users create high-converting DM message sequences for Instagram, LinkedIn, Twitter/X, and other platforms.\n\n${SHARED_RULES}\n\nHTML REQUIREMENTS:\n- Generate a COMPLETE, standalone HTML document that displays the DM sequence as a visual chat-style preview\n- Use modern CSS (inline styles or a single <style> block in <head>)  -  no external stylesheets, no <script> tags\n- Show each message as a chat bubble with: message number, trigger/condition (e.g. "After they reply YES"), the message text, timing delay\n- Include visual branching for different responses (e.g. "If they say X → send Y")\n- Make it look like a real DM conversation flow: chat bubbles, alternating sides, clear sequence\n- Use a max-width of 500px centered layout (mobile chat feel)\n- Default color scheme: clean white background, dark text (#333), accent color #E91A44 for user's outgoing messages\n- Write NATURAL, conversational copy: no salesy language, feels like a real human DM, builds rapport before pitching\n- Include 5-8 messages in the sequence by default with branching logic\n- Typical question flow: platform → goal (sales/booking/engagement) → product/service → audience type`,
     placeholder: 'Describe your DM automation flow...',
     ctaText: 'Ask the DM Automation AI to craft high-converting DM sequences that turn followers into customers!',
     canvasTitle: 'Canvas',
@@ -157,8 +163,8 @@ function fixJsonNewlines(str) {
   // Replace actual newlines/tabs inside JSON strings with their escaped forms
   // This handles the common case where the AI puts real newlines in the "html" field
   return str.replace(/("(?:[^"\\]|\\.)*")|[\n\r\t]/g, (match, quoted) => {
-    if (quoted) return quoted; // inside a properly quoted string — leave it
-    // bare newline/tab outside quotes — escape it
+    if (quoted) return quoted; // inside a properly quoted string  -  leave it
+    // bare newline/tab outside quotes  -  escape it
     if (match === '\n') return '\\n';
     if (match === '\r') return '\\r';
     if (match === '\t') return '\\t';
@@ -234,7 +240,7 @@ function tryParseAIResponse(text) {
 
 // System prompts with brand DNA are now built server-side in backend/agents/
 
-// Cover image placeholder marker — inserted at top of newsletter while generating
+// Cover image placeholder marker  -  inserted at top of newsletter while generating
 const COVER_IMAGE_PLACEHOLDER = '{{COVER_IMAGE_PLACEHOLDER}}';
 
 // Insert cover image (or placeholder) into newsletter HTML right after <body>
@@ -416,7 +422,7 @@ function StoryPhoneViewer({ frames, onEditFrame }) {
           </button>
         )}
 
-        {/* Edit button — top right */}
+        {/* Edit button  -  top right */}
         {frame.imageSrc && !frame.loading && !frame.editing && onEditFrame && (
           <button
             className="sp-edit-btn"
@@ -477,7 +483,7 @@ function StoryPhoneViewer({ frames, onEditFrame }) {
   );
 }
 
-// ── DM Automation View — shows automation graph canvas ──
+// ── DM Automation View  -  shows automation graph canvas ──
 const DEFAULT_DM_NODES = [
   {
     id: 'trigger-1',
@@ -626,7 +632,7 @@ function DmFlowViewStatic() {
         className="dmflow-canvas"
         style={{ transform: `translate(${tf.x}px, ${tf.y}px) scale(${tf.s})` }}
       >
-        {/* SVG edges — bezier curves matching ReactFlow */}
+        {/* SVG edges  -  bezier curves matching ReactFlow */}
         <svg className="dmflow-edges">
           <defs>
             <marker id="dmflow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -1456,7 +1462,7 @@ function ToolTab({ config, activeTool, brandDna }) {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  // Scale newsletter iframe to fit canvas width — iframe scrolls internally
+  // Scale newsletter iframe to fit canvas width  -  iframe scrolls internally
   useEffect(() => {
     const container = canvasBodyRef.current;
     if (!container) return;
@@ -1518,8 +1524,8 @@ function ToolTab({ config, activeTool, brandDna }) {
   const buildContextString = () => {
     const items = getSelectedItemDetails();
     if (items.length === 0) return '';
-    const parts = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? ` — ${i.date}` : ''}`);
-    return `[CONTEXT — The user has selected the following items for reference:\n${parts.join('\n')}\nUse this context to inform your questions and generated content.]\n\n`;
+    const parts = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? `  -  ${i.date}` : ''}`);
+    return `[CONTEXT  -  The user has selected the following items for reference:\n${parts.join('\n')}\nUse this context to inform your questions and generated content.]\n\n`;
   };
 
   // File upload handler
@@ -1570,10 +1576,10 @@ function ToolTab({ config, activeTool, brandDna }) {
     const images = uploadedFiles.filter((f) => f.type === 'image');
     const docs = uploadedFiles.filter((f) => f.type === 'document');
     if (images.length > 0) {
-      parts.push(`[UPLOADED IMAGES — The user has uploaded ${images.length} image(s). When you include them in the HTML output, use exactly this src value for each image:\n${images.map((img) => `- "${img.name}": src="{{IMAGE:${img.id}}}"`).join('\n')}\nDo NOT modify the placeholder src values. Use them exactly as shown above.]`);
+      parts.push(`[UPLOADED IMAGES  -  The user has uploaded ${images.length} image(s). When you include them in the HTML output, use exactly this src value for each image:\n${images.map((img) => `- "${img.name}": src="{{IMAGE:${img.id}}}"`).join('\n')}\nDo NOT modify the placeholder src values. Use them exactly as shown above.]`);
     }
     if (docs.length > 0) {
-      parts.push(`[UPLOADED DOCUMENTS — The user has uploaded ${docs.length} document(s) as additional context:\n${docs.map((doc) => `- "${doc.name}":\n${doc.textContent.slice(0, 3000)}`).join('\n\n')}\n]`);
+      parts.push(`[UPLOADED DOCUMENTS  -  The user has uploaded ${docs.length} document(s) as additional context:\n${docs.map((doc) => `- "${doc.name}":\n${doc.textContent.slice(0, 3000)}`).join('\n\n')}\n]`);
     }
     return parts.join('\n\n') + '\n\n';
   };
@@ -1596,7 +1602,7 @@ function ToolTab({ config, activeTool, brandDna }) {
     // Capture files before clearing so we can replace placeholders later
     const filesSnapshot = [...uploadedFiles];
 
-    // Build the content — inject context on every message so AI always has it
+    // Build the content  -  inject context on every message so AI always has it
     const contextStr = buildContextString();
     const fileContext = buildFileContext();
     const userContent = contextStr + fileContext + text.trim();
@@ -1622,7 +1628,7 @@ function ToolTab({ config, activeTool, brandDna }) {
       if (abortRef.current) abortRef.current.abort();
     }, 180_000);
 
-    // Detect edit mode — canvas exists and not first message
+    // Detect edit mode  -  canvas exists and not first message
     const isEdit = canvasHtml && !isFirstMessage;
 
     try {
@@ -1652,7 +1658,7 @@ function ToolTab({ config, activeTool, brandDna }) {
           fullContent = content;
         },
         onFileUpdate: (html) => {
-          // File-based edit — backend applied a surgical diff
+          // File-based edit  -  backend applied a surgical diff
           editHandled = true;
           setCanvasHtml(html);
           // Check if the edit introduced new {{GENERATE:...}} placeholders
@@ -1724,7 +1730,7 @@ function ToolTab({ config, activeTool, brandDna }) {
         setCurrentQuestion({ text: parsed.text, options: parsed.options });
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.text }]);
       } else if (parsed?.type === 'cover_image') {
-        // Legacy cover_image responses — generate and insert directly
+        // Legacy cover_image responses  -  generate and insert directly
         try {
           const mktDefaultLogo = brandDna?.logos?.find(l => l.isDefault) || brandDna?.logos?.[0];
           const brandData = brandDna ? {
@@ -1753,7 +1759,7 @@ function ToolTab({ config, activeTool, brandDna }) {
         setStoryFrames(frames);
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || `Generating ${frames.length} story frames...` }]);
 
-        // Generate ALL frames in parallel — no sequential dependency
+        // Generate ALL frames in parallel  -  no sequential dependency
         // Only pass 1 user photo (for likeness reference), NO logo
         const storyPhotos = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
         const brandData = brandDna ? {
@@ -1767,7 +1773,7 @@ function ToolTab({ config, activeTool, brandDna }) {
 
         await Promise.all(frames.map(async (frame, idx) => {
           const captionText = frame.caption || frame.title || '';
-          const captionInstruction = captionText ? `\n\nTEXT OVERLAY — ONE text sticker:\n- Render EXACTLY ONE text sticker: "${captionText}"\n- Flat solid white (#FFFFFF) rectangle with rounded corners (~12px radius). NO border, NO outline, NO stroke around the pill — just a clean flat white shape.\n- Text: "${captionText}" in pure black (#000000), bold weight, clean sans-serif (SF Pro, Helvetica), ~30px\n- Snug padding: pill tightly wraps text. Only as wide as the text needs.\n- Centered horizontally, upper third of frame.\n- ONE sticker only. Do NOT duplicate text. Do NOT add any border or outline around the white pill.\n\nDO NOT RENDER:\n- No Instagram UI (no progress bars, profile pics, usernames, send bar, hearts)\n- No borders or outlines around the text sticker\n- No second copy of the text\n- Just the photo with one clean white text sticker on top.` : '';
+          const captionInstruction = captionText ? `\n\nTEXT OVERLAY  -  ONE text sticker:\n- Render EXACTLY ONE text sticker: "${captionText}"\n- Flat solid white (#FFFFFF) rectangle with rounded corners (~12px radius). NO border, NO outline, NO stroke around the pill  -  just a clean flat white shape.\n- Text: "${captionText}" in pure black (#000000), bold weight, clean sans-serif (SF Pro, Helvetica), ~30px\n- Snug padding: pill tightly wraps text. Only as wide as the text needs.\n- Centered horizontally, upper third of frame.\n- ONE sticker only. Do NOT duplicate text. Do NOT add any border or outline around the white pill.\n\nDO NOT RENDER:\n- No Instagram UI (no progress bars, profile pics, usernames, send bar, hearts)\n- No borders or outlines around the text sticker\n- No second copy of the text\n- Just the photo with one clean white text sticker on top.` : '';
           const sequencePrompt = `${visualStyle ? `VISUAL STYLE FOR THIS SERIES: ${visualStyle}\n\n` : ''}This is frame ${idx + 1} of ${frames.length} in a cohesive Instagram Story sequence. Follow the visual style exactly so all frames feel like ONE continuous story.\n\nIMPORTANT: Generate ONLY the photo/image content. Do NOT render any Instagram UI (no progress bars, no profile icons, no usernames, no send message bar, no close button). Just the raw image with the text sticker overlay.\n\n${frame.image_prompt}${captionInstruction}`;
 
           try {
@@ -1790,13 +1796,13 @@ function ToolTab({ config, activeTool, brandDna }) {
           setChatMessages((prev) => [...prev, {
             id: `msg-${Date.now()}-done`, role: 'assistant',
             text: failCount > 0
-              ? `Story frames done — ${frames.length - failCount}/${frames.length} generated (${failCount} failed)`
+              ? `Story frames done  -  ${frames.length - failCount}/${frames.length} generated (${failCount} failed)`
               : 'All story frames generated! Check the canvas.',
           }]);
           return current;
         });
       } else if (parsed?.type === 'edit' && parsed.sections) {
-        // Section-based edit — merge only changed sections into current HTML
+        // Section-based edit  -  merge only changed sections into current HTML
         const mergedHtml = mergeSectionEdits(canvasHtml, parsed.sections);
         const finalHtml = replaceImagePlaceholders(mergedHtml, filesSnapshot);
         setCanvasHtml(finalHtml);
@@ -1815,10 +1821,10 @@ function ToolTab({ config, activeTool, brandDna }) {
         setCanvasHtml(finalHtml);
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || config.readyText }]);
 
-        // Collect image generation promises — isGenerating stays true until all resolve
+        // Collect image generation promises  -  isGenerating stays true until all resolve
         const imagePromises = [];
 
-        // Generate AI images for {{GENERATE:...}} placeholders — each swaps in independently
+        // Generate AI images for {{GENERATE:...}} placeholders  -  each swaps in independently
         if (finalHtml.includes('{{GENERATE:')) {
           const genRegex = /\{\{GENERATE:([\s\S]*?)\}\}/g;
           const genMatches = [];
@@ -1878,7 +1884,7 @@ function ToolTab({ config, activeTool, brandDna }) {
           imagePromises.push(inlinePromise);
         }
 
-        // Generate cover image async — shimmer placeholder is already in the HTML
+        // Generate cover image async  -  shimmer placeholder is already in the HTML
         if (hasCoverPrompt) {
           const coverPromise = (async () => {
             try {
@@ -1914,7 +1920,7 @@ function ToolTab({ config, activeTool, brandDna }) {
           await Promise.allSettled(imagePromises);
         }
       } else {
-        // Fallback — show raw text
+        // Fallback  -  show raw text
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: fullContent.slice(0, 500) }]);
       }
       } // end !editHandled
@@ -1992,7 +1998,7 @@ function ToolTab({ config, activeTool, brandDna }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [bsTemplatesOpen]);
 
-  // Edit a single story frame — sends ONLY that image, no brand data
+  // Edit a single story frame  -  sends ONLY that image, no brand data
   const handleEditStoryFrame = useCallback(async (frameIdx, editInstruction) => {
     const frame = storyFrames[frameIdx];
     if (!frame?.imageSrc) return;
@@ -2009,7 +2015,7 @@ function ToolTab({ config, activeTool, brandDna }) {
       const result = await generateImage(
         `EDIT THIS IMAGE: ${editInstruction}. Keep the same overall style, composition, and photo. Only apply the specific change requested.`,
         'instagram_story',
-        null, // no brand data — only the image itself
+        null, // no brand data  -  only the image itself
         refImage ? [refImage] : null
       );
       if (result.image) {
@@ -2082,7 +2088,7 @@ function ToolTab({ config, activeTool, brandDna }) {
     };
   }, []);
 
-  // Drag handle — supports mouse + touch, horizontal (desktop) + vertical (mobile)
+  // Drag handle  -  supports mouse + touch, horizontal (desktop) + vertical (mobile)
   const getPointerPercent = useCallback((clientX, clientY) => {
     if (!splitRef.current) return null;
     const rect = splitRef.current.getBoundingClientRect();
@@ -2132,7 +2138,7 @@ function ToolTab({ config, activeTool, brandDna }) {
   return (
   <>
     <div className="mkt-split" ref={splitRef}>
-      {/* Left — chat area */}
+      {/* Left  -  chat area */}
       <div className="mkt-split-left" style={{ flex: `0 0 ${splitPercent}%` }}>
 
         {/* Ghost cards + CTA (shown when no chat) */}
@@ -2189,7 +2195,7 @@ function ToolTab({ config, activeTool, brandDna }) {
           </div>
         )}
 
-        {/* Question overlay — slides up from bottom */}
+        {/* Question overlay  -  slides up from bottom */}
         <div className={`mkt-question-overlay ${currentQuestion ? 'mkt-question-overlay--visible' : 'mkt-question-overlay--hidden'}`}>
           {currentQuestion && (
             <>
@@ -2375,7 +2381,7 @@ function ToolTab({ config, activeTool, brandDna }) {
         <div className="mkt-split-handle" />
       </div>
 
-      {/* Right — canvas */}
+      {/* Right  -  canvas */}
       <div className="mkt-split-right" style={{ flex: `0 0 ${100 - splitPercent}%` }}>
         <div className="mkt-canvas-header">
           <div
