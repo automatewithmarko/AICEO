@@ -573,6 +573,7 @@
   height: 100%;
   overflow: hidden;
   min-width: 0;
+  position: relative;
 }
 
 /* Top bar — prev convos on left, platform pills centered */
@@ -687,27 +688,38 @@
   flex-shrink: 0;
 }
 
-/* Sessions sidebar panel */
+/* Sessions backdrop + panel */
+.content-sessions-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 40;
+  animation: content-sessions-fade 0.2s ease;
+}
+
+@keyframes content-sessions-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .content-sessions-panel {
   position: absolute;
-  top: 60px;
+  top: 0;
   left: 0;
-  width: 320px;
-  max-height: calc(100% - 60px - 80px);
+  width: 340px;
+  height: 100%;
   background: var(--bg-white);
   border-right: 1px solid var(--border-light);
-  border-bottom: 1px solid var(--border-light);
-  border-radius: 0 0 16px 0;
-  box-shadow: 4px 4px 24px rgba(0, 0, 0, 0.08);
-  z-index: 30;
+  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.12);
+  z-index: 50;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: content-sessions-slide 0.2s ease;
+  animation: content-sessions-slide 0.25s ease;
 }
 
 @keyframes content-sessions-slide {
-  from { opacity: 0; transform: translateX(-12px); }
+  from { opacity: 0; transform: translateX(-20px); }
   to { opacity: 1; transform: translateX(0); }
 }
 

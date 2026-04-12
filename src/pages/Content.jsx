@@ -2005,38 +2005,41 @@ export default function Content() {
           </div>
         </div>
 
-        {/* Sessions sidebar */}
+        {/* Sessions overlay + panel */}
         {showSessions && (
-          <div className="content-sessions-panel">
-            <div className="content-sessions-header">
-              <span>Conversations</span>
-              <button className="content-sessions-new" onClick={newConversation} title="New conversation">
-                <Plus size={16} /> New
-              </button>
-            </div>
-            <div className="content-sessions-list">
-              {sessions.length === 0 && (
-                <div className="content-sessions-empty">No past conversations yet</div>
-              )}
-              {sessions.map((s) => (
-                <div
-                  key={s.id}
-                  className={`content-sessions-item ${s.id === sessionId ? 'content-sessions-item--active' : ''}`}
-                  onClick={() => loadSession(s.id)}
-                >
-                  <div className="content-sessions-item-info">
-                    <span className="content-sessions-item-title">{s.title}</span>
-                    <span className="content-sessions-item-meta">
-                      {s.platform} &middot; {new Date(s.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </span>
+          <>
+            <div className="content-sessions-backdrop" onClick={() => setShowSessions(false)} />
+            <div className="content-sessions-panel">
+              <div className="content-sessions-header">
+                <span>Conversations</span>
+                <button className="content-sessions-new" onClick={newConversation} title="New conversation">
+                  <Plus size={16} /> New
+                </button>
+              </div>
+              <div className="content-sessions-list">
+                {sessions.length === 0 && (
+                  <div className="content-sessions-empty">No past conversations yet</div>
+                )}
+                {sessions.map((s) => (
+                  <div
+                    key={s.id}
+                    className={`content-sessions-item ${s.id === sessionId ? 'content-sessions-item--active' : ''}`}
+                    onClick={() => loadSession(s.id)}
+                  >
+                    <div className="content-sessions-item-info">
+                      <span className="content-sessions-item-title">{s.title}</span>
+                      <span className="content-sessions-item-meta">
+                        {s.platform} &middot; {new Date(s.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                    <button className="content-sessions-item-delete" onClick={(e) => deleteSession(s.id, e)} title="Delete">
+                      <X size={14} />
+                    </button>
                   </div>
-                  <button className="content-sessions-item-delete" onClick={(e) => deleteSession(s.id, e)} title="Delete">
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          </>
         )}
 
         {/* Chat area */}
