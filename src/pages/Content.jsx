@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, getTemplates, getEmails, getSalesCalls, getProducts } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Content.css';
 
@@ -878,11 +878,25 @@ export default function Content() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) return;
       const userId = session.user.id;
-      // Strip base64 image data from messages to keep payload small
-      const stripped = messages.map((m) => ({
-        id: m.id, role: m.role, content: m.content,
-        images: (m.images || []).map((img) => ({ idx: img.idx, src: img.src?.startsWith('data:') ? '[image]' : img.src })),
+      // Upload base64 images to storage and replace with URLs
+      const stripped = await Promise.all(messages.map(async (m) => {
+        const uploadedImages = await Promise.all((m.images || []).map(async (img) => {
+          if (img.src?.startsWith('data:')) {
+            try {
+              const commaIdx = img.src.indexOf(',');
+              const mimeMatch = img.src.match(/^data:([^;]+);/);
+              const base64 = img.src.slice(commaIdx + 1);
+              const mimeType = mimeMatch?.[1] || 'image/png';
+              const result = await uploadImageToStorage(base64, mimeType);
+              return { idx: img.idx, src: result.url || result.publicUrl || img.src };
+            } catch { return { idx: img.idx, src: img.src }; }
+          }
+          return { idx: img.idx, src: img.src };
+        }));
+        return { id: m.id, role: m.role, content: m.content, images: uploadedImages };
       }));
+      // Also update local state with uploaded URLs so future saves don't re-upload
+      setMessages((prev) => prev.map((m, i) => stripped[i]?.images?.length ? { ...m, images: stripped[i].images } : m));
       // Derive title from first user message
       const firstUser = messages.find((m) => m.role === 'user');
       const title = firstUser?.content?.replace(/\[CONTEXT[^\]]*\]\n?/g, '').slice(0, 80) || 'New conversation';
