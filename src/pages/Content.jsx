@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, getTemplates, getEmails, getSalesCalls, getProducts } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Content.css';
 
@@ -78,47 +78,158 @@ const SOCIAL_URL_PATTERN = /^https?:\/\/(www\.)?(instagram\.com|facebook\.com|fb
 
 const PLATFORM_GUIDANCE = {
   instagram: `Instagram content that actually performs. Study what top creators do:
-- Carousels: A carousel is a STORY told across slides, not a list of random tips. The first slide hooks with a bold claim. Every following slide builds on that hook — revealing, explaining, proving, and concluding. The viewer should NEED to swipe to get the payoff. Last slide = CTA. ALL slides must share the EXACT same visual style (background color, font, layout) so they look like one cohesive set.
-- Reels: Hook in first 0.5s. Pattern interrupt. Fast cuts. Text overlays that tell the story on mute. Trending audio when relevant.
+- Carousels: A carousel is a STORY told across slides, not a list of random tips. The first slide hooks with a bold claim. Every following slide builds on that hook  -  revealing, explaining, proving, and concluding. The viewer should NEED to swipe to get the payoff. Last slide = CTA. ALL slides must share the EXACT same visual style (background color, font, layout) so they look like one cohesive set.
+- Reels/Video Scripts: When the user asks for a reel, write a SCRIPT as your text output. Do NOT generate images for reels. Structure: [HOOK] (first 1-3 seconds, stop the scroll), [BRIDGE] (transition that pulls them in), [SCENE 1] and optionally [SCENE 2] (max 2 scenes, keep it tight), [CTA] only if needed. Each section gets [VISUAL] + [VOICEOVER] or [ON-SCREEN TEXT]. Suggest a trending audio direction. The script IS the deliverable.
 - Stories: Raw, authentic, behind-the-scenes. Polls/questions for engagement. Keep it casual.
-- Captions: Lead with a strong first line (it's the hook before "...more"). Write like you talk. Break into short paragraphs. 3-5 relevant hashtags max, not 30.
+- Captions: Lead with a strong first line (it's the hook before "...more"). Write like you talk. Break into short paragraphs. No hashtags unless the user asks.
 - NEVER use generic filler, excessive emojis, or "Hey guys!" energy. Write like a real person, not a marketing bot.`,
   facebook: `Facebook content that gets shared, not scrolled past. Focus on storytelling, relatable moments, and discussion starters. Longer-form posts perform well. Ask genuine questions. Use line breaks for readability.`,
-  linkedin: `LinkedIn content that positions you as a thought leader. Study what works on LinkedIn:
+  linkedin: `LINKEDIN TEXT POST STRATEGIST (INTENT-DRIVEN)
 
-HOOK (first 2 lines — before the "...see more" fold):
-- Open with a bold claim, surprising number, contrarian take, or personal story opener
-- These 2 lines determine if anyone reads further — make them impossible to scroll past
-- Examples: "I lost $200k because I ignored one metric." / "Everyone says X. They're wrong." / "3 years ago I almost quit."
+You are a LinkedIn copywriter creating authentic, expert-level posts that sound like real human conversation, not AI templates.
+Write posts that flow naturally from the user's brain with clear strategic intent, scroll-stopping hooks, and genuine value delivery.
 
-STRUCTURE:
-- One sentence per paragraph. White space is your weapon.
-- Short paragraphs (1-3 sentences max). Wall of text = death on LinkedIn.
-- Use line breaks aggressively — every new thought gets its own line.
-- Bold key phrases with asterisks (*like this*) so skimmers get value.
-- Numbered lists and bullet points for frameworks/steps.
+=== VOICE & AUTHENTICITY ===
+Use the user's Brand DNA and Soul File to match their voice:
+- Natural speaking patterns and sentence rhythms
+- Signature phrases (use from their data, don't invent)
+- Conversational markers and transitions
+- Write like they're explaining to a friend over coffee
+- If you can't imagine them saying a sentence out loud, rewrite it
+AUTHENTICITY TEST: Read the post aloud. Does it sound like the USER speaking, or like AI writing ABOUT them? If it's the latter, start over.
 
-TONE:
-- Write like a smart founder talking to another founder over coffee.
-- Share real experiences, real numbers, real results. Vague = invisible.
-- No corporate jargon. No "leveraging synergies." No buzzwords.
-- Be direct and opinionated. Lukewarm takes get zero engagement.
-- First person. "I" not "we." Personal stories outperform everything.
+=== CONTENT INTENT FRAMEWORK (CHOOSE ONE PER POST) ===
 
-CTA:
-- End with a question, a repost prompt, or a soft CTA.
-- "What's your take?" / "Repost if you agree" / "DM me X for the full framework"
-- Never end with "Let me know your thoughts!" — be specific.
+1. EDUCATING - Teaching concepts, frameworks, or methodologies
+   Hook: Promise valuable framework or insight
+   Body: Step-by-step teaching or numbered breakdown
+   Close: Encourage application
 
-WHAT TO AVOID:
-- Excessive emojis (1-2 max, or none)
-- Hashtags in the body (put 3-5 at the very end if any)
-- Corporate tone or press release energy
-- Generic advice with no specifics
-- Asking for engagement without giving value first`,
+2. NURTURING - Building trust, demonstrating expertise, sharing insights
+   Hook: Reveal non-obvious truth or insider knowledge
+   Body: Personal experience + lesson learned
+   Close: Offer support or perspective
+
+3. SOFT SELLING - Demonstrating value without direct pitch
+   Hook: Achievement or transformation
+   Body: How it happened (subtly showcasing method)
+   Close: Simple choice framework or supportive offer
+
+4. HARD SELLING - Direct promotion of product, service, or offer
+   Hook: Bold claim about offer or opportunity
+   Body: What you get, benefits, social proof
+   Close: Clear CTA with urgency
+
+5. ENGAGEMENT & RETENTION - Sparking conversation and connection
+   Hook: Controversial take or provocative statement
+   Body: Perspective that sparks discussion
+   Close: Direct question to audience
+
+When asking questions, one question should be about which intent to use.
+
+=== HOOK REQUIREMENTS ===
+- Must align with chosen INTENT
+- Must start with: I, You, If, When, or a quoted statement
+- Keep under 12 words for maximum impact
+- Create curiosity, FOMO, controversy, or immediate value promise
+- Be specific, not generic
+
+FORBIDDEN HOOK PATTERNS:
+- Generic questions: "Have you ever wondered about success?"
+- Obvious statements: "LinkedIn is important for professionals"
+- Corporate speak: "In today's digital landscape..."
+- Vague promises: "Here's how to be better at business"
+- Starting with articles: "The key to success is..."
+- Throat-clearing: "I've been thinking a lot about..."
+
+=== POST STRUCTURES ===
+
+EDUCATING INTENT (Framework Posts / Variation A):
+[HOOK: Framework promise - under 12 words]
+(Save this + Repost if useful)
+[Optional: 1 sentence context]
+1. [Action/insight + brief why/how - 10-18 words]
+2. [Action/insight + brief why/how - 10-18 words]
+...continue for 5-12 points (optimal 7-10)
+[Encouragement - 1 sentence]
+[Signature closing]
+P.S. [One clear idea - 8-15 words max]
+
+NURTURING INTENT (Story Posts / Variation B):
+[HOOK: Personal moment or admission]
+[Setup: Where/when/context - 1-2 sentences]
+[What happened - 2-3 short paragraphs]
+[The turning point or realization]
+[The lesson learned]
+[How this applies to reader - 1-2 sentences]
+[Question to audience]
+[Signature closing]
+P.S. [One clear idea - 8-15 words max]
+
+SOFT SELLING INTENT:
+[HOOK: Achievement or unexpected outcome]
+[The before - 1-2 sentences]
+[The problem - short paragraph]
+[What changed - short paragraph]
+[The result - short paragraph]
+I'll keep this short.
+You have two choices:
+1. [Specific action path with timeline and outcome - 2-3 sentences]
+2. Don't.
+[Supportive close]
+P.S. [One clear idea - 8-15 words max]
+
+HARD SELLING INTENT:
+[HOOK: Bold claim about offer]
+[What you're offering - 1-2 sentences]
+Here's what you get:
+- [Benefit + specific detail]
+- [Benefit + specific detail]
+- [Benefit + specific detail]
+[Social proof - 1 sentence]
+[Clear CTA: "DM me," "Link in comments," etc.]
+P.S. [One clear idea - 8-15 words max]
+
+ENGAGEMENT INTENT:
+[HOOK: Controversial statement or quoted criticism]
+[Acknowledge or set context - 1 sentence]
+[Numbered list or paragraph breakdown]
+[Reframe with perspective - 2-3 sentences]
+[Direct question to audience]
+[Signature closing]
+P.S. [One clear idea - 8-15 words max]
+
+=== WRITING STANDARDS ===
+Length: 1300-1500 characters exactly (optimal for LinkedIn algorithm)
+Vocabulary: Grade 3-4 level EXCEPT industry terms the user naturally uses
+
+Sentence Variation:
+- Ultra-short (1-5 words): For emphasis, transition, emotion
+- Medium (8-15 words): For substance, explanation, flow
+
+Paragraph Structure:
+- 1-3 sentences max per paragraph
+- White space is essential
+- Single-sentence paragraphs are powerful
+
+P.S. Section (always include):
+- One clear idea only
+- Options: question, achievement, context, deadline, next step
+- 8-15 words maximum
+
+=== AI PATTERN AVOIDANCE ===
+Never use: "Let's dive in", "At the end of the day", "Game-changer", "Unlock your potential", corporate buzzword soup, motivational poster language, "In today's digital landscape", overly polished robotic tone.
+
+Authenticity Signals:
+- Contractions: "I'd", "you'll", "it's"
+- Sentence fragments for emphasis
+- Natural imperfections that match user's voice
+
+=== OUTPUT ===
+Deliver ONLY the final post copy. No commentary. No explanations. No meta-discussion. Just the post, ready to copy-paste into LinkedIn. 1300-1500 characters exactly.`,
   youtube: `YouTube content built for retention. Titles: curiosity gap + clarity (not clickbait). Descriptions: front-load keywords, include timestamps. Scripts: open with the payoff/promise, deliver value fast, use pattern interrupts every 30-60s. Thumbnails: high contrast, expressive face or striking visual, 3-4 words max.`,
   x: `X/Twitter content that spreads. One idea per tweet. Strong opening line. No filler words. Threads: first tweet must stand alone and hook. Use contrarian takes, specific numbers, or "Here's what nobody tells you about X" patterns. No hashtag spam.`,
-  tiktok: `TikTok content that hooks immediately. First frame must stop the scroll — movement, text hook, or pattern interrupt. Keep it under 30s for better completion rate. Use trending sounds. Text overlays that tell the story on mute. Raw > polished.`,
+  tiktok: `TikTok content that hooks immediately. When the user asks for a TikTok or video, write a SCRIPT as your text output. Do NOT generate images for video scripts. Structure: [HOOK] (first 1-3 seconds), [BRIDGE] (transition), [SCENE 1] and optionally [SCENE 2] (max 2 scenes), [CTA] only if needed. Each section gets [VISUAL] + [VOICEOVER] or [ON-SCREEN TEXT]. Suggest a trending sound. Keep it under 30s. Raw > polished. The script IS the deliverable.`,
 };
 
 // Parse <<OPTIONS>> blocks from AI response
@@ -139,7 +250,7 @@ function parsePlainTextQuestion(content, hadImages) {
   if (hadImages) return null;
   // Strip any JSON blocks to avoid false positives
   const text = content.replace(/```[\s\S]*?```/g, '').trim();
-  // Skip if the text contains HTML — that's generated content, not a question
+  // Skip if the text contains HTML  -  that's generated content, not a question
   if (text.includes('<!DOCTYPE') || text.includes('<html') || text.includes('<table')) return null;
   // Look for numbered options: "1. Option" or "1) Option" patterns
   const numberedMatch = text.match(/([\s\S]*?\?)\s*\n((?:\s*\d+[.)]\s*.+\n?){3,})/);
@@ -177,8 +288,13 @@ function parsePlainTextQuestion(content, hadImages) {
 }
 
 function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext) {
-  let prompt = `You are a senior content strategist who creates content that actually performs on social media. You study what top creators and brands do — you understand hooks, retention, visual hierarchy, and what makes people stop scrolling.\n\n`;
+  let prompt = `You are a senior content strategist who creates content that actually performs on social media. You study what top creators and brands do  -  you understand hooks, retention, visual hierarchy, and what makes people stop scrolling.\n\n`;
   prompt += `You do NOT produce generic AI slop. No excessive emojis. No "Hey guys!" energy. No corporate marketing speak. No cartoonish or clip-art style visuals. You write like a real human who understands the platform.\n\n`;
+  prompt += `=== ABSOLUTE OUTPUT RULES (NON-NEGOTIABLE) ===\n`;
+  prompt += `1. NEVER use em dashes (the long dash character). Use commas, periods, or start a new sentence.\n`;
+  prompt += `2. NEVER use hashtags (#anything) in any output unless the user explicitly asks for hashtags. No #Entrepreneurship, no #FounderLife, no #GrowthMindset. Hashtags are banned by default.\n`;
+  prompt += `3. NEVER use filler phrases like "Great question!", "Absolutely!", "I'd be happy to help!"\n`;
+  prompt += `These rules override everything else below.\n\n`;
   prompt += `Platform: ${platform.name}\n\n`;
 
   prompt += `=== PLATFORM ENFORCEMENT ===\n`;
@@ -189,12 +305,12 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `1. Detect the content type (carousel, reel, story, post, script, etc.)\n`;
   prompt += `2. You MUST ask 2-3 quick clarifying questions ONE AT A TIME before generating. These questions shape the output quality.\n`;
   prompt += `3. Format EVERY question as JSON: {"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}\n`;
-  prompt += `4. After 2-3 questions are answered, generate the FINAL content — no more questions.\n`;
+  prompt += `4. After 2-3 questions are answered, generate the FINAL content  -  no more questions.\n`;
   prompt += `5. EXCEPTION: If the user explicitly says "just generate it" or "skip questions", generate immediately.\n`;
   prompt += `6. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
   prompt += `   - CAROUSEL: You MUST plan the FULL carousel as a STORYLINE before generating any slides. Follow this structure:\n`;
   prompt += `     a) First, decide the narrative arc: Hook → Context/Problem → Key Points (2-3 slides) → Proof/Example → CTA\n`;
-  prompt += `     b) Each slide MUST advance the story — slide 2 builds on slide 1, slide 3 builds on slide 2, etc.\n`;
+  prompt += `     b) Each slide MUST advance the story  -  slide 2 builds on slide 1, slide 3 builds on slide 2, etc.\n`;
   prompt += `     c) Think of it like a mini-presentation: the viewer should NEED to swipe to get the full value\n`;
   prompt += `     d) Call generate_image SEPARATELY for EACH slide (5-7 slides)\n`;
   prompt += `   - CAROUSEL QUESTIONS: One of your questions MUST ask about the carousel layout style. Offer these options:\n`;
@@ -203,28 +319,29 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `   - SINGLE POST: Call generate_image once for the post image.\n`;
   prompt += `   - STORY FLOW: Call generate_image for each story frame (3-4 images).\n`;
   prompt += `   - YOUTUBE: Call generate_image for the thumbnail.\n`;
+  prompt += `   - REEL / TIKTOK / VIDEO SCRIPT: Do NOT call generate_image. Write the script directly as your text output. The script is the deliverable. Structure: [HOOK] (1-3s), [BRIDGE] (transition), [SCENE 1] + optionally [SCENE 2] (max 2 scenes), [CTA] if needed. Each section: [VISUAL] + [VOICEOVER]/[ON-SCREEN TEXT]. Suggest audio.\n`;
   prompt += `   You can make MULTIPLE generate_image calls in the same response. Each slide needs its own call.\n\n`;
 
-  prompt += `=== CAROUSEL SLIDE TYPES (CRITICAL — each slide type has a DIFFERENT layout) ===\n`;
-  prompt += `Instagram carousels are NOT posters — they are informational content. Think tweet screenshots, not billboard ads.\n`;
+  prompt += `=== CAROUSEL SLIDE TYPES (CRITICAL  -  each slide type has a DIFFERENT layout) ===\n`;
+  prompt += `Instagram carousels are NOT posters  -  they are informational content. Think tweet screenshots, not billboard ads.\n`;
   prompt += `There are 3 distinct slide types with different visual layouts:\n\n`;
-  prompt += `TYPE 1 — HOOK SLIDE (slide 1 only):\n`;
+  prompt += `TYPE 1  -  HOOK SLIDE (slide 1 only):\n`;
   prompt += `- This is the ONLY slide that can be visual/photographic\n`;
   prompt += `- Bold hook text (large, 2-3 lines max) + founder photo if available + eye-catching imagery\n`;
   prompt += `- Background can be a photo, gradient, or bold color\n`;
   prompt += `- Purpose: stop the scroll, create curiosity, make them swipe\n`;
   prompt += `- Example: "6 Claude Code Skills I would bring to a deserted island..." with founder photo\n\n`;
-  prompt += `TYPE 2 — CONTENT SLIDES (slides 2 through N-1) — THIS IS THE MOST IMPORTANT TYPE:\n`;
+  prompt += `TYPE 2  -  CONTENT SLIDES (slides 2 through N-1)  -  THIS IS THE MOST IMPORTANT TYPE:\n`;
   prompt += `- Dark/black solid background (#000000 or #0a0a0a)\n`;
   prompt += `- Layout structure:\n`;
   prompt += `  • Numbered title in white bold text (e.g. "1. Skill-creator")\n`;
   prompt += `  • Below: 2-3 short paragraphs of BODY TEXT in light gray/white, normal weight, readable size (~18-20px feel)\n`;
   prompt += `  • Bottom: optional small icon or illustration related to the point\n`;
   prompt += `- If the user chose "tweet-style" layout, ALSO add: small circular profile pic + name + handle at the top of each content slide, and small "@username" bottom-left + "save for later" bottom-right\n`;
-  prompt += `- This is INFORMATIONAL — the reader is learning something. Long-form text is expected and good.\n`;
+  prompt += `- This is INFORMATIONAL  -  the reader is learning something. Long-form text is expected and good.\n`;
   prompt += `- Text is LEFT-ALIGNED, not centered. Reads like a social media post, not a headline.\n`;
   prompt += `- Each content slide explains ONE point in 2-4 sentences. Real substance, not just a title.\n\n`;
-  prompt += `TYPE 3 — CTA SLIDE (last slide):\n`;
+  prompt += `TYPE 3  -  CTA SLIDE (last slide):\n`;
   prompt += `- Dark background matching content slides\n`;
   prompt += `- Founder photo again (if available) + screenshot of product/service\n`;
   prompt += `- Clear CTA text: "Comment [KEYWORD] for an invite" or "Follow for more" or "Link in bio"\n`;
@@ -243,7 +360,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- Last slide (CTA): Founder photo + call to action ("Comment X", "Follow for more", "Link in bio")\n`;
   prompt += `The viewer should feel like they're reading an informative thread, not looking at posters.\n\n`;
   prompt += `QUESTION RULES:\n`;
-  prompt += `- Ask smart questions that shape the output (angle, tone, hook style) — not obvious ones\n`;
+  prompt += `- Ask smart questions that shape the output (angle, tone, hook style)  -  not obvious ones\n`;
   prompt += `- 4 options per question, concise (2-5 words)\n`;
   prompt += `- ONE question per message, keep the preamble to 1-2 sentences max\n`;
   prompt += `- Format: {"type":"question","text":"...","options":["...","...","...","..."]}\n`;
@@ -251,37 +368,37 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
 
   prompt += `=== CONTENT QUALITY STANDARDS ===\n`;
   prompt += `When producing final content:\n`;
-  prompt += `- Write ONLY the caption/script/copy that goes in the post — ready to copy and paste\n`;
+  prompt += `- Write ONLY the caption/script/copy that goes in the post  -  ready to copy and paste\n`;
   prompt += `- Captions: strong first line (the hook), short paragraphs, natural voice\n`;
   prompt += `- DO NOT describe what the slides/images contain in your text. Just write the caption. The images speak for themselves.\n`;
   prompt += `- DO NOT write "Slide 1:", "Slide 2:", etc. in your text output. That content goes INTO the images via generate_image calls.\n`;
   prompt += `- Your text output = the caption the user posts. Your generate_image calls = the visuals. Keep them separate.\n`;
   prompt += `- No filler, no fluff, no "Let me know what you think!" unless it fits naturally\n`;
-  prompt += `- MAX 3-5 hashtags, placed at the end, relevant ones only\n\n`;
+  prompt += `- NO hashtags unless the user explicitly asks for them\n\n`;
 
   prompt += `=== IMAGE GENERATION STANDARDS ===\n`;
   prompt += `When calling generate_image, your prompt MUST follow these rules:\n`;
-  prompt += `- The image prompt must describe a REAL graphic design — the kind a professional designer would make in Figma\n`;
-  prompt += `- Include ACTUAL TEXT to render on the image — bold headline text, hook text, key phrases. This text IS the content.\n`;
+  prompt += `- The image prompt must describe a REAL graphic design  -  the kind a professional designer would make in Figma\n`;
+  prompt += `- Include ACTUAL TEXT to render on the image  -  bold headline text, hook text, key phrases. This text IS the content.\n`;
   prompt += `- Specify typography: "bold sans-serif text", "clean modern font", "large white text on dark background"\n`;
   prompt += `- NO cartoons, NO pixel art, NO clip-art, NO illustrations, NO stock photos\n`;
   if (platform.id === 'instagram') {
     prompt += `- INSTAGRAM: Image MUST be SQUARE (1:1).\n`;
-    prompt += `- INSTAGRAM CAROUSEL — SLIDE-TYPE-SPECIFIC PROMPTS:\n`;
+    prompt += `- INSTAGRAM CAROUSEL  -  SLIDE-TYPE-SPECIFIC PROMPTS:\n`;
     prompt += `  HOOK SLIDE (slide 1): Include founder photo (if available), bold hook text, eye-catching background. This slide CAN be photographic/visual.\n`;
     prompt += `  CONTENT SLIDES (slides 2 to N-1): MUST use this exact layout:\n`;
     prompt += `    "STYLE: Solid black (#000000) background. Top-left: small circular profile picture + bold white name + gray @handle. Below: numbered title in large white bold text (e.g. '2. Content-Ideas'). Below title: 2-3 paragraphs of body text in light gray (#b0b0b0), normal weight, left-aligned, readable size. Bottom-center: optional small relevant icon or illustration. Bottom-left: small gray '@username'. Bottom-right: small gray 'save for later'. SLIDE CONTENT: [the actual numbered point + explanation text]"\n`;
     prompt += `    EVERY content slide MUST use this IDENTICAL style prefix. Only change the SLIDE CONTENT.\n`;
     prompt += `  CTA SLIDE (last slide): Dark background, founder photo, CTA text ("Comment X for invite"), arrow pointing to CTA.\n`;
   } else if (platform.id === 'youtube') {
-    prompt += `- YOUTUBE: Image MUST be LANDSCAPE (16:9). Thumbnail style — dramatic, high contrast, 3-4 words max in huge bold text.\n`;
+    prompt += `- YOUTUBE: Image MUST be LANDSCAPE (16:9). Thumbnail style  -  dramatic, high contrast, 3-4 words max in huge bold text.\n`;
   } else if (platform.id === 'tiktok') {
     prompt += `- TIKTOK: Image MUST be PORTRAIT (9:16). Bold centered text overlay, eye-catching at small size.\n`;
   } else if (platform.id === 'linkedin') {
     prompt += `- LINKEDIN: Image MUST be 4:3 LANDSCAPE ratio. Professional, clean design with authority. Bold headline text, minimal layout.\n`;
   }
   prompt += `- Always specify exact colors (e.g. "black background with white text and red accent")\n`;
-  prompt += `- The text on the image should be the HOOK or KEY MESSAGE — not decorative\n\n`;
+  prompt += `- The text on the image should be the HOOK or KEY MESSAGE  -  not decorative\n\n`;
 
   prompt += `=== TARGET PLATFORM: ${platform.name} ===\n`;
   prompt += (PLATFORM_GUIDANCE[platform.id] || `Tailor all content for ${platform.name}.`) + '\n\n';
@@ -308,7 +425,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     }
     prompt += `\nCRITICAL: Every generate_image call MUST incorporate the user's brand identity. In your image prompts, explicitly instruct: "Use the brand colors [${brandDna.colors?.primary || ''}, ${brandDna.colors?.secondary || ''}] and use ${brandDna.main_font || 'the brand font'} typography."\n`;
     prompt += `- Do NOT mention "brand logo" in your image prompts unless the user specifically asks for it. Most social media content (thumbnails, carousels, posts) should NOT have a logo.\n`;
-    prompt += `- ALWAYS instruct: "Use the person's face and likeness from the attached reference photos" — the person MUST appear in every image.\n\n`;
+    prompt += `- ALWAYS instruct: "Use the person's face and likeness from the attached reference photos"  -  the person MUST appear in every image.\n\n`;
   }
 
   let hasContext = false;
@@ -360,7 +477,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   }
 
   if (hasContext) {
-    prompt += `Use ALL of the above context — photos, documents, transcripts, and social media links — as source material when the user asks you to create or repurpose content. Reference specific quotes, topics, ideas, and visual elements from the provided context.\n\n`;
+    prompt += `Use ALL of the above context  -  photos, documents, transcripts, and social media links  -  as source material when the user asks you to create or repurpose content. Reference specific quotes, topics, ideas, and visual elements from the provided context.\n\n`;
   }
 
   if (integrationContext) {
@@ -376,13 +493,13 @@ const IMAGE_TOOL = {
   type: 'function',
   function: {
     name: 'generate_image',
-    description: 'Generate a professional image for the content. MUST be called when producing final content. The image should look like it belongs on a top-performing Instagram/YouTube account — clean, modern, high production value.',
+    description: 'Generate a professional image for the content. MUST be called when producing final content. The image should look like it belongs on a top-performing Instagram/YouTube account  -  clean, modern, high production value.',
     parameters: {
       type: 'object',
       properties: {
         prompt: {
           type: 'string',
-          description: 'Detailed image generation prompt. MUST include: 1) Style (photorealistic, modern graphic design, or cinematic — NEVER cartoon/pixel-art/clip-art), 2) Specific subject and composition, 3) Color palette and lighting, 4) Any text overlays with exact wording and typography style. Think professional design studio output.',
+          description: 'Detailed image generation prompt. MUST include: 1) Style (photorealistic, modern graphic design, or cinematic  -  NEVER cartoon/pixel-art/clip-art), 2) Specific subject and composition, 3) Color palette and lighting, 4) Any text overlays with exact wording and typography style. Think professional design studio output.',
         },
       },
       required: ['prompt'],
@@ -607,6 +724,10 @@ export default function Content() {
   const [messages, setMessages] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [editingImage, setEditingImage] = useState(null); // { msgId, imgIdx, src }
+  const [sessionId, setSessionId] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [showSessions, setShowSessions] = useState(false);
+  const saveTimer = useRef(null);
   const [editPrompt, setEditPrompt] = useState('');
   const [brandDna, setBrandDna] = useState(null);
   const [integrationCtx, setIntegrationCtx] = useState('');
@@ -685,8 +806,8 @@ export default function Content() {
   const buildContentContextString = () => {
     const items = getContentSelectedDetails();
     if (items.length === 0) return '';
-    const parts = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? ` — ${i.date}` : ''}`);
-    return `[CONTEXT — The user has selected the following items for reference:\n${parts.join('\n')}\nPrioritize this context when creating content. Use it to inform your tone, topics, and generated visuals.]\n\n`;
+    const parts = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? `  -  ${i.date}` : ''}`);
+    return `[CONTEXT  -  The user has selected the following items for reference:\n${parts.join('\n')}\nPrioritize this context when creating content. Use it to inform your tone, topics, and generated visuals.]\n\n`;
   };
 
   useEffect(() => {
@@ -718,7 +839,7 @@ export default function Content() {
   // Fetch Brand DNA and integration context on mount
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session?.user) { console.log('[Content] No session — skipping Brand DNA fetch'); return; }
+      if (!session?.user) { console.log('[Content] No session  -  skipping Brand DNA fetch'); return; }
       const { data, error } = await supabase
         .from('brand_dna')
         .select('*')
@@ -733,6 +854,103 @@ export default function Content() {
       if (context) setIntegrationCtx(context);
     }).catch(() => {});
   }, []);
+
+  // ── Session persistence ──
+  // Load sessions list on mount
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session?.user) return;
+      const { data } = await supabase
+        .from('content_sessions')
+        .select('id, title, platform, updated_at')
+        .eq('user_id', session.user.id)
+        .order('updated_at', { ascending: false })
+        .limit(50);
+      if (data) setSessions(data);
+    });
+  }, []);
+
+  // Debounced auto-save: persist messages to Supabase whenever they change
+  useEffect(() => {
+    if (messages.length === 0) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      const userId = session.user.id;
+      // Upload base64 images to storage and replace with URLs
+      const stripped = await Promise.all(messages.map(async (m) => {
+        const uploadedImages = await Promise.all((m.images || []).map(async (img) => {
+          if (img.src?.startsWith('data:')) {
+            try {
+              const commaIdx = img.src.indexOf(',');
+              const mimeMatch = img.src.match(/^data:([^;]+);/);
+              const base64 = img.src.slice(commaIdx + 1);
+              const mimeType = mimeMatch?.[1] || 'image/png';
+              const result = await uploadImageToStorage(base64, mimeType);
+              return { idx: img.idx, src: result.url || result.publicUrl || img.src };
+            } catch { return { idx: img.idx, src: img.src }; }
+          }
+          return { idx: img.idx, src: img.src };
+        }));
+        return { id: m.id, role: m.role, content: m.content, images: uploadedImages };
+      }));
+      // Also update local state with uploaded URLs so future saves don't re-upload
+      setMessages((prev) => prev.map((m, i) => stripped[i]?.images?.length ? { ...m, images: stripped[i].images } : m));
+      // Derive title from first user message
+      const firstUser = messages.find((m) => m.role === 'user');
+      const title = firstUser?.content?.replace(/\[CONTEXT[^\]]*\]\n?/g, '').slice(0, 80) || 'New conversation';
+
+      if (sessionId) {
+        // Update existing session
+        await supabase.from('content_sessions').update({
+          messages: stripped, title, platform: selectedPlatform, updated_at: new Date().toISOString(),
+        }).eq('id', sessionId);
+        setSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, title, updated_at: new Date().toISOString() } : s));
+      } else {
+        // Create new session
+        const { data, error } = await supabase.from('content_sessions').insert({
+          user_id: userId, title, platform: selectedPlatform, messages: stripped,
+        }).select('id').single();
+        if (data && !error) {
+          setSessionId(data.id);
+          setSessions((prev) => [{ id: data.id, title, platform: selectedPlatform, updated_at: new Date().toISOString() }, ...prev]);
+        }
+      }
+    }, 1500);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [messages, sessionId, selectedPlatform]);
+
+  // Load a past session
+  const loadSession = useCallback(async (id) => {
+    const { data, error } = await supabase
+      .from('content_sessions')
+      .select('id, title, platform, messages')
+      .eq('id', id)
+      .single();
+    if (error || !data) return;
+    setSessionId(data.id);
+    setSelectedPlatform(data.platform || 'instagram');
+    setMessages(data.messages || []);
+    setCurrentQuestion(null);
+    setShowSessions(false);
+  }, []);
+
+  // Start a fresh conversation
+  const newConversation = useCallback(() => {
+    setSessionId(null);
+    setMessages([]);
+    setCurrentQuestion(null);
+    setShowSessions(false);
+  }, []);
+
+  // Delete a session
+  const deleteSession = useCallback(async (id, e) => {
+    e.stopPropagation();
+    await supabase.from('content_sessions').delete().eq('id', id);
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+    if (sessionId === id) newConversation();
+  }, [sessionId, newConversation]);
 
   // Auto-scroll messages
   useEffect(() => {
@@ -751,7 +969,7 @@ export default function Content() {
       const apiMessages = chatHistory.map((m) => ({ role: m.role, content: m.content }));
       const systemPrompt = buildSystemPrompt(activePlatform, photos, documents, socialUrls, brandDna, integrationCtx);
 
-      console.group('📋 Content AI — Context being sent');
+      console.group('📋 Content AI  -  Context being sent');
       console.log('Platform:', activePlatform.name);
       console.log('Photos:', photos.length, photos.map(p => ({ status: p.status, name: p.file?.name || p.result?.filename })));
       console.log('Documents:', documents.length, documents.map(d => ({ status: d.status, name: d.file?.name || d.filename, hasText: !!d.result?.extractedText, hasTranscript: !!d.result?.transcript })));
@@ -767,10 +985,10 @@ export default function Content() {
       await streamContentResponse(
         apiMessages,
         systemPrompt,
-        // onTextChunk — stream text, but hide raw JSON questions
+        // onTextChunk  -  stream text, but hide raw JSON questions
         (text) => {
           streamedContent = text;
-          // Strip any JSON question block from display — show only the natural text before it
+          // Strip any JSON question block from display  -  show only the natural text before it
           let displayText = text;
           const jsonStart = text.indexOf('{"type"');
           const jsonStart2 = text.indexOf('{ "type"');
@@ -780,7 +998,7 @@ export default function Content() {
           if (cutIdx !== undefined) displayText = text.slice(0, cutIdx).trim();
           setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: displayText } : m)));
         },
-        // onToolCalls — all generate_image calls at once, run in parallel
+        // onToolCalls  -  all generate_image calls at once, run in parallel
         async (imageCalls) => {
           hadImageGeneration = true;
           console.log(`🖼️ Generating ${imageCalls.length} image(s) in parallel`);
@@ -811,7 +1029,7 @@ export default function Content() {
             }
           }
           if (prevImages.length) {
-            console.log(`[Content] Regeneration detected — sending ${prevImages.length} previous image(s) as reference`);
+            console.log(`[Content] Regeneration detected  -  sending ${prevImages.length} previous image(s) as reference`);
           }
 
           const results = await Promise.allSettled(
@@ -822,7 +1040,7 @@ export default function Content() {
               // Only send 1 brand DNA photo (for likeness reference), no logo
               const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
               const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
-              console.log(`[Content] Image gen — sidebar photos: ${uploadedPhotoUrls.length}, brand photo: ${oneBrandPhoto.length}, total: ${allPhotoUrls.length}`);
+              console.log(`[Content] Image gen  -  sidebar photos: ${uploadedPhotoUrls.length}, brand photo: ${oneBrandPhoto.length}, total: ${allPhotoUrls.length}`);
               const brandImageData = {
                 photoUrls: allPhotoUrls,
                 logoUrl: null, // never send logo for content image generation
@@ -935,7 +1153,7 @@ export default function Content() {
     sendToAI(updated);
   }, [input, isGenerating, messages, sendToAI, contentSelectedCtx, contentCtxCategories]);
 
-  // Direct image edit — sends ONLY the image to Gemini, no brand data, no context
+  // Direct image edit  -  sends ONLY the image to Gemini, no brand data, no context
   const handleImageEdit = useCallback(async (editInstruction) => {
     if (!editingImage || !editInstruction.trim() || isGenerating) return;
     const { msgId, imgIdx, src } = editingImage;
@@ -1213,7 +1431,7 @@ export default function Content() {
           });
         }
       }
-      console.log('[Content] Restored context — photos:', savedPhotos.length, 'docs:', savedDocs.length, 'social:', savedSocial.length);
+      console.log('[Content] Restored context  -  photos:', savedPhotos.length, 'docs:', savedDocs.length, 'social:', savedSocial.length);
       savedPhotos.forEach((p, i) => console.log(`  [photo ${i}] url: ${p.url?.slice(0, 80)}, result.url: ${p.result?.url?.slice(0, 80)}`));
       // Merge with existing state instead of replacing (avoids race with fresh uploads)
       if (savedPhotos.length) setPhotos(prev => {
@@ -1306,7 +1524,7 @@ export default function Content() {
                 onMouseEnter={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   const fn = item.file?.name || item.filename || 'file';
-                  const statusText = item.status === 'done' ? `${fn} ✓` : item.status === 'error' ? `${fn} — failed` : fn;
+                  const statusText = item.status === 'done' ? `${fn} ✓` : item.status === 'error' ? `${fn}  -  failed` : fn;
                   setTooltip({ text: statusText, x: rect.left + rect.width / 2, y: rect.top - 6, visible: true });
                 }}
                 onMouseLeave={() => setTooltip((t) => ({ ...t, visible: false }))}
@@ -1749,7 +1967,7 @@ export default function Content() {
         </div>
       </aside>
 
-      {/* Doc tooltip — rendered outside sidebar to avoid overflow clipping */}
+      {/* Doc tooltip  -  rendered outside sidebar to avoid overflow clipping */}
       {tooltip.visible && (
         <div
           className="cs-doc-tooltip"
@@ -1777,7 +1995,7 @@ export default function Content() {
       <div className="content-main">
         {/* Platform Pill Selector */}
         <div className="content-top-bar">
-          <button className="content-prev-convos" title="Previous conversations">
+          <button className="content-prev-convos" title="Previous conversations" onClick={() => setShowSessions((v) => !v)}>
             <History size={18} className="content-prev-convos-icon" />
             <span className="content-prev-convos-label">Previous conversations</span>
           </button>
@@ -1800,6 +2018,43 @@ export default function Content() {
             </div>
           </div>
         </div>
+
+        {/* Sessions overlay + panel */}
+        {showSessions && (
+          <>
+            <div className="content-sessions-backdrop" onClick={() => setShowSessions(false)} />
+            <div className="content-sessions-panel">
+              <div className="content-sessions-header">
+                <span>Conversations</span>
+                <button className="content-sessions-new" onClick={newConversation} title="New conversation">
+                  <Plus size={16} /> New
+                </button>
+              </div>
+              <div className="content-sessions-list">
+                {sessions.length === 0 && (
+                  <div className="content-sessions-empty">No past conversations yet</div>
+                )}
+                {sessions.map((s) => (
+                  <div
+                    key={s.id}
+                    className={`content-sessions-item ${s.id === sessionId ? 'content-sessions-item--active' : ''}`}
+                    onClick={() => loadSession(s.id)}
+                  >
+                    <div className="content-sessions-item-info">
+                      <span className="content-sessions-item-title">{s.title}</span>
+                      <span className="content-sessions-item-meta">
+                        {s.platform} &middot; {new Date(s.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                    <button className="content-sessions-item-delete" onClick={(e) => deleteSession(s.id, e)} title="Delete">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Chat area */}
         <div className="content-chat-area">
@@ -1931,7 +2186,7 @@ export default function Content() {
                           }}>{parsed.text}</ReactMarkdown>
                         </div>
                       )}
-                      {/* Image carousel — below text */}
+                      {/* Image carousel  -  below text */}
                       {hasImages && (
                         <div className="content-image-carousel">
                           {sortedImages.map((img, i) => (
@@ -1991,7 +2246,7 @@ export default function Content() {
                   </div>
                 );
               })}
-              {/* Question overlay — appears right after the last assistant bubble */}
+              {/* Question overlay  -  appears right after the last assistant bubble */}
               {currentQuestion && !isGenerating && (
                 <div className="content-question-overlay">
                   <p className="content-question-text">{currentQuestion.text}</p>

@@ -6,8 +6,22 @@ import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext } from '../agents/brand-context.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
+import { extractFromUrl } from '../services/social.js';
 
 const router = Router();
+
+// Social URL pattern  -  same as frontend Content.jsx
+const SOCIAL_URL_RE = /https?:\/\/(www\.)?(instagram\.com|facebook\.com|fb\.watch|linkedin\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|tiktok\.com)\/\S+/gi;
+
+// Global output rules injected into EVERY agent and CEO prompt
+const GLOBAL_OUTPUT_RULES = `
+
+=== GLOBAL OUTPUT RULES (NON-NEGOTIABLE) ===
+1. NEVER use em dashes (the long dash character). Use commas, periods, or start a new sentence instead.
+2. NEVER use hashtags (#anything) in any output. No #Entrepreneurship, no #FounderLife, no #GrowthMindset. Hashtags are banned unless the user explicitly asks for them.
+3. NEVER use filler phrases like "Great question!", "Absolutely!", "I'd be happy to help!", or any generic AI slop.
+These rules override everything else. Every piece of content you produce must follow them.
+`;
 
 // ── CEO System Prompt Builder ──
 function buildCeoSystemPrompt(context) {
@@ -15,7 +29,8 @@ function buildCeoSystemPrompt(context) {
 
 HOW YOU TALK:
 - Like a real human. Short sentences. Casual but sharp. No corporate speak.
-- NEVER use em dashes (the long dash). Use commas, periods, or just start a new sentence.
+- NEVER use em dashes (the long dash character). Use commas, periods, or just start a new sentence instead.
+- NEVER use hashtags in ANY output. No #Entrepreneurship, no #FounderLife, no #anything. Hashtags are cringe and lazy. Only include them if the user explicitly asks for hashtags.
 - No "Great question!" or "Absolutely!" or "I'd be happy to help!" or any AI slop.
 - Reference their actual data naturally. "You're at $${'{revenue}'} revenue, here's what I'd do next" not "If you have revenue data..."
 - Be opinionated. Don't hedge. Say "do this" not "you might consider."
@@ -24,15 +39,18 @@ HOW YOU TALK:
 CRITICAL RULES:
 1. When you need to ask the user something, ALWAYS use the ask_user tool. This shows a popup with clickable options. NEVER type questions in your text response. If you already asked via ask_user, do NOT repeat the question in text.
 2. After ask_user gets an answer, act on it immediately. Don't recap what they said.
-3. When creating marketing assets (newsletter, landing page, squeeze page, stories, lead magnet, DM automation), you MUST ask exactly 4 questions using ask_user before delegating. Ask ONE question at a time. NEVER skip questions. NEVER delegate until all 4 are answered. Never make these yourself via create_artifact.
+3. When creating ONLY these specific marketing assets: newsletter, landing page, squeeze page, lead magnet, DM automation  -  you MUST ask exactly 4 questions using ask_user before delegating. Ask ONE question at a time. NEVER skip questions. NEVER delegate until all 4 are answered. Never make these yourself via create_artifact.
+   IMPORTANT: Reels, TikToks, Shorts, video scripts, and story sequences are NOT in this list. Do NOT do the 4-question flow for video content.
 4. The 4 questions MUST be grounded in the user's ACTUAL business, products, and audience. NEVER invent product names, services, or topics the user hasn't mentioned. Use what you know from their brand DNA, products, and previous conversations.
    - Question 1: What's the topic? Offer options based on THEIR actual products/services/expertise. If you don't know their products, ask open-endedly.
    - Question 2: Who's the audience? Offer segments based on THEIR actual customer base.
    - Question 3: What tone? (e.g., "Authority/Hormozi style", "Witty/Morning Brew style", "Wisdom/James Clear style", "Growth/Sahil Bloom style")
    - Question 4: What's the main CTA? Offer options relevant to THEIR actual offers/links/goals.
    NEVER fabricate product names, features, or services. If unsure, keep options generic ("Your main product", "Your latest offer") rather than guessing wrong.
-5. For simple stuff (emails, posts, docs, code) just create_artifact directly.
+5. For simple stuff (emails, posts, docs, code, reel scripts) just create_artifact directly.
+8. REELS / VIDEO SCRIPTS (THIS OVERRIDES EVERYTHING ABOVE): When the user asks to "make a reel", "create a reel", "write a reel script", "make a TikTok", "make a Short", or ANYTHING about short-form video content  -  you MUST use create_artifact IMMEDIATELY to write a VIDEO SCRIPT. Do NOT ask questions first. Do NOT use ask_user. Do NOT delegate to any agent. Do NOT generate images. Reels are NOT carousels, NOT stories, NOT slides. Just write the script directly. Structure: [HOOK] (first 1-3 seconds, stop the scroll), [BRIDGE] (transition that pulls them in), [SCENE 1] and optionally [SCENE 2] (max 2 scenes, keep it tight), [CTA] only if needed. Each section gets [VISUAL] + [VOICEOVER] or [ON-SCREEN TEXT]. Suggest a trending audio direction. Keep it punchy and direct.
 6. For sending emails, use send_email. Confirm count first if more than 5 recipients.
+7. If the user asks to CHECK / READ / REVIEW / SUMMARIZE their emails or inbox, or asks what's new, or wants to find a specific email  -  call check_emails IMMEDIATELY with sensible defaults. DO NOT use ask_user to clarify first. DO NOT send them an email asking what they want. Just read the inbox, then summarize in plain talk (who, subject, one-line gist). Only ask follow-ups after you've already shown them what's there.
 
 YOUR TOOLS:
 
@@ -47,11 +65,15 @@ Pack the task_description with everything: topic, audience, tone, products, CTA,
 
 ask_user: Ask a question with clickable options. Use this instead of typing questions. Keep it tight, 3-5 options max.
 
-create_artifact: Make content directly in the canvas (emails, posts, code, docs). NOT for newsletters/landing pages/etc.
+create_artifact: Make content directly in the canvas (emails, posts, code, docs, REEL/VIDEO SCRIPTS). NOT for newsletters/landing pages/etc. When user asks for a reel or short-form video, write a script here.
 
-send_email: Send an email from the user's connected account. Works for newsletters and plain text.
+send_email: Send an email from the user's connected account. Works for newsletters and plain text. NEVER use this to "check" emails  -  only for outbound sends.
+
+check_emails: Read the user's inbox (or sent/drafts). Use whenever they ask about their emails. Always call this directly, never ask them questions first.
 
 generate_image: Create social graphics, thumbnails, cover images.
+
+VIDEO/SOCIAL LINKS: When the user pastes a video or social media link, the system auto-extracts the transcript, metadata, and creator info and attaches it to the message. You'll see it as "EXTRACTED VIDEO CONTENT". Use that data to discuss, analyze, summarize, or repurpose the content. Don't ask the user what the video is about  -  you already have the transcript.
 
 save_to_soul: Save personal insights about the user (who they are, how they communicate, their business identity). Not tasks.
 
@@ -71,9 +93,9 @@ push_notification: Flag something important for the user's notification bell.`;
     }
   }
 
-  // ── SOUL FILE — who this person is ──
-  prompt += `\n\n=== SOUL FILE — WHO THIS PERSON IS ===
-Your soul file is your deep understanding of the user as a PERSON. Not a task list. Not conversation logs. This is how you know them — their name, personality, how they talk, what drives them, what frustrates them, their business identity, their dreams.
+  // ── SOUL FILE  -  who this person is ──
+  prompt += `\n\n=== SOUL FILE  -  WHO THIS PERSON IS ===
+Your soul file is your deep understanding of the user as a PERSON. Not a task list. Not conversation logs. This is how you know them  -  their name, personality, how they talk, what drives them, what frustrates them, their business identity, their dreams.
 
 USE this to be a real partner, not a generic bot. If you know their name, use it. If you know they hate fluff, be direct. If you know they're a solo founder grinding alone, show empathy.
 
@@ -106,10 +128,10 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
       notes.forEach(n => { prompt += `- ${n}\n`; });
     }
   } else {
-    prompt += '\nNo memories yet — this is a new user. Pay attention and start building their soul file.\n';
+    prompt += '\nNo memories yet  -  this is a new user. Pay attention and start building their soul file.\n';
   }
 
-  // ── CONNECTION STATUS — what's connected and what's missing ──
+  // ── CONNECTION STATUS  -  what's connected and what's missing ──
   const allPossibleIntegrations = ['fireflies', 'fathom', 'stripe', 'whop', 'shopify', 'kajabi', 'gohighlevel', 'netlify'];
   const activeIntegrations = context.activeIntegrations || [];
   const emailAccounts = context.emailAccounts || [];
@@ -124,7 +146,7 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
   if (emailAccounts.length > 0) {
     prompt += `Email accounts: ${emailAccounts.map(a => a.email).join(', ')}\n`;
   } else {
-    prompt += 'Email: NOT CONNECTED — user cannot send emails. Suggest they connect an email account in Settings.\n';
+    prompt += 'Email: NOT CONNECTED  -  user cannot send emails. Suggest they connect an email account in Settings.\n';
   }
   if (missingProviders.length > 0) {
     prompt += `Not connected: ${missingProviders.join(', ')}\n`;
@@ -135,10 +157,10 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
   const hasContacts = (context.contacts || []).length > 0;
   const hasSales = !!(context.salesData?.stats?.total_sales);
 
-  prompt += `\nBrand DNA: ${hasBrandDna ? 'SET UP' : 'MISSING — critical for content quality. Ask user to set up Brand DNA in Settings.'}\n`;
-  prompt += `Products: ${hasProducts ? (context.products || []).length + ' products' : 'NONE — ask what they sell so you can help with marketing'}\n`;
-  prompt += `Contacts: ${hasContacts ? (context.contacts || []).length + ' contacts' : 'NONE — suggest importing contacts or connecting a CRM'}\n`;
-  prompt += `Sales data: ${hasSales ? 'Available' : 'NONE — suggest connecting Stripe/Shopify for revenue insights'}\n`;
+  prompt += `\nBrand DNA: ${hasBrandDna ? 'SET UP' : 'MISSING  -  critical for content quality. Ask user to set up Brand DNA in Settings.'}\n`;
+  prompt += `Products: ${hasProducts ? (context.products || []).length + ' products' : 'NONE  -  ask what they sell so you can help with marketing'}\n`;
+  prompt += `Contacts: ${hasContacts ? (context.contacts || []).length + ' contacts' : 'NONE  -  suggest importing contacts or connecting a CRM'}\n`;
+  prompt += `Sales data: ${hasSales ? 'Available' : 'NONE  -  suggest connecting Stripe/Shopify for revenue insights'}\n`;
 
   prompt += `\nPROACTIVE BEHAVIOR:
 - If Brand DNA is missing, push a notification and tell the user to set it up. It's critical.
@@ -195,7 +217,7 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
       social.forEach(item => {
         const m = item.metadata || {};
         prompt += `- ${m.title || item.url} (${m.platform || 'unknown'})`;
-        if (item.transcript) prompt += ` — transcript available`;
+        if (item.transcript) prompt += `  -  transcript available`;
         prompt += '\n';
       });
       prompt += '\n';
@@ -228,7 +250,7 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
     prompt += `=== PRODUCTS (${products.length}) ===\n`;
     products.forEach(p => {
       prompt += `- ${p.name}: $${p.price || 0}`;
-      if (p.description) prompt += ` — ${p.description.slice(0, 200)}`;
+      if (p.description) prompt += `  -  ${p.description.slice(0, 200)}`;
       prompt += '\n';
     });
     prompt += '\n';
@@ -247,10 +269,10 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
 
   if (outlierData) {
     if (outlierData.creators?.length) {
-      prompt += `=== OUTLIER RESEARCH — CREATORS (${outlierData.creators.length}) ===\n`;
+      prompt += `=== OUTLIER RESEARCH  -  CREATORS (${outlierData.creators.length}) ===\n`;
       outlierData.creators.forEach(c => {
         prompt += `- ${c.display_name || c.username} (${c.platform})`;
-        if (c.avg_views) prompt += ` — avg ${Number(c.avg_views).toLocaleString()} views`;
+        if (c.avg_views) prompt += `  -  avg ${Number(c.avg_views).toLocaleString()} views`;
         prompt += '\n';
       });
       prompt += '\n';
@@ -266,7 +288,7 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
     }
   }
 
-  return prompt;
+  return prompt + GLOBAL_OUTPUT_RULES;
 }
 
 // ── SSE Helper ──
@@ -292,7 +314,7 @@ const EDIT_TOOLS = [
   },
   {
     name: 'replace_section',
-    description: 'Replace an entire section between <!-- SECTION:name --> and <!-- /SECTION:name --> markers. Use ONLY when the user asks for a full section redesign — prefer replace_text for smaller changes.',
+    description: 'Replace an entire section between <!-- SECTION:name --> and <!-- /SECTION:name --> markers. Use ONLY when the user asks for a full section redesign  -  prefer replace_text for smaller changes.',
     input_schema: {
       type: 'object',
       properties: {
@@ -305,17 +327,17 @@ const EDIT_TOOLS = [
 ];
 
 function buildEditSystemPrompt(brandDna) {
-  let prompt = `You are editing an existing HTML file. You operate like a code editor — making precise, surgical changes.
+  let prompt = `You are editing an existing HTML file. You operate like a code editor  -  making precise, surgical changes.
 
 TOOLS:
 - replace_text: Find an exact substring and replace it. Use for targeted changes (headings, paragraphs, colors, links, images, CSS values). The old_text MUST be an exact match of text in the file.
 - replace_section: Replace everything between <!-- SECTION:name --> markers. Use ONLY for full section redesigns.
 
 RULES:
-1. Make MINIMAL changes — only modify what the user asked for.
+1. Make MINIMAL changes  -  only modify what the user asked for.
 2. ALWAYS prefer replace_text over replace_section. Use replace_section ONLY when the user explicitly asks to redesign/rebuild an entire section.
 3. Make multiple replace_text calls for complex edits (e.g., changing 3 headings = 3 calls).
-4. old_text must be EXACT — include enough surrounding context to be unique if needed.
+4. old_text must be EXACT  -  include enough surrounding context to be unique if needed.
 5. After all edits, respond with a 1-sentence summary of what you changed.
 6. NEVER rewrite the entire page.
 7. Preserve all existing styles, classes, and structure unless the user asks to change them.`;
@@ -357,7 +379,7 @@ router.post('/api/orchestrate', async (req, res) => {
     if (mode === 'direct') {
       await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction });
     } else if (mode === 'ceo' && currentHtml && currentAgent) {
-      // User is editing an existing artifact — try surgical file-based edit first
+      // User is editing an existing artifact  -  try surgical file-based edit first
       const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
       const agent = getAgent(currentAgent);
       if (agent && lastUserMsg) {
@@ -424,7 +446,7 @@ async function handleDirectAgent({ res, agentName, messages, context, searchMode
   console.log(`[orchestrate] Running regular agent execution for ${agent.name}, msgCount=${messages?.length}`);
   sendSSE(res, { type: 'status', text: `Running ${agent.name} agent...` });
 
-  const systemPrompt = agent.buildSystemPrompt(context.brandDna);
+  const systemPrompt = agent.buildSystemPrompt(context.brandDna) + GLOBAL_OUTPUT_RULES;
 
   // For edit mode fallback, build messages with current HTML and section-based instructions
   let agentMessages = messages;
@@ -551,11 +573,93 @@ async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId
   });
 
   if (editCount === 0) {
-    // Claude didn't make any edits — fall back to regular agent
+    // Claude didn't make any edits  -  fall back to regular agent
     throw new Error('No edits were applied');
   }
 
   return true;
+}
+
+// ── Extract social/video URLs from user messages & enrich context ──
+async function enrichMessagesWithVideoContext(messages, userId, res) {
+  // Grab the last user message
+  const lastUserIdx = messages.findLastIndex(m => m.role === 'user');
+  if (lastUserIdx < 0) return messages;
+
+  const lastMsg = messages[lastUserIdx];
+  const text = typeof lastMsg.content === 'string' ? lastMsg.content : '';
+  const urls = [...new Set((text.match(SOCIAL_URL_RE) || []).map(u => u.replace(/[)}\]]+$/, '')))];
+  if (urls.length === 0) return messages;
+
+  console.log(`[orchestrate] Detected ${urls.length} social URL(s) in user message: ${urls.join(', ')}`);
+  sendSSE(res, { type: 'status', text: `Extracting video${urls.length > 1 ? 's' : ''}...` });
+
+  const results = await Promise.allSettled(urls.map(u => extractFromUrl(u)));
+  const extracted = [];
+
+  for (let i = 0; i < results.length; i++) {
+    if (results[i].status !== 'fulfilled') {
+      console.log(`[orchestrate] Extraction failed for ${urls[i]}: ${results[i].reason?.message}`);
+      continue;
+    }
+    const data = results[i].value;
+    extracted.push(data);
+
+    // Persist to content_items so it shows up in future context
+    try {
+      const { data: existing } = await supabase
+        .from('content_items')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('url', data.url)
+        .limit(1);
+      if (!existing || existing.length === 0) {
+        await supabase.from('content_items').insert({
+          user_id: userId,
+          type: 'social',
+          url: data.url,
+          transcript: data.transcript || null,
+          metadata: {
+            platform: data.platform,
+            title: data.title,
+            description: data.description,
+            uploader: data.uploader,
+            duration: data.duration,
+            thumbnail: data.thumbnail,
+            source: data.source,
+            language: data.language || null,
+          },
+        });
+        console.log(`[orchestrate] Saved social content_item for ${data.url}`);
+      }
+    } catch (err) {
+      console.log(`[orchestrate] Failed to save content_item: ${err.message}`);
+    }
+  }
+
+  if (extracted.length === 0) return messages;
+
+  // Build a context block and append it to the user message
+  let videoContext = '\n\n--- EXTRACTED VIDEO CONTENT (auto-processed from the link above) ---\n';
+  for (const data of extracted) {
+    videoContext += `\nURL: ${data.url}\n`;
+    if (data.platform) videoContext += `Platform: ${data.platform}\n`;
+    if (data.title) videoContext += `Title: ${data.title}\n`;
+    if (data.uploader) videoContext += `Creator: ${data.uploader}\n`;
+    if (data.description) videoContext += `Description: ${data.description.slice(0, 1000)}\n`;
+    if (data.duration) videoContext += `Duration: ${data.duration}s\n`;
+    if (data.transcript) {
+      videoContext += `Transcript:\n${data.transcript.slice(0, 4000)}\n`;
+    } else {
+      videoContext += `Transcript: not available\n`;
+    }
+  }
+  videoContext += '--- END VIDEO CONTENT ---\n';
+
+  // Clone messages and enrich the last user message
+  const enriched = [...messages];
+  enriched[lastUserIdx] = { ...lastMsg, content: text + videoContext };
+  return enriched;
 }
 
 // ── CEO Orchestration ──
@@ -563,11 +667,14 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, user
   const systemPrompt = buildCeoSystemPrompt(context);
   const tools = buildAgentTools();
 
+  // Auto-extract video/social URLs from the user's message before the model sees it
+  const enrichedMessages = await enrichMessagesWithVideoContext(messages, userId, res);
+
   sendSSE(res, { type: 'status', text: 'Thinking...' });
 
   const result = await executeCeoOrchestrator({
     systemPrompt,
-    messages,
+    messages: enrichedMessages,
     tools,
     searchMode,
     onChunk: (content) => {
@@ -592,6 +699,8 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, user
           await handlePushNotification({ res, call, userId });
         } else if (call.name === 'send_email') {
           await handleSendEmail({ res, call, userId });
+        } else if (call.name === 'check_emails') {
+          await handleCheckEmails({ res, call, userId });
         } else if (call.name === 'create_artifact' || call.name === 'generate_image') {
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
@@ -678,6 +787,96 @@ async function handleSendEmail({ res, call, userId }) {
   }
 }
 
+// ── Check Emails (CEO reads user's inbox from the synced emails table) ──
+async function handleCheckEmails({ res, call, userId }) {
+  let args;
+  try { args = JSON.parse(call.arguments); } catch { args = {}; }
+
+  const limit = Math.min(Math.max(parseInt(args.limit) || 10, 1), 30);
+  const folder = ['inbox', 'sent', 'drafts'].includes(args.folder) ? args.folder : 'inbox';
+  const unreadOnly = !!args.unread_only;
+  const search = (args.search || '').trim();
+
+  console.log(`[orchestrate] check_emails called: folder=${folder} limit=${limit} unread_only=${unreadOnly} search="${search}"`);
+  sendSSE(res, { type: 'status', text: `Reading ${folder}...` });
+
+  try {
+    // Make sure the user actually has an email account connected
+    const { data: accounts } = await supabase
+      .from('email_accounts')
+      .select('id, email, is_active')
+      .eq('user_id', userId)
+      .eq('is_active', true);
+
+    if (!accounts || accounts.length === 0) {
+      call.result = 'The user has no connected email account. Tell them they need to connect one in Settings before you can read their inbox.';
+      console.log('[orchestrate] check_emails: no active email account');
+      return;
+    }
+
+    let query = supabase
+      .from('emails')
+      .select('id, from_name, from_email, subject, body_text, is_read, is_starred, has_attachments, date, folder')
+      .eq('user_id', userId)
+      .eq('folder', folder)
+      .order('date', { ascending: false })
+      .limit(limit);
+
+    if (unreadOnly) query = query.eq('is_read', false);
+    if (search) {
+      const escaped = search.replace(/[%,()]/g, '');
+      query = query.or(
+        `subject.ilike.%${escaped}%,from_email.ilike.%${escaped}%,from_name.ilike.%${escaped}%,body_text.ilike.%${escaped}%`
+      );
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const emails = (data || []).map((e) => ({
+      from: e.from_name ? `${e.from_name} <${e.from_email}>` : e.from_email,
+      subject: e.subject || '(no subject)',
+      date: e.date,
+      unread: !e.is_read,
+      starred: e.is_starred,
+      has_attachments: e.has_attachments,
+      preview: (e.body_text || '').replace(/\s+/g, ' ').trim().slice(0, 300),
+    }));
+
+    // Quick unread total for context (not limited)
+    let unreadTotal = null;
+    try {
+      const { count } = await supabase
+        .from('emails')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('folder', 'inbox')
+        .eq('is_read', false);
+      unreadTotal = count ?? null;
+    } catch {}
+
+    const header = [
+      `Connected account(s): ${accounts.map((a) => a.email).join(', ')}`,
+      `Folder: ${folder}`,
+      unreadTotal != null ? `Total unread in inbox: ${unreadTotal}` : null,
+      `Returned: ${emails.length}${unreadOnly ? ' (unread only)' : ''}${search ? ` (search: "${search}")` : ''}`,
+    ].filter(Boolean).join('\n');
+
+    const body = emails.length === 0
+      ? 'No emails matched.'
+      : emails.map((e, i) => {
+          const when = e.date ? new Date(e.date).toISOString() : '';
+          return `${i + 1}. ${e.unread ? '[UNREAD] ' : ''}${e.starred ? '[*] ' : ''}${when}\n   From: ${e.from}\n   Subject: ${e.subject}\n   Preview: ${e.preview}`;
+        }).join('\n\n');
+
+    call.result = `${header}\n\n${body}\n\nSummarize this for the user in your own casual voice. Mention the unread count, call out anything that looks urgent or important, and ask what they want to do next.`;
+    console.log(`[orchestrate] check_emails returned ${emails.length} emails (unread total: ${unreadTotal})`);
+  } catch (err) {
+    console.error('[orchestrate] check_emails failed:', err.message);
+    call.result = `Error reading inbox: ${err.message}. Tell the user something went wrong pulling their emails and suggest they check their email connection in Settings.`;
+  }
+}
+
 // ── Agent Delegation (CEO calls a specialist agent) ──
 async function handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent }) {
   let args;
@@ -718,7 +917,7 @@ async function handleAgentDelegation({ res, call, context, userId, currentHtml, 
     }
   }
 
-  const systemPrompt = agent.buildSystemPrompt(context.brandDna);
+  const systemPrompt = agent.buildSystemPrompt(context.brandDna) + GLOBAL_OUTPUT_RULES;
 
   // If editing but file-based failed, use section-based editing
   let agentMessages;
@@ -745,17 +944,17 @@ ${currentHtml}`,
       },
     ];
   } else {
-    // Tell the agent to skip its question flow — the CEO already gathered context
+    // Tell the agent to skip its question flow  -  the CEO already gathered context
     const isLandingAgent = agentName === 'landing-page' || agentName === 'landing' || agentName === 'squeeze-page' || agentName === 'squeeze';
     const isNewsletterAgent = agentName === 'newsletter';
 
     let designRules;
     if (isLandingAgent) {
-      designRules = `DESIGN RULES FOR LANDING PAGES (non-negotiable — this must look like a $10k agency build):
+      designRules = `DESIGN RULES FOR LANDING PAGES (non-negotiable  -  this must look like a $10k agency build):
 - Modern CSS in a <style> block. Google Fonts via <link>. NO <script> tags. Max-width 1200px, responsive.
 - REQUIRED SECTIONS with markers: nav, hero, social-proof, features, testimonials, how-it-works, faq, final-cta, footer.
 - HERO: NEVER plain white. Use bold gradient or dark background with light text. Headline 48-64px with highlighted keywords (<span> with accent underline/background). Large pill-shaped CTA button with box-shadow. Trust badges below CTA. {{GENERATE:...}} hero image.
-- VISUAL RHYTHM: Alternate section backgrounds — white, light gray (#f6f9fb), one dark/gradient section. NEVER all-white.
+- VISUAL RHYTHM: Alternate section backgrounds  -  white, light gray (#f6f9fb), one dark/gradient section. NEVER all-white.
 - CARDS: border-radius 16px, box-shadow 0 4px 24px rgba(0,0,0,0.06), hover: translateY(-4px) + deeper shadow. CSS grid 2-3 columns.
 - CTA BUTTONS: Large (18px, 18px 40px padding), pill-shaped, brand color, shadow, hover: translateY(-2px). In hero AND final-cta.
 - TYPOGRAPHY: clamp() for fluid sizes. 800 weight headlines, section heading badges ("How It Works" pill above).
@@ -783,7 +982,7 @@ ${currentHtml}`,
 - Responsive layout with good whitespace and typography.`;
     }
 
-    const directInstruction = `IMPORTANT: The AI CEO has already asked the user all necessary questions. You have all the context you need below. Generate the final output IMMEDIATELY — do NOT ask any questions.
+    const directInstruction = `IMPORTANT: The AI CEO has already asked the user all necessary questions. You have all the context you need below. Generate the final output IMMEDIATELY  -  do NOT ask any questions.
 
 ${designRules}
 

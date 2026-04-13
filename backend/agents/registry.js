@@ -1,4 +1,4 @@
-// Central agent registry — all specialist agents registered here
+// Central agent registry  -  all specialist agents registered here
 
 import newsletter from './newsletter.js';
 import landingPage from './landing-page.js';
@@ -68,7 +68,7 @@ export function buildAgentTools() {
       type: 'function',
       function: {
         name: 'create_artifact',
-        description: 'Create a visual artifact directly in the split-screen panel. Use for emails, social posts, code, or documents — NOT for newsletters, landing pages, or other marketing assets (use delegate_to_agent for those). For emails, follow the Daniel Paul Email Framework: result before story, one sentence per paragraph, one CTA only, PS line mandatory, first name sign-off only, invite framing not sales framing. NEVER use "leverage/synergy/utilize/paradigm", passive voice, or em dashes.',
+        description: 'Create a visual artifact directly in the split-screen panel. Use for emails, social posts, code, or documents  -  NOT for newsletters, landing pages, or other marketing assets (use delegate_to_agent for those). For emails, follow the Daniel Paul Email Framework: result before story, one sentence per paragraph, one CTA only, PS line mandatory, first name sign-off only, invite framing not sales framing. NEVER use "leverage/synergy/utilize/paradigm", passive voice, em dashes, or hashtags.',
         parameters: {
           type: 'object',
           properties: {
@@ -111,13 +111,13 @@ export function buildAgentTools() {
       type: 'function',
       function: {
         name: 'ask_user',
-        description: 'Ask the user a question with multiple choice options before proceeding. Use this BEFORE delegating to an agent — ask 1-2 focused questions to understand what they want. The question appears as a popup overlay with clickable options. ALWAYS use this instead of asking questions in plain text.',
+        description: 'Ask the user a question with multiple choice options before proceeding. Use this BEFORE delegating to an agent  -  ask 1-2 focused questions to understand what they want. The question appears as a popup overlay with clickable options. ALWAYS use this instead of asking questions in plain text.',
         parameters: {
           type: 'object',
           properties: {
             question: {
               type: 'string',
-              description: 'The question to ask — keep it short and direct.',
+              description: 'The question to ask  -  keep it short and direct.',
             },
             options: {
               type: 'array',
@@ -133,7 +133,7 @@ export function buildAgentTools() {
       type: 'function',
       function: {
         name: 'save_to_soul',
-        description: 'Save something you learned about the USER as a person to their soul file. This is your deep understanding of WHO they are — not what they asked you to do. Save their name, personality, communication style, business identity, values, frustrations, dreams, preferences, and quirks. This is how you build a real relationship across conversations. Do NOT save tasks, to-dos, conversation summaries, or things you generated for them.',
+        description: 'Save something you learned about the USER as a person to their soul file. This is your deep understanding of WHO they are  -  not what they asked you to do. Save their name, personality, communication style, business identity, values, frustrations, dreams, preferences, and quirks. This is how you build a real relationship across conversations. Do NOT save tasks, to-dos, conversation summaries, or things you generated for them.',
         parameters: {
           type: 'object',
           properties: {
@@ -165,7 +165,7 @@ export function buildAgentTools() {
             },
             message: {
               type: 'string',
-              description: 'The notification body — actionable insight or suggestion',
+              description: 'The notification body  -  actionable insight or suggestion',
             },
             type: {
               type: 'string',
@@ -179,6 +179,36 @@ export function buildAgentTools() {
             },
           },
           required: ['title', 'message', 'type'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'check_emails',
+        description: "Read the user's recent emails from their connected inbox. Call this IMMEDIATELY whenever the user asks to check/read/review/summarize their emails, find a specific message, or see what's new. NEVER ask follow-up questions before calling this  -  just call it with sensible defaults (limit 10, folder inbox). You'll get the emails back as structured data so you can summarize them in your own words.",
+        parameters: {
+          type: 'object',
+          properties: {
+            limit: {
+              type: 'number',
+              description: 'Max emails to fetch (1-30). Default 10.',
+            },
+            folder: {
+              type: 'string',
+              enum: ['inbox', 'sent', 'drafts'],
+              description: 'Folder to read from. Default "inbox".',
+            },
+            unread_only: {
+              type: 'boolean',
+              description: 'If true, only return unread emails. Default false.',
+            },
+            search: {
+              type: 'string',
+              description: 'Optional keyword to match subject/sender/body (case-insensitive substring).',
+            },
+          },
+          required: [],
         },
       },
     },

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp } from 'lucide-react';
+import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getSalesCalls, getContentItems, getProducts } from '../lib/api';
@@ -33,7 +33,7 @@ function generateNewsletterImages(html, setArtifactFn, onProgress, platform = 'n
 
   if (onProgress) onProgress({ completed: 0, failed: 0, total, done: false });
 
-  // Fire all in parallel — returns a promise that resolves when ALL images are done
+  // Fire all in parallel  -  returns a promise that resolves when ALL images are done
   const promise = Promise.all(matches.map(async (m) => {
     let imgSrc = null;
     try {
@@ -50,7 +50,7 @@ function generateNewsletterImages(html, setArtifactFn, onProgress, platform = 'n
     if (!imgSrc) failed++;
     if (onProgress) onProgress({ completed, failed, total, done: completed === total });
 
-    // Swap just the src value — keep the original <img> tag and all its styling intact
+    // Swap just the src value  -  keep the original <img> tag and all its styling intact
     if (setArtifactFn) {
       setArtifactFn(prev => {
         if (!prev?.content) return prev;
@@ -102,8 +102,12 @@ export default function AiCeo() {
   const [currentQuestion, setCurrentQuestion] = useState(null); // { question, options }
   const [customTyping, setCustomTyping] = useState(false);
   const [customText, setCustomText] = useState('');
+  const [sessionId, setSessionId] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [showSessions, setShowSessions] = useState(false);
 
   const messagesEndRef = useRef(null);
+  const saveTimer = useRef(null);
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -198,8 +202,8 @@ export default function AiCeo() {
   const buildCeoContextString = () => {
     const items = getSelectedCtxDetails();
     if (items.length === 0) return '';
-    const parts = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? ` — ${i.date}` : ''}`);
-    return `[CONTEXT — The user has selected the following items for reference:\n${parts.join('\n')}\nPrioritize this context when responding. Use it to inform your suggestions, decisions, and any generated content.]\n\n`;
+    const parts = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? `  -  ${i.date}` : ''}`);
+    return `[CONTEXT  -  The user has selected the following items for reference:\n${parts.join('\n')}\nPrioritize this context when responding. Use it to inform your suggestions, decisions, and any generated content.]\n\n`;
   };
 
   // Click outside context menu
@@ -233,7 +237,7 @@ export default function AiCeo() {
 
   // Context is now loaded server-side by the orchestrator
 
-  // ── Auto-scroll — only when user sends a message or generation starts ──
+  // ── Auto-scroll  -  only when user sends a message or generation starts ──
   const shouldScrollRef = useRef(false);
 
   useEffect(() => {
@@ -269,6 +273,146 @@ export default function AiCeo() {
       document.removeEventListener('touchend', handleUp);
     };
   }, [dragging]);
+
+  // ── Session persistence ──
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session?.user) return;
+      const { data } = await supabase
+        .from('ceo_sessions')
+        .select('id, title, updated_at')
+        .eq('user_id', session.user.id)
+        .order('updated_at', { ascending: false })
+        .limit(50);
+      if (data) setSessions(data);
+    });
+  }, []);
+
+  // Debounced auto-save
+  useEffect(() => {
+    if (messages.length === 0) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      const userId = session.user.id;
+
+      const stripped = messages.map((m) => ({
+        id: m.id, role: m.role, content: m.content,
+        ...(m.hasArtifact ? { hasArtifact: true, artifactTitle: m.artifactTitle, artifactType: m.artifactType } : {}),
+      }));
+
+      // Prepare artifact for storage - upload base64 images
+      let artifactData = null;
+      if (artifact) {
+        let savedContent = artifact.content || '';
+        // Upload inline base64 images in HTML to storage
+        const b64re = /src="(data:image\/[^;]+;base64,[^"]+)"/g;
+        for (const match of [...savedContent.matchAll(b64re)]) {
+          try {
+            const dataUri = match[1];
+            const commaIdx = dataUri.indexOf(',');
+            const mimeMatch = dataUri.match(/^data:([^;]+);/);
+            const result = await uploadImageToStorage(dataUri.slice(commaIdx + 1), mimeMatch?.[1] || 'image/png');
+            if (result.url) savedContent = savedContent.replaceAll(dataUri, result.url);
+          } catch {}
+        }
+        // Upload images array
+        const uploadedImages = await Promise.all((artifact.images || []).map(async (img) => {
+          if (img.src?.startsWith('data:')) {
+            try {
+              const commaIdx = img.src.indexOf(',');
+              const mimeMatch = img.src.match(/^data:([^;]+);/);
+              const result = await uploadImageToStorage(img.src.slice(commaIdx + 1), mimeMatch?.[1] || 'image/png');
+              return { ...img, src: result.url || img.src };
+            } catch { return img; }
+          }
+          return img;
+        }));
+        // Upload story frames
+        let savedFrames = artifact.frames ? await Promise.all(artifact.frames.map(async (f) => {
+          if (f.imageSrc?.startsWith('data:')) {
+            try {
+              const commaIdx = f.imageSrc.indexOf(',');
+              const mimeMatch = f.imageSrc.match(/^data:([^;]+);/);
+              const result = await uploadImageToStorage(f.imageSrc.slice(commaIdx + 1), mimeMatch?.[1] || 'image/png');
+              return { ...f, imageSrc: result.url || f.imageSrc };
+            } catch { return f; }
+          }
+          return f;
+        })) : null;
+
+        // Update local state with uploaded URLs
+        if (savedContent !== artifact.content || uploadedImages.some((img, i) => img.src !== artifact.images?.[i]?.src)) {
+          setArtifact((prev) => prev ? { ...prev, content: savedContent, images: uploadedImages, ...(savedFrames ? { frames: savedFrames } : {}) } : prev);
+        }
+
+        artifactData = {
+          id: artifact.id, type: artifact.type, title: artifact.title,
+          content: savedContent, images: uploadedImages,
+          agentSource: artifact.agentSource || null,
+          ...(savedFrames ? { frames: savedFrames } : {}),
+        };
+      }
+
+      const firstUser = messages.find((m) => m.role === 'user');
+      const title = firstUser?.content?.replace(/\[CONTEXT[^\]]*\]\n?/g, '').slice(0, 80) || 'New conversation';
+
+      if (sessionId) {
+        await supabase.from('ceo_sessions').update({
+          messages: stripped, title, artifact: artifactData, updated_at: new Date().toISOString(),
+        }).eq('id', sessionId);
+        setSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, title, updated_at: new Date().toISOString() } : s));
+      } else {
+        const { data, error } = await supabase.from('ceo_sessions').insert({
+          user_id: userId, title, messages: stripped, artifact: artifactData,
+        }).select('id').single();
+        if (data && !error) {
+          setSessionId(data.id);
+          setSessions((prev) => [{ id: data.id, title, updated_at: new Date().toISOString() }, ...prev]);
+        }
+      }
+    }, 2000);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [messages, sessionId, artifact]);
+
+  const loadSession = useCallback(async (id) => {
+    const { data, error } = await supabase
+      .from('ceo_sessions')
+      .select('id, title, messages, artifact')
+      .eq('id', id)
+      .single();
+    if (error || !data) return;
+    setSessionId(data.id);
+    setMessages(data.messages || []);
+    setCurrentQuestion(null);
+    if (data.artifact) {
+      setArtifact(data.artifact);
+      setPanelOpen(true);
+      if (isMobile) setMobileArtifactOpen(true);
+    } else {
+      setArtifact(null);
+      setPanelOpen(false);
+    }
+    setShowSessions(false);
+  }, [isMobile]);
+
+  const newConversation = useCallback(() => {
+    setSessionId(null);
+    setMessages([]);
+    setArtifact(null);
+    setPanelOpen(false);
+    setMobileArtifactOpen(false);
+    setCurrentQuestion(null);
+    setShowSessions(false);
+  }, []);
+
+  const deleteSession = useCallback(async (id, e) => {
+    e.stopPropagation();
+    await supabase.from('ceo_sessions').delete().eq('id', id);
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+    if (sessionId === id) newConversation();
+  }, [sessionId, newConversation]);
 
   // ── Send to AI (via backend orchestrator) ──
   const sendToAI = useCallback(async (chatHistory) => {
@@ -338,7 +482,7 @@ export default function AiCeo() {
             }
           }
         },
-        // Agent finished — parse final result
+        // Agent finished  -  parse final result
         onAgentResult: (agentName, content) => {
           try {
             // Fix broken JSON caused by raw newlines inside string values
@@ -362,7 +506,7 @@ export default function AiCeo() {
               }
             }
             if (!parsed) throw new Error('No valid JSON');
-            // Section-based edit — merge only changed sections into current artifact HTML
+            // Section-based edit  -  merge only changed sections into current artifact HTML
             if (parsed.type === 'edit' && parsed.sections) {
               const currentArt = artifactRef.current;
               if (currentArt?.content) {
@@ -391,7 +535,7 @@ export default function AiCeo() {
               setPanelOpen(true);
               if (isMobileRef.current) setMobileArtifactOpen(true);
 
-              // If images need generating, don't show the artifact card yet — wait until done
+              // If images need generating, don't show the artifact card yet  -  wait until done
               if (hasImages) {
                 setMessages(prev => prev.map(m =>
                   m.id === assistantMsgId ? { ...m, content: 'Generating images for your newsletter...', status: 'Generating images...' } : m
@@ -409,12 +553,12 @@ export default function AiCeo() {
                 if (imgResult?.promise) pendingImagesRef.current.push(imgResult.promise);
               }
 
-              // Generate cover image — insert shimmer placeholder immediately, swap when done
+              // Generate cover image  -  insert shimmer placeholder immediately, swap when done
               if (isNewsletter && parsed.cover_image_prompt) {
                 const COVER_PLACEHOLDER_ID = 'cover-img-placeholder';
                 const coverShimmer = `<div id="${COVER_PLACEHOLDER_ID}" style="width:100%;height:250px;background:#e2e2e2;border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;margin-bottom:16px"><style>#${COVER_PLACEHOLDER_ID}::before{content:'';position:absolute;width:300%;height:300%;top:-100%;left:-100%;background:linear-gradient(135deg,transparent 35%,rgba(255,255,255,0.5) 48%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 52%,transparent 65%);animation:genShimmer 2s linear infinite}@keyframes genShimmer{0%{transform:translate(-33%,-33%)}100%{transform:translate(33%,33%)}}</style><span style="color:#9e9e9e;font-size:13px;font-weight:600;font-family:Inter,system-ui,sans-serif;position:relative;z-index:1;letter-spacing:0.5px">Generating cover image</span></div>`;
 
-                // Insert shimmer into hero section — strip any existing images first to prevent duplicates
+                // Insert shimmer into hero section  -  strip any existing images first to prevent duplicates
                 setArtifact(prev => {
                   if (!prev?.content) return prev;
                   let h = prev.content;
@@ -490,7 +634,7 @@ export default function AiCeo() {
                 })();
               }
             }
-            // Cover image prompt — generate and inject into newsletter (fallback for manual requests)
+            // Cover image prompt  -  generate and inject into newsletter (fallback for manual requests)
             if (parsed.type === 'cover_image' && parsed.prompt) {
               setMessages(prev => prev.map(m =>
                 m.id === assistantMsgId ? { ...m, content: 'Generating your cover image...' } : m
@@ -520,12 +664,12 @@ export default function AiCeo() {
                       ));
                     } else {
                       setMessages(prev => prev.map(m =>
-                        m.id === assistantMsgId ? { ...m, content: 'Cover image generation returned no image — try again.' } : m
+                        m.id === assistantMsgId ? { ...m, content: 'Cover image generation returned no image  -  try again.' } : m
                       ));
                     }
                   } else {
                     setMessages(prev => prev.map(m =>
-                      m.id === assistantMsgId ? { ...m, content: 'Cover image generation returned no image — try again.' } : m
+                      m.id === assistantMsgId ? { ...m, content: 'Cover image generation returned no image  -  try again.' } : m
                     ));
                   }
                 } catch (err) {
@@ -580,7 +724,7 @@ export default function AiCeo() {
                 const visualStyle = parsed.visual_style || '';
                 await Promise.all(storyFrames.map(async (frame, idx) => {
                   const captionText = frame.caption || frame.title || '';
-                  const captionInstruction = captionText ? `\n\nTEXT OVERLAY — ONE text sticker:\n- Render EXACTLY ONE text sticker: "${captionText}"\n- Flat solid white (#FFFFFF) rectangle with rounded corners (~12px radius). NO border, NO outline, NO stroke around the pill — just a clean flat white shape.\n- Text: "${captionText}" in pure black (#000000), bold weight, clean sans-serif (SF Pro, Helvetica), ~30px\n- Snug padding: pill tightly wraps text. Only as wide as the text needs.\n- Centered horizontally, upper third of frame.\n- ONE sticker only. Do NOT duplicate text. Do NOT add any border or outline around the white pill.\n\nDO NOT RENDER:\n- No Instagram UI (no progress bars, profile pics, usernames, send bar, hearts)\n- No borders or outlines around the text sticker\n- No second copy of the text\n- Just the photo with one clean white text sticker on top.` : '';
+                  const captionInstruction = captionText ? `\n\nTEXT OVERLAY  -  ONE text sticker:\n- Render EXACTLY ONE text sticker: "${captionText}"\n- Flat solid white (#FFFFFF) rectangle with rounded corners (~12px radius). NO border, NO outline, NO stroke around the pill  -  just a clean flat white shape.\n- Text: "${captionText}" in pure black (#000000), bold weight, clean sans-serif (SF Pro, Helvetica), ~30px\n- Snug padding: pill tightly wraps text. Only as wide as the text needs.\n- Centered horizontally, upper third of frame.\n- ONE sticker only. Do NOT duplicate text. Do NOT add any border or outline around the white pill.\n\nDO NOT RENDER:\n- No Instagram UI (no progress bars, profile pics, usernames, send bar, hearts)\n- No borders or outlines around the text sticker\n- No second copy of the text\n- Just the photo with one clean white text sticker on top.` : '';
                   const sequencePrompt = `${visualStyle ? `VISUAL STYLE FOR THIS SERIES: ${visualStyle}\n\n` : ''}This is frame ${idx + 1} of ${storyFrames.length} in a cohesive Instagram Story sequence. Follow the visual style exactly so all frames feel like ONE continuous story.\n\nIMPORTANT: Generate ONLY the photo/image content. Do NOT render any Instagram UI (no progress bars, no profile icons, no usernames, no send message bar, no close button). Just the raw image with the text sticker overlay.\n\n${frame.image_prompt}${captionInstruction}`;
 
                   try {
@@ -600,7 +744,7 @@ export default function AiCeo() {
               })();
             }
           } catch {
-            // Not JSON — try to extract HTML from the content
+            // Not JSON  -  try to extract HTML from the content
             let rawHtml = content;
             if (content.includes('<!DOCTYPE') || content.includes('<html')) {
               // Content is raw HTML
@@ -815,6 +959,49 @@ export default function AiCeo() {
           className={`ceo-chat ${showPanel ? 'ceo-chat--split' : ''}`}
           style={showPanel ? { width: `${splitPct}%` } : undefined}
         >
+          {/* Previous conversations button */}
+          <button className="ceo-prev-convos" onClick={() => setShowSessions((v) => !v)}>
+            <History size={18} />
+            <span className="ceo-prev-convos-label">Previous conversations</span>
+          </button>
+
+          {/* Sessions overlay + panel */}
+          {showSessions && (
+            <>
+              <div className="ceo-sessions-backdrop" onClick={() => setShowSessions(false)} />
+              <div className="ceo-sessions-panel">
+                <div className="ceo-sessions-header">
+                  <span>Conversations</span>
+                  <button className="ceo-sessions-new" onClick={newConversation}>
+                    <Plus size={16} /> New
+                  </button>
+                </div>
+                <div className="ceo-sessions-list">
+                  {sessions.length === 0 && (
+                    <div className="ceo-sessions-empty">No past conversations yet</div>
+                  )}
+                  {sessions.map((s) => (
+                    <div
+                      key={s.id}
+                      className={`ceo-sessions-item ${s.id === sessionId ? 'ceo-sessions-item--active' : ''}`}
+                      onClick={() => loadSession(s.id)}
+                    >
+                      <div className="ceo-sessions-item-info">
+                        <span className="ceo-sessions-item-title">{s.title}</span>
+                        <span className="ceo-sessions-item-meta">
+                          {new Date(s.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      </div>
+                      <button className="ceo-sessions-item-delete" onClick={(e) => deleteSession(s.id, e)}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
           {!hasMessages && (
             <div className="ceo-hero">
               <img src="/favicon.png" alt="AI CEO" className="ceo-hero-logo" />
