@@ -128,7 +128,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--accent-primary, #6366f1);
+  color: var(--brand-red, #e91a44);
   text-decoration: none;
   font-weight: 500;
 }

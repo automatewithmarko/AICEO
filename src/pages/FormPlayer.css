@@ -67,9 +67,11 @@
 .form-player-footer {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 16px;
   padding: 16px 40px;
   flex-shrink: 0;
+  position: relative;
 }
 
 .form-player-ok-btn {
@@ -91,7 +93,8 @@
 
 .form-player-nav-arrows {
   display: flex;
-  margin-left: auto;
+  position: absolute;
+  right: 40px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
   overflow: hidden;

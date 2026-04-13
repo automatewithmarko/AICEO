@@ -157,8 +157,8 @@
 }
 
 .form-builder-sidebar-tabs button.active {
-  color: var(--accent-primary, #6366f1);
-  border-bottom-color: var(--accent-primary, #6366f1);
+  color: var(--brand-red, #e91a44);
+  border-bottom-color: var(--brand-red, #e91a44);
 }
 
 .form-builder-sidebar-content {
@@ -194,8 +194,8 @@
 }
 
 .form-builder-add-btn:hover {
-  border-color: var(--accent-primary, #6366f1);
-  color: var(--accent-primary, #6366f1);
+  border-color: var(--brand-red, #e91a44);
+  color: var(--brand-red, #e91a44);
 }
 
 /* Center: Editor */

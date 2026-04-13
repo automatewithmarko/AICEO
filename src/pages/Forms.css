@@ -21,7 +21,7 @@
   align-items: center;
   gap: 8px;
   padding: 10px 20px;
-  background: var(--accent-primary, #6366f1);
+  background: var(--brand-red, #e91a44);
   color: #fff;
   border: none;
   border-radius: 8px;
@@ -68,7 +68,7 @@
 }
 
 .form-card:hover {
-  border-color: var(--accent-primary, #6366f1);
+  border-color: var(--brand-red, #e91a44);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
