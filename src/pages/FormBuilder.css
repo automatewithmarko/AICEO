@@ -1,0 +1,225 @@
+.form-builder {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.form-builder-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary, #6b7280);
+}
+
+/* Header */
+.form-builder-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-light, #e5e7eb);
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.form-builder-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.form-builder-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  border: none;
+  background: transparent;
+  color: var(--text-primary, #1a1a1a);
+  outline: none;
+  padding: 4px 0;
+  min-width: 200px;
+  max-width: 400px;
+}
+
+.form-builder-status {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: capitalize;
+}
+
+.form-builder-status--draft { background: #f3f4f6; color: #6b7280; }
+.form-builder-status--published { background: #dcfce7; color: #16a34a; }
+.form-builder-status--closed { background: #fee2e2; color: #dc2626; }
+
+.form-builder-unsaved {
+  font-size: 12px;
+  color: #f59e0b;
+  font-style: italic;
+}
+
+.form-builder-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.form-builder-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 8px;
+  background: var(--bg-white, #fff);
+  color: var(--text-primary, #1a1a1a);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.form-builder-btn:hover { background: var(--bg-light, #f9fafb); }
+.form-builder-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Embed bar */
+.form-builder-embed-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: #f9fafb;
+  border-bottom: 1px solid var(--border-light, #e5e7eb);
+}
+
+.form-builder-embed-bar code {
+  flex: 1;
+  font-size: 12px;
+  background: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.form-builder-embed-bar button {
+  padding: 6px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* 3-panel body */
+.form-builder-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Left sidebar */
+.form-builder-sidebar {
+  width: 280px;
+  border-right: 1px solid var(--border-light, #e5e7eb);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.form-builder-sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-light, #e5e7eb);
+}
+
+.form-builder-sidebar-tabs button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 0;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+
+.form-builder-sidebar-tabs button.active {
+  color: var(--accent-primary, #6366f1);
+  border-bottom-color: var(--accent-primary, #6366f1);
+}
+
+.form-builder-sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.form-builder-question-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-builder-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px;
+  margin-top: 10px;
+  border: 1px dashed var(--border-light, #e5e7eb);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary, #6b7280);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.form-builder-add-btn:hover {
+  border-color: var(--accent-primary, #6366f1);
+  color: var(--accent-primary, #6366f1);
+}
+
+/* Center: Editor */
+.form-builder-editor {
+  width: 384px;
+  border-right: 1px solid var(--border-light, #e5e7eb);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.form-builder-editor-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary, #6b7280);
+  font-size: 14px;
+  padding: 20px;
+  text-align: center;
+}
+
+/* Right: Preview */
+.form-builder-preview {
+  flex: 1;
+  overflow-y: auto;
+  min-width: 0;
+}
