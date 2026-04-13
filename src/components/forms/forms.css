@@ -82,3 +82,65 @@
 .form-settings-field input:focus,
 .form-settings-field textarea:focus { outline: none; border-color: var(--accent-primary, #6366f1); }
 .form-settings-hint { font-size: 12px; color: var(--text-secondary, #6b7280); margin-top: 4px; }
+
+/* ─── Question Editor ─── */
+.question-editor { display: flex; flex-direction: column; gap: 16px; padding: 20px; }
+
+.question-editor-header { display: flex; align-items: center; gap: 8px; color: var(--accent-primary, #6366f1); font-size: 14px; font-weight: 600; }
+.question-editor-type-label { color: var(--accent-primary, #6366f1); }
+
+.question-editor-field label { display: block; font-size: 13px; font-weight: 600; color: var(--text-primary, #1a1a1a); margin-bottom: 6px; }
+.question-editor-field input,
+.question-editor-field textarea {
+  width: 100%; padding: 8px 12px; border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 8px; font-size: 14px; color: var(--text-primary, #1a1a1a);
+  background: var(--bg-white, #fff); resize: vertical;
+}
+.question-editor-field input:focus,
+.question-editor-field textarea:focus { outline: none; border-color: var(--accent-primary, #6366f1); }
+
+.question-editor-row { display: flex; gap: 12px; }
+.question-editor-row .question-editor-field { flex: 1; }
+
+.question-editor-options { display: flex; flex-direction: column; gap: 8px; }
+.question-editor-option { display: flex; gap: 8px; align-items: center; }
+.question-editor-option input { flex: 1; padding: 6px 10px; border: 1px solid var(--border-light, #e5e7eb); border-radius: 6px; font-size: 13px; }
+
+.question-editor-option-remove {
+  display: flex; align-items: center; background: none; border: none;
+  color: var(--text-secondary, #6b7280); cursor: pointer; padding: 4px;
+}
+.question-editor-option-remove:hover { color: #ef4444; }
+
+.question-editor-add-option {
+  display: flex; align-items: center; gap: 4px; background: none;
+  border: 1px dashed var(--border-light, #e5e7eb); border-radius: 6px;
+  padding: 6px 10px; font-size: 13px; color: var(--text-secondary, #6b7280); cursor: pointer;
+}
+.question-editor-add-option:hover { border-color: var(--accent-primary, #6366f1); color: var(--accent-primary, #6366f1); }
+
+.question-editor-toggle label { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; cursor: pointer; }
+
+.question-editor-delete {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: none; border: 1px solid #fecaca; border-radius: 8px;
+  color: #ef4444; font-size: 13px; cursor: pointer; margin-top: 8px;
+}
+.question-editor-delete:hover { background: #fef2f2; }
+
+/* ─── Branching Editor ─── */
+.branching-editor { border-top: 1px solid var(--border-light, #e5e7eb); padding-top: 16px; }
+.branching-editor-label { font-size: 13px; font-weight: 600; color: var(--text-primary, #1a1a1a); }
+.branching-editor-hint { font-size: 12px; color: var(--text-secondary, #6b7280); margin: 4px 0 12px; }
+
+.branching-rule { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 8px; flex-wrap: wrap; }
+.branching-rule select { padding: 4px 8px; border: 1px solid var(--border-light, #e5e7eb); border-radius: 6px; font-size: 13px; max-width: 160px; }
+
+.branching-rule-remove { display: flex; background: none; border: none; color: var(--text-secondary, #6b7280); cursor: pointer; padding: 2px; }
+.branching-rule-remove:hover { color: #ef4444; }
+
+.branching-add-rule {
+  display: flex; align-items: center; gap: 4px; background: none; border: none;
+  font-size: 13px; color: var(--accent-primary, #6366f1); cursor: pointer; padding: 0;
+}
+.branching-add-rule:hover { text-decoration: underline; }
