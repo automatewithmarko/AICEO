@@ -20,12 +20,29 @@ router.get('/api/forms', async (req, res) => {
 
   const { data, error } = await supabase
     .from('forms')
-    .select('*, form_responses(count)')
+    .select('id, title, slug, status, theme, created_at, updated_at')
     .eq('user_id', userId)
-    .order('created_at', { ascending: false });
+    .order('updated_at', { ascending: false });
 
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ forms: data });
+
+  // Get response counts per form
+  const formIds = data.map((f) => f.id);
+  let responseCounts = {};
+  if (formIds.length > 0) {
+    const { data: counts } = await supabase
+      .from('form_responses')
+      .select('form_id')
+      .in('form_id', formIds);
+    if (counts) {
+      for (const row of counts) {
+        responseCounts[row.form_id] = (responseCounts[row.form_id] || 0) + 1;
+      }
+    }
+  }
+
+  const forms = data.map((f) => ({ ...f, responseCount: responseCounts[f.id] || 0 }));
+  res.json({ forms });
 });
 
 // ─── 2. POST /api/forms — Create form (with slug generation via RPC) ───
@@ -33,25 +50,24 @@ router.post('/api/forms', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
-  const { title, description, questions, theme, thank_you_message } = req.body;
-  if (!title) return res.status(400).json({ error: 'title is required' });
+  const { title } = req.body;
+  const formTitle = title || 'Untitled Form';
+  const baseSlug = formTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'form';
 
   // Generate unique slug via RPC
   const { data: slugData, error: slugError } = await supabase
-    .rpc('generate_form_slug', { form_title: title });
+    .rpc('generate_form_slug', { base_slug: baseSlug, uid: userId });
 
-  if (slugError) return res.status(500).json({ error: slugError.message });
+  const slug = slugData || `${baseSlug}-${Date.now()}`;
 
   const { data, error } = await supabase
     .from('forms')
     .insert({
       user_id: userId,
-      title,
-      description: description || '',
-      slug: slugData,
-      questions: questions || [],
-      theme: theme || {},
-      thank_you_message: thank_you_message || '',
+      title: formTitle,
+      slug,
+      questions: [],
+      theme: 'minimal',
       status: 'draft',
     })
     .select()
