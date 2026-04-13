@@ -107,8 +107,12 @@ export default function CRM() {
   const [webhookExpandedAction, setWebhookExpandedAction] = useState(null);
   const [webhookCopied, setWebhookCopied] = useState(null);
   const [inlineStatusId, setInlineStatusId] = useState(null); // contact id with open inline status dropdown
+  const [inlineStatusPos, setInlineStatusPos] = useState(null); // {top, left} for fixed-position dropdown
   const [inlineTagId, setInlineTagId] = useState(null); // contact id with open inline tag input
   const [inlineTagInput, setInlineTagInput] = useState('');
+  // Kanban drag-and-drop state
+  const [draggingCardId, setDraggingCardId] = useState(null);
+  const [dragOverStatus, setDragOverStatus] = useState(null);
   // List & filter state
   const [customLists, setCustomLists] = useState(loadSavedLists);
   const [showCreateList, setShowCreateList] = useState(false);
@@ -490,14 +494,30 @@ export default function CRM() {
     return () => document.removeEventListener('mousedown', handler);
   }, [showStatusSettings]);
 
-  // Close inline status dropdown on outside click
+  // Close inline status dropdown on outside click / scroll / resize
   useEffect(() => {
     if (!inlineStatusId) return;
     const handler = (e) => {
-      if (!e.target.closest('.crm-inline-status-picker')) setInlineStatusId(null);
+      if (
+        !e.target.closest('.crm-inline-status-picker') &&
+        !e.target.closest('.crm-status-dropdown--table')
+      ) {
+        setInlineStatusId(null);
+        setInlineStatusPos(null);
+      }
+    };
+    const close = () => {
+      setInlineStatusId(null);
+      setInlineStatusPos(null);
     };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
   }, [inlineStatusId]);
 
   const addStatus = (name) => {
@@ -1275,29 +1295,19 @@ export default function CRM() {
                         <button
                           className="crm-status crm-status--clickable"
                           style={{ background: st.bg, color: st.color }}
-                          onClick={() => setInlineStatusId(inlineStatusId === c.id ? null : c.id)}
+                          onClick={(e) => {
+                            if (inlineStatusId === c.id) {
+                              setInlineStatusId(null);
+                              setInlineStatusPos(null);
+                            } else {
+                              const r = e.currentTarget.getBoundingClientRect();
+                              setInlineStatusPos({ top: r.bottom + 4, left: r.left });
+                              setInlineStatusId(c.id);
+                            }
+                          }}
                         >
                           {c.status}
                         </button>
-                        {inlineStatusId === c.id && (
-                          <div className="crm-status-dropdown crm-status-dropdown--table">
-                            {statuses.map(s => (
-                              <button
-                                key={s}
-                                className={`crm-status-option${s === c.status ? ' active' : ''}`}
-                                style={{ background: (statusColors[s] || {}).bg, color: (statusColors[s] || {}).color }}
-                                onClick={() => {
-                                  updateLocalContact(c.id, prev => ({ ...prev, status: s }));
-                                  debouncedSave(c.id, { status: s });
-                                  setInlineStatusId(null);
-                                }}
-                              >
-                                {s}
-                                {s === c.status && <Check size={12} style={{ marginLeft: 4 }} />}
-                              </button>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
@@ -1351,14 +1361,73 @@ export default function CRM() {
         </div>
       )}
 
+      {/* Floating inline status dropdown (escapes table stacking context) */}
+      {inlineStatusId && inlineStatusPos && (() => {
+        const current = filtered.find(c => c.id === inlineStatusId);
+        if (!current) return null;
+        return (
+          <div
+            className="crm-status-dropdown crm-status-dropdown--table"
+            style={{ position: 'fixed', top: inlineStatusPos.top, left: inlineStatusPos.left }}
+          >
+            {statuses.map(s => (
+              <button
+                key={s}
+                className={`crm-status-option${s === current.status ? ' active' : ''}`}
+                style={{ background: (statusColors[s] || {}).bg, color: (statusColors[s] || {}).color }}
+                onClick={() => {
+                  updateLocalContact(current.id, prev => ({ ...prev, status: s }));
+                  debouncedSave(current.id, { status: s });
+                  setInlineStatusId(null);
+                  setInlineStatusPos(null);
+                }}
+              >
+                {s}
+                {s === current.status && <Check size={12} style={{ marginLeft: 4 }} />}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Kanban View */}
       {view === 'kanban' && (
         <div className="crm-kanban">
           {statuses.map((status) => {
             const st = statusColors[status];
             const cards = filtered.filter((c) => c.status === status);
+            const isDropTarget = dragOverStatus === status;
             return (
-              <div key={status} className="crm-kb-col">
+              <div
+                key={status}
+                className={`crm-kb-col${isDropTarget ? ' crm-kb-col--drop' : ''}`}
+                onDragOver={(e) => {
+                  if (draggingCardId) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverStatus !== status) setDragOverStatus(status);
+                  }
+                }}
+                onDragLeave={(e) => {
+                  // Only clear if leaving the column entirely
+                  if (!e.currentTarget.contains(e.relatedTarget)) {
+                    setDragOverStatus(prev => (prev === status ? null : prev));
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const id = draggingCardId || e.dataTransfer.getData('text/plain');
+                  if (id) {
+                    const card = filtered.find(c => String(c.id) === String(id));
+                    if (card && card.status !== status) {
+                      updateLocalContact(card.id, prev => ({ ...prev, status }));
+                      debouncedSave(card.id, { status });
+                    }
+                  }
+                  setDraggingCardId(null);
+                  setDragOverStatus(null);
+                }}
+              >
                 <div className="crm-kb-col-header">
                   <span className="crm-kb-col-dot" style={{ background: st.color }} />
                   <span className="crm-kb-col-title">{status}</span>
@@ -1366,7 +1435,25 @@ export default function CRM() {
                 </div>
                 <div className="crm-kb-cards">
                   {cards.map((c) => (
-                    <div key={c.id} className="crm-kb-card" onClick={(e) => openContact(c, e)}>
+                    <div
+                      key={c.id}
+                      className={`crm-kb-card${draggingCardId === c.id ? ' crm-kb-card--dragging' : ''}`}
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggingCardId(c.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', String(c.id));
+                      }}
+                      onDragEnd={() => {
+                        setDraggingCardId(null);
+                        setDragOverStatus(null);
+                      }}
+                      onClick={(e) => {
+                        // Don't open popup if a drag just happened
+                        if (draggingCardId) return;
+                        openContact(c, e);
+                      }}
+                    >
                       <div className="crm-kb-card-name">
                         <span className="crm-kb-card-name-text">{c.name || c.email}</span>
                         {c.ghl_raw_data && (
@@ -1385,6 +1472,9 @@ export default function CRM() {
                       </div>
                     </div>
                   ))}
+                  {cards.length === 0 && isDropTarget && (
+                    <div className="crm-kb-drop-placeholder">Drop here</div>
+                  )}
                 </div>
               </div>
             );
