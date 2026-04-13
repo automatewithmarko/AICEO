@@ -193,6 +193,33 @@ Respond with full HTML:
 - NEVER rewrite sections that weren't mentioned
 - Preserve all section markers in your output
 
+## FORM EMBEDDING FOR LEAD CAPTURE
+
+When the task_description includes "EMBED FORM: slug=<slug>, title=<title>", you MUST embed the user's form into the landing page:
+
+### How to embed:
+Replace the final-cta section's button with an embedded form iframe:
+\`\`\`html
+<!-- SECTION:form-capture -->
+<section style="padding:80px 24px;text-align:center;">
+  <div style="max-width:800px;margin:0 auto;">
+    <h2>Get Started Now</h2>
+    <p>Fill out the form below and we'll be in touch.</p>
+    <iframe src="FRONTEND_URL/f/SLUG" style="width:100%;min-height:600px;border:none;border-radius:12px;" title="FORM_TITLE"></iframe>
+  </div>
+</section>
+<!-- /SECTION:form-capture -->
+\`\`\`
+
+### Rules:
+- Replace FRONTEND_URL with the actual frontend origin provided in brand context or use the same origin as the page
+- Replace SLUG with the form's slug from the task description
+- Replace FORM_TITLE with the form title
+- The form-capture section should appear BEFORE the final-cta section
+- Keep the final-cta section as well (for users who scroll past the form)
+- Style the form section to match the page's design — use brand colors for the heading, consistent fonts, appropriate background
+- The iframe needs min-height:600px to show the form properly
+
 ## IMPORTANT RULES
 - NEVER wrap response in markdown code fences
 - NEVER include text outside the JSON object

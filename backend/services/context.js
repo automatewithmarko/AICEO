@@ -7,7 +7,7 @@ export async function loadUserContext(userId) {
   }
 
   // Parallel fetch all context data (including soul notes + active integrations)
-  const [brandRes, contentRes, statsRes, revenueRes, callsRes, productsRes, contactsRes, creatorsRes, videosRes, integrationRes, soulRes, integrationsRes, emailAccRes] = await Promise.allSettled([
+  const [brandRes, contentRes, statsRes, revenueRes, callsRes, productsRes, contactsRes, creatorsRes, videosRes, integrationRes, soulRes, integrationsRes, emailAccRes, formsRes] = await Promise.allSettled([
     supabase.from('brand_dna').select('*').eq('user_id', userId).order('updated_at', { ascending: true }).limit(1),
     supabase.from('content_items').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
     supabase.from('sales').select('amount, created_at').eq('user_id', userId),
@@ -21,6 +21,7 @@ export async function loadUserContext(userId) {
     supabase.from('soul_notes').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(100),
     supabase.from('integrations').select('provider, is_active, metadata, last_synced_at').eq('user_id', userId),
     supabase.from('email_accounts').select('id, email, provider, display_name, is_active').eq('user_id', userId),
+    supabase.from('forms').select('id, title, slug, status, questions').eq('user_id', userId).in('status', ['published', 'draft']).order('updated_at', { ascending: false }).limit(20),
   ]);
 
   const brandDna = brandRes.status === 'fulfilled' ? (brandRes.value.data?.[0] || null) : null;
@@ -65,8 +66,9 @@ export async function loadUserContext(userId) {
   // Active integrations & email accounts
   const activeIntegrations = integrationsRes.status === 'fulfilled' ? (integrationsRes.value.data || []) : [];
   const emailAccounts = emailAccRes.status === 'fulfilled' ? (emailAccRes.value.data || []) : [];
+  const forms = formsRes.status === 'fulfilled' ? (formsRes.value.data || []) : [];
 
-  return { brandDna, contentItems, salesData, products, contacts, outlierData, integrationCtx, soulNotes, activeIntegrations, emailAccounts };
+  return { brandDna, contentItems, salesData, products, contacts, outlierData, integrationCtx, soulNotes, activeIntegrations, emailAccounts, forms };
 }
 
 // Save a soul note
