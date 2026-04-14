@@ -17,6 +17,15 @@ export default function QuestionRenderer({ question, value, onChange, themeVars 
   };
 
   switch (question.type) {
+    case 'contact_first_name':
+    case 'contact_last_name':
+    case 'contact_full_name':
+    case 'contact_email':
+    case 'contact_phone':
+    case 'contact_business':
+    case 'contact_instagram':
+    case 'contact_linkedin':
+    case 'contact_x':
     case 'short_text':
     case 'email':
     case 'phone':
@@ -24,7 +33,7 @@ export default function QuestionRenderer({ question, value, onChange, themeVars 
     case 'number':
       return (
         <input
-          type={question.type === 'number' ? 'number' : 'text'}
+          type={question.type === 'number' ? 'number' : question.type === 'contact_email' ? 'email' : 'text'}
           style={inputStyle}
           value={value || ''}
           onChange={(e) => onChange(e.target.value)}

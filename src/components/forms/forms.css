@@ -57,6 +57,12 @@
 .add-question-type-label { font-size: 13px; font-weight: 600; color: var(--text-primary, #1a1a1a); }
 .add-question-type-desc { font-size: 11px; color: var(--text-secondary, #6b7280); }
 
+.add-question-type--contact { border-color: var(--brand-red, #e91a44); border-style: dashed; }
+.add-question-type--contact .add-question-type-desc { color: var(--brand-red, #e91a44); font-weight: 500; }
+
+.add-question-section-label { font-size: 14px; font-weight: 700; color: var(--text-primary, #1a1a1a); margin-bottom: 4px; }
+.add-question-section-hint { font-size: 12px; color: var(--text-secondary, #6b7280); margin-bottom: 12px; }
+
 /* ─── Theme Picker ─── */
 .theme-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 

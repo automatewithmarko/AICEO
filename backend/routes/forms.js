@@ -101,26 +101,40 @@ router.post('/api/forms/public/:slug/submit', async (req, res) => {
   const questions = form.questions || [];
   let mappedEmail = null;
   let mappedPhone = null;
+  let mappedFirstName = null;
+  let mappedLastName = null;
   let mappedName = null;
   let mappedBusiness = null;
+  let mappedSocials = { instagram: [], linkedin: [], x: [] };
   const unmappedAnswers = [];
 
   for (const q of questions) {
     const val = answers[q.id];
     if (val === undefined || val === null || val === '') continue;
+    const strVal = String(val).trim();
 
-    if (q.type === 'email') {
-      mappedEmail = String(val).trim();
-    } else if (q.type === 'phone') {
-      mappedPhone = String(val).trim();
-    } else if (q.type === 'short_text' && /name/i.test(q.title)) {
-      mappedName = String(val).trim();
-    } else if (q.type === 'short_text' && /business|company/i.test(q.title)) {
-      mappedBusiness = String(val).trim();
-    } else {
-      const displayVal = Array.isArray(val) ? val.join(', ') : (typeof val === 'object' ? val.name || JSON.stringify(val) : String(val));
+    // Explicit contact field types (highest priority)
+    if (q.type === 'contact_email') { mappedEmail = strVal; }
+    else if (q.type === 'contact_phone') { mappedPhone = strVal; }
+    else if (q.type === 'contact_first_name') { mappedFirstName = strVal; }
+    else if (q.type === 'contact_last_name') { mappedLastName = strVal; }
+    else if (q.type === 'contact_full_name') { mappedName = strVal; }
+    else if (q.type === 'contact_business') { mappedBusiness = strVal; }
+    else if (q.type === 'contact_instagram') { mappedSocials.instagram = [strVal]; }
+    else if (q.type === 'contact_linkedin') { mappedSocials.linkedin = [strVal]; }
+    else if (q.type === 'contact_x') { mappedSocials.x = [strVal]; }
+    // Fallback: generic email/phone types also map
+    else if (q.type === 'email' && !mappedEmail) { mappedEmail = strVal; }
+    else if (q.type === 'phone' && !mappedPhone) { mappedPhone = strVal; }
+    else {
+      const displayVal = Array.isArray(val) ? val.join(', ') : (typeof val === 'object' ? val.name || JSON.stringify(val) : strVal);
       unmappedAnswers.push(`- ${q.title}: ${displayVal}`);
     }
+  }
+
+  // Combine first + last name if full name wasn't provided
+  if (!mappedName && (mappedFirstName || mappedLastName)) {
+    mappedName = [mappedFirstName, mappedLastName].filter(Boolean).join(' ');
   }
 
   // Attempt CRM contact creation/update
@@ -136,12 +150,15 @@ router.post('/api/forms/public/:slug/submit', async (req, res) => {
       ? `\nForm: "${form.title}" (${new Date().toISOString().slice(0, 10)})\n${unmappedAnswers.join('\n')}`
       : '';
 
+    const hasSocials = mappedSocials.instagram.length || mappedSocials.linkedin.length || mappedSocials.x.length;
+
     if (existing) {
       const updates = {};
       if (mappedPhone) updates.phone = mappedPhone;
       if (mappedName) updates.name = mappedName;
       if (mappedBusiness) updates.business = mappedBusiness;
       if (noteBlock) updates.notes = (existing.notes || '') + noteBlock;
+      if (hasSocials) updates.socials = mappedSocials;
       if (Object.keys(updates).length > 0) {
         await supabase.from('contacts').update(updates).eq('id', existing.id);
       }
@@ -158,7 +175,7 @@ router.post('/api/forms/public/:slug/submit', async (req, res) => {
           status: 'New Lead',
           tags: [],
           notes: noteBlock,
-          socials: { instagram: [], linkedin: [], x: [] },
+          socials: hasSocials ? mappedSocials : { instagram: [], linkedin: [], x: [] },
           source: 'form',
         })
         .select('id')

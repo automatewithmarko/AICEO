@@ -49,13 +49,13 @@ export default function FormPlayer() {
     if (question.required && (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0))) {
       return 'This field is required';
     }
-    if (value && question.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+    if (value && (question.type === 'email' || question.type === 'contact_email') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
       return 'Please enter a valid email address';
     }
-    if (value && question.type === 'phone' && !/^[+]?[\d\s\-().]+$/.test(value)) {
+    if (value && (question.type === 'phone' || question.type === 'contact_phone') && !/^[+]?[\d\s\-().]+$/.test(value)) {
       return 'Please enter a valid phone number';
     }
-    if (value && question.type === 'url') {
+    if (value && (question.type === 'url' || question.type === 'contact_linkedin')) {
       try { new URL(value); } catch { return 'Please enter a valid URL'; }
     }
     if (value && question.type === 'number' && isNaN(Number(value))) {
