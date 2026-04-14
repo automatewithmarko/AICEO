@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS forms (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX idx_forms_user_slug ON forms(user_id, slug);
+CREATE UNIQUE INDEX idx_forms_slug_unique ON forms(slug);
 CREATE INDEX idx_forms_user_id ON forms(user_id);
 CREATE INDEX idx_forms_status ON forms(status);
 
@@ -62,14 +62,16 @@ RETURNS TEXT AS $$
 DECLARE
   candidate TEXT;
   counter INT := 0;
+  suffix TEXT;
 BEGIN
-  candidate := base_slug;
+  suffix := substr(md5(uid::text || now()::text), 1, 6);
+  candidate := base_slug || '-' || suffix;
   LOOP
-    IF NOT EXISTS (SELECT 1 FROM forms WHERE user_id = uid AND slug = candidate) THEN
+    IF NOT EXISTS (SELECT 1 FROM forms WHERE slug = candidate) THEN
       RETURN candidate;
     END IF;
     counter := counter + 1;
-    candidate := base_slug || '-' || counter;
+    candidate := base_slug || '-' || suffix || '-' || counter;
   END LOOP;
 END;
 $$ LANGUAGE plpgsql;
