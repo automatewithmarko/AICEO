@@ -15,6 +15,10 @@ import CRM from './pages/CRM';
 import Meetings from './pages/Meetings';
 import MeetingDetail from './pages/MeetingDetail';
 import SharedMeeting from './pages/SharedMeeting';
+import Forms from './pages/Forms';
+import FormBuilder from './pages/FormBuilder';
+import FormResponses from './pages/FormResponses';
+import FormPlayer from './pages/FormPlayer';
 
 function App() {
   const { user, loading } = useAuth();
@@ -31,6 +35,7 @@ function App() {
     return (
       <Routes>
         <Route path="/shared/:token" element={<SharedMeeting />} />
+        <Route path="/f/:slug" element={<FormPlayer />} />
         <Route path="*" element={<LoginScreen />} />
       </Routes>
     );
@@ -39,6 +44,7 @@ function App() {
   return (
     <Routes>
       <Route path="/shared/:token" element={<SharedMeeting />} />
+      <Route path="/f/:slug" element={<FormPlayer />} />
       <Route element={<Layout />}>
         <Route path="/ai-ceo" element={<AiCeo />} />
         <Route path="/dashboard" element={<Dashboard />} />
@@ -48,6 +54,9 @@ function App() {
         <Route path="/inbox" element={<Inbox />} />
         <Route path="/sales" element={<Sales />} />
         <Route path="/products" element={<Products />} />
+        <Route path="/forms" element={<Forms />} />
+        <Route path="/forms/:id/edit" element={<FormBuilder />} />
+        <Route path="/forms/:id/responses" element={<FormResponses />} />
         <Route path="/crm" element={<CRM />} />
         <Route path="/meetings" element={<Meetings />} />
         <Route path="/meetings/:id" element={<MeetingDetail />} />

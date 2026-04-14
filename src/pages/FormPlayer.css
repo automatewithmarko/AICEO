@@ -1,0 +1,144 @@
+.form-player {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.form-player-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  z-index: 10;
+}
+
+.form-player-progress-bar {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.form-player-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  overflow-y: auto;
+}
+
+.form-player-question {
+  max-width: 640px;
+  width: 100%;
+}
+
+.form-player-question-number {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.form-player-question-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  line-height: 1.3;
+}
+
+.form-player-question-desc {
+  font-size: 16px;
+  opacity: 0.6;
+  margin: 0 0 24px;
+}
+
+.form-player-input {
+  margin-top: 24px;
+}
+
+.form-player-error {
+  color: #ef4444;
+  font-size: 14px;
+  margin-top: 12px;
+}
+
+.form-player-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 40px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.form-player-ok-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.form-player-ok-btn:hover { opacity: 0.9; }
+
+.form-player-hint { font-size: 13px; }
+
+.form-player-nav-arrows {
+  display: flex;
+  position: absolute;
+  right: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.form-player-nav-arrows button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.form-player-nav-arrows button:hover { opacity: 1; }
+.form-player-nav-arrows button:disabled { opacity: 0.2; cursor: not-allowed; }
+.form-player-nav-arrows button:first-child { border-right: 1px solid rgba(255, 255, 255, 0.2); }
+
+/* Thank you screen */
+.form-player-thankyou {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 20px;
+  text-align: center;
+}
+
+.form-player-check {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.form-player-thankyou h2 {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0;
+}

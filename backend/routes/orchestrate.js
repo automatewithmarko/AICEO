@@ -93,6 +93,26 @@ push_notification: Flag something important for the user's notification bell.`;
     }
   }
 
+  // Inject user's forms so CEO can offer lead capture embedding
+  const formsList = context.forms || [];
+  if (formsList.length > 0) {
+    const published = formsList.filter(f => f.status === 'published');
+    const drafts = formsList.filter(f => f.status === 'draft');
+    prompt += `\n\n=== USER'S FORMS (for lead capture / data collection) ===
+The user has ${formsList.length} form(s) they can embed in landing pages, squeeze pages, etc.
+
+${published.length > 0 ? `Published forms (ready to embed):\n${published.map(f => `- "${f.title}" (slug: ${f.slug}, ${f.questions?.length || 0} questions)`).join('\n')}` : ''}
+${drafts.length > 0 ? `\nDraft forms (not yet published):\n${drafts.map(f => `- "${f.title}" (${f.questions?.length || 0} questions)`).join('\n')}` : ''}
+
+FORM EMBEDDING RULE:
+When creating a landing page or squeeze page, AFTER the normal 4 questions, ask ONE additional question:
+"Would you like to embed a lead capture form on this page?"
+Options: list each published form by name + "No, just use a CTA button" as the last option.
+If the user picks a form, include it in the task_description when delegating: "EMBED FORM: slug=<slug>, title=<title>"
+If the user has NO published forms, skip this question entirely.
+`;
+  }
+
   // ── SOUL FILE  -  who this person is ──
   prompt += `\n\n=== SOUL FILE  -  WHO THIS PERSON IS ===
 Your soul file is your deep understanding of the user as a PERSON. Not a task list. Not conversation logs. This is how you know them  -  their name, personality, how they talk, what drives them, what frustrates them, their business identity, their dreams.

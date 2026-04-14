@@ -19,6 +19,7 @@ import contactRoutes from './routes/contacts.js';
 import generateRoutes from './routes/generate.js';
 import orchestrateRoutes from './routes/orchestrate.js';
 import boosendRoutes from './routes/boosend.js';
+import formRoutes from './routes/forms.js';
 import { startEmailSync } from './services/email-sync.js';
 
 const app = express();
@@ -840,6 +841,15 @@ app.delete('/api/templates/:id', requireAuth, async (req, res) => {
     .eq('user_id', userId);
   res.json({ ok: true });
 });
+
+// ─── Forms routes (auth required for management, public for player) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/forms') && !req.path.startsWith('/api/forms/public')) {
+    return requireAuth(req, res, next);
+  }
+  next();
+});
+app.use(formRoutes);
 
 // ─── Webhook routes (no auth — external services) ───
 app.use(webhookRoutes);

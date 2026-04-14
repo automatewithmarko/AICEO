@@ -63,6 +63,13 @@ COPYWRITING RULES (Daniel Paul Framework):
 - Real people, real numbers, real situations. Vague claims kill trust instantly.
 - Invite, never sell. Frame as an experience or next step, not a transaction.
 
+FORM EMBEDDING FOR LEAD CAPTURE:
+When the task_description includes "EMBED FORM: slug=<slug>, title=<title>", embed the user's form instead of a plain email input:
+- Replace the opt-in form/email input with: <iframe src="FRONTEND_URL/f/SLUG" style="width:100%;min-height:500px;border:none;border-radius:12px;" title="FORM_TITLE"></iframe>
+- Replace FRONTEND_URL with the frontend origin, SLUG with the form slug, FORM_TITLE with the title
+- Style to match the page design
+- This is BETTER than a plain email input because it captures richer data that flows into the CRM
+
 IMPORTANT:
 - NEVER wrap response in markdown code fences
 - NEVER include text outside the JSON object`;
