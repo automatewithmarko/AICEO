@@ -696,6 +696,26 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
   return { content: fullContent, hadToolCall };
 }
 
+function SocialThumb({ src }) {
+  const [failedSrc, setFailedSrc] = useState(null);
+  if (!src || failedSrc === src) {
+    return (
+      <div className="cs-social-card-placeholder">
+        <Link2 size={16} />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      className="cs-social-card-img"
+      referrerPolicy="no-referrer"
+      onError={() => setFailedSrc(src)}
+    />
+  );
+}
+
 export default function Content() {
   const navigate = useNavigate();
   const [selectedPlatform, setSelectedPlatform] = useState('instagram');
@@ -1619,13 +1639,7 @@ export default function Content() {
           {socialUrls.map((item, i) => (
             <div key={i} className={`cs-social-card ${item.status === 'extracting' ? 'cs-social-card--extracting' : ''} ${item.status === 'error' ? 'cs-social-card--error' : ''}`}>
               <div className="cs-social-card-thumb">
-                {item.result?.thumbnail ? (
-                  <img src={item.result.thumbnail} alt="" className="cs-social-card-img" />
-                ) : (
-                  <div className="cs-social-card-placeholder">
-                    <Link2 size={16} />
-                  </div>
-                )}
+                <SocialThumb src={item.result?.thumbnail} />
                 {(item.status === 'pending' || item.status === 'extracting') && (
                   <div className="cs-thumb-overlay">
                     <Loader size={16} className="cs-spinner" />
@@ -1872,13 +1886,7 @@ export default function Content() {
               {socialUrls.map((item, i) => (
                 <div key={i} className={`cs-social-card ${item.status === 'extracting' ? 'cs-social-card--extracting' : ''} ${item.status === 'error' ? 'cs-social-card--error' : ''}`}>
                   <div className="cs-social-card-thumb">
-                    {item.result?.thumbnail ? (
-                      <img src={item.result.thumbnail} alt="" className="cs-social-card-img" />
-                    ) : (
-                      <div className="cs-social-card-placeholder">
-                        <Link2 size={16} />
-                      </div>
-                    )}
+                    <SocialThumb src={item.result?.thumbnail} />
                     {(item.status === 'pending' || item.status === 'extracting') && (
                       <div className="cs-thumb-overlay">
                         <Loader size={16} className="cs-spinner" />

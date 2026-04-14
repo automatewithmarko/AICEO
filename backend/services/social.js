@@ -10,6 +10,7 @@ import { getSubtitles as getCaptions } from 'youtube-caption-extractor';
 const execFileAsync = promisify(execFile);
 const YTDLP_BIN = process.env.YTDLP_PATH || 'yt-dlp';
 const APIFY_TOKEN = process.env.APIFY_TOKEN;
+const APIFY_LINKEDIN_ACTOR = process.env.APIFY_LINKEDIN_ACTOR || 'apimaestro~linkedin-post-detail';
 
 function isYouTube(url) {
   return /youtube\.com|youtu\.be/i.test(url);
@@ -17,6 +18,10 @@ function isYouTube(url) {
 
 function isInstagram(url) {
   return /instagram\.com/i.test(url);
+}
+
+function isLinkedIn(url) {
+  return /linkedin\.com/i.test(url);
 }
 
 function extractVideoId(url) {
@@ -33,6 +38,9 @@ function extractVideoId(url) {
 export async function extractFromUrl(url) {
   if (isInstagram(url) && APIFY_TOKEN) {
     return extractInstagramApify(url);
+  }
+  if (isLinkedIn(url) && APIFY_TOKEN) {
+    return extractLinkedInApify(url);
   }
   if (isYouTube(url)) {
     return extractYouTube(url);
@@ -104,6 +112,109 @@ async function extractInstagramApify(url) {
   } catch (err) {
     console.log(`[social] Apify extraction failed, falling back to yt-dlp: ${err.message}`);
     return extractWithYtdlp(url);
+  }
+}
+
+// ─── LinkedIn: Apify post scraper (caption + author + media) ───
+
+async function extractLinkedInApify(url) {
+  console.log(`[social] Extracting LinkedIn via Apify (${APIFY_LINKEDIN_ACTOR}): ${url}`);
+
+  try {
+    const res = await fetch(
+      `https://api.apify.com/v2/acts/${APIFY_LINKEDIN_ACTOR}/run-sync-get-dataset-items?token=${APIFY_TOKEN}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls: [url], post_url: url, postUrls: [url] }),
+        signal: AbortSignal.timeout(120000),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.log(`[social] Apify LinkedIn error ${res.status}: ${errText.slice(0, 200)}`);
+      throw new Error(`Apify API ${res.status}`);
+    }
+
+    const items = await res.json();
+    if (!items || items.length === 0) {
+      console.log('[social] Apify LinkedIn returned empty results');
+      throw new Error('No results from Apify LinkedIn');
+    }
+
+    const item = items[0];
+
+    // Actor output schemas vary — try common field names in priority order.
+    const text = item.text || item.content || item.postContent || item.caption || item.description || item.commentary || '';
+    const uploader =
+      item.authorName ||
+      item.author?.name ||
+      item.author?.fullName ||
+      [item.author?.firstName, item.author?.lastName].filter(Boolean).join(' ') ||
+      item.actorName ||
+      item.profileName ||
+      '';
+    const thumbnail =
+      item.thumbnailUrl ||
+      item.imageUrl ||
+      item.image ||
+      (Array.isArray(item.images) && item.images[0]) ||
+      (Array.isArray(item.imageUrls) && item.imageUrls[0]) ||
+      item.author?.profilePicture ||
+      item.author?.pictureUrl ||
+      null;
+    const videoUrl = item.videoUrl || item.video?.url || item.media?.videoUrl || null;
+
+    const result = {
+      url,
+      platform: 'LinkedIn',
+      title: text.slice(0, 200) || '(no caption)',
+      description: text,
+      uploader,
+      duration: item.videoDuration || item.duration || 0,
+      thumbnail: thumbnail ? String(thumbnail) : null,
+      transcript: null,
+      source: 'apify_metadata',
+    };
+
+    if (videoUrl) {
+      try {
+        console.log('[social] Transcribing LinkedIn video via Whisper...');
+        const whisperResult = await transcribeFromVideoUrl(videoUrl);
+        if (whisperResult) {
+          result.transcript = whisperResult.text;
+          result.language = whisperResult.language;
+          result.source = 'apify_whisper';
+        }
+      } catch (err) {
+        console.log(`[social] LinkedIn Whisper transcription failed: ${err.message?.slice(0, 100)}`);
+      }
+    }
+
+    // If there's no video transcript but we have post text, expose it as transcript
+    // so downstream prompts (which check `transcript`) get the content.
+    if (!result.transcript && text) {
+      result.transcript = text;
+      result.source = 'apify_text';
+    }
+
+    console.log(`[social] LinkedIn extracted: "${result.title.slice(0, 60)}" by ${result.uploader || 'unknown'} (source: ${result.source})`);
+    return result;
+  } catch (err) {
+    console.log(`[social] LinkedIn Apify extraction failed: ${err.message}`);
+    return {
+      url,
+      platform: 'LinkedIn',
+      title: '',
+      description: '',
+      uploader: '',
+      duration: 0,
+      thumbnail: null,
+      transcript: null,
+      source: 'error',
+      error: err.message,
+    };
   }
 }
 
