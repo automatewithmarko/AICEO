@@ -80,7 +80,7 @@ const navItems = [
     ],
   },
   { to: '/inbox', label: 'Inbox', icon: InboxIcon },
-  { to: '/forms', label: 'Forms', icon: ({ size }) => <ClipboardList size={size} /> },
+  { to: '/forms', label: 'Forms', icon: ({ size }) => <ClipboardList size={size} color="var(--brand-red, #e91a44)" /> },
   { to: '/crm', label: 'CRM', icon: CrmIcon },
 ];
 

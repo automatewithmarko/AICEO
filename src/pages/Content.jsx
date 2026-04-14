@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts } from '../lib/api';
@@ -808,6 +808,7 @@ export default function Content() {
   const [socialUrls, setSocialUrls] = useState([]); // { url, status: 'pending'|'extracting'|'done'|'error', result?, dbId? }
   const [socialError, setSocialError] = useState('');
   const [socialHover, setSocialHover] = useState(false);
+  const [socialInput, setSocialInput] = useState('');
   const [photoHover, setPhotoHover] = useState(false);
   const [docHover, setDocHover] = useState(false);
   const [photoDragOver, setPhotoDragOver] = useState(false);
@@ -829,6 +830,10 @@ export default function Content() {
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [showSessions, setShowSessions] = useState(false);
+  const [renamingSessionId, setRenamingSessionId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const customTitleIdsRef = useRef(new Set());
   const saveTimer = useRef(null);
   const [editPrompt, setEditPrompt] = useState('');
   const [brandDna, setBrandDna] = useState(null);
@@ -1006,11 +1011,17 @@ export default function Content() {
       const title = firstUser?.content?.replace(/\[CONTEXT[^\]]*\]\n?/g, '').slice(0, 80) || 'New conversation';
 
       if (sessionId) {
-        // Update existing session
-        await supabase.from('content_sessions').update({
-          messages: stripped, title, platform: selectedPlatform, updated_at: new Date().toISOString(),
-        }).eq('id', sessionId);
-        setSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, title, updated_at: new Date().toISOString() } : s));
+        // Update existing session. If user renamed this session, preserve their custom title.
+        const isCustom = customTitleIdsRef.current.has(sessionId);
+        const payload = isCustom
+          ? { messages: stripped, platform: selectedPlatform, updated_at: new Date().toISOString() }
+          : { messages: stripped, title, platform: selectedPlatform, updated_at: new Date().toISOString() };
+        await supabase.from('content_sessions').update(payload).eq('id', sessionId);
+        setSessions((prev) => prev.map((s) =>
+          s.id === sessionId
+            ? { ...s, title: isCustom ? s.title : title, updated_at: new Date().toISOString() }
+            : s
+        ));
       } else {
         // Create new session
         const { data, error } = await supabase.from('content_sessions').insert({
@@ -1049,12 +1060,46 @@ export default function Content() {
   }, []);
 
   // Delete a session
-  const deleteSession = useCallback(async (id, e) => {
-    e.stopPropagation();
+  const startRenameSession = useCallback((s, e) => {
+    e?.stopPropagation?.();
+    setRenamingSessionId(s.id);
+    setRenameDraft(s.title || '');
+  }, []);
+
+  const cancelRenameSession = useCallback(() => {
+    setRenamingSessionId(null);
+    setRenameDraft('');
+  }, []);
+
+  const commitRenameSession = useCallback(async () => {
+    const id = renamingSessionId;
+    if (!id) return;
+    const next = renameDraft.trim() || 'Untitled conversation';
+    const current = sessions.find((s) => s.id === id);
+    if (current && current.title === next) {
+      cancelRenameSession();
+      return;
+    }
+    customTitleIdsRef.current.add(id);
+    setSessions((prev) => prev.map((s) => s.id === id ? { ...s, title: next } : s));
+    setRenamingSessionId(null);
+    setRenameDraft('');
+    await supabase.from('content_sessions').update({ title: next }).eq('id', id);
+  }, [renamingSessionId, renameDraft, sessions, cancelRenameSession]);
+
+  const requestDeleteSession = useCallback((id, e) => {
+    e?.stopPropagation?.();
+    setConfirmDeleteId(id);
+  }, []);
+
+  const confirmDeleteSession = useCallback(async () => {
+    const id = confirmDeleteId;
+    if (!id) return;
+    setConfirmDeleteId(null);
     await supabase.from('content_sessions').delete().eq('id', id);
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (sessionId === id) newConversation();
-  }, [sessionId, newConversation]);
+  }, [confirmDeleteId, sessionId, newConversation]);
 
   // Track whether user is near the bottom of the chat (so streaming updates don't yank them down)
   useEffect(() => {
@@ -1477,6 +1522,14 @@ export default function Content() {
     }
   }, [addSocialUrl]);
 
+  const submitSocialInput = useCallback((e) => {
+    e?.preventDefault?.();
+    const value = socialInput.trim();
+    if (!value) return;
+    addSocialUrl(value);
+    setSocialInput('');
+  }, [socialInput, addSocialUrl]);
+
   const handleLongPressStart = useCallback(() => {
     longPressTimer.current = setTimeout(() => setShowPasteBtn(true), 500);
   }, []);
@@ -1727,9 +1780,19 @@ export default function Content() {
         <span className="cs-upload-label cs-upload-label--show">
           {socialError || 'Paste a social media link'}
         </span>
-        <span className="cs-upload-hint cs-upload-hint--show">
-          {isSheet ? 'Press & hold to paste' : 'Hover + Ctrl V'}
-        </span>
+        <form className="cs-social-input-form" onSubmit={submitSocialInput} onClick={(e) => e.stopPropagation()}>
+          <input
+            type="url"
+            className="cs-social-input"
+            placeholder="Paste or type link"
+            value={socialInput}
+            onChange={(e) => setSocialInput(e.target.value)}
+            onPaste={(e) => e.stopPropagation()}
+          />
+          <button type="submit" className="cs-social-input-submit" disabled={!socialInput.trim()} aria-label="Add link">
+            <ArrowUp size={14} />
+          </button>
+        </form>
       </div>
       {socialUrls.length > 0 && (
         <div className="cs-social-cards">
@@ -1976,7 +2039,19 @@ export default function Content() {
             <span className="cs-upload-label">
               {socialError || 'Paste a social media link'}
             </span>
-            <span className="cs-upload-hint">Hover + Ctrl V</span>
+            <form className="cs-social-input-form" onSubmit={submitSocialInput} onClick={(e) => e.stopPropagation()}>
+              <input
+                type="url"
+                className="cs-social-input"
+                placeholder="Paste or type link"
+                value={socialInput}
+                onChange={(e) => setSocialInput(e.target.value)}
+                onPaste={(e) => e.stopPropagation()}
+              />
+              <button type="submit" className="cs-social-input-submit" disabled={!socialInput.trim()} aria-label="Add link">
+                <ArrowUp size={14} />
+              </button>
+            </form>
           </div>
           {socialUrls.length > 0 && (
             <div className="cs-social-cards">
@@ -2100,7 +2175,7 @@ export default function Content() {
       <div className="content-main">
         {/* Platform Pill Selector */}
         <div className="content-top-bar">
-          <button className="content-prev-convos" title="Previous conversations" onClick={() => setShowSessions((v) => !v)}>
+          <button className="content-prev-convos" title="Previous conversations" onClick={() => setShowSessions((v) => { if (!v) setSidebarOpen(false); return !v; })}>
             <History size={18} className="content-prev-convos-icon" />
             <span className="content-prev-convos-label">Previous conversations</span>
           </button>
@@ -2139,27 +2214,71 @@ export default function Content() {
                 {sessions.length === 0 && (
                   <div className="content-sessions-empty">No past conversations yet</div>
                 )}
-                {sessions.map((s) => (
-                  <div
-                    key={s.id}
-                    className={`content-sessions-item ${s.id === sessionId ? 'content-sessions-item--active' : ''}`}
-                    onClick={() => loadSession(s.id)}
-                  >
-                    <div className="content-sessions-item-info">
-                      <span className="content-sessions-item-title">{s.title}</span>
-                      <span className="content-sessions-item-meta">
-                        {s.platform} &middot; {new Date(s.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </span>
+                {sessions.map((s) => {
+                  const isRenaming = renamingSessionId === s.id;
+                  return (
+                    <div
+                      key={s.id}
+                      className={`content-sessions-item ${s.id === sessionId ? 'content-sessions-item--active' : ''}`}
+                      onClick={() => { if (!isRenaming) loadSession(s.id); }}
+                    >
+                      <div className="content-sessions-item-info">
+                        {isRenaming ? (
+                          <input
+                            autoFocus
+                            className="content-sessions-item-rename"
+                            value={renameDraft}
+                            onChange={(e) => setRenameDraft(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { e.preventDefault(); commitRenameSession(); }
+                              else if (e.key === 'Escape') { e.preventDefault(); cancelRenameSession(); }
+                            }}
+                            onBlur={commitRenameSession}
+                            maxLength={120}
+                          />
+                        ) : (
+                          <span className="content-sessions-item-title">{s.title}</span>
+                        )}
+                        <span className="content-sessions-item-meta">
+                          {s.platform} &middot; {new Date(s.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      </div>
+                      {!isRenaming && (
+                        <button className="content-sessions-item-rename-btn" onClick={(e) => startRenameSession(s, e)} title="Rename">
+                          <Pencil size={13} />
+                        </button>
+                      )}
+                      <button className="content-sessions-item-delete" onClick={(e) => requestDeleteSession(s.id, e)} title="Delete">
+                        <Trash2 size={14} />
+                      </button>
                     </div>
-                    <button className="content-sessions-item-delete" onClick={(e) => deleteSession(s.id, e)} title="Delete">
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </>
         )}
+
+        {/* Delete confirmation modal */}
+        {confirmDeleteId && (() => {
+          const target = sessions.find((s) => s.id === confirmDeleteId);
+          return (
+            <div className="content-confirm-backdrop" onClick={() => setConfirmDeleteId(null)}>
+              <div className="content-confirm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                <div className="content-confirm-icon"><Trash2 size={20} /></div>
+                <div className="content-confirm-title">Delete this conversation?</div>
+                <div className="content-confirm-desc">
+                  {target ? `"${target.title}" will be permanently removed.` : 'This conversation will be permanently removed.'}
+                </div>
+                <div className="content-confirm-actions">
+                  <button className="content-confirm-btn content-confirm-btn--cancel" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
+                  <button className="content-confirm-btn content-confirm-btn--danger" onClick={confirmDeleteSession} autoFocus>Delete</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Chat area */}
         <div className="content-chat-area" ref={chatAreaRef}>

@@ -125,7 +125,6 @@
 
 .step-label--done {
   color: var(--text-muted);
-  text-decoration: line-through;
 }
 
 /* Step Actions */

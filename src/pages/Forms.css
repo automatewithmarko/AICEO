@@ -49,6 +49,10 @@
   color: var(--text-secondary, #6b7280);
 }
 
+.forms-empty > svg {
+  color: var(--brand-red, #e91a44);
+}
+
 .forms-empty h3 { font-size: 18px; color: var(--text-primary, #1a1a1a); margin: 0; }
 .forms-empty p { margin: 0 0 12px; }
 

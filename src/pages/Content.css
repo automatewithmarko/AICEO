@@ -320,6 +320,67 @@
   background: #333;
 }
 
+/* Inline link input inside the social zone */
+.cs-social-input-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 85%;
+  max-width: 320px;
+  margin-top: 8px;
+  padding: 4px 4px 4px 10px;
+  background: var(--bg-white);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  z-index: 2;
+}
+
+.cs-social-input-form:focus-within {
+  border-color: var(--brand-red);
+  box-shadow: 0 0 0 3px rgba(233, 26, 68, 0.1);
+}
+
+.cs-social-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  color: var(--text-primary);
+  padding: 4px 0;
+}
+
+.cs-social-input::placeholder {
+  color: var(--text-muted);
+}
+
+.cs-social-input-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: none;
+  background: var(--brand-red);
+  color: white;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.cs-social-input-submit:disabled {
+  background: var(--text-muted);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cs-social-input-submit:not(:disabled):hover {
+  background: #d0163c;
+}
+
 .cs-social-zone--active {
   border-color: var(--brand-red);
   background: var(--brand-red-light);
@@ -673,11 +734,6 @@
   transition: border-color 0.2s, color 0.2s, box-shadow 0.2s, opacity 0.3s ease;
 }
 
-.content-sidebar--open ~ .content-main .content-prev-convos {
-  opacity: 0;
-  pointer-events: none;
-}
-
 .content-prev-convos:hover {
   border-color: var(--brand-red);
   color: var(--brand-red);
@@ -824,6 +880,163 @@
 
 .content-sessions-item:hover .content-sessions-item-delete { opacity: 1; }
 .content-sessions-item-delete:hover { background: rgba(220, 38, 38, 0.1); color: #dc2626; }
+
+.content-sessions-item-rename-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.content-sessions-item:hover .content-sessions-item-rename-btn { opacity: 1; }
+.content-sessions-item-rename-btn:hover { background: rgba(0, 0, 0, 0.06); color: var(--text-primary); }
+
+.content-sessions-item-rename {
+  width: 100%;
+  padding: 3px 6px;
+  margin: -3px -6px 1px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-white);
+  border: 1px solid var(--brand-red);
+  border-radius: 6px;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(233, 26, 68, 0.12);
+}
+
+/* Delete-confirmation modal */
+.content-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: content-sessions-fade 0.15s ease;
+}
+
+.content-confirm-modal {
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-white);
+  border-radius: 14px;
+  padding: 24px 24px 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  font-family: 'Inter', sans-serif;
+  text-align: center;
+  animation: content-confirm-pop 0.18s ease;
+}
+
+@keyframes content-confirm-pop {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.content-confirm-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px;
+}
+
+.content-confirm-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.content-confirm-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin-bottom: 18px;
+  word-break: break-word;
+}
+
+.content-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.content-confirm-btn {
+  flex: 1;
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.content-confirm-btn--cancel {
+  background: transparent;
+  border-color: var(--border-light);
+  color: var(--text-secondary);
+}
+
+.content-confirm-btn--cancel:hover {
+  background: var(--bg-light);
+  color: var(--text-primary);
+}
+
+.content-confirm-btn--danger {
+  background: #dc2626;
+  color: white;
+}
+
+.content-confirm-btn--danger:hover {
+  background: #b91c1c;
+}
+
+/* Collapsed sidebar: hide the social link input + show only one icon so the 64px zone doesn't look cluttered */
+.content-sidebar:not(.content-sidebar--open) .cs-social-input-form {
+  display: none;
+}
+
+.content-sidebar:not(.content-sidebar--open) .cs-social-float:nth-child(n+2) {
+  display: none;
+}
+
+.content-sidebar:not(.content-sidebar--open) .cs-social-float:first-child {
+  width: 18px;
+  height: 18px;
+  opacity: 0.7;
+}
+
+/* Collapsed sidebar: stack photo/doc thumbnails vertically so they don't overflow the 64px rail */
+.content-sidebar:not(.content-sidebar--open) .cs-photo-grid,
+.content-sidebar:not(.content-sidebar--open) .cs-doc-grid {
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.content-sidebar:not(.content-sidebar--open) .cs-photo-thumb,
+.content-sidebar:not(.content-sidebar--open) .cs-doc-thumb {
+  width: 32px;
+  height: 32px;
+}
 
 /* Chat area */
 .content-chat-area {
