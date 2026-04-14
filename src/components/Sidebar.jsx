@@ -7,7 +7,6 @@ import {
   LogOut,
   Settings,
   User,
-  ClipboardList,
 } from 'lucide-react';
 import './Sidebar.css';
 
@@ -80,7 +79,7 @@ const navItems = [
     ],
   },
   { to: '/inbox', label: 'Inbox', icon: InboxIcon },
-  { to: '/forms', label: 'Forms', icon: ({ size }) => <ClipboardList size={size} color="var(--brand-red, #e91a44)" /> },
+  { to: '/forms', label: 'Forms', icon: ({ size }) => <ImgIcon src="/icon-forms.png" alt="Forms" size={size} /> },
   { to: '/crm', label: 'CRM', icon: CrmIcon },
 ];
 
