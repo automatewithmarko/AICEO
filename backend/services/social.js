@@ -126,7 +126,7 @@ async function extractLinkedInApify(url) {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls: [url], post_url: url, postUrls: [url] }),
+        body: JSON.stringify({ post_urls: [url], urls: [url], postUrls: [url] }),
         signal: AbortSignal.timeout(120000),
       }
     );
@@ -144,27 +144,41 @@ async function extractLinkedInApify(url) {
     }
 
     const item = items[0];
+    const post = item.post || {};
+    const author = item.author || {};
+    const media = item.media || {};
 
-    // Actor output schemas vary — try common field names in priority order.
-    const text = item.text || item.content || item.postContent || item.caption || item.description || item.commentary || '';
+    // apimaestro/linkedin-post-detail nests everything under post/author/media.
+    // Other LinkedIn actors flatten — keep fallbacks at the top level too.
+    const text =
+      post.text || post.content || post.commentary ||
+      item.text || item.content || item.postContent || item.caption || item.description || '';
+
     const uploader =
-      item.authorName ||
-      item.author?.name ||
-      item.author?.fullName ||
-      [item.author?.firstName, item.author?.lastName].filter(Boolean).join(' ') ||
-      item.actorName ||
-      item.profileName ||
-      '';
-    const thumbnail =
-      item.thumbnailUrl ||
-      item.imageUrl ||
-      item.image ||
-      (Array.isArray(item.images) && item.images[0]) ||
-      (Array.isArray(item.imageUrls) && item.imageUrls[0]) ||
-      item.author?.profilePicture ||
-      item.author?.pictureUrl ||
-      null;
-    const videoUrl = item.videoUrl || item.video?.url || item.media?.videoUrl || null;
+      author.name || author.fullName ||
+      [author.firstName, author.lastName].filter(Boolean).join(' ') ||
+      author.headline ||
+      item.authorName || item.actorName || item.profileName || '';
+
+    const thumbnail = (() => {
+      const mediaThumb =
+        media.thumbnail || media.thumbnailUrl || media.image || media.imageUrl ||
+        (Array.isArray(media.images) && (media.images[0]?.url || media.images[0])) ||
+        (Array.isArray(media.thumbnails) && (media.thumbnails[0]?.url || media.thumbnails[0]));
+      const authorPic = author.profile_picture_url || author.profilePicture || author.pictureUrl || author.picture;
+      return (
+        mediaThumb ||
+        item.thumbnailUrl || item.imageUrl || item.image ||
+        (Array.isArray(item.images) && item.images[0]) ||
+        (Array.isArray(item.imageUrls) && item.imageUrls[0]) ||
+        authorPic ||
+        null
+      );
+    })();
+
+    const videoUrl =
+      media.video?.url || media.videoUrl || media.video_url ||
+      item.videoUrl || item.video?.url || null;
 
     const result = {
       url,
@@ -172,7 +186,7 @@ async function extractLinkedInApify(url) {
       title: text.slice(0, 200) || '(no caption)',
       description: text,
       uploader,
-      duration: item.videoDuration || item.duration || 0,
+      duration: media.duration || post.duration || item.videoDuration || item.duration || 0,
       thumbnail: thumbnail ? String(thumbnail) : null,
       transcript: null,
       source: 'apify_metadata',
