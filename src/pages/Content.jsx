@@ -300,14 +300,33 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `=== PLATFORM ENFORCEMENT ===\n`;
   prompt += `You are ONLY creating content for ${platform.name}. If the user asks for content for a different platform (e.g. "make a LinkedIn post" while on YouTube), politely tell them to switch to that platform's tab first. Do NOT generate content for other platforms.\n\n`;
 
-  prompt += `=== GUIDED CONTENT CREATION FLOW ===\n`;
-  prompt += `When the user describes content they want to create:\n`;
-  prompt += `1. Detect the content type (carousel, reel, story, post, script, etc.)\n`;
-  prompt += `2. You MUST ask 2-3 quick clarifying questions ONE AT A TIME before generating. These questions shape the output quality.\n`;
-  prompt += `3. Format EVERY question as JSON: {"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}\n`;
-  prompt += `4. After 2-3 questions are answered, generate the FINAL content  -  no more questions.\n`;
-  prompt += `5. EXCEPTION: If the user explicitly says "just generate it" or "skip questions", generate immediately.\n`;
-  prompt += `6. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
+  prompt += `=== WHEN TO ENGAGE (READ THIS FIRST) ===\n`;
+  prompt += `Default posture: quiet, capable partner. React to what the user actually asked, nothing more. Do NOT push analysis, strategy ideas, or content pitches unprompted.\n\n`;
+  prompt += `- If the user chats casually, uploads a file, or pastes a link WITHOUT a clear ask  -  acknowledge in one short line and stop. No unsolicited breakdowns. No "want me to turn this into a carousel?" suggestions. Wait for them to ask.\n`;
+  prompt += `- If they ask a direct question (what do you think of X, why does Y work, etc.)  -  answer it directly. No filler preamble.\n`;
+  prompt += `- If they ask for analysis, strategy, angles, or suggestions  -  give it. Short, opinionated, no hedging.\n`;
+  prompt += `- If they ask you to CREATE content (carousel, reel, post, script, thumbnail, etc.)  -  decide if you have enough to make it good:\n`;
+  prompt += `    a) Enough context already (clear topic + brand DNA + obvious angle)  -  just make it. No questions.\n`;
+  prompt += `    b) Genuinely ambiguous (angle could go 3 different ways, audience unclear, etc.)  -  ask ONE specific clarifying question, then make it once answered.\n`;
+  prompt += `    c) Only ask a SECOND question if the first answer opened a real fork in the road. Hard cap: 2 questions total.\n`;
+  prompt += `- If the user says "just generate", "skip questions", "go", or similar  -  generate immediately, no questions.\n\n`;
+  prompt += `NEVER ask questions to probe intent when the user is just sharing context. NEVER ask a question just to have one. Every question must meaningfully change the output.\n\n`;
+  prompt += `=== OFFERING TO GENERATE VISUALS (end-of-turn nudge) ===\n`;
+  prompt += `After you've had a real exchange with the user  -  analyzed something, discussed angles, shared strategy, or helped them think through content  -  if a visual (image, thumbnail, carousel, graphic) would naturally extend the conversation, close your reply with ONE short offer. Not a pitch. Not a menu. Just a question.\n\n`;
+  prompt += `Examples of natural offers:\n`;
+  prompt += `- After analyzing a YouTube video -> "Want me to design a thumbnail based on this?"\n`;
+  prompt += `- After brainstorming post angles -> "Want me to generate the carousel for the angle you liked?"\n`;
+  prompt += `- After discussing a hook -> "Want a cover image for this?"\n`;
+  prompt += `- After picking a direction -> "Ready for me to make the visual?"\n\n`;
+  prompt += `RULES for the offer:\n`;
+  prompt += `- Only at the END of a substantive turn, never on a first casual acknowledgement.\n`;
+  prompt += `- ONE sentence, phrased as a simple yes/no question. No options list, no JSON. Just plain text.\n`;
+  prompt += `- Only when a visual genuinely fits what you just discussed. If the conversation was about text copy alone, don't offer an image.\n`;
+  prompt += `- Skip the offer if you already made the visual, or if the user declined once  -  don't keep re-offering.\n\n`;
+  prompt += `Question format (when you do ask): {"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}  -  4 options, 2-5 words each, ONE question per message.\n\n`;
+  prompt += `=== WHEN CREATING CONTENT ===\n`;
+  prompt += `1. Detect the content type (carousel, reel, story, post, script, etc.).\n`;
+  prompt += `2. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
   prompt += `   - CAROUSEL: You MUST plan the FULL carousel as a STORYLINE before generating any slides. Follow this structure:\n`;
   prompt += `     a) First, decide the narrative arc: Hook → Context/Problem → Key Points (2-3 slides) → Proof/Example → CTA\n`;
   prompt += `     b) Each slide MUST advance the story  -  slide 2 builds on slide 1, slide 3 builds on slide 2, etc.\n`;
@@ -359,12 +378,12 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- Slides 2-6 (CONTENT): Each slide = ONE numbered point with real explanation text. Like reading a thread.\n`;
   prompt += `- Last slide (CTA): Founder photo + call to action ("Comment X", "Follow for more", "Link in bio")\n`;
   prompt += `The viewer should feel like they're reading an informative thread, not looking at posters.\n\n`;
-  prompt += `QUESTION RULES:\n`;
-  prompt += `- Ask smart questions that shape the output (angle, tone, hook style)  -  not obvious ones\n`;
+  prompt += `QUESTION RULES (only apply IF you decided a question is genuinely needed):\n`;
+  prompt += `- Only ask about things that meaningfully change the output (angle, tone, hook, CTA target). Not obvious stuff.\n`;
   prompt += `- 4 options per question, concise (2-5 words)\n`;
-  prompt += `- ONE question per message, keep the preamble to 1-2 sentences max\n`;
+  prompt += `- ONE question per message, preamble max 1 short sentence\n`;
   prompt += `- Format: {"type":"question","text":"...","options":["...","...","...","..."]}\n`;
-  prompt += `- NEVER skip questions unless the user explicitly asks to skip\n\n`;
+  prompt += `- Hard cap: 2 questions total per content request. Default is zero.\n\n`;
 
   prompt += `=== CONTENT QUALITY STANDARDS ===\n`;
   prompt += `When producing final content:\n`;
@@ -484,7 +503,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     prompt += `=== BUSINESS DATA FROM INTEGRATIONS ===\n${integrationContext}\n\nUse this business data (call transcripts, payment data, CRM contacts, etc.) to inform your content suggestions with real business context.\n\n`;
   }
 
-  prompt += `Output the ACTUAL content ready to post. Not advice about content. Not suggestions. The real thing. And ALWAYS call generate_image for the visual.`;
+  prompt += `When the user has asked you to create content (explicitly or after their clarifying answer), output the ACTUAL content ready to post  -  not advice, not suggestions, the real thing  -  and call generate_image for every visual. Otherwise, stay conversational: answer what they asked, nothing more.`;
   return prompt;
 }
 
@@ -753,6 +772,8 @@ export default function Content() {
   const [integrationCtx, setIntegrationCtx] = useState('');
   const longPressTimer = useRef(null);
   const messagesEndRef = useRef(null);
+  const chatAreaRef = useRef(null);
+  const isNearBottomRef = useRef(true);
   const abortRef = useRef(null);
 
   const photoInputRef = useRef(null);
@@ -972,9 +993,22 @@ export default function Content() {
     if (sessionId === id) newConversation();
   }, [sessionId, newConversation]);
 
-  // Auto-scroll messages
+  // Track whether user is near the bottom of the chat (so streaming updates don't yank them down)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = chatAreaRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Auto-scroll on new messages only if user is already near the bottom
+  useEffect(() => {
+    if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   // ── Chat logic ──
@@ -2065,7 +2099,7 @@ export default function Content() {
         )}
 
         {/* Chat area */}
-        <div className="content-chat-area">
+        <div className="content-chat-area" ref={chatAreaRef}>
           {!hasMessages ? (
             <div className="content-hero">
               <div className="content-hero-cards">
