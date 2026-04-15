@@ -835,6 +835,8 @@ export default function Content() {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const customTitleIdsRef = useRef(new Set());
   const saveTimer = useRef(null);
+  const sessionIdRef = useRef(null);
+  const ensureSessionPromiseRef = useRef(null);
   const [editPrompt, setEditPrompt] = useState('');
   const [brandDna, setBrandDna] = useState(null);
   const [integrationCtx, setIntegrationCtx] = useState('');
@@ -1044,6 +1046,14 @@ export default function Content() {
       .eq('id', id)
       .single();
     if (error || !data) return;
+    // Clear sidebar state so the sessionId-scoped fetch below repopulates
+    // from scratch — otherwise items from the previous session leak in.
+    setPhotos([]);
+    setDocuments([]);
+    setSocialUrls([]);
+    setContentSelectedCtx(new Set());
+    ensureSessionPromiseRef.current = null;
+    sessionIdRef.current = data.id;
     setSessionId(data.id);
     setSelectedPlatform(data.platform || 'instagram');
     setMessages(data.messages || []);
@@ -1053,11 +1063,50 @@ export default function Content() {
 
   // Start a fresh conversation
   const newConversation = useCallback(() => {
+    sessionIdRef.current = null;
+    ensureSessionPromiseRef.current = null;
     setSessionId(null);
     setMessages([]);
+    setPhotos([]);
+    setDocuments([]);
+    setSocialUrls([]);
+    setContentSelectedCtx(new Set());
     setCurrentQuestion(null);
     setShowSessions(false);
   }, []);
+
+  // Keep sessionIdRef in sync so non-React callers (upload pipeline) see it
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+
+  // Ensure a content_sessions row exists before uploading sidebar items.
+  // Deduplicates concurrent callers via a promise ref so uploads that land
+  // simultaneously don't create multiple sessions.
+  const ensureSession = useCallback(async () => {
+    if (sessionIdRef.current) return sessionIdRef.current;
+    if (ensureSessionPromiseRef.current) return ensureSessionPromiseRef.current;
+    const p = (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error('Not authenticated');
+      const userId = session.user.id;
+      const { data, error } = await supabase.from('content_sessions').insert({
+        user_id: userId,
+        title: 'New conversation',
+        platform: selectedPlatform,
+        messages: [],
+      }).select('id').single();
+      if (error || !data) throw new Error(error?.message || 'Session create failed');
+      sessionIdRef.current = data.id;
+      setSessionId(data.id);
+      setSessions((prev) => [{ id: data.id, title: 'New conversation', platform: selectedPlatform, updated_at: new Date().toISOString() }, ...prev]);
+      return data.id;
+    })();
+    ensureSessionPromiseRef.current = p;
+    try {
+      return await p;
+    } finally {
+      if (ensureSessionPromiseRef.current === p) ensureSessionPromiseRef.current = null;
+    }
+  }, [selectedPlatform]);
 
   // Delete a session
   const startRenameSession = useCallback((s, e) => {
@@ -1397,7 +1446,8 @@ export default function Content() {
       ids.includes(item.id) ? { ...item, status: 'uploading' } : item
     ));
     try {
-      const { files: results } = await uploadContextFiles(files);
+      const sid = await ensureSession();
+      const { files: results } = await uploadContextFiles(files, sid);
       setter((prev) => prev.map((item) => {
         const idx = ids.indexOf(item.id);
         if (idx === -1) return item;
@@ -1411,7 +1461,7 @@ export default function Content() {
         ids.includes(item.id) ? { ...item, status: 'error' } : item
       ));
     }
-  }, []);
+  }, [ensureSession]);
 
   const addPhotos = useCallback((newFiles) => {
     setPhotos((prev) => {
@@ -1487,7 +1537,8 @@ export default function Content() {
       item.url === url ? { ...item, status: 'extracting' } : item
     ));
     try {
-      const { results } = await extractSocialUrls([url]);
+      const sid = await ensureSession();
+      const { results } = await extractSocialUrls([url], sid);
       const result = results[0];
       setSocialUrls((prev) => prev.map((item) =>
         item.url === url
@@ -1499,7 +1550,7 @@ export default function Content() {
         item.url === url ? { ...item, status: 'error' } : item
       ));
     }
-  }, []);
+  }, [ensureSession]);
 
   const addSocialUrl = useCallback((text) => {
     if (!SOCIAL_URL_PATTERN.test(text)) {
@@ -1577,10 +1628,16 @@ export default function Content() {
     return () => document.removeEventListener('paste', handler);
   }, [docHover, handleDocPaste]);
 
-  // Load saved content items from DB on mount
+  // Load saved content items from DB, scoped to the active session.
+  // A null sessionId (fresh "New conversation") means empty sidebar — items
+  // get created once the user uploads something (ensureSession creates the
+  // session, upload tags items with its id).
   useEffect(() => {
-    getContentItems().then(({ items }) => {
-      console.log('[Content] Loaded content items:', items?.length, items?.map(i => ({ type: i.type, url: i.url?.slice(0, 60) })));
+    if (!sessionId) return;
+    let cancelled = false;
+    getContentItems(sessionId).then(({ items }) => {
+      if (cancelled) return;
+      console.log('[Content] Loaded content items for session', sessionId, items?.length, items?.map(i => ({ type: i.type, url: i.url?.slice(0, 60) })));
       if (!items?.length) return;
       const savedPhotos = [];
       const savedDocs = [];
@@ -1611,6 +1668,7 @@ export default function Content() {
           });
         }
       }
+      if (cancelled) return;
       console.log('[Content] Restored context  -  photos:', savedPhotos.length, 'docs:', savedDocs.length, 'social:', savedSocial.length);
       savedPhotos.forEach((p, i) => console.log(`  [photo ${i}] url: ${p.url?.slice(0, 80)}, result.url: ${p.result?.url?.slice(0, 80)}`));
       // Merge with existing state instead of replacing (avoids race with fresh uploads)
@@ -1630,7 +1688,8 @@ export default function Content() {
         return [...prev, ...newFromDb];
       });
     }).catch((err) => { console.error('[Content] Failed to load content items:', err); });
-  }, []);
+    return () => { cancelled = true; };
+  }, [sessionId]);
 
   // ── Shared sidebar/sheet content ──
   const contextContent = (isSheet) => (

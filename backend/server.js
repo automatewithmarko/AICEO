@@ -72,11 +72,17 @@ app.get('/api/content-items', requireAuth, async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.json({ items: [] });
 
-  const { data, error } = await supabase
+  const { session_id } = req.query;
+
+  let query = supabase
     .from('content_items')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
+
+  if (session_id) query = query.eq('session_id', session_id);
+
+  const { data, error } = await query;
 
   if (error) return res.status(500).json({ error: error.message });
   res.json({ items: data });
@@ -158,10 +164,15 @@ app.post('/api/upload', requireAuth, (req, res) => {
   const userId = req.user.id;
   const results = [];
   const filePromises = [];
+  let sessionId = null;
 
   const busboy = Busboy({
     headers: req.headers,
     limits: { fileSize: 50 * 1024 * 1024 }, // 50MB per file
+  });
+
+  busboy.on('field', (name, value) => {
+    if (name === 'sessionId' && value) sessionId = value;
   });
 
   busboy.on('file', (fieldname, stream, info) => {
@@ -190,6 +201,7 @@ app.post('/api/upload', requireAuth, (req, res) => {
               const { data: saved } = await supabase.from('content_items').insert({
                 user_id: userId, type: 'photo', filename,
                 url: stored.url, storage_url: stored.url,
+                session_id: sessionId,
               }).select('id').single();
               if (saved) analysis.dbId = saved.id;
             }
@@ -210,6 +222,7 @@ app.post('/api/upload', requireAuth, (req, res) => {
                 url: stored.url, storage_url: stored.url,
                 transcript: transcript.text,
                 metadata: { duration: transcript.duration, language: transcript.language },
+                session_id: sessionId,
               }).select('id').single();
               if (saved) analysis.dbId = saved.id;
             }
@@ -228,6 +241,7 @@ app.post('/api/upload', requireAuth, (req, res) => {
                 user_id: userId, type: 'document', filename,
                 url: stored.url, storage_url: stored.url,
                 extracted_text: text,
+                session_id: sessionId,
               }).select('id').single();
               if (saved) analysis.dbId = saved.id;
             }
@@ -321,7 +335,7 @@ app.post('/api/brand-dna/upload', requireAuth, (req, res) => {
 // Accepts { urls: ["https://..."] }
 // Downloads audio via yt-dlp, grabs captions or transcribes with Whisper
 app.post('/api/social/extract', requireAuth, async (req, res) => {
-  const { urls } = req.body;
+  const { urls, sessionId } = req.body;
 
   if (!Array.isArray(urls) || urls.length === 0) {
     return res.status(400).json({ error: 'urls array required' });
@@ -355,6 +369,7 @@ app.post('/api/social/extract', requireAuth, async (req, res) => {
             duration: item.duration, thumbnail: item.thumbnail,
             source: item.source, language: item.language,
           },
+          session_id: sessionId || null,
         }).select('id').single();
         if (dbErr) console.log('[db] Save error:', dbErr.message);
         if (saved) item.dbId = saved.id;
