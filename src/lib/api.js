@@ -587,6 +587,22 @@ export async function deployToNetlify(html, siteName) {
   return res.json();
 }
 
+export async function checkNetlifyName(name) {
+  const headers = await getAuthHeaders();
+  const url = new URL(`${API_URL}/api/netlify/check-name`);
+  url.searchParams.set('name', name);
+  const res = await fetch(url.toString(), { headers });
+  if (!res.ok) return { available: false, reason: 'error' };
+  return res.json();
+}
+
+export async function getNetlifyStatus() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/netlify/status`, { headers });
+  if (!res.ok) return { connected: false };
+  return res.json();
+}
+
 // ─── Email ───
 
 export async function getEmailAccounts() {

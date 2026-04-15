@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
-import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration } from '../lib/api';
+import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus } from '../lib/api';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
@@ -25,6 +25,13 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
   const [netlifyToken, setNetlifyToken] = useState('');
   const [netlifyConnecting, setNetlifyConnecting] = useState(false);
   const [netlifyConnectError, setNetlifyConnectError] = useState('');
+
+  // Netlify "name your site" modal (triggered on Deploy click)
+  const [nameModalOpen, setNameModalOpen] = useState(false);
+  const [siteNameInput, setSiteNameInput] = useState('');
+  const [nameCheck, setNameCheck] = useState(null); // { available, owned, reason, normalized }
+  const [nameChecking, setNameChecking] = useState(false);
+  const nameCheckTimerRef = useRef(null);
   const iframeRef = useRef(null);
   const editMapRef = useRef(new Map());
   const skipIframeWriteRef = useRef(false);
@@ -151,27 +158,89 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
     URL.revokeObjectURL(url);
   };
 
+  // Suggest a default name from the artifact title, normalized to Netlify's
+  // allowed character set.
+  const suggestSiteName = () => {
+    const raw = (title || 'my-site').toString();
+    return raw
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 63) || 'my-site';
+  };
+
+  // Deploy click: open the "Name your site" modal pre-filled with the last
+  // name the user used (if any) or a slugified suggestion from the title.
   const handleDeploy = async () => {
+    if (deploying) return;
+    setSendError('');
+
+    let initial = suggestSiteName();
+    try {
+      const status = await getNetlifyStatus();
+      if (status?.connected && status?.last_site_name) initial = status.last_site_name;
+    } catch {
+      // status is optional — we can always fall back to the suggestion.
+    }
+
+    setSiteNameInput(initial);
+    setNameCheck(null);
+    setNameModalOpen(true);
+  };
+
+  // Debounced availability check while the user types in the name modal.
+  useEffect(() => {
+    if (!nameModalOpen) return;
+    const raw = siteNameInput.trim().toLowerCase();
+    if (!raw) { setNameCheck(null); return; }
+    if (nameCheckTimerRef.current) clearTimeout(nameCheckTimerRef.current);
+    setNameChecking(true);
+    nameCheckTimerRef.current = setTimeout(async () => {
+      try {
+        const result = await checkNetlifyName(raw);
+        setNameCheck(result);
+      } finally {
+        setNameChecking(false);
+      }
+    }, 400);
+    return () => { if (nameCheckTimerRef.current) clearTimeout(nameCheckTimerRef.current); };
+  }, [siteNameInput, nameModalOpen]);
+
+  // Runs the actual deploy with a confirmed name.
+  const performDeploy = async (name) => {
     if (deploying) return;
     setDeploying(true);
     setDeployResult(null);
     setSendError('');
     try {
-      const result = await deployToNetlify(htmlContent || content);
+      const result = await deployToNetlify(htmlContent || content, name);
       setDeployResult(result);
+      setNameModalOpen(false);
       if (onChatMessage) onChatMessage(`Deployed to Netlify! Live at ${result.url}`);
     } catch (err) {
       if (err.code === 'netlify_not_connected' || err.code === 'netlify_unauthorized') {
+        setNameModalOpen(false);
         setNetlifyModalMode(err.code === 'netlify_unauthorized' ? 'reconnect' : 'connect');
         setNetlifyToken('');
         setNetlifyConnectError('');
         setNetlifyModalOpen(true);
+      } else if (err.code === 'netlify_name_taken' || err.code === 'netlify_invalid_name') {
+        // Keep the name modal open so the user can pick another.
+        setNameCheck({ available: false, reason: err.code === 'netlify_name_taken' ? 'taken' : 'invalid_chars' });
+        setSendError(err.message);
       } else {
+        setNameModalOpen(false);
         setSendError(err.message);
       }
     } finally {
       setDeploying(false);
     }
+  };
+
+  const handleConfirmName = () => {
+    const name = siteNameInput.trim().toLowerCase();
+    if (!name || (nameCheck && nameCheck.available === false)) return;
+    performDeploy(name);
   };
 
   const handleNetlifyConnectAndDeploy = async () => {
@@ -538,6 +607,91 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Name Your Netlify Site Modal ── */}
+      {nameModalOpen && (
+        <div className="ap-modal-overlay" onClick={() => !deploying && setNameModalOpen(false)}>
+          <div className="ap-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ap-modal-header">
+              <h3>Name your site</h3>
+              <button className="ap-modal-close" onClick={() => !deploying && setNameModalOpen(false)}><X size={18} /></button>
+            </div>
+            <div className="ap-netlify-connect">
+              <p className="ap-netlify-connect-desc">
+                This becomes your Netlify subdomain. Pick something memorable — you can share the URL anywhere.
+              </p>
+              <label className="ap-netlify-label">Site name</label>
+              <div className="ap-sitename-row">
+                <input
+                  type="text"
+                  className="ap-netlify-input ap-sitename-input"
+                  placeholder="my-awesome-page"
+                  value={siteNameInput}
+                  onChange={(e) => setSiteNameInput(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmName(); }}
+                  autoFocus
+                  maxLength={63}
+                />
+                <span className="ap-sitename-suffix">.netlify.app</span>
+              </div>
+              <div className="ap-sitename-status">
+                {nameChecking && <span className="ap-sitename-status--checking">Checking availability…</span>}
+                {!nameChecking && nameCheck && nameCheck.available && nameCheck.owned && (
+                  <span className="ap-sitename-status--owned">✓ You already own this site — we'll redeploy to it.</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available && !nameCheck.owned && nameCheck.reason !== 'unverified' && (
+                  <span className="ap-sitename-status--ok">✓ Available</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available && nameCheck.reason === 'unverified' && (
+                  <span className="ap-sitename-status--warn">Couldn't fully verify — deploy will confirm.</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available === false && nameCheck.reason === 'taken' && (
+                  <span className="ap-sitename-status--err">✗ This name is taken. Try another.</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available === false && nameCheck.reason === 'invalid_chars' && (
+                  <span className="ap-sitename-status--err">✗ Use only lowercase letters, digits, and hyphens.</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available === false && nameCheck.reason === 'too_long' && (
+                  <span className="ap-sitename-status--err">✗ Too long — keep it under 63 characters.</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available === false && nameCheck.reason === 'empty' && (
+                  <span className="ap-sitename-status--err">✗ Name can't be empty.</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available === false && nameCheck.reason === 'unauthorized' && (
+                  <span className="ap-sitename-status--err">✗ Netlify token rejected. Reconnect in Settings.</span>
+                )}
+              </div>
+              {siteNameInput && (
+                <div className="ap-sitename-preview">
+                  Your URL: <strong>https://{siteNameInput}.netlify.app</strong>
+                </div>
+              )}
+              {sendError && <div className="ap-netlify-error">{sendError}</div>}
+              <div className="ap-netlify-actions">
+                <button
+                  className="ap-btn ap-btn--outline"
+                  onClick={() => setNameModalOpen(false)}
+                  disabled={deploying}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="ap-btn ap-btn--netlify"
+                  onClick={handleConfirmName}
+                  disabled={
+                    !siteNameInput.trim() ||
+                    deploying ||
+                    nameChecking ||
+                    (nameCheck && nameCheck.available === false)
+                  }
+                >
+                  {deploying ? 'Deploying…' : 'Deploy'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -333,6 +333,61 @@ router.get('/api/integration-context', async (req, res) => {
 });
 
 // ─── Deploy to Netlify ───
+// Return current Netlify connection state + last deploy metadata so the
+// frontend can pre-fill the "name your site" modal on redeploy.
+router.get('/api/netlify/status', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.json({ connected: false });
+
+  const { data: integration } = await supabase
+    .from('integrations')
+    .select('is_active, metadata')
+    .eq('user_id', userId)
+    .eq('provider', 'netlify')
+    .single();
+
+  if (!integration || !integration.is_active) return res.json({ connected: false });
+
+  res.json({
+    connected: true,
+    last_site_name: integration.metadata?.last_site_name || null,
+    last_site_id: integration.metadata?.last_site_id || null,
+  });
+});
+
+// Check if a site name is available. Used by the name-your-site modal for
+// live feedback before the user hits Deploy.
+router.get('/api/netlify/check-name', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const name = String(req.query.name || '');
+  const v = netlify.validateName(name);
+  if (!v.ok) {
+    return res.json({ available: false, reason: v.reason });
+  }
+
+  const { data: integration } = await supabase
+    .from('integrations')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('provider', 'netlify')
+    .eq('is_active', true)
+    .single();
+
+  if (!integration) {
+    return res.status(400).json({ error: 'Netlify not connected.', code: 'netlify_not_connected' });
+  }
+
+  try {
+    const result = await netlify.checkNameAvailable(integration.api_key, v.name);
+    res.json({ ...result, normalized: v.name });
+  } catch (err) {
+    console.error(`[netlify] check-name failed for user ${userId}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/api/netlify/deploy', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
@@ -356,10 +411,27 @@ router.post('/api/netlify/deploy', async (req, res) => {
     });
   }
 
+  // A user-provided name is required. No more random pp-<hash>-<timestamp>.
+  const providedName = typeof siteName === 'string' ? siteName.toLowerCase().trim() : '';
+  const v = netlify.validateName(providedName);
+  if (!v.ok) {
+    return res.status(400).json({
+      error: 'A valid site name is required. Use lowercase letters, digits, and hyphens (1-63 chars).',
+      code: 'netlify_invalid_name',
+      reason: v.reason,
+    });
+  }
+
+  // Determine which existing siteId (if any) to redeploy to. Only reuse the
+  // stored site ID when the user kept the same name; otherwise we create a
+  // fresh site under the new name so the URL matches what they picked.
+  const storedSiteName = integration.metadata?.last_site_name || null;
+  const reuseSiteId = storedSiteName === v.name ? integration.metadata?.last_site_id : null;
+
   try {
     const result = await netlify.deploy(integration.api_key, html, {
-      siteName: siteName || `pp-${userId.slice(0, 8)}-${Date.now().toString(36)}`,
-      siteId: integration.metadata?.last_site_id || null,
+      siteName: v.name,
+      siteId: reuseSiteId,
     });
 
     // Store site ID for future deploys to the same site
@@ -385,6 +457,13 @@ router.post('/api/netlify/deploy', async (req, res) => {
       return res.status(401).json({
         error: 'Netlify token rejected.',
         code: 'netlify_unauthorized',
+      });
+    }
+    // 422 from Netlify's /sites endpoint: site name already in use.
+    if (/\b422\b|already in use|must be unique|name.*taken/i.test(err.message)) {
+      return res.status(409).json({
+        error: `The name "${v.name}" is already taken on Netlify. Pick another one.`,
+        code: 'netlify_name_taken',
       });
     }
     res.status(500).json({ error: `Deploy failed: ${err.message}` });
