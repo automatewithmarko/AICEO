@@ -128,6 +128,69 @@ If the user picks "No, just use a CTA button" -> delegate without a form.
 `;
   }
 
+  // ── Landing / squeeze page style routing (direct-response vs corporate-saas) ──
+  prompt += `
+
+=== LANDING / SQUEEZE PAGE STYLE ROUTING ===
+Our landing-page agent supports two distinct modes: "direct-response" (Hormozi / Brunson / Kennedy / Tai Lopez school — long-scroll sales pages with VSL, offer stack, testimonials everywhere, scarcity) and "corporate-saas" (Stripe / Linear school — clean, minimal, product-focused). Pick the right one based on the CTA the user already told you about.
+
+ROUTING RULE (decide after Q3 — CTA):
+- CTA is "book a call" / "apply" / "join" / "register" / "buy" / "download" / "opt-in" / "get the [thing]" -> direct-response
+- CTA is "start free trial" / "see a demo" / "sign up" / "create an account" / "get started" (for a SaaS product) -> corporate-saas
+- If the user's CTA fits neither cleanly and the audience is individuals/SMB (coaches, consultants, creators, info-product sellers) -> default to direct-response
+- If the user's CTA fits neither and the audience is businesses with a software product -> corporate-saas
+
+DIRECT-RESPONSE EXTRA QUESTIONS (ask ONLY if style is direct-response, ONE at a time, AFTER the normal 4 and the form-embedding question):
+  Q5. Specific outcome + timeframe for the buyer.
+      Use ask_user. Provide 3-4 concrete option strings derived from the user's answers so far, plus "Something else (I'll type it)". Example options for a coaching offer: "Add $10k/mo in 90 days", "Book 10 calls in 30 days", "Get 100 leads in 60 days".
+  Q6. VSL (Video Sales Letter) status.
+      ask_user options: "I have a VSL URL to embed", "No VSL — use a placeholder", "Skip the VSL, use a static hero".
+      If they pick "I have a VSL URL", follow up with a plain-text ask in the next message asking them to paste the URL.
+  Q7. Price and offer stack.
+      ask_user options: "Under $100", "$100-$500", "$500-$2,000", "$2,000-$10,000", "$10,000+". After they pick a range, ask a follow-up in plain text: "Great. What's included in this offer? List 3-5 deliverables and their individual dollar value if you know it." Parse their response to build the offer stack.
+  Q8. Risk reversal / guarantee.
+      ask_user options: "30-day money-back", "Results-or-refund", "Double your money back", "No guarantee", "Custom (I'll write it)".
+  Q9. Scarcity mechanic.
+      ask_user options: "Countdown to a date", "Limited seats (cohort)", "Price increase on [date]", "No urgency (evergreen)".
+  Q10. Testimonials.
+       ask_user options: "Yes — I'll paste real testimonials", "No testimonials yet — use placeholder slots", "Skip testimonials entirely".
+       If they pick "Yes", follow up asking them to paste 2-5 testimonials with name + quote + optional role/result in the next message.
+
+DELEGATION (direct-response):
+When all the above are answered, call delegate_to_agent with agent_name = "landing-page" (or "squeeze-page" if they asked for a squeeze/opt-in page), and build the task_description with ALL of this context embedded. The task_description MUST begin with this header:
+
+  PAGE STYLE: direct-response
+  The AI CEO has already asked the user all necessary questions — generate immediately, do not ask more.
+
+Then on subsequent lines include the collected answers as labeled fields:
+
+  OFFER: <Q1 answer>
+  AUDIENCE: <Q2 answer>
+  TONE: <Q3 answer — the user's tone choice, e.g. "Authority/Hormozi style">
+  CTA: <Q4 answer>
+  OUTCOME: <Q5 answer>
+  VSL: <Q6 answer — include the URL if given, otherwise "placeholder" or "none">
+  PRICE: <Q7 answer — range plus any listed deliverables + values>
+  GUARANTEE: <Q8 answer>
+  SCARCITY: <Q9 answer>
+  TESTIMONIALS: <Q10 answer — include the pasted testimonials verbatim if given>
+
+If EMBED FORM was selected in the form-embedding step, append the EMBED FORM line last.
+
+DELEGATION (corporate-saas):
+Skip Q5-Q10. Build the task_description beginning with:
+
+  PAGE STYLE: corporate-saas
+  The AI CEO has already asked the user all necessary questions — generate immediately, do not ask more.
+
+Then include the 4 standard answers (OFFER, AUDIENCE, TONE, CTA) and the EMBED FORM line if applicable.
+
+IMPORTANT:
+- Do NOT ask the direct-response questions for corporate-saas pages.
+- Never repeat a question the user already answered — carry context.
+- Respect the user if they say "just generate it" — skip remaining questions and delegate with whatever you have.
+`;
+
 
   // ── SOUL FILE  -  who this person is ──
   prompt += `\n\n=== SOUL FILE  -  WHO THIS PERSON IS ===
