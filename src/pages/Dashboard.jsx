@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Check, ChevronDown, ExternalLink, X, Copy, Loader, Upload, Plus } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, ExternalLink, X, Copy, Loader, Upload, Plus } from 'lucide-react';
 import { connectIntegration, getIntegrations, getEmailAccounts, uploadBrandDnaFiles, getDashboardStats } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
@@ -29,7 +29,8 @@ const ONBOARDING_STEPS = [
 
 export default function Dashboard() {
   const [dashLoading, setDashLoading] = useState(true);
-  const [onboardingVisible, setOnboardingVisible] = useState(true);
+  const [onboardingExpanded, setOnboardingExpanded] = useState(true);
+  const autoCollapsedRef = useRef(false);
   const [completedSteps, setCompletedSteps] = useState(new Set([1]));
   const [connectedIntegrations, setConnectedIntegrations] = useState({});
   const [selectedNoteTaker, setSelectedNoteTaker] = useState(NOTE_TAKERS[0]);
@@ -59,18 +60,31 @@ export default function Dashboard() {
 
   // Dashboard stats (populated from /api/dashboard-stats)
   const [statsTimeframe, setStatsTimeframe] = useState('week');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [customApplied, setCustomApplied] = useState({ from: '', to: '' });
   const [overviewStats, setOverviewStats] = useState(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
 
   useEffect(() => {
+    // Don't fetch if user picked Custom but hasn't applied a range yet.
+    if (statsTimeframe === 'custom' && !customApplied.from && !customApplied.to) return;
     let cancelled = false;
     setOverviewLoading(true);
-    getDashboardStats(statsTimeframe)
+    const opts = statsTimeframe === 'custom'
+      ? { from: customApplied.from || undefined, to: customApplied.to || undefined }
+      : {};
+    getDashboardStats(statsTimeframe, opts)
       .then((data) => { if (!cancelled && data) setOverviewStats(data); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setOverviewLoading(false); });
     return () => { cancelled = true; };
-  }, [statsTimeframe]);
+  }, [statsTimeframe, customApplied]);
+
+  const applyCustomRange = () => {
+    if (!customFrom && !customTo) return;
+    setCustomApplied({ from: customFrom, to: customTo });
+  };
 
   const fmtInt = (n) => (Number(n) || 0).toLocaleString('en-US');
   const fmtMoney = (n) => {
@@ -96,7 +110,7 @@ export default function Dashboard() {
           .single();
 
         if (onboarding) {
-          setOnboardingVisible(onboarding.is_visible);
+          setOnboardingExpanded(onboarding.is_visible !== false);
           for (const s of (onboarding.completed_steps || [])) {
             if (s === 'signup') steps.add(1);
             if (s === 'photos') steps.add(2);
@@ -149,6 +163,40 @@ export default function Dashboard() {
   const totalSteps = ONBOARDING_STEPS.length;
   const completedCount = completedSteps.size;
   const progressPercent = (completedCount / totalSteps) * 100;
+
+  const persistOnboardingVisibility = (visible) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.user) return;
+      supabase.from('onboarding').upsert({
+        user_id: session.user.id,
+        is_visible: visible,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+    });
+  };
+
+  const toggleOnboarding = () => {
+    setOnboardingExpanded((prev) => {
+      const next = !prev;
+      persistOnboardingVisibility(next);
+      return next;
+    });
+  };
+
+  // Auto-collapse on the incomplete -> complete transition within this session.
+  // Avoids fighting users who already finished onboarding and deliberately
+  // re-expanded the panel on a prior visit.
+  const prevCompletedRef = useRef(completedCount);
+  useEffect(() => {
+    const wasIncomplete = prevCompletedRef.current < totalSteps;
+    const nowComplete = completedCount === totalSteps;
+    if (wasIncomplete && nowComplete && !autoCollapsedRef.current && onboardingExpanded) {
+      autoCollapsedRef.current = true;
+      setOnboardingExpanded(false);
+      persistOnboardingVisibility(false);
+    }
+    prevCompletedRef.current = completedCount;
+  }, [completedCount, totalSteps, onboardingExpanded]);
 
   const handleComplete = (stepId) => {
     setCompletedSteps((prev) => {
@@ -425,22 +473,27 @@ export default function Dashboard() {
     <div className="page-container">
       <h1 className="page-title">Dashboard</h1>
 
-      {onboardingVisible && (
-        <div className="onboarding">
-          <div className="onboarding-header">
-            <div className="onboarding-header-left">
-              <span className="onboarding-badge">Onboarding</span>
-              <span className="onboarding-progress-label">
-                {completedCount}/{totalSteps} completed
-              </span>
-            </div>
-            {completedCount === totalSteps && (
-              <button className="onboarding-dismiss" onClick={() => setOnboardingVisible(false)}>Dismiss</button>
-            )}
+      <div className={`onboarding ${onboardingExpanded ? '' : 'onboarding--collapsed'}`}>
+        <div className="onboarding-header" onClick={toggleOnboarding} role="button" tabIndex={0}
+             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOnboarding(); } }}>
+          <div className="onboarding-header-left">
+            <span className="onboarding-badge">Onboarding</span>
+            <span className="onboarding-progress-label">
+              {completedCount}/{totalSteps} completed
+            </span>
           </div>
-          <div className="onboarding-progress-bar">
-            <div className="onboarding-progress-fill" style={{ width: `${progressPercent}%` }} />
-          </div>
+          <button
+            className="onboarding-toggle"
+            onClick={(e) => { e.stopPropagation(); toggleOnboarding(); }}
+            aria-label={onboardingExpanded ? 'Collapse onboarding' : 'Expand onboarding'}
+          >
+            {onboardingExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+          </button>
+        </div>
+        {onboardingExpanded && (<>
+        <div className="onboarding-progress-bar">
+          <div className="onboarding-progress-fill" style={{ width: `${progressPercent}%` }} />
+        </div>
 
           <div className="onboarding-steps">
             {ONBOARDING_STEPS.map((step) => {
@@ -541,27 +594,47 @@ export default function Dashboard() {
               );
             })}
           </div>
-        </div>
-      )}
+        </>)}
+      </div>
 
       <div className="dashboard-stats-header">
         <h2 className="dashboard-stats-title">Overview</h2>
-        <div className="dashboard-timeframe" role="tablist" aria-label="Timeframe">
-          {[
-            { id: 'week', label: 'Week' },
-            { id: 'month', label: 'Month' },
-            { id: 'year', label: 'Year' },
-          ].map((tf) => (
-            <button
-              key={tf.id}
-              role="tab"
-              aria-selected={statsTimeframe === tf.id}
-              className={`dashboard-timeframe-btn${statsTimeframe === tf.id ? ' dashboard-timeframe-btn--active' : ''}`}
-              onClick={() => setStatsTimeframe(tf.id)}
+        <div className="dashboard-timeframe-wrap">
+          <div className="dashboard-timeframe" role="tablist" aria-label="Timeframe">
+            {[
+              { id: 'today', label: 'Today' },
+              { id: 'week', label: 'Week' },
+              { id: 'month', label: 'Month' },
+              { id: 'all', label: 'All' },
+              { id: 'custom', label: 'Custom' },
+            ].map((tf) => (
+              <button
+                key={tf.id}
+                role="tab"
+                aria-selected={statsTimeframe === tf.id}
+                className={`dashboard-timeframe-btn${statsTimeframe === tf.id ? ' dashboard-timeframe-btn--active' : ''}`}
+                onClick={() => setStatsTimeframe(tf.id)}
+              >
+                {tf.label}
+              </button>
+            ))}
+          </div>
+          {statsTimeframe === 'custom' && (
+            <form
+              className="dashboard-timeframe-custom"
+              onSubmit={(e) => { e.preventDefault(); applyCustomRange(); }}
             >
-              {tf.label}
-            </button>
-          ))}
+              <label>
+                <span>From</span>
+                <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} max={customTo || undefined} />
+              </label>
+              <label>
+                <span>To</span>
+                <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} min={customFrom || undefined} />
+              </label>
+              <button type="submit" className="dashboard-timeframe-apply" disabled={!customFrom && !customTo}>Apply</button>
+            </form>
+          )}
         </div>
       </div>
 

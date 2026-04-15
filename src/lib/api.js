@@ -626,10 +626,14 @@ export async function syncEmailAccount(id) {
   return res.json();
 }
 
-export async function getDashboardStats(timeframe = 'week') {
+export async function getDashboardStats(timeframe = 'week', { from, to } = {}) {
   const headers = await getAuthHeaders();
   const url = new URL(`${API_URL}/api/dashboard-stats`);
   url.searchParams.set('timeframe', timeframe);
+  if (timeframe === 'custom') {
+    if (from) url.searchParams.set('from', from);
+    if (to) url.searchParams.set('to', to);
+  }
   const res = await fetch(url.toString(), { headers });
   if (!res.ok) return null;
   return res.json();

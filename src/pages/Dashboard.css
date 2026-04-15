@@ -54,6 +54,39 @@
   background: var(--bg-light);
 }
 
+/* Collapsed state — header only, clickable to expand */
+.onboarding-header {
+  cursor: pointer;
+  user-select: none;
+}
+
+.onboarding--collapsed {
+  padding: 12px 20px;
+}
+
+.onboarding--collapsed .onboarding-header {
+  margin-bottom: 0;
+}
+
+.onboarding-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.onboarding-toggle:hover {
+  background: var(--bg-light);
+  color: var(--text-primary);
+}
+
 /* Progress Bar */
 .onboarding-progress-bar {
   width: 100%;
@@ -356,6 +389,75 @@
   background: var(--bg-white);
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
+}
+
+.dashboard-timeframe-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.dashboard-timeframe-custom {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-white);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+.dashboard-timeframe-custom label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.dashboard-timeframe-custom input[type="date"] {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  color: var(--text-primary);
+  padding: 6px 10px;
+  background: var(--bg-light);
+  border: 1px solid var(--border-light);
+  border-radius: 7px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.dashboard-timeframe-custom input[type="date"]:focus {
+  border-color: var(--brand-red);
+  box-shadow: 0 0 0 3px rgba(233, 26, 68, 0.1);
+}
+
+.dashboard-timeframe-apply {
+  padding: 7px 14px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+  background: var(--brand-red);
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.dashboard-timeframe-apply:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dashboard-timeframe-apply:not(:disabled):hover {
+  background: var(--brand-red-hover, #d0163c);
 }
 
 /* Stat Cards */
