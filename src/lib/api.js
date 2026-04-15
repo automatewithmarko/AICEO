@@ -626,6 +626,15 @@ export async function syncEmailAccount(id) {
   return res.json();
 }
 
+export async function getDashboardStats(timeframe = 'week') {
+  const headers = await getAuthHeaders();
+  const url = new URL(`${API_URL}/api/dashboard-stats`);
+  url.searchParams.set('timeframe', timeframe);
+  const res = await fetch(url.toString(), { headers });
+  if (!res.ok) return null;
+  return res.json();
+}
+
 export async function getEmails(params = {}) {
   const headers = await getAuthHeaders();
   const url = new URL(`${API_URL}/api/emails`);

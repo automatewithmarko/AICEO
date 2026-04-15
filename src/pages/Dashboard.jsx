@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Check, ChevronDown, ExternalLink, X, Copy, Loader, Upload, Plus } from 'lucide-react';
-import { connectIntegration, getIntegrations, getEmailAccounts, uploadBrandDnaFiles } from '../lib/api';
+import { connectIntegration, getIntegrations, getEmailAccounts, uploadBrandDnaFiles, getDashboardStats } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
 import './Dashboard.css';
@@ -57,8 +57,28 @@ export default function Dashboard() {
   const [brandBrainSaved, setBrandBrainSaved] = useState(false);
   const [brandBrainRawData, setBrandBrainRawData] = useState(null);
 
-  // Dashboard stats timeframe filter (UI only — non-functional placeholder)
+  // Dashboard stats (populated from /api/dashboard-stats)
   const [statsTimeframe, setStatsTimeframe] = useState('week');
+  const [overviewStats, setOverviewStats] = useState(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setOverviewLoading(true);
+    getDashboardStats(statsTimeframe)
+      .then((data) => { if (!cancelled && data) setOverviewStats(data); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setOverviewLoading(false); });
+    return () => { cancelled = true; };
+  }, [statsTimeframe]);
+
+  const fmtInt = (n) => (Number(n) || 0).toLocaleString('en-US');
+  const fmtMoney = (n) => {
+    const v = Number(n) || 0;
+    return `$${v.toLocaleString('en-US', { maximumFractionDigits: v >= 1000 ? 0 : 2 })}`;
+  };
+  const platformCreated = (p) => overviewStats?.content_created?.[p] ?? 0;
+  const platformPublished = (p) => overviewStats?.content_published?.[p] ?? 0;
 
   const [ghlLocationId, setGhlLocationId] = useState('');
 
@@ -545,13 +565,13 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="dashboard-stats dashboard-stats--grid">
+      <div className={`dashboard-stats dashboard-stats--grid${overviewLoading ? ' dashboard-stats--loading' : ''}`}>
         <div className="stat-card">
           <div className="stat-icon">
             <img src="/icon-crm.png" alt="" className="stat-icon-img" />
           </div>
           <div className="stat-info">
-            <span className="stat-value">0</span>
+            <span className="stat-value">{fmtInt(overviewStats?.new_contacts)}</span>
             <span className="stat-label">New Contacts</span>
           </div>
         </div>
@@ -560,8 +580,17 @@ export default function Dashboard() {
             <img src="/icon-sales.png" alt="" className="stat-icon-img" />
           </div>
           <div className="stat-info">
-            <span className="stat-value">$0</span>
+            <span className="stat-value">{fmtMoney(overviewStats?.revenue_generated)}</span>
             <span className="stat-label">Revenue Generated</span>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon stat-icon--info">
+            <img src="/icon-inbox.png" alt="" className="stat-icon-img" />
+          </div>
+          <div className="stat-info">
+            <span className="stat-value">{fmtInt(overviewStats?.emails_sent)}</span>
+            <span className="stat-label">Emails Sent</span>
           </div>
         </div>
         <div className="stat-card">
@@ -569,20 +598,20 @@ export default function Dashboard() {
             <img src="/icon-marketing.png" alt="" className="stat-icon-img" />
           </div>
           <div className="stat-info">
-            <span className="stat-value">0</span>
+            <span className="stat-value">{fmtInt(overviewStats?.newsletters_sent)}</span>
             <span className="stat-label">Newsletters Sent</span>
           </div>
         </div>
         <div className="stat-card stat-card--wide">
           <div className="stat-info stat-info--full">
-            <span className="stat-label stat-label--section">New Social Media Posts</span>
+            <span className="stat-label stat-label--section">Content Created</span>
             <div className="stat-platforms">
               <div className="stat-platform">
                 <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--ig">
                   <img src="/instagram-icon.svg" alt="Instagram" />
                 </div>
                 <div className="stat-platform-meta">
-                  <span className="stat-platform-value">0</span>
+                  <span className="stat-platform-value">{fmtInt(platformCreated('instagram'))}</span>
                   <span className="stat-platform-name">Instagram</span>
                 </div>
               </div>
@@ -591,7 +620,7 @@ export default function Dashboard() {
                   <img src="/tiktok-icon.svg" alt="TikTok" />
                 </div>
                 <div className="stat-platform-meta">
-                  <span className="stat-platform-value">0</span>
+                  <span className="stat-platform-value">{fmtInt(platformCreated('tiktok'))}</span>
                   <span className="stat-platform-name">TikTok</span>
                 </div>
               </div>
@@ -600,7 +629,7 @@ export default function Dashboard() {
                   <img src="/youtube-icon.svg" alt="YouTube" />
                 </div>
                 <div className="stat-platform-meta">
-                  <span className="stat-platform-value">0</span>
+                  <span className="stat-platform-value">{fmtInt(platformCreated('youtube'))}</span>
                   <span className="stat-platform-name">YouTube</span>
                 </div>
               </div>
@@ -609,7 +638,7 @@ export default function Dashboard() {
                   <img src="/linkedin-icon.svg" alt="LinkedIn" />
                 </div>
                 <div className="stat-platform-meta">
-                  <span className="stat-platform-value">0</span>
+                  <span className="stat-platform-value">{fmtInt(platformCreated('linkedin'))}</span>
                   <span className="stat-platform-name">LinkedIn</span>
                 </div>
               </div>
@@ -618,7 +647,59 @@ export default function Dashboard() {
                   <img src="/x-icon.svg" alt="X" />
                 </div>
                 <div className="stat-platform-meta">
-                  <span className="stat-platform-value">0</span>
+                  <span className="stat-platform-value">{fmtInt(platformCreated('x'))}</span>
+                  <span className="stat-platform-name">X</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="stat-card stat-card--wide">
+          <div className="stat-info stat-info--full">
+            <span className="stat-label stat-label--section">Content Published</span>
+            <div className="stat-platforms">
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--ig">
+                  <img src="/instagram-icon.svg" alt="Instagram" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformPublished('instagram'))}</span>
+                  <span className="stat-platform-name">Instagram</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--tt">
+                  <img src="/tiktok-icon.svg" alt="TikTok" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformPublished('tiktok'))}</span>
+                  <span className="stat-platform-name">TikTok</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--yt">
+                  <img src="/youtube-icon.svg" alt="YouTube" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformPublished('youtube'))}</span>
+                  <span className="stat-platform-name">YouTube</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--li">
+                  <img src="/linkedin-icon.svg" alt="LinkedIn" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformPublished('linkedin'))}</span>
+                  <span className="stat-platform-name">LinkedIn</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--x">
+                  <img src="/x-icon.svg" alt="X" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformPublished('x'))}</span>
                   <span className="stat-platform-name">X</span>
                 </div>
               </div>

@@ -366,7 +366,16 @@
 }
 
 .dashboard-stats--grid {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 1100px) {
+  .dashboard-stats--grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.dashboard-stats--loading {
+  opacity: 0.6;
+  transition: opacity 0.15s;
 }
 
 .stat-card--wide {
