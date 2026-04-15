@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -1292,8 +1292,18 @@ export default function Content() {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; setIsGenerating(false); }
   }, []);
 
+  // Block sending while any attachment is still uploading/extracting  -  otherwise the
+  // AI receives a prompt without the context the user just attached.
+  const pendingAttachments = useMemo(() => {
+    const photoPending = photos.filter(p => p.status === 'pending' || p.status === 'uploading').length;
+    const docPending = documents.filter(d => d.status === 'pending' || d.status === 'uploading').length;
+    const socialPending = socialUrls.filter(s => s.status === 'pending' || s.status === 'extracting').length;
+    return { photos: photoPending, documents: docPending, socialUrls: socialPending, total: photoPending + docPending + socialPending };
+  }, [photos, documents, socialUrls]);
+  const hasPendingAttachments = pendingAttachments.total > 0;
+
   const selectOption = useCallback((option) => {
-    if (isGenerating) return;
+    if (isGenerating || hasPendingAttachments) return;
     setCurrentQuestion(null);
     setCustomTyping(false);
     setCustomText('');
@@ -1302,18 +1312,18 @@ export default function Content() {
     const updated = [...messages, userMsg];
     setMessages(updated);
     sendToAI(updated);
-  }, [isGenerating, messages, sendToAI, contentSelectedCtx, contentCtxCategories]);
+  }, [isGenerating, hasPendingAttachments, messages, sendToAI, contentSelectedCtx, contentCtxCategories]);
 
   const sendMessage = useCallback(() => {
     const text = input.trim();
-    if (!text || isGenerating) return;
+    if (!text || isGenerating || hasPendingAttachments) return;
     const contextStr = buildContentContextString();
     const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: contextStr + text };
     const updated = [...messages, userMsg];
     setMessages(updated);
     setInput('');
     sendToAI(updated);
-  }, [input, isGenerating, messages, sendToAI, contentSelectedCtx, contentCtxCategories]);
+  }, [input, isGenerating, hasPendingAttachments, messages, sendToAI, contentSelectedCtx, contentCtxCategories]);
 
   // Direct image edit  -  sends ONLY the image to Gemini, no brand data, no context
   const handleImageEdit = useCallback(async (editInstruction) => {
@@ -2456,7 +2466,7 @@ export default function Content() {
                           ))}
                           {/* Skeleton placeholders for pending images */}
                           {Array.from({ length: msg.pendingImages || 0 }).map((_, i) => (
-                            <div key={`pending-${i}`} className="content-carousel-slide content-image-skeleton">
+                            <div key={`pending-${i}`} className={`content-carousel-slide content-image-skeleton content-image-skeleton--${activePlatform?.id || 'default'}`}>
                               <div className="content-image-skeleton-shimmer" />
                               <div className="content-image-skeleton-label">
                                 <Loader size={16} className="cs-spinner" />
@@ -2509,6 +2519,18 @@ export default function Content() {
 
         {/* Chat Input */}
         <div className="content-input-area">
+          {hasPendingAttachments && (
+            <div className="content-pending-banner">
+              <Loader size={13} className="cs-spinner" />
+              <span>
+                Processing {pendingAttachments.total} attachment{pendingAttachments.total === 1 ? '' : 's'}
+                {pendingAttachments.photos > 0 && ` - ${pendingAttachments.photos} photo${pendingAttachments.photos === 1 ? '' : 's'}`}
+                {pendingAttachments.documents > 0 && ` - ${pendingAttachments.documents} document${pendingAttachments.documents === 1 ? '' : 's'}`}
+                {pendingAttachments.socialUrls > 0 && ` - ${pendingAttachments.socialUrls} link${pendingAttachments.socialUrls === 1 ? '' : 's'}`}
+                . You can type now  -  send unlocks when they finish.
+              </span>
+            </div>
+          )}
           <div className="content-input-wrapper">
             <div className="content-input-top-row">
               <div className="content-ctx-anchor" ref={contentCtxRef}>
@@ -2599,8 +2621,13 @@ export default function Content() {
                   <CircleStop size={18} />
                 </button>
               ) : (
-                <button className="content-send-btn" disabled={!input.trim()} onClick={sendMessage}>
-                  <Send size={18} />
+                <button
+                  className="content-send-btn"
+                  disabled={!input.trim() || hasPendingAttachments}
+                  onClick={sendMessage}
+                  title={hasPendingAttachments ? `Waiting for ${pendingAttachments.total} attachment${pendingAttachments.total === 1 ? '' : 's'} to finish processing...` : undefined}
+                >
+                  {hasPendingAttachments ? <Loader size={18} className="cs-spinner" /> : <Send size={18} />}
                 </button>
               )}
             </div>
