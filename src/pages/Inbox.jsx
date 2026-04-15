@@ -5,7 +5,7 @@ import { useOutletContext } from 'react-router-dom';
 import { Search, Star, Paperclip, ChevronDown, Reply, Forward, Trash2, Archive, MoreHorizontal, Plus, X, Bold, Italic, Link2, ImagePlus, Sparkles, FileText, Check, RefreshCw, Mail, Settings, LogOut, Loader2 } from 'lucide-react';
 import {
   addEmailAccount, syncEmailAccount,
-  getEmails, getEmail, updateEmail, sendEmailApi, saveDraft, getEmailCounts, deleteEmail,
+  getEmails, getEmail, updateEmail, sendEmailApi, saveDraft, getEmailCounts, deleteEmail, generateEmailDraft,
   getSalesCalls,
 } from '../lib/api';
 import { supabase } from '../lib/supabase';
@@ -46,22 +46,6 @@ const PROVIDER_PRESETS = {
     ),
   },
 };
-
-const AI_DRAFT = `Hi there,
-
-Thank you for reaching out! I wanted to follow up on our recent conversation and share a few thoughts.
-
-Based on what we discussed, I believe the next steps would be:
-
-1. **Review the proposal** I've attached
-2. **Schedule a follow-up call** for next week
-3. **Share any feedback** you have on the timeline
-
-I'm confident we can make this work within your budget and timeline. Please don't hesitate to reach out if you have any questions.
-
-Looking forward to hearing from you!
-
-Best regards`;
 
 function insertAtCursor(textareaRef, before, after, placeholder) {
   const ta = textareaRef.current;
@@ -591,15 +575,51 @@ export default function Inbox() {
     e.target.value = '';
   };
 
-  const handleAiGenerate = () => {
+  const handleAiGenerate = async () => {
     if (!aiPrompt.trim()) return;
     setAiLoading(true);
-    setTimeout(() => {
-      setComposeBody(AI_DRAFT);
-      setAiLoading(false);
+
+    // Include the email being replied to / forwarded so the model works from
+    // the real conversation, not a generic template.
+    const src = selectedEmailFull || selectedEmail;
+    const original = (src && (composeMode === 'reply' || composeMode === 'forward'))
+      ? {
+          from_name: src.from_name || '',
+          from_email: src.from_email || '',
+          subject: src.subject || '',
+          body_text: src.body_text || src.preview || '',
+          date: src.date || null,
+        }
+      : null;
+
+    const contextEmailsPayload = emails
+      .filter((e) => selectedContextEmails.has(e.id))
+      .map((e) => ({
+        from: [e.from_name, e.from_email].filter(Boolean).join(' '),
+        subject: e.subject || '',
+        body_text: e.body_text || e.preview || '',
+      }));
+
+    const contextCallsPayload = contextCalls
+      .filter((c) => selectedCalls.has(c.id))
+      .map((c) => ({ title: c.title || '', transcript: c.transcript || '' }));
+
+    try {
+      const { draft } = await generateEmailDraft({
+        prompt: aiPrompt,
+        mode: composeMode || 'new',
+        original,
+        context_emails: contextEmailsPayload,
+        context_calls: contextCallsPayload,
+      });
+      if (draft) setComposeBody(draft);
       setAiMode(false);
       setAiPrompt('');
-    }, 1500);
+    } catch (err) {
+      showToast(err.message || 'AI draft failed', 'error');
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const toggleAiMode = () => {

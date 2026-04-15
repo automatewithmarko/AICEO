@@ -500,4 +500,109 @@ router.delete('/api/emails/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── AI Draft (generate a reply body from original email + user prompt) ───
+router.post('/api/emails/ai-draft', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
+
+  const { prompt, mode = 'reply', original = null, context_emails = [], context_calls = [] } = req.body || {};
+  if (!prompt || !String(prompt).trim()) {
+    return res.status(400).json({ error: 'prompt is required' });
+  }
+
+  // Load brand DNA for voice/signature hints (best-effort).
+  let brandDescription = '';
+  let userName = '';
+  try {
+    const [brandRes, userRes] = await Promise.all([
+      supabase.from('brand_dna').select('description').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
+      supabase.from('users').select('full_name').eq('id', userId).limit(1),
+    ]);
+    brandDescription = brandRes.data?.[0]?.description || '';
+    userName = userRes.data?.[0]?.full_name || '';
+  } catch {
+    // non-fatal
+  }
+
+  const trim = (t, n = 4000) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+  const systemPrompt = `You are an email assistant drafting a response on behalf of the user${userName ? ` (${userName})` : ''}.
+
+Rules:
+- Output ONLY the email body text. No subject line, no preamble, no "Here's a draft:", no markdown code fences.
+- Address the original sender by name when known. Reference specific points from their email so the reply feels read, not templated.
+- Match the tone and register of the original email (formal / casual / friendly).
+- Be concise and direct. No filler phrases like "I hope this finds you well", "Thank you for reaching out", or "Looking forward to hearing from you" unless they genuinely fit.
+- Never use em dashes. Never use hashtags.
+- Do NOT invent facts, commitments, dates, prices, or details that aren't in the user's instruction or the provided context.
+- If the user instruction is short, infer the intent from the original email and the instruction together.
+- End with a plain sign-off (e.g. "${userName || 'Best'}") — no "Best regards," templates unless the original used that register.${brandDescription ? `\n- Voice/brand context: ${trim(brandDescription, 600)}` : ''}`;
+
+  // Build the user-facing payload the model sees.
+  const lines = [`MODE: ${mode}`, '', `USER INSTRUCTION:\n${String(prompt).trim()}`];
+
+  if (original && (original.body_text || original.subject)) {
+    lines.push('', '--- ORIGINAL EMAIL (reply to this) ---');
+    if (original.from_name || original.from_email) lines.push(`From: ${original.from_name || ''} <${original.from_email || ''}>`);
+    if (original.date) lines.push(`Date: ${new Date(original.date).toString()}`);
+    if (original.subject) lines.push(`Subject: ${original.subject}`);
+    lines.push('', trim(original.body_text, 6000));
+  }
+
+  if (Array.isArray(context_emails) && context_emails.length > 0) {
+    lines.push('', '--- ADDITIONAL EMAIL CONTEXT ---');
+    for (const e of context_emails.slice(0, 5)) {
+      lines.push(`From: ${e.from || ''} | Subject: ${e.subject || ''}`);
+      lines.push(trim(e.body_text, 1500));
+      lines.push('');
+    }
+  }
+
+  if (Array.isArray(context_calls) && context_calls.length > 0) {
+    lines.push('', '--- CALL TRANSCRIPT CONTEXT ---');
+    for (const c of context_calls.slice(0, 3)) {
+      lines.push(`Call: ${c.title || 'Untitled'}`);
+      lines.push(trim(c.transcript, 3000));
+      lines.push('');
+    }
+  }
+
+  const userMessage = lines.join('\n');
+
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+    });
+
+    if (!r.ok) {
+      const errText = await r.text().catch(() => '');
+      console.log(`[ai-draft] Anthropic ${r.status}: ${errText.slice(0, 300)}`);
+      return res.status(502).json({ error: `Anthropic API ${r.status}` });
+    }
+
+    const data = await r.json();
+    const draft = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+    if (!draft) return res.status(500).json({ error: 'Empty draft from model' });
+
+    res.json({ draft });
+  } catch (err) {
+    console.error('[ai-draft] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
