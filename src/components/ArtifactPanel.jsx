@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
-import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate } from '../lib/api';
+import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration } from '../lib/api';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
@@ -18,6 +18,13 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
   const [selectedAccountId, setSelectedAccountId] = useState(externalAccounts?.[0]?.id || null);
   const [deploying, setDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState(null);
+
+  // Netlify connection modal (triggered when deploy hits 400/401 token issue)
+  const [netlifyModalOpen, setNetlifyModalOpen] = useState(false);
+  const [netlifyModalMode, setNetlifyModalMode] = useState('connect'); // 'connect' | 'reconnect'
+  const [netlifyToken, setNetlifyToken] = useState('');
+  const [netlifyConnecting, setNetlifyConnecting] = useState(false);
+  const [netlifyConnectError, setNetlifyConnectError] = useState('');
   const iframeRef = useRef(null);
   const editMapRef = useRef(new Map());
   const skipIframeWriteRef = useRef(false);
@@ -154,9 +161,34 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
       setDeployResult(result);
       if (onChatMessage) onChatMessage(`Deployed to Netlify! Live at ${result.url}`);
     } catch (err) {
-      setSendError(err.message);
+      if (err.code === 'netlify_not_connected' || err.code === 'netlify_unauthorized') {
+        setNetlifyModalMode(err.code === 'netlify_unauthorized' ? 'reconnect' : 'connect');
+        setNetlifyToken('');
+        setNetlifyConnectError('');
+        setNetlifyModalOpen(true);
+      } else {
+        setSendError(err.message);
+      }
     } finally {
       setDeploying(false);
+    }
+  };
+
+  const handleNetlifyConnectAndDeploy = async () => {
+    const token = netlifyToken.trim();
+    if (!token || netlifyConnecting) return;
+    setNetlifyConnecting(true);
+    setNetlifyConnectError('');
+    try {
+      await connectIntegration('netlify', token);
+      setNetlifyModalOpen(false);
+      setNetlifyToken('');
+      // Immediately retry the deploy the user originally asked for.
+      await handleDeploy();
+    } catch (err) {
+      setNetlifyConnectError(err.message || 'Could not validate token');
+    } finally {
+      setNetlifyConnecting(false);
     }
   };
 
@@ -309,7 +341,6 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             }}
           ><span className="ap-title-text">{title}</span></span>
           <span className="ap-type-badge">{typeInfo.label}</span>
-          <button className="ap-close" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="ap-header-right">
           {/* Email type — simple send */}
@@ -362,6 +393,8 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
               {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy</>}
             </button>
           )}
+
+          <button className="ap-close" onClick={onClose} aria-label="Close panel"><X size={18} /></button>
         </div>
       </div>
 
@@ -505,6 +538,67 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Connect / Reconnect Netlify Modal ── */}
+      {netlifyModalOpen && (
+        <div className="ap-modal-overlay" onClick={() => setNetlifyModalOpen(false)}>
+          <div className="ap-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ap-modal-header">
+              <h3>{netlifyModalMode === 'reconnect' ? 'Reconnect Netlify' : 'Connect Netlify to Deploy'}</h3>
+              <button className="ap-modal-close" onClick={() => setNetlifyModalOpen(false)}><X size={18} /></button>
+            </div>
+            <div className="ap-netlify-connect">
+              <p className="ap-netlify-connect-desc">
+                {netlifyModalMode === 'reconnect'
+                  ? 'Your saved Netlify token was rejected (likely expired or revoked). Paste a fresh token to deploy this page.'
+                  : 'Paste your Netlify personal access token to deploy this page with one click.'}
+              </p>
+              <div className="ap-netlify-steps">
+                <div className="ap-netlify-steps-title">How to get a token (30 seconds)</div>
+                <ol className="ap-netlify-steps-list">
+                  <li>
+                    Open{' '}
+                    <a href="https://app.netlify.com/user/applications#personal-access-tokens" target="_blank" rel="noopener noreferrer">
+                      app.netlify.com → User settings → Applications
+                    </a>
+                    .
+                  </li>
+                  <li>Under <strong>Personal access tokens</strong>, click <strong>New access token</strong>.</li>
+                  <li>Name it (e.g. <em>PurelyPersonal</em>) and click <strong>Generate token</strong>.</li>
+                  <li>Copy the token and paste it below.</li>
+                </ol>
+              </div>
+              <label className="ap-netlify-label">Personal Access Token</label>
+              <input
+                type="text"
+                className="ap-netlify-input"
+                placeholder="nfp_..."
+                value={netlifyToken}
+                onChange={(e) => setNetlifyToken(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && netlifyToken.trim()) handleNetlifyConnectAndDeploy(); }}
+                autoFocus
+              />
+              {netlifyConnectError && <div className="ap-netlify-error">{netlifyConnectError}</div>}
+              <div className="ap-netlify-actions">
+                <button
+                  className="ap-btn ap-btn--outline"
+                  onClick={() => setNetlifyModalOpen(false)}
+                  disabled={netlifyConnecting}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="ap-btn ap-btn--netlify"
+                  onClick={handleNetlifyConnectAndDeploy}
+                  disabled={!netlifyToken.trim() || netlifyConnecting}
+                >
+                  {netlifyConnecting ? 'Validating…' : 'Connect & Deploy'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

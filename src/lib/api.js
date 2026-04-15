@@ -115,10 +115,11 @@ export async function streamFromBackend(endpoint, body, callbacks = {}, signal) 
  * Files are processed on the backend — documents get text extraction,
  * videos get transcription, images are stored as-is.
  */
-export async function uploadContextFiles(files) {
+export async function uploadContextFiles(files, sessionId = null) {
   const headers = await getAuthHeaders();
   const formData = new FormData();
 
+  if (sessionId) formData.append('sessionId', sessionId);
   for (const file of files) {
     formData.append('files', file);
   }
@@ -167,13 +168,13 @@ export async function uploadBrandDnaFiles(files) {
  * Backend downloads video/audio via yt-dlp, grabs captions or
  * transcribes with Whisper, and returns metadata + transcript.
  */
-export async function extractSocialUrls(urls) {
+export async function extractSocialUrls(urls, sessionId = null) {
   const headers = await getAuthHeaders();
 
   const res = await fetch(`${API_URL}/api/social/extract`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ urls }),
+    body: JSON.stringify({ urls, sessionId }),
   });
 
   if (!res.ok) {
@@ -187,9 +188,10 @@ export async function extractSocialUrls(urls) {
 /**
  * Load saved content items from the database.
  */
-export async function getContentItems() {
+export async function getContentItems(sessionId = null) {
   const headers = await getAuthHeaders();
-  const res = await fetch(`${API_URL}/api/content-items`, { headers });
+  const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+  const res = await fetch(`${API_URL}/api/content-items${qs}`, { headers });
   if (!res.ok) return { items: [] };
   return res.json();
 }
@@ -577,7 +579,10 @@ export async function deployToNetlify(html, siteName) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Deploy failed' }));
-    throw new Error(err.error);
+    const e = new Error(err.error || 'Deploy failed');
+    if (err.code) e.code = err.code;
+    e.status = res.status;
+    throw e;
   }
   return res.json();
 }

@@ -350,7 +350,10 @@ router.post('/api/netlify/deploy', async (req, res) => {
     .single();
 
   if (fetchErr || !integration) {
-    return res.status(400).json({ error: 'Netlify not connected. Connect it in Settings first.' });
+    return res.status(400).json({
+      error: 'Netlify not connected.',
+      code: 'netlify_not_connected',
+    });
   }
 
   try {
@@ -372,6 +375,18 @@ router.post('/api/netlify/deploy', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error(`[netlify] Deploy failed for user ${userId}:`, err.message);
+    // 401/403 means the stored Netlify token was revoked or expired. Mark the
+    // integration inactive and ask the user to reconnect.
+    if (/\b401\b|\b403\b|Unauthorized|Forbidden/i.test(err.message)) {
+      await supabase
+        .from('integrations')
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq('id', integration.id);
+      return res.status(401).json({
+        error: 'Netlify token rejected.',
+        code: 'netlify_unauthorized',
+      });
+    }
     res.status(500).json({ error: `Deploy failed: ${err.message}` });
   }
 });
