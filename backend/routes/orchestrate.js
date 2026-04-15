@@ -93,25 +93,41 @@ push_notification: Flag something important for the user's notification bell.`;
     }
   }
 
-  // Inject user's forms so CEO can offer lead capture embedding
-  const formsList = context.forms || [];
-  if (formsList.length > 0) {
+  // Inject form embedding guidance. Always present so CEO can offer to create
+  // a form on the fly when the user has none.
+  {
+    const formsList = context.forms || [];
     const published = formsList.filter(f => f.status === 'published');
     const drafts = formsList.filter(f => f.status === 'draft');
-    prompt += `\n\n=== USER'S FORMS (for lead capture / data collection) ===
-The user has ${formsList.length} form(s) they can embed in landing pages, squeeze pages, etc.
-
-${published.length > 0 ? `Published forms (ready to embed):\n${published.map(f => `- "${f.title}" (slug: ${f.slug}, ${f.questions?.length || 0} questions)`).join('\n')}` : ''}
-${drafts.length > 0 ? `\nDraft forms (not yet published):\n${drafts.map(f => `- "${f.title}" (${f.questions?.length || 0} questions)`).join('\n')}` : ''}
-
+    prompt += `\n\n=== USER'S FORMS (for lead capture / data collection) ===\n`;
+    if (formsList.length === 0) {
+      prompt += `The user has no forms yet. When a landing page or squeeze page needs lead capture, you can create a new form inline via the create_form tool (see FORM EMBEDDING RULE below).\n`;
+    } else {
+      prompt += `The user has ${formsList.length} form(s) available:\n`;
+      if (published.length > 0) {
+        prompt += `\nPublished forms (ready to embed):\n${published.map(f => `- "${f.title}" (slug: ${f.slug}, ${f.questions?.length || 0} questions)`).join('\n')}\n`;
+      }
+      if (drafts.length > 0) {
+        prompt += `\nDraft forms (not published yet, cannot be embedded until published):\n${drafts.map(f => `- "${f.title}" (${f.questions?.length || 0} questions)`).join('\n')}\n`;
+      }
+    }
+    prompt += `
 FORM EMBEDDING RULE:
-When creating a landing page or squeeze page, AFTER the normal 4 questions, ask ONE additional question:
-"Would you like to embed a lead capture form on this page?"
-Options: list each published form by name + "No, just use a CTA button" as the last option.
-If the user picks a form, include it in the task_description when delegating: "EMBED FORM: slug=<slug>, title=<title>"
-If the user has NO published forms, skip this question entirely.
+When creating a landing page or squeeze page, AFTER the normal 4 questions, ask ONE additional question: "Would you like a lead capture form on this page?"
+Options depend on what the user already has:
+  - If there are published forms: list each by name, then add "Create a new one tailored to this page", then "No, just use a CTA button".
+  - If there are NO published forms: options are "Create a simple form for this page" and "No, just use a CTA button".
+
+If the user picks an existing published form -> delegate as before with "EMBED FORM: slug=<slug>, title=<title>" in the task_description.
+
+If the user picks "Create a new one" or "Create a simple form":
+  1. Call create_form with a short, smart field set derived from the 4 discovery answers. Guardrails: 3-5 fields total, always a contact_block first, contact_phone only if the CTA is a call/booking, contact_business only for B2B audiences, plus ONE qualifier question (dropdown preferred) tied to the audience/CTA.
+  2. The tool returns { slug, title, id }. Immediately delegate_to_agent for landing-page / squeeze-page and include "EMBED FORM: slug=<slug>, title=<title>" in the task_description.
+
+If the user picks "No, just use a CTA button" -> delegate without a form.
 `;
   }
+
 
   // ── SOUL FILE  -  who this person is ──
   prompt += `\n\n=== SOUL FILE  -  WHO THIS PERSON IS ===
@@ -721,6 +737,8 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, user
           await handleSendEmail({ res, call, userId });
         } else if (call.name === 'check_emails') {
           await handleCheckEmails({ res, call, userId });
+        } else if (call.name === 'create_form') {
+          await handleCreateForm({ res, call, userId });
         } else if (call.name === 'create_artifact' || call.name === 'generate_image') {
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
@@ -808,6 +826,75 @@ async function handleSendEmail({ res, call, userId }) {
 }
 
 // ── Check Emails (CEO reads user's inbox from the synced emails table) ──
+// ── Create + publish a form on the fly (CEO calls when landing page needs lead capture) ──
+async function handleCreateForm({ res, call, userId }) {
+  let args;
+  try { args = JSON.parse(call.arguments); } catch { args = {}; }
+
+  const rawTitle = String(args.title || '').trim() || 'Lead Capture';
+  const rawQuestions = Array.isArray(args.questions) ? args.questions : [];
+
+  console.log(`[orchestrate] create_form called: title="${rawTitle}" questions=${rawQuestions.length}`);
+
+  if (rawQuestions.length === 0) {
+    call.result = JSON.stringify({ error: 'create_form called with no questions — cannot create an empty form.' });
+    sendSSE(res, { type: 'text_delta', content: "\n\nCouldn't create the form. No fields were specified." });
+    return;
+  }
+
+  // Normalize questions to the shape the forms table expects.
+  const questions = rawQuestions.slice(0, 10).map((q) => ({
+    id: globalThis.crypto?.randomUUID?.() || `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    type: q.type || 'short_text',
+    title: String(q.title || '').trim() || 'Question',
+    description: String(q.description || ''),
+    required: q.required !== false,
+    options: Array.isArray(q.options) ? q.options.map(String) : [],
+    settings: {},
+  }));
+
+  // Generate a slug. Prefer the DB RPC, fall back to a timestamp suffix.
+  const baseSlug = rawTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'form';
+  let slug = `${baseSlug}-${Date.now()}`;
+  try {
+    const { data: slugResult } = await supabase.rpc('generate_form_slug', { base_slug: baseSlug, uid: userId });
+    if (slugResult) slug = slugResult;
+  } catch {
+    // RPC missing / unavailable — fall back to the timestamped slug.
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('forms')
+      .insert({
+        user_id: userId,
+        title: rawTitle,
+        slug,
+        questions,
+        status: 'published',
+        theme: 'minimal',
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    console.log(`[orchestrate] create_form OK: id=${data.id} slug=${data.slug}`);
+    call.result = JSON.stringify({
+      ok: true,
+      id: data.id,
+      slug: data.slug,
+      title: data.title,
+      instruction: `Now delegate to the landing-page or squeeze-page agent and include "EMBED FORM: slug=${data.slug}, title=${data.title}" in the task_description.`,
+    });
+    sendSSE(res, { type: 'status', text: `Created form "${data.title}"` });
+  } catch (err) {
+    console.error('[orchestrate] create_form failed:', err.message);
+    call.result = JSON.stringify({ error: err.message });
+    sendSSE(res, { type: 'text_delta', content: `\n\nCouldn't create the form: ${err.message}` });
+  }
+}
+
 async function handleCheckEmails({ res, call, userId }) {
   let args;
   try { args = JSON.parse(call.arguments); } catch { args = {}; }
