@@ -81,10 +81,6 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, [statsTimeframe, customApplied]);
 
-  const applyCustomRange = () => {
-    if (!customFrom && !customTo) return;
-    setCustomApplied({ from: customFrom, to: customTo });
-  };
 
   const fmtInt = (n) => (Number(n) || 0).toLocaleString('en-US');
   const fmtMoney = (n) => {
@@ -606,35 +602,49 @@ export default function Dashboard() {
               { id: 'week', label: 'Week' },
               { id: 'month', label: 'Month' },
               { id: 'all', label: 'All' },
-              { id: 'custom', label: 'Custom' },
             ].map((tf) => (
               <button
                 key={tf.id}
                 role="tab"
                 aria-selected={statsTimeframe === tf.id}
                 className={`dashboard-timeframe-btn${statsTimeframe === tf.id ? ' dashboard-timeframe-btn--active' : ''}`}
-                onClick={() => setStatsTimeframe(tf.id)}
+                onClick={() => {
+                  setStatsTimeframe(tf.id);
+                  setCustomFrom(''); setCustomTo(''); setCustomApplied({ from: '', to: '' });
+                }}
               >
                 {tf.label}
               </button>
             ))}
           </div>
-          {statsTimeframe === 'custom' && (
-            <form
-              className="dashboard-timeframe-custom"
-              onSubmit={(e) => { e.preventDefault(); applyCustomRange(); }}
-            >
-              <label>
-                <span>From</span>
-                <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} max={customTo || undefined} />
-              </label>
-              <label>
-                <span>To</span>
-                <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} min={customFrom || undefined} />
-              </label>
-              <button type="submit" className="dashboard-timeframe-apply" disabled={!customFrom && !customTo}>Apply</button>
-            </form>
-          )}
+          <div className="dashboard-timeframe-custom">
+            <label>
+              <span>From</span>
+              <input
+                type="date"
+                value={customFrom}
+                max={customTo || undefined}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setCustomFrom(v);
+                  if (v || customTo) { setStatsTimeframe('custom'); setCustomApplied({ from: v, to: customTo }); }
+                }}
+              />
+            </label>
+            <label>
+              <span>To</span>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom || undefined}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setCustomTo(v);
+                  if (v || customFrom) { setStatsTimeframe('custom'); setCustomApplied({ from: customFrom, to: v }); }
+                }}
+              />
+            </label>
+          </div>
         </div>
       </div>
 

@@ -8,7 +8,7 @@ const PLATFORMS = ['instagram', 'tiktok', 'youtube', 'linkedin', 'x'];
 function getTimeframeRange(timeframe, from, to) {
   if (timeframe === 'custom') {
     return {
-      since: from ? new Date(from).toISOString() : '1970-01-01T00:00:00.000Z',
+      since: from ? new Date(from).toISOString() : null,
       until: to ? new Date(to).toISOString() : null,
     };
   }
@@ -16,7 +16,7 @@ function getTimeframeRange(timeframe, from, to) {
   switch (timeframe) {
     case 'today': d.setHours(0, 0, 0, 0); break;
     case 'month': d.setMonth(d.getMonth() - 1); break;
-    case 'all':   return { since: '1970-01-01T00:00:00.000Z', until: null };
+    case 'all':   return { since: null, until: null };
     case 'week':
     default:      d.setDate(d.getDate() - 7); break;
   }
@@ -44,9 +44,11 @@ router.get('/api/dashboard-stats', async (req, res) => {
     : 'week';
   const { since, until } = getTimeframeRange(timeframe, req.query.from, req.query.to);
 
-  // Helper: apply a createdAt column range onto a query builder.
+  // Helper: apply a createdAt column range onto a query builder. Null bounds
+  // mean "unbounded" so "All" includes rows that have null timestamps too.
   const inRange = (q, col) => {
-    let out = q.gte(col, since);
+    let out = q;
+    if (since) out = out.gte(col, since);
     if (until) out = out.lte(col, until);
     return out;
   };

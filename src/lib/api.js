@@ -675,6 +675,20 @@ export async function updateEmail(id, updates) {
   return res.json();
 }
 
+export async function generateEmailDraft({ prompt, mode, original, context_emails, context_calls }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/emails/ai-draft`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, mode, original, context_emails, context_calls }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Draft generation failed' }));
+    throw new Error(err.error || 'Draft generation failed');
+  }
+  return res.json();
+}
+
 export async function sendEmailApi({ account_id, to, cc, subject, body_text, body_html, in_reply_to, references }) {
   // Send via Supabase Edge Function (bypasses Railway SMTP port blocking)
   const { data: { session } } = await supabase.auth.getSession();
