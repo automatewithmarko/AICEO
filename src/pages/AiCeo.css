@@ -1175,9 +1175,12 @@
   background: transparent;
   resize: none;
   min-height: 67px;
-  max-height: 160px;
+  max-height: 50vh;
   padding: 4px 0;
+  overflow-y: hidden;
 }
+
+.ceo-input::-webkit-scrollbar { width: 0; height: 0; }
 
 .ceo-input-area--bottom .ceo-input {
   min-height: 24px;

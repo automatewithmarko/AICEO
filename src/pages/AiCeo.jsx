@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getSalesCalls, getContentItems, getProducts } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts } from '../lib/api';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
 import { supabase } from '../lib/supabase';
@@ -131,7 +131,6 @@ export default function AiCeo() {
   const [ceoContextCategories, setCeoContextCategories] = useState([
     { id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png', items: [] },
     { id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png', items: [] },
-    { id: 'calls', label: 'Calls', iconSrc: '/icon-call-recording.png', items: [] },
     { id: 'meetings', label: 'Meetings', iconSrc: '/icon-call-recording.png', items: [] },
     { id: 'content', label: 'Content', iconSrc: '/icon-create-content.png', items: [] },
     { id: 'products', label: 'Products', iconSrc: '/icon-products.png', items: [] },
@@ -144,11 +143,10 @@ export default function AiCeo() {
     Promise.all([
       getTemplates('newsletter').catch(() => ({ templates: [] })),
       getEmails({ limit: 20 }).catch(() => ({ emails: [] })),
-      getSalesCalls().catch(() => ({ calls: [] })),
       getMeetings({ limit: 20 }).catch(() => ({ meetings: [] })),
       getContentItems().catch(() => ({ items: [] })),
       getProducts().catch(() => ({ products: [] })),
-    ]).then(([nlRes, emRes, clRes, mtRes, ctRes, prRes]) => {
+    ]).then(([nlRes, emRes, mtRes, ctRes, prRes]) => {
       if (cancelled) return;
       setCeoContextCategories([
         {
@@ -158,10 +156,6 @@ export default function AiCeo() {
         {
           id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png',
           items: (emRes.emails || []).map((e) => ({ id: `em-${e.id}`, name: e.subject || '(no subject)', date: fmt(e.date), sub: e.from_name || e.from_email || '' })),
-        },
-        {
-          id: 'calls', label: 'Calls', iconSrc: '/icon-call-recording.png',
-          items: (clRes.calls || []).map((c) => ({ id: `cl-${c.id}`, name: c.title || c.name || 'Untitled Call', date: fmt(c.date || c.created_at), sub: c.call_type || c.callType || '' })),
         },
         {
           id: 'meetings', label: 'Meetings', iconSrc: '/icon-call-recording.png',
@@ -923,6 +917,14 @@ export default function AiCeo() {
     el.style.height = el.scrollHeight + 'px';
   };
 
+  useEffect(() => {
+    const els = document.querySelectorAll('.ceo-input');
+    els.forEach((el) => {
+      el.style.height = 'auto';
+      el.style.height = el.scrollHeight + 'px';
+    });
+  }, [input]);
+
   const toggleVoice = () => {
     if (isListening) {
       recognitionRef.current?.stop();
@@ -1103,6 +1105,7 @@ export default function AiCeo() {
                       placeholder="How can your AI CEO help you?"
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
+                      onInput={autoResize}
                       onKeyDown={handleKeyDown}
                       rows={3}
                     />

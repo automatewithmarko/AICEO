@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Check, ChevronDown, Phone, FileText, ExternalLink, X, Copy, Loader, Upload, Plus } from 'lucide-react';
+import { Check, ChevronDown, ExternalLink, X, Copy, Loader, Upload, Plus } from 'lucide-react';
 import { connectIntegration, getIntegrations, getEmailAccounts, uploadBrandDnaFiles } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
@@ -29,7 +28,6 @@ const ONBOARDING_STEPS = [
 ];
 
 export default function Dashboard() {
-  const navigate = useNavigate();
   const [dashLoading, setDashLoading] = useState(true);
   const [onboardingVisible, setOnboardingVisible] = useState(true);
   const [completedSteps, setCompletedSteps] = useState(new Set([1]));
@@ -58,6 +56,11 @@ export default function Dashboard() {
   const brandBrainIframeRef = useRef(null);
   const [brandBrainSaved, setBrandBrainSaved] = useState(false);
   const [brandBrainRawData, setBrandBrainRawData] = useState(null);
+
+  // Dashboard stats timeframe filter (UI only — non-functional placeholder)
+  const [statsTimeframe, setStatsTimeframe] = useState('week');
+
+  const [ghlLocationId, setGhlLocationId] = useState('');
 
   // Load onboarding state + integration status on mount
   useEffect(() => {
@@ -158,6 +161,28 @@ export default function Dashboard() {
     setModalType('payment'); setModalOpen(true);
   };
 
+  const openBoosendModal = () => {
+    setApiKey(''); setCopiedField(null); setConnectError(null); setConnecting(false);
+    setModalType('boosend'); setModalOpen(true);
+  };
+
+  const openGhlModal = () => {
+    setApiKey(''); setGhlLocationId(''); setCopiedField(null); setConnectError(null); setConnecting(false);
+    setModalType('gohighlevel'); setModalOpen(true);
+  };
+
+  const handleGHLConnect = async () => {
+    if (!apiKey.trim() || !ghlLocationId.trim()) return;
+    setConnecting(true); setConnectError(null);
+    try {
+      await connectIntegration('gohighlevel', apiKey, { location_id: ghlLocationId.trim() });
+      setModalOpen(false);
+      handleComplete(7);
+      setApiKey(''); setGhlLocationId(''); setModalType(null);
+    } catch (err) { setConnectError(err.message); }
+    finally { setConnecting(false); }
+  };
+
   const handleFirefliesNext = async () => {
     if (!apiKey.trim()) return;
     setConnecting(true); setConnectError(null);
@@ -173,10 +198,13 @@ export default function Dashboard() {
     if (!apiKey.trim()) return;
     setConnecting(true); setConnectError(null);
     try {
-      const provider = modalType === 'payment' ? selectedPayment.id : selectedNoteTaker.id;
+      const provider = modalType === 'payment' ? selectedPayment.id
+        : modalType === 'boosend' ? 'boosend'
+        : selectedNoteTaker.id;
       await connectIntegration(provider, apiKey);
       setModalOpen(false);
       if (modalType === 'payment') handleComplete(5);
+      else if (modalType === 'boosend') handleComplete(8);
       else handleComplete(6);
       setApiKey(''); setFirefliesStep(1); setModalType(null);
     } catch (err) { setConnectError(err.message); }
@@ -474,8 +502,8 @@ export default function Dashboard() {
                             else if (step.type === 'brand-brain') openBrandBrainModal();
                             else if (step.type === 'payment') openPaymentModal();
                             else if (step.type === 'notetaker') openNotetakerModal();
-                            else if (step.type === 'gohighlevel') navigate('/settings');
-                            else if (step.type === 'boosend') navigate('/settings');
+                            else if (step.type === 'gohighlevel') openGhlModal();
+                            else if (step.type === 'boosend') openBoosendModal();
                             else handleComplete(step.id);
                           }}
                         >
@@ -496,19 +524,105 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="dashboard-stats">
+      <div className="dashboard-stats-header">
+        <h2 className="dashboard-stats-title">Overview</h2>
+        <div className="dashboard-timeframe" role="tablist" aria-label="Timeframe">
+          {[
+            { id: 'week', label: 'Week' },
+            { id: 'month', label: 'Month' },
+            { id: 'year', label: 'Year' },
+          ].map((tf) => (
+            <button
+              key={tf.id}
+              role="tab"
+              aria-selected={statsTimeframe === tf.id}
+              className={`dashboard-timeframe-btn${statsTimeframe === tf.id ? ' dashboard-timeframe-btn--active' : ''}`}
+              onClick={() => setStatsTimeframe(tf.id)}
+            >
+              {tf.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="dashboard-stats dashboard-stats--grid">
         <div className="stat-card">
-          <div className="stat-icon"><Phone size={22} /></div>
+          <div className="stat-icon">
+            <img src="/icon-crm.png" alt="" className="stat-icon-img" />
+          </div>
           <div className="stat-info">
             <span className="stat-value">0</span>
-            <span className="stat-label">Sales Calls This Week</span>
+            <span className="stat-label">New Contacts</span>
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon"><FileText size={22} /></div>
+          <div className="stat-icon stat-icon--success">
+            <img src="/icon-sales.png" alt="" className="stat-icon-img" />
+          </div>
+          <div className="stat-info">
+            <span className="stat-value">$0</span>
+            <span className="stat-label">Revenue Generated</span>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon stat-icon--info">
+            <img src="/icon-marketing.png" alt="" className="stat-icon-img" />
+          </div>
           <div className="stat-info">
             <span className="stat-value">0</span>
-            <span className="stat-label">Posts This Week</span>
+            <span className="stat-label">Newsletters Sent</span>
+          </div>
+        </div>
+        <div className="stat-card stat-card--wide">
+          <div className="stat-info stat-info--full">
+            <span className="stat-label stat-label--section">New Social Media Posts</span>
+            <div className="stat-platforms">
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--ig">
+                  <img src="/instagram-icon.svg" alt="Instagram" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">0</span>
+                  <span className="stat-platform-name">Instagram</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--tt">
+                  <img src="/tiktok-icon.svg" alt="TikTok" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">0</span>
+                  <span className="stat-platform-name">TikTok</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--yt">
+                  <img src="/youtube-icon.svg" alt="YouTube" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">0</span>
+                  <span className="stat-platform-name">YouTube</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--li">
+                  <img src="/linkedin-icon.svg" alt="LinkedIn" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">0</span>
+                  <span className="stat-platform-name">LinkedIn</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--x">
+                  <img src="/x-icon.svg" alt="X" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">0</span>
+                  <span className="stat-platform-name">X</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -519,7 +633,16 @@ export default function Dashboard() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <button className="modal-close" onClick={() => setModalOpen(false)}><X size={18} /></button>
             <div className="modal-logo">
-              <img src={modalType === 'payment' ? selectedPayment.logo : selectedNoteTaker.logo} alt={modalType === 'payment' ? selectedPayment.name : selectedNoteTaker.name} />
+              <img
+                src={modalType === 'payment' ? selectedPayment.logo
+                  : modalType === 'boosend' ? '/boosend-logo.png'
+                  : modalType === 'gohighlevel' ? '/gohighlevel-logo.png'
+                  : selectedNoteTaker.logo}
+                alt={modalType === 'payment' ? selectedPayment.name
+                  : modalType === 'boosend' ? 'BooSend'
+                  : modalType === 'gohighlevel' ? 'GoHighLevel'
+                  : selectedNoteTaker.name}
+              />
             </div>
 
             {modalType === 'payment' && selectedPayment.id === 'stripe' && (
@@ -547,6 +670,97 @@ export default function Dashboard() {
                 <button className="modal-btn modal-btn--primary" disabled={!apiKey.trim() || connecting} onClick={handleConnect}>
                   {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
                 </button>
+              </>
+            )}
+
+            {modalType === 'gohighlevel' && (
+              <>
+                <p className="modal-description">
+                  Connect GoHighLevel for automatic bi-directional CRM syncing. New contacts sync both ways between GoHighLevel and your CRM.
+                </p>
+                <div className="modal-connect-instructions">
+                  <details open>
+                    <summary className="modal-connect-summary">How to get your GoHighLevel credentials</summary>
+                    <ol className="modal-connect-steps">
+                      <li>Go to your GoHighLevel <strong>Settings &rarr; Business Profile</strong> and copy your <strong>Location ID</strong></li>
+                      <li>Go to <strong>Settings &rarr; Integrations &rarr; Private Integrations</strong> and create an <strong>API token</strong></li>
+                      <li>Paste both below</li>
+                    </ol>
+                  </details>
+                </div>
+                <div className="modal-field">
+                  <label className="modal-label">Location ID</label>
+                  <input
+                    type="text"
+                    className="modal-input"
+                    placeholder="e.g. ve9EPM428h8vShlRW1KT"
+                    value={ghlLocationId}
+                    onChange={(e) => setGhlLocationId(e.target.value)}
+                  />
+                </div>
+                <div className="modal-field">
+                  <label className="modal-label">API Token</label>
+                  <input
+                    type="text"
+                    className="modal-input"
+                    placeholder="Paste your API token here"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                </div>
+                {connectError && <p className="modal-error">{connectError}</p>}
+                <button
+                  className="modal-btn modal-btn--primary"
+                  disabled={!apiKey.trim() || !ghlLocationId.trim() || connecting}
+                  onClick={handleGHLConnect}
+                >
+                  {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
+                </button>
+              </>
+            )}
+
+            {modalType === 'boosend' && (
+              <>
+                <p className="modal-description">
+                  Connect your BooSend account to automate DM outreach and follow-ups directly from the AI CEO.
+                </p>
+                <div className="modal-connect-instructions">
+                  <details open>
+                    <summary className="modal-connect-summary">How to get your BooSend API key</summary>
+                    <ol className="modal-connect-steps">
+                      <li>Log in to your <strong>BooSend</strong> dashboard</li>
+                      <li>Go to <strong>Settings</strong> &gt; <strong>API</strong></li>
+                      <li>Copy your <strong>API key</strong> and paste it below</li>
+                    </ol>
+                  </details>
+                </div>
+                <div className="modal-field">
+                  <label className="modal-label">BooSend API Key</label>
+                  <input
+                    type="text"
+                    className="modal-input"
+                    placeholder="Paste your BooSend API key here"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                </div>
+                {connectError && <p className="modal-error">{connectError}</p>}
+                <button
+                  className="modal-btn modal-btn--primary"
+                  disabled={!apiKey.trim() || connecting}
+                  onClick={handleConnect}
+                >
+                  {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
+                </button>
+                <a
+                  className="modal-signup-link"
+                  href="https://boosend.ai"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Don't have a BooSend account? Create one here
+                  <ExternalLink size={13} />
+                </a>
               </>
             )}
 

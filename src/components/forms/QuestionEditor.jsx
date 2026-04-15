@@ -9,6 +9,7 @@ export default function QuestionEditor({ question, questions, branchingRules, on
   const hasMinMax = question.type === 'rating' || question.type === 'opinion_scale';
   const hasPlaceholder = ['short_text', 'long_text', 'email', 'phone', 'number', 'url'].includes(question.type);
   const hasBranching = question.type === 'yes_no' || question.type === 'dropdown';
+  const isContactBlock = question.type === 'contact_block';
 
   function updateField(field, value) {
     onUpdate({ ...question, [field]: value });
@@ -122,6 +123,19 @@ export default function QuestionEditor({ question, questions, branchingRules, on
             value={question.settings?.maxSizeMB ?? 10}
             onChange={(e) => updateSetting('maxSizeMB', Number(e.target.value))}
           />
+        </div>
+      )}
+
+      {isContactBlock && (
+        <div className="question-editor-toggle">
+          <label>
+            <input
+              type="checkbox"
+              checked={!!question.settings?.includePhone}
+              onChange={(e) => updateSetting('includePhone', e.target.checked)}
+            />
+            Ask for phone number
+          </label>
         </div>
       )}
 

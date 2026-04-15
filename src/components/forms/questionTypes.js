@@ -1,20 +1,40 @@
+import { createElement } from 'react';
 import {
   Type, AlignLeft, Mail, Phone, Hash, Calendar,
   ChevronDown, CheckSquare, ThumbsUp, Star,
   SlidersHorizontal, Upload, Link,
-  User, Building2, AtSign, Instagram, Linkedin,
+  User, Building2, UserSquare2,
 } from 'lucide-react';
 
+function makeBrandIcon(src, alt) {
+  const Icon = ({ size = 20, className, style }) =>
+    createElement('img', {
+      src,
+      alt,
+      width: size,
+      height: size,
+      className,
+      style: { display: 'inline-block', objectFit: 'contain', ...style },
+    });
+  Icon.displayName = `BrandIcon(${alt})`;
+  return Icon;
+}
+
+const InstagramIcon = makeBrandIcon('/instagram-icon.svg', 'Instagram');
+const LinkedinIcon = makeBrandIcon('/linkedin-icon.svg', 'LinkedIn');
+const XIcon = makeBrandIcon('/x-icon.svg', 'X');
+
 export const QUESTION_TYPES = [
+  { type: 'contact_block', label: 'Contact', description: 'First name, last name, email (optional phone)', icon: UserSquare2, defaultSettings: { includePhone: false } },
   { type: 'contact_first_name', label: 'First Name', description: 'Single line name input', icon: User, crmField: 'first_name', defaultSettings: { placeholder: 'John' } },
   { type: 'contact_last_name', label: 'Last Name', description: 'Single line name input', icon: User, crmField: 'last_name', defaultSettings: { placeholder: 'Doe' } },
   { type: 'contact_full_name', label: 'Full Name', description: 'First and last name', icon: User, crmField: 'name', defaultSettings: { placeholder: 'John Doe' } },
   { type: 'contact_email', label: 'Email', description: 'Email address input', icon: Mail, crmField: 'email', defaultSettings: { placeholder: 'name@example.com' } },
   { type: 'contact_phone', label: 'Phone', description: 'Phone number input', icon: Phone, crmField: 'phone', defaultSettings: { placeholder: '+1 (555) 000-0000' } },
   { type: 'contact_business', label: 'Business / Company', description: 'Company or business name', icon: Building2, crmField: 'business', defaultSettings: { placeholder: 'Acme Inc.' } },
-  { type: 'contact_instagram', label: 'Instagram', description: 'Instagram handle', icon: Instagram, crmField: 'socials.instagram', defaultSettings: { placeholder: '@username' } },
-  { type: 'contact_linkedin', label: 'LinkedIn', description: 'LinkedIn profile URL', icon: Linkedin, crmField: 'socials.linkedin', defaultSettings: { placeholder: 'linkedin.com/in/username' } },
-  { type: 'contact_x', label: 'X / Twitter', description: 'X handle', icon: AtSign, crmField: 'socials.x', defaultSettings: { placeholder: '@handle' } },
+  { type: 'contact_instagram', label: 'Instagram', description: 'Instagram handle', icon: InstagramIcon, crmField: 'socials.instagram', defaultSettings: { placeholder: '@username' } },
+  { type: 'contact_linkedin', label: 'LinkedIn', description: 'LinkedIn profile URL', icon: LinkedinIcon, crmField: 'socials.linkedin', defaultSettings: { placeholder: 'linkedin.com/in/username' } },
+  { type: 'contact_x', label: 'X / Twitter', description: 'X handle', icon: XIcon, crmField: 'socials.x', defaultSettings: { placeholder: '@handle' } },
   { type: 'number', label: 'Number', description: 'Numeric input', icon: Hash, defaultSettings: { placeholder: '0' } },
   { type: 'date', label: 'Date', description: 'Date picker', icon: Calendar, defaultSettings: {} },
   { type: 'dropdown', label: 'Dropdown', description: 'Single select from options', icon: ChevronDown, defaultSettings: {}, defaultOptions: ['Option 1', 'Option 2', 'Option 3'] },
@@ -37,10 +57,11 @@ export function createQuestion(type) {
   if (!qt) throw new Error(`Unknown question type: ${type}`);
 
   const isContactField = type.startsWith('contact_');
+  const defaultTitle = type === 'contact_block' ? 'Your contact information' : (isContactField ? qt.label : '');
   return {
     id: crypto.randomUUID(),
     type,
-    title: isContactField ? qt.label : '',
+    title: defaultTitle,
     description: '',
     required: isContactField,
     options: qt.defaultOptions ? [...qt.defaultOptions] : [],

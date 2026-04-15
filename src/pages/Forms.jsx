@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Edit3, BarChart3, Link2, Trash2, FileText } from 'lucide-react';
+import { Plus, Edit3, BarChart3, Link2, Trash2, FileText, Check } from 'lucide-react';
 import { listForms, createForm, deleteForm } from '../lib/forms-api';
 import './Forms.css';
 
@@ -9,6 +9,7 @@ export default function Forms() {
   const [forms, setForms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
 
   useEffect(() => {
     loadForms();
@@ -51,6 +52,15 @@ export default function Forms() {
     e.stopPropagation();
     const url = `${window.location.origin}/f/${slug}`;
     navigator.clipboard.writeText(url);
+  }
+
+  function handleOpenAndCopy(e, form) {
+    e.stopPropagation();
+    const url = `${window.location.origin}/f/${form.slug}`;
+    navigator.clipboard.writeText(url);
+    setCopiedId(form.id);
+    setTimeout(() => setCopiedId((id) => (id === form.id ? null : id)), 1800);
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 
   const statusColors = {
@@ -99,7 +109,12 @@ export default function Forms() {
               onClick={() => navigate(`/forms/${form.id}/edit`)}
             >
               <div className="form-card-header">
-                <h3 className="form-card-title">{form.title}</h3>
+                <div className="form-card-title-row">
+                  <h3 className="form-card-title">{form.title}</h3>
+                  <span className="form-card-date">
+                    {new Date(form.created_at).toLocaleDateString()}
+                  </span>
+                </div>
                 <span
                   className="form-card-status"
                   style={{ backgroundColor: statusColors[form.status] + '20', color: statusColors[form.status] }}
@@ -107,24 +122,44 @@ export default function Forms() {
                   {form.status}
                 </span>
               </div>
-              <div className="form-card-meta">
-                <span>{form.responseCount} response{form.responseCount !== 1 ? 's' : ''}</span>
-                <span>{new Date(form.created_at).toLocaleDateString()}</span>
-              </div>
-              <div className="form-card-actions">
-                <button onClick={(e) => { e.stopPropagation(); navigate(`/forms/${form.id}/edit`); }} title="Edit">
-                  <Edit3 size={16} />
-                </button>
-                <button onClick={(e) => { e.stopPropagation(); navigate(`/forms/${form.id}/responses`); }} title="Responses">
-                  <BarChart3 size={16} />
-                </button>
-                {form.status === 'published' && (
-                  <button onClick={(e) => handleCopyLink(e, form.slug)} title="Copy link">
-                    <Link2 size={16} />
+              {form.slug && (
+                <div className="form-card-link">
+                  <span className="form-card-link-url" title={`${window.location.origin}/f/${form.slug}`}>
+                    {`${window.location.host}/f/${form.slug}`}
+                  </span>
+                  <button
+                    className="form-card-link-btn"
+                    onClick={(e) => handleOpenAndCopy(e, form)}
+                    title="Open & copy link"
+                  >
+                    {copiedId === form.id ? <><Check size={13} /> Copied</> : <><Link2 size={13} /> Copy link</>}
                   </button>
-                )}
-                <button onClick={(e) => handleDelete(e, form.id)} title="Delete" className="form-card-delete">
-                  <Trash2 size={16} />
+                </div>
+              )}
+              <div className="form-card-actions">
+                <button
+                  className="form-card-action"
+                  onClick={(e) => { e.stopPropagation(); navigate(`/forms/${form.id}/edit`); }}
+                >
+                  <Edit3 size={14} />
+                  <span>Edit</span>
+                </button>
+                <button
+                  className="form-card-action"
+                  onClick={(e) => { e.stopPropagation(); navigate(`/forms/${form.id}/responses`); }}
+                >
+                  <BarChart3 size={14} />
+                  <span>View Results</span>
+                  {form.responseCount > 0 && (
+                    <span className="form-card-badge">{form.responseCount}</span>
+                  )}
+                </button>
+                <button
+                  onClick={(e) => handleDelete(e, form.id)}
+                  title="Delete"
+                  className="form-card-delete"
+                >
+                  <Trash2 size={14} />
                 </button>
               </div>
             </div>

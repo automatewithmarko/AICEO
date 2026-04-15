@@ -70,6 +70,43 @@
 .theme-card-swatches { display: flex; gap: 4px; }
 .theme-swatch { width: 20px; height: 20px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.1); }
 
+
+.theme-custom-panel {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 10px;
+  background: var(--bg-light, #f7f7f9);
+}
+.theme-custom-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted, #6b7280); }
+.theme-custom-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.theme-custom-label { font-size: 13px; font-weight: 600; color: var(--text-primary, #1a1a1a); }
+.theme-custom-value { display: inline-flex; align-items: center; gap: 8px; }
+.theme-custom-color {
+  width: 32px; height: 32px; padding: 0;
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 8px; background: #fff; cursor: pointer;
+}
+.theme-custom-color::-webkit-color-swatch { border: none; border-radius: 6px; }
+.theme-custom-color::-webkit-color-swatch-wrapper { padding: 2px; }
+.theme-custom-hex {
+  width: 100px; padding: 6px 8px; font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 8px; background: #fff;
+  color: var(--text-primary, #1a1a1a); outline: none;
+}
+.theme-custom-hex:focus { border-color: var(--brand-red, #e91a44); }
+.theme-custom-select {
+  padding: 6px 10px; font-size: 13px;
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 8px; background: #fff;
+  color: var(--text-primary, #1a1a1a); cursor: pointer;
+}
+
 /* ─── Form Settings ─── */
 .form-settings { display: flex; flex-direction: column; gap: 16px; }
 .form-settings-field label { display: block; font-size: 13px; font-weight: 600; color: var(--text-primary, #1a1a1a); margin-bottom: 6px; }
@@ -78,10 +115,39 @@
   width: 100%; padding: 8px 12px; border: 1px solid var(--border-light, #e5e7eb);
   border-radius: 8px; font-size: 14px; color: var(--text-primary, #1a1a1a);
   background: var(--bg-white, #fff); resize: vertical;
+  font-family: inherit;
 }
 .form-settings-field input:focus,
 .form-settings-field textarea:focus { outline: none; border-color: var(--brand-red, #e91a44); }
 .form-settings-hint { font-size: 12px; color: var(--text-secondary, #6b7280); margin-top: 4px; }
+
+.form-settings-pill {
+  display: inline-flex;
+  background: var(--bg-light, #f4f4f6);
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.form-settings-pill-btn {
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.form-settings-pill-btn:hover { color: var(--text-primary, #1a1a1a); }
+.form-settings-pill-btn--active {
+  background: var(--bg-white, #fff);
+  color: var(--text-primary, #1a1a1a);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
 
 /* ─── Question Editor ─── */
 .question-editor { display: flex; flex-direction: column; gap: 16px; padding: 20px; }
@@ -95,6 +161,7 @@
   width: 100%; padding: 8px 12px; border: 1px solid var(--border-light, #e5e7eb);
   border-radius: 8px; font-size: 14px; color: var(--text-primary, #1a1a1a);
   background: var(--bg-white, #fff); resize: vertical;
+  font-family: inherit;
 }
 .question-editor-field input:focus,
 .question-editor-field textarea:focus { outline: none; border-color: var(--brand-red, #e91a44); }
@@ -104,7 +171,7 @@
 
 .question-editor-options { display: flex; flex-direction: column; gap: 8px; }
 .question-editor-option { display: flex; gap: 8px; align-items: center; }
-.question-editor-option input { flex: 1; padding: 6px 10px; border: 1px solid var(--border-light, #e5e7eb); border-radius: 6px; font-size: 13px; }
+.question-editor-option input { flex: 1; padding: 6px 10px; border: 1px solid var(--border-light, #e5e7eb); border-radius: 6px; font-size: 13px; font-family: inherit; }
 
 .question-editor-option-remove {
   display: flex; align-items: center; background: none; border: none;
