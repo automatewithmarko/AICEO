@@ -3,6 +3,26 @@
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 const XAI_API = 'https://api.x.ai/v1/chat/completions';
 
+// Watchdog for upstream LLM streams. If no chunk arrives within idleMs we
+// abort the upstream connection and throw. Prevents the server from hanging
+// forever when an LLM provider stalls mid-stream.
+const STREAM_IDLE_TIMEOUT_MS = 60_000;
+
+async function readWithIdleTimeout(reader, controller, idleMs = STREAM_IDLE_TIMEOUT_MS) {
+  let timer;
+  const idle = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      try { controller?.abort(); } catch { /* ignore */ }
+      reject(new Error(`LLM stream idle for ${Math.round(idleMs / 1000)}s — aborted`));
+    }, idleMs);
+  });
+  try {
+    return await Promise.race([reader.read(), idle]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Stream from Anthropic Claude API
 async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal }) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -12,6 +32,14 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
   const anthropicMessages = messages
     .filter(m => m.role === 'user' || m.role === 'assistant')
     .map(m => ({ role: m.role, content: m.content }));
+
+  // Link caller's abort signal to our internal controller so the idle watchdog
+  // can abort the upstream fetch even when the caller didn't pass a signal.
+  const controller = new AbortController();
+  if (abortSignal) {
+    if (abortSignal.aborted) controller.abort();
+    else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
 
   const res = await fetch(ANTHROPIC_API, {
     method: 'POST',
@@ -27,7 +55,7 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
       messages: anthropicMessages,
       stream: true,
     }),
-    signal: abortSignal,
+    signal: controller.signal,
   });
 
   if (!res.ok) {
@@ -43,7 +71,7 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
   let buffer = '';
 
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithIdleTimeout(reader, controller);
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
@@ -91,6 +119,14 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
     body.tool_choice = 'auto';
   }
 
+  // Link caller's abort signal to our internal controller so the idle watchdog
+  // can abort the upstream fetch.
+  const controller = new AbortController();
+  if (abortSignal) {
+    if (abortSignal.aborted) controller.abort();
+    else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+
   const res = await fetch(XAI_API, {
     method: 'POST',
     headers: {
@@ -98,7 +134,7 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
-    signal: abortSignal,
+    signal: controller.signal,
   });
 
   if (!res.ok) {
@@ -115,7 +151,7 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
   let toolCallsMap = {};
 
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithIdleTimeout(reader, controller);
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
@@ -172,6 +208,12 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
 
   const input = [{ role: 'system', content: systemPrompt }, ...messages];
 
+  const controller = new AbortController();
+  if (abortSignal) {
+    if (abortSignal.aborted) controller.abort();
+    else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+
   const res = await fetch('https://api.x.ai/v1/responses', {
     method: 'POST',
     headers: {
@@ -185,7 +227,7 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
       tools: [{ type: 'web_search' }],
       include: ['inline_citations'],
     }),
-    signal: abortSignal,
+    signal: controller.signal,
   });
 
   if (!res.ok) {
@@ -202,7 +244,7 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
   let citations = [];
 
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithIdleTimeout(reader, controller);
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });

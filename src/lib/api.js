@@ -41,8 +41,24 @@ export async function streamFromBackend(endpoint, body, callbacks = {}, signal) 
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // Frontend watchdog: if we don't see ANY data (including the backend's
+  // 3s heartbeats) for 90s, treat the stream as dead and abort. This is the
+  // last-line defense against an upstream LLM stalling past the backend's
+  // 60s watchdog without properly closing the SSE connection.
+  const IDLE_MS = 90_000;
+  const readWithIdle = () => {
+    let t;
+    const idle = new Promise((_, reject) => {
+      t = setTimeout(() => {
+        try { reader.cancel(); } catch { /* noop */ }
+        reject(new Error('Connection idle — aborted'));
+      }, IDLE_MS);
+    });
+    return Promise.race([reader.read(), idle]).finally(() => clearTimeout(t));
+  };
+
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithIdle();
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
