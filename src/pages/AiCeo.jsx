@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -83,6 +83,8 @@ function mergeSectionEdits(currentHtml, sections) {
 export default function AiCeo() {
   const inboxCtx = useOutletContext() || {};
   const emailAccounts = inboxCtx.accounts || [];
+  const { sessionId: urlSessionId } = useParams();
+  const navigate = useNavigate();
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -352,31 +354,50 @@ export default function AiCeo() {
       const firstUser = messages.find((m) => m.role === 'user');
       const title = firstUser?.content?.replace(/\[CONTEXT[^\]]*\]\n?/g, '').slice(0, 80) || 'New conversation';
 
-      if (sessionId) {
-        await supabase.from('ceo_sessions').update({
-          messages: stripped, title, artifact: artifactData, updated_at: new Date().toISOString(),
-        }).eq('id', sessionId);
-        setSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, title, updated_at: new Date().toISOString() } : s));
-      } else {
-        const { data, error } = await supabase.from('ceo_sessions').insert({
-          user_id: userId, title, messages: stripped, artifact: artifactData,
-        }).select('id').single();
-        if (data && !error) {
-          setSessionId(data.id);
-          setSessions((prev) => [{ id: data.id, title, updated_at: new Date().toISOString() }, ...prev]);
-        }
+      if (!sessionId) return; // nothing to save against yet
+
+      // Upsert — client owns the uuid now so the URL is stable from the very
+      // first message and can be bookmarked before the server ever sees it.
+      const { error: upsertErr } = await supabase.from('ceo_sessions').upsert({
+        id: sessionId,
+        user_id: userId,
+        title,
+        messages: stripped,
+        artifact: artifactData,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+
+      if (!upsertErr) {
+        setSessions((prev) => {
+          const idx = prev.findIndex((s) => s.id === sessionId);
+          if (idx === -1) {
+            return [{ id: sessionId, title, updated_at: new Date().toISOString() }, ...prev];
+          }
+          const next = [...prev];
+          next[idx] = { ...next[idx], title, updated_at: new Date().toISOString() };
+          return next;
+        });
       }
     }, 2000);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [messages, sessionId, artifact]);
 
-  const loadSession = useCallback(async (id) => {
+  const loadSession = useCallback(async (id, { navigateToUrl = true } = {}) => {
     const { data, error } = await supabase
       .from('ceo_sessions')
       .select('id, title, messages, artifact')
       .eq('id', id)
       .single();
-    if (error || !data) return;
+    if (error || !data) {
+      // Session doesn't exist (e.g. URL to a deleted session) — treat as a
+      // fresh conversation with this id so the user lands somewhere sane.
+      setSessionId(id);
+      setMessages([]);
+      setArtifact(null);
+      setPanelOpen(false);
+      setCurrentQuestion(null);
+      return;
+    }
     setSessionId(data.id);
     setMessages(data.messages || []);
     setCurrentQuestion(null);
@@ -389,17 +410,24 @@ export default function AiCeo() {
       setPanelOpen(false);
     }
     setShowSessions(false);
-  }, [isMobile]);
+    if (navigateToUrl) navigate(`/ai-ceo/${data.id}`, { replace: true });
+  }, [isMobile, navigate]);
 
   const newConversation = useCallback(() => {
-    setSessionId(null);
+    // Generate the session uuid up front so the URL and any backend calls
+    // (including the new version-history writes) all agree from turn zero.
+    const newId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `ceo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setSessionId(newId);
     setMessages([]);
     setArtifact(null);
     setPanelOpen(false);
     setMobileArtifactOpen(false);
     setCurrentQuestion(null);
     setShowSessions(false);
-  }, []);
+    navigate(`/ai-ceo/${newId}`, { replace: true });
+  }, [navigate]);
 
   const deleteSession = useCallback(async (id, e) => {
     e.stopPropagation();
@@ -407,6 +435,21 @@ export default function AiCeo() {
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (sessionId === id) newConversation();
   }, [sessionId, newConversation]);
+
+  // Sync URL -> session state. When the route's :sessionId changes (direct
+  // URL, back/forward, refresh), load that session; when missing, mint a
+  // fresh uuid so the new conversation has a stable URL from the start.
+  useEffect(() => {
+    if (urlSessionId) {
+      if (urlSessionId !== sessionId) {
+        loadSession(urlSessionId, { navigateToUrl: false });
+      }
+    } else if (!sessionId) {
+      // No URL param and no in-memory session — mint one.
+      newConversation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSessionId]);
 
   // ── Send to AI (via backend orchestrator) ──
   const sendToAI = useCallback(async (chatHistory) => {
@@ -428,6 +471,7 @@ export default function AiCeo() {
         messages: apiMessages,
         mode: 'ceo',
         searchMode: researchMode,
+        sessionId: sessionId || null,
         ...(hasHtmlArtifact ? { currentHtml: currentArtifact.content, currentAgent: currentArtifact.agentSource || 'newsletter' } : {}),
       }, {
         // CEO text streaming
@@ -1404,6 +1448,7 @@ export default function AiCeo() {
               onClose={() => setPanelOpen(false)}
               onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
               onContentChange={(html) => setArtifact(prev => prev ? { ...prev, content: html } : prev)}
+              sessionId={sessionId}
             />
           </div>
         )}
