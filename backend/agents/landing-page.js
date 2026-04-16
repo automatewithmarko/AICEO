@@ -50,9 +50,36 @@ SECTION ORDER (use these exact markers, in this order):
 
 Close every section with its matching </!-- /SECTION:name -->. Skip a section only if the data genuinely isn't there (e.g. user said "no testimonials" -> render placeholder slots with visible "[Add testimonial]" annotations rather than fabricating).
 
+ASSET HANDLING (read the task_description carefully):
+The AI CEO collects assets upfront and passes them in labeled fields. Treat these as source-of-truth:
+- VSL_URL: if a URL is provided (YouTube / Loom / Vimeo / Wistia), embed it as the hero video. If it says "placeholder" or is missing, render a clear placeholder box — NEVER fabricate a URL.
+- TESTIMONIALS: if testimonials are provided (separated by ---), use them verbatim across proof-1, proof-2, proof-3 (distribute across the three blocks, don't duplicate). If "placeholder", render clearly-marked empty slots with visible annotation "[Paste a real testimonial here — name, quote, result]" rather than inventing.
+- FOUNDER_PHOTO: if a URL is provided or "use brand DNA photo" is set (use the brand photo URL from the brand context), render it in the hero split-layout and about section. If missing, use a CSS-initial avatar with the founder's inferred initials and an annotation "[Upload a founder photo URL]".
+- PROOF_SCREENSHOTS: if URLs/descriptions are provided, embed them as image elements in the proof-2 block (before/after revenue, bookings, results). If missing, render placeholder image slots with annotation.
+- OTHER_ASSETS: customer/company logos, media mentions, etc. If provided, add a logo row in social-proof-1. If missing, skip the logo row cleanly — don't fabricate logos.
+
+NEVER fabricate names, quotes, URLs, or screenshots. Placeholders must be visually distinct (e.g. dashed border, muted background, explicit "[Placeholder: ...]" text) so the user can spot them instantly in the preview and paste the real content via the editor.
+
+AI-GENERATED IMAGERY (use as a fallback when the user didn't provide a specific asset):
+Some asset slots are SAFE to auto-generate with AI — these are decorative/illustrative and don't claim to represent reality. For these, prefer {{GENERATE:vivid prompt describing style/subject/colors}} over a placeholder box:
+- Hero visual (abstract / aspirational / lifestyle imagery that supports the hook)
+- Section background art, bonus box illustrations, feature-card icons/illustrations
+- Mechanism / "how it works" step visuals
+- Dream-state aspirational imagery (e.g. laptop-and-coffee setup, abstract "freedom" visuals)
+- Final CTA backdrop art
+
+Other asset slots MUST NEVER be AI-generated, because they imply reality and fabricating them hurts the user's credibility and our trust:
+- Founder photo (must be a real URL or brand-DNA photo, or a clearly-marked placeholder)
+- Customer / testimonial photos (real photo URL when provided, otherwise CSS-initial avatar — never a generated fake face)
+- Revenue screenshots, DM screenshots, booking confirmations, analytics screenshots (real URL or placeholder box only)
+- Company / brand logos in social-proof-1 (real URLs or skip the row entirely)
+- Product screenshots that purport to show the actual product (real URL or placeholder only)
+
+When in doubt between "decorative" and "reality-claiming," default to a clearly-marked placeholder.
+
 HERO (the most important block in DR mode):
-- If the user has a VSL URL (YouTube, Loom, Vimeo, Wistia): embed it as the centerpiece, 16:9, max-width 900px, with a big red play-triangle overlay via CSS pseudo-elements. Caption above: "▶ WATCH THIS VIDEO FIRST" in bold display font. Caption below: "Turn sound on 🔊". Primary CTA button immediately below the video.
-- If no VSL: render a placeholder 16:9 box with the red play-button overlay and the annotation "[Paste your VSL URL here — YouTube / Loom / Vimeo]" inside it. Keep the layout identical so the user drops the URL in later.
+- If VSL_URL is a real URL: embed via iframe (for YouTube: embed form like https://www.youtube.com/embed/ID; for Loom: the /embed/ URL; for Vimeo: player.vimeo.com/video/ID; for Wistia: the embed iframe). 16:9 container, max-width 900px, rounded corners, dark shadow. Caption above: "▶ WATCH THIS VIDEO FIRST" in bold display font. Caption below: "Turn sound on 🔊". Primary CTA button immediately below the video.
+- If VSL_URL is missing / "placeholder": render a placeholder 16:9 box with the red play-button overlay and the annotation "[Paste your VSL URL here — YouTube / Loom / Vimeo]" inside it. Keep the layout identical so the user drops the URL in later.
 - Hero headline formula: [Specific outcome] + [Timeframe] + [Without major objection]. Examples: "How to Add $10K/Month to Your Coaching Business in 90 Days — Without Running Ads or Making Videos". Bold the outcome + timeframe. Apply yellow highlighter background CSS to 2-4 key phrases.
 - Sub-hook (one sentence below headline): name the audience, collapse the main objection, hint at the mechanism.
 - Primary CTA under hero: big red-orange button, first-person outcome text ("YES — I Want the [Outcome]"), small reassurance row under it ("Instant access • 30-day guarantee • 2,400+ members").
