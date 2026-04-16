@@ -520,16 +520,22 @@ router.post('/api/orchestrate', async (req, res) => {
     if (mode === 'direct') {
       await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction });
     } else if (mode === 'ceo' && currentHtml && currentAgent) {
-      // User is editing an existing artifact  -  try surgical file-based edit first
-      const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
+      // User is editing an existing artifact  -  try surgical file-based edit first.
+      // Pass the whole conversation so the edit agent remembers what was built,
+      // the brand, tone, and prior tweaks — instead of treating each edit as a
+      // cold-start where the user has to repeat themselves.
+      const userMessages = messages.filter(m => m.role === 'user');
+      const lastUserMsg = userMessages[userMessages.length - 1]?.content || '';
+      const priorMessages = messages.slice(0, -1); // everything except the current edit instruction
       const agent = getAgent(currentAgent);
       if (agent && lastUserMsg) {
-        console.log(`[orchestrate] CEO edit shortcut: trying file-based edit for ${currentAgent}`);
+        console.log(`[orchestrate] CEO edit shortcut: trying file-based edit for ${currentAgent} (priorMessages=${priorMessages.length})`);
         sendSSE(res, { type: 'status', text: 'Editing...' });
         try {
           const edited = await tryFileBasedEdit({
             res, agent, agentName: currentAgent,
             editInstruction: lastUserMsg,
+            priorMessages,
             userId, context, currentHtml,
           });
           if (edited) {
@@ -572,7 +578,10 @@ async function handleDirectAgent({ res, agentName, messages, context, searchMode
   if (currentHtml && editInstruction) {
     console.log(`[orchestrate] Attempting file-based edit for ${agentName}`);
     try {
-      const edited = await tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml });
+      // Pass prior messages (minus the final edit instruction) so the edit
+      // agent retains conversation context instead of cold-starting.
+      const priorMessages = Array.isArray(messages) ? messages.slice(0, -1) : [];
+      const edited = await tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml, priorMessages });
       if (edited) {
         console.log('[orchestrate] File-based edit succeeded');
         return;
@@ -650,7 +659,7 @@ ${currentHtml}`,
 
 // ── File-Based Edit (Claude Code style) ──
 // Returns true if edit succeeded, false/throws if should fall back
-async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml }) {
+async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml, priorMessages = [] }) {
   // Always prefer currentHtml from frontend (most up-to-date, includes cover images etc.)
   let fileHtml = currentHtml || getFile(userId, agentName);
   if (!fileHtml) return false;
@@ -660,10 +669,20 @@ async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId
 
   const systemPrompt = buildEditSystemPrompt(context.brandDna);
 
+  // Seed the conversation with the recent chat history so the edit agent
+  // remembers the brand, the original request, earlier tweaks, and can resolve
+  // pronouns / references ("make it bolder", "that section", "same as before").
+  // Cap to the last 16 turns so prompts stay bounded on long sessions.
+  const historyWindow = (priorMessages || [])
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && m.content)
+    .slice(-16)
+    .map((m) => ({ role: m.role, content: typeof m.content === 'string' ? m.content : String(m.content) }));
+
   const editMessages = [
+    ...historyWindow,
     {
       role: 'user',
-      content: `Here is the current HTML file:\n\n${fileHtml}\n\nEdit request: ${editInstruction}`,
+      content: `Here is the current HTML file you previously generated:\n\n${fileHtml}\n\nEdit request: ${editInstruction}\n\nImportant: apply ONLY what is requested. Keep everything else (copy, layout, assets, brand colors, tone) exactly as it is.`,
     },
   ];
 
@@ -827,7 +846,7 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, user
     onToolCalls: async (toolCalls) => {
       for (const call of toolCalls) {
         if (call.name === 'delegate_to_agent') {
-          await handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent });
+          await handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages: enrichedMessages });
         } else if (call.name === 'ask_user') {
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
@@ -1090,7 +1109,7 @@ async function handleCheckEmails({ res, call, userId }) {
 }
 
 // ── Agent Delegation (CEO calls a specialist agent) ──
-async function handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent }) {
+async function handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages = [] }) {
   let args;
   try { args = JSON.parse(call.arguments); } catch { args = {}; }
 
@@ -1116,6 +1135,7 @@ async function handleAgentDelegation({ res, call, context, userId, currentHtml, 
         agent,
         agentName,
         editInstruction: taskDescription,
+        priorMessages,
         userId,
         context,
         currentHtml,
