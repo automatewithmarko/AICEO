@@ -108,7 +108,13 @@ VISUAL SYSTEM (DR mode — override the default Corporate SaaS rules):
 - HIGHLIGHTER EMPHASIS: define these two utility classes in the <style> block and use them throughout:
   .hl-yellow { background: linear-gradient(transparent 55%, #ffe066 55%); padding: 0 4px; }
   .hl-red-underline { background: linear-gradient(transparent 90%, #dc2626 90%); padding: 0 2px; }
-  Apply to 2-4 key phrases per headline. Never entire sentences.
+  Rules for where + how often to use these:
+    • Hero headline: 2-4 key phrases highlighted. This is the loudest moment on the page, so don't be shy.
+    • Story section: AT LEAST 1, AT MOST 2 highlighted phrases across the whole section. Pick the sentences that carry the emotional turning point or the stakes (e.g. the moment everything changed, or what was on the line).
+    • Dream-state / "imagine if" section: AT LEAST 1, AT MOST 2 highlighted phrases. Pick the most visceral future-state promises (the specific outcome, the relief, the transformation).
+    • Section headings throughout the rest of the page: highlight ONE keyword per heading, at most. Use sparingly — more than 2 highlights on a single screen starts to feel gimmicky.
+    • Body paragraphs outside those sections: no highlighting unless the user explicitly asks for it.
+  Never highlight an entire sentence. Never highlight consecutive sentences. Keep each highlight to 2-6 words max.
 - HAND-DRAWN ACCENTS: use inline SVG for crooked red or yellow arrows pointing at CTA buttons and at VSL thumbnails. Use the accent handwriting font for annotations like "↓ Watch this FIRST" and "← This is the one".
 - CTA BUTTONS (DR mode): 20-24px font, 18-22px vertical padding, 36-48px horizontal padding. Rounded 8-12px (NOT pill — pill feels SaaS). Red-orange or bright green bg. Bold shadow. Text is first-person outcome-oriented with a small reassurance subline below. Always preceded by an arrow SVG.
 - CTA REPETITION: the primary CTA must appear at LEAST 5 times down the page. Place it: under hero, after offer stack, after proof-2, after guarantee, in final-cta section, and at minimum one text-link variant in the P.S.
