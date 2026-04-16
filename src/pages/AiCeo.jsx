@@ -119,6 +119,11 @@ export default function AiCeo() {
   const isMobileRef = useRef(isMobile);
   const ctxMenuRef = useRef(null);
   const artifactRef = useRef(null);
+  // Kept in sync with the `sessionId` state so sendToAI's useCallback (which
+  // intentionally isn't recreated on every sessionId change) always reads
+  // the current value when it fires a backend request.
+  const sessionIdRef = useRef(null);
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
   const hasMessages = messages.length > 0;
   const showPanel = panelOpen && artifact && !isMobile;
@@ -471,7 +476,8 @@ export default function AiCeo() {
         messages: apiMessages,
         mode: 'ceo',
         searchMode: researchMode,
-        sessionId: sessionId || null,
+        sessionId: sessionIdRef.current || null,
+        assistantMsgId,
         ...(hasHtmlArtifact ? { currentHtml: currentArtifact.content, currentAgent: currentArtifact.agentSource || 'newsletter' } : {}),
       }, {
         // CEO text streaming

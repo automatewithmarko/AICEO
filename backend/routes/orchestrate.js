@@ -494,7 +494,7 @@ RULES:
 // mode: "ceo" or "direct" (direct handles both generation and editing)
 router.post('/api/orchestrate', async (req, res) => {
   const userId = req.user?.id;
-  const { messages, mode = 'ceo', agent: agentName, searchMode = false, currentHtml, editInstruction, currentAgent, sessionId = null } = req.body;
+  const { messages, mode = 'ceo', agent: agentName, searchMode = false, currentHtml, editInstruction, currentAgent, sessionId = null, assistantMsgId = null } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array required' });
@@ -518,7 +518,7 @@ router.post('/api/orchestrate', async (req, res) => {
     console.log(`[orchestrate] Context loaded, brandDna=${!!context.brandDna}`);
 
     if (mode === 'direct') {
-      await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction, sessionId });
+      await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction, sessionId, assistantMsgId });
     } else if (mode === 'ceo' && currentHtml && currentAgent) {
       // User is editing an existing artifact  -  try surgical file-based edit first.
       // Pass the whole conversation so the edit agent remembers what was built,
@@ -536,7 +536,7 @@ router.post('/api/orchestrate', async (req, res) => {
             res, agent, agentName: currentAgent,
             editInstruction: lastUserMsg,
             priorMessages,
-            userId, context, currentHtml, sessionId,
+            userId, context, currentHtml, sessionId, assistantMsgId,
           });
           if (edited) {
             console.log('[orchestrate] CEO edit shortcut succeeded');
@@ -549,9 +549,9 @@ router.post('/api/orchestrate', async (req, res) => {
         }
       }
       // Fall through to full CEO orchestration
-      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId });
+      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId, assistantMsgId });
     } else {
-      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId });
+      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId, assistantMsgId });
     }
     console.log('[orchestrate] Handler completed successfully');
   } catch (err) {
@@ -567,7 +567,7 @@ router.post('/api/orchestrate', async (req, res) => {
 
 // ── Direct Agent Execution ──
 // Handles both generation (no currentHtml) and editing (currentHtml + editInstruction)
-async function handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction, sessionId = null }) {
+async function handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction, sessionId = null, assistantMsgId = null }) {
   const agent = getAgent(agentName);
   if (!agent) {
     sendSSE(res, { type: 'error', error: `Unknown agent: ${agentName}` });
@@ -581,7 +581,7 @@ async function handleDirectAgent({ res, agentName, messages, context, searchMode
       // Pass prior messages (minus the final edit instruction) so the edit
       // agent retains conversation context instead of cold-starting.
       const priorMessages = Array.isArray(messages) ? messages.slice(0, -1) : [];
-      const edited = await tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml, priorMessages, sessionId });
+      const edited = await tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml, priorMessages, sessionId, assistantMsgId });
       if (edited) {
         console.log('[orchestrate] File-based edit succeeded');
         return;
@@ -662,33 +662,42 @@ ${currentHtml}`,
 // Commit a stable snapshot of an artifact to the version history. Best-effort
 // — never fails the main request. Skips silently when any of the inputs we
 // need (userId, content) are missing.
-async function commitArtifactVersion({ userId, sessionId, agentName, content, summary }) {
+async function commitArtifactVersion({ userId, sessionId, agentName, content, summary, messageId }) {
   if (!userId || userId === 'anonymous' || !content) return;
   try {
-    const { data: latest } = await supabase
+    let latestQuery = supabase
       .from('artifact_versions')
       .select('version_number')
       .eq('user_id', userId)
-      .eq('session_id', sessionId || null)
       .eq('agent_name', agentName)
       .order('version_number', { ascending: false })
       .limit(1);
+    // Supabase JS: null comparison needs .is(), not .eq().
+    if (sessionId) latestQuery = latestQuery.eq('session_id', sessionId);
+    else latestQuery = latestQuery.is('session_id', null);
+    const { data: latest } = await latestQuery;
     const nextVersion = ((latest?.[0]?.version_number) || 0) + 1;
-    await supabase.from('artifact_versions').insert({
+    const { error: insertErr } = await supabase.from('artifact_versions').insert({
       user_id: userId,
       session_id: sessionId || null,
       agent_name: agentName,
+      message_id: messageId || null,
       version_number: nextVersion,
       content,
       summary: (summary || '').slice(0, 500) || null,
       is_revert: false,
     });
+    if (insertErr) {
+      console.log(`[artifact-versions] insert failed:`, insertErr.message);
+    } else {
+      console.log(`[artifact-versions] committed v${nextVersion} session=${sessionId || 'none'} agent=${agentName}`);
+    }
   } catch (err) {
     console.log(`[artifact-versions] commit failed (non-fatal):`, err.message);
   }
 }
 
-async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml, priorMessages = [], sessionId = null }) {
+async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml, priorMessages = [], sessionId = null, assistantMsgId = null }) {
   // Always prefer currentHtml from frontend (most up-to-date, includes cover images etc.)
   let fileHtml = currentHtml || getFile(userId, agentName);
   if (!fileHtml) return false;
@@ -769,6 +778,7 @@ async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId
   // Save a revertible snapshot of the post-edit HTML.
   commitArtifactVersion({
     userId, sessionId, agentName,
+    messageId: assistantMsgId,
     content: fileHtml,
     summary: (summary || editInstruction || `Edit #${editCount}`),
   });
@@ -859,7 +869,7 @@ async function enrichMessagesWithVideoContext(messages, userId, res) {
 }
 
 // ── CEO Orchestration ──
-async function handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId = null }) {
+async function handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId = null, assistantMsgId = null }) {
   const systemPrompt = buildCeoSystemPrompt(context);
   const tools = buildAgentTools();
 
@@ -882,7 +892,7 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, user
     onToolCalls: async (toolCalls) => {
       for (const call of toolCalls) {
         if (call.name === 'delegate_to_agent') {
-          await handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages: enrichedMessages, sessionId });
+          await handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages: enrichedMessages, sessionId, assistantMsgId });
         } else if (call.name === 'ask_user') {
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
@@ -1145,7 +1155,7 @@ async function handleCheckEmails({ res, call, userId }) {
 }
 
 // ── Agent Delegation (CEO calls a specialist agent) ──
-async function handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages = [], sessionId = null }) {
+async function handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages = [], sessionId = null, assistantMsgId = null }) {
   let args;
   try { args = JSON.parse(call.arguments); } catch { args = {}; }
 
@@ -1173,6 +1183,7 @@ async function handleAgentDelegation({ res, call, context, userId, currentHtml, 
         editInstruction: taskDescription,
         priorMessages,
         sessionId,
+        assistantMsgId,
         userId,
         context,
         currentHtml,
@@ -1280,6 +1291,7 @@ ${taskDescription}`;
         saveFile(userId, agentName, parsed.html);
         commitArtifactVersion({
           userId, sessionId, agentName,
+          messageId: assistantMsgId,
           content: parsed.html,
           summary: parsed.summary || 'Generated page',
         });
