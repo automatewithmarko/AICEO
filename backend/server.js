@@ -21,6 +21,7 @@ import orchestrateRoutes from './routes/orchestrate.js';
 import boosendRoutes from './routes/boosend.js';
 import formRoutes from './routes/forms.js';
 import dashboardRoutes from './routes/dashboard.js';
+import artifactVersionRoutes from './routes/artifact-versions.js';
 import { startEmailSync } from './services/email-sync.js';
 
 const app = express();
@@ -873,6 +874,13 @@ app.use((req, res, next) => {
   next();
 });
 app.use(dashboardRoutes);
+
+// ─── Artifact version history (auth required) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/artifact-versions')) return requireAuth(req, res, next);
+  next();
+});
+app.use(artifactVersionRoutes);
 
 // ─── Webhook routes (no auth — external services) ───
 app.use(webhookRoutes);

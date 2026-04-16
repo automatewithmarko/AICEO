@@ -1,16 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download, ChevronRight } from 'lucide-react';
+import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download, ChevronRight, History, Undo2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
-import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus } from '../lib/api';
+import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion } from '../lib/api';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, sessionId = null }) {
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -25,6 +25,53 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
   const [netlifyToken, setNetlifyToken] = useState('');
   const [netlifyConnecting, setNetlifyConnecting] = useState(false);
   const [netlifyConnectError, setNetlifyConnectError] = useState('');
+
+  // Version history (AI CEO chat artifacts — landing pages, newsletters)
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [versionList, setVersionList] = useState([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [restoring, setRestoring] = useState(null); // version id currently being restored
+
+  const openHistory = async () => {
+    setHistoryOpen(true);
+    setVersionsLoading(true);
+    try {
+      const { versions } = await listArtifactVersions({
+        sessionId: sessionId || undefined,
+        agent: artifact?.agentSource || undefined,
+      });
+      setVersionList(versions || []);
+    } catch {
+      setVersionList([]);
+    } finally {
+      setVersionsLoading(false);
+    }
+  };
+
+  const handleRestore = async (versionId) => {
+    if (restoring) return;
+    setRestoring(versionId);
+    try {
+      // First fetch full content and apply locally (instant feedback), then
+      // persist the restore on the server so the history list shows it.
+      const data = await getArtifactVersion(versionId);
+      if (!data?.version?.content) throw new Error('Version not found');
+      if (onContentChange) onContentChange(data.version.content);
+      await restoreArtifactVersion(versionId);
+      // Refresh list so the new "Reverted to v…" row appears.
+      const { versions } = await listArtifactVersions({
+        sessionId: sessionId || undefined,
+        agent: artifact?.agentSource || undefined,
+      });
+      setVersionList(versions || []);
+      setHistoryOpen(false);
+      if (onChatMessage) onChatMessage(`Restored v${data.version.version_number}${data.version.summary ? ` — ${data.version.summary}` : ''}`);
+    } catch (err) {
+      setSendError(err.message || 'Restore failed');
+    } finally {
+      setRestoring(null);
+    }
+  };
 
   // Netlify "name your site" modal (triggered on Deploy click)
   const [nameModalOpen, setNameModalOpen] = useState(false);
@@ -438,6 +485,9 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                   <Mail size={14} /> Send Email
                 </button>
               )}
+              <button className="ap-btn ap-btn--outline" onClick={openHistory} title="Version history">
+                <History size={14} /> History
+              </button>
               <button className="ap-btn ap-btn--outline" onClick={handleDownload}>
                 <Download size={14} /> Download
               </button>
@@ -607,6 +657,48 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Version History Modal ── */}
+      {historyOpen && (
+        <div className="ap-modal-overlay" onClick={() => setHistoryOpen(false)}>
+          <div className="ap-modal ap-history-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ap-modal-header">
+              <h3>Version history</h3>
+              <button className="ap-modal-close" onClick={() => setHistoryOpen(false)}><X size={18} /></button>
+            </div>
+            <div className="ap-history-list">
+              {versionsLoading && <div className="ap-history-empty">Loading…</div>}
+              {!versionsLoading && versionList.length === 0 && (
+                <div className="ap-history-empty">No history yet. Make an edit and it'll show up here.</div>
+              )}
+              {!versionsLoading && versionList.map((v, idx) => (
+                <div key={v.id} className={`ap-history-item${idx === 0 ? ' ap-history-item--current' : ''}`}>
+                  <div className="ap-history-item-info">
+                    <div className="ap-history-item-title">
+                      v{v.version_number}
+                      {v.is_revert && <span className="ap-history-item-badge">reverted</span>}
+                      {idx === 0 && <span className="ap-history-item-current">current</span>}
+                    </div>
+                    {v.summary && <div className="ap-history-item-summary">{v.summary}</div>}
+                    <div className="ap-history-item-meta">
+                      {new Date(v.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                  {idx !== 0 && (
+                    <button
+                      className="ap-btn ap-btn--outline"
+                      onClick={() => handleRestore(v.id)}
+                      disabled={restoring === v.id}
+                    >
+                      <Undo2 size={14} /> {restoring === v.id ? 'Restoring…' : 'Restore'}
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>

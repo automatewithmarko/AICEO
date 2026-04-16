@@ -612,6 +612,37 @@ export async function checkNetlifyName(name) {
   return res.json();
 }
 
+// ── Artifact version history ──
+export async function listArtifactVersions({ sessionId, agent } = {}) {
+  const headers = await getAuthHeaders();
+  const url = new URL(`${API_URL}/api/artifact-versions`);
+  if (sessionId) url.searchParams.set('session_id', sessionId);
+  if (agent) url.searchParams.set('agent', agent);
+  const res = await fetch(url.toString(), { headers });
+  if (!res.ok) return { versions: [] };
+  return res.json();
+}
+
+export async function getArtifactVersion(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/artifact-versions/${id}`, { headers });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function restoreArtifactVersion(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/artifact-versions/${id}/restore`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Restore failed' }));
+    throw new Error(err.error || 'Restore failed');
+  }
+  return res.json();
+}
+
 export async function getNetlifyStatus() {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/netlify/status`, { headers });

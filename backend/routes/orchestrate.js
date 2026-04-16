@@ -494,7 +494,7 @@ RULES:
 // mode: "ceo" or "direct" (direct handles both generation and editing)
 router.post('/api/orchestrate', async (req, res) => {
   const userId = req.user?.id;
-  const { messages, mode = 'ceo', agent: agentName, searchMode = false, currentHtml, editInstruction, currentAgent } = req.body;
+  const { messages, mode = 'ceo', agent: agentName, searchMode = false, currentHtml, editInstruction, currentAgent, sessionId = null } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array required' });
@@ -518,7 +518,7 @@ router.post('/api/orchestrate', async (req, res) => {
     console.log(`[orchestrate] Context loaded, brandDna=${!!context.brandDna}`);
 
     if (mode === 'direct') {
-      await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction });
+      await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction, sessionId });
     } else if (mode === 'ceo' && currentHtml && currentAgent) {
       // User is editing an existing artifact  -  try surgical file-based edit first.
       // Pass the whole conversation so the edit agent remembers what was built,
@@ -536,7 +536,7 @@ router.post('/api/orchestrate', async (req, res) => {
             res, agent, agentName: currentAgent,
             editInstruction: lastUserMsg,
             priorMessages,
-            userId, context, currentHtml,
+            userId, context, currentHtml, sessionId,
           });
           if (edited) {
             console.log('[orchestrate] CEO edit shortcut succeeded');
@@ -549,9 +549,9 @@ router.post('/api/orchestrate', async (req, res) => {
         }
       }
       // Fall through to full CEO orchestration
-      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent });
+      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId });
     } else {
-      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent });
+      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId });
     }
     console.log('[orchestrate] Handler completed successfully');
   } catch (err) {
@@ -567,7 +567,7 @@ router.post('/api/orchestrate', async (req, res) => {
 
 // ── Direct Agent Execution ──
 // Handles both generation (no currentHtml) and editing (currentHtml + editInstruction)
-async function handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction }) {
+async function handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction, sessionId = null }) {
   const agent = getAgent(agentName);
   if (!agent) {
     sendSSE(res, { type: 'error', error: `Unknown agent: ${agentName}` });
@@ -581,7 +581,7 @@ async function handleDirectAgent({ res, agentName, messages, context, searchMode
       // Pass prior messages (minus the final edit instruction) so the edit
       // agent retains conversation context instead of cold-starting.
       const priorMessages = Array.isArray(messages) ? messages.slice(0, -1) : [];
-      const edited = await tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml, priorMessages });
+      const edited = await tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml, priorMessages, sessionId });
       if (edited) {
         console.log('[orchestrate] File-based edit succeeded');
         return;
@@ -659,7 +659,36 @@ ${currentHtml}`,
 
 // ── File-Based Edit (Claude Code style) ──
 // Returns true if edit succeeded, false/throws if should fall back
-async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml, priorMessages = [] }) {
+// Commit a stable snapshot of an artifact to the version history. Best-effort
+// — never fails the main request. Skips silently when any of the inputs we
+// need (userId, content) are missing.
+async function commitArtifactVersion({ userId, sessionId, agentName, content, summary }) {
+  if (!userId || userId === 'anonymous' || !content) return;
+  try {
+    const { data: latest } = await supabase
+      .from('artifact_versions')
+      .select('version_number')
+      .eq('user_id', userId)
+      .eq('session_id', sessionId || null)
+      .eq('agent_name', agentName)
+      .order('version_number', { ascending: false })
+      .limit(1);
+    const nextVersion = ((latest?.[0]?.version_number) || 0) + 1;
+    await supabase.from('artifact_versions').insert({
+      user_id: userId,
+      session_id: sessionId || null,
+      agent_name: agentName,
+      version_number: nextVersion,
+      content,
+      summary: (summary || '').slice(0, 500) || null,
+      is_revert: false,
+    });
+  } catch (err) {
+    console.log(`[artifact-versions] commit failed (non-fatal):`, err.message);
+  }
+}
+
+async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml, priorMessages = [], sessionId = null }) {
   // Always prefer currentHtml from frontend (most up-to-date, includes cover images etc.)
   let fileHtml = currentHtml || getFile(userId, agentName);
   if (!fileHtml) return false;
@@ -736,6 +765,13 @@ async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId
     // Claude didn't make any edits  -  fall back to regular agent
     throw new Error('No edits were applied');
   }
+
+  // Save a revertible snapshot of the post-edit HTML.
+  commitArtifactVersion({
+    userId, sessionId, agentName,
+    content: fileHtml,
+    summary: (summary || editInstruction || `Edit #${editCount}`),
+  });
 
   return true;
 }
@@ -823,7 +859,7 @@ async function enrichMessagesWithVideoContext(messages, userId, res) {
 }
 
 // ── CEO Orchestration ──
-async function handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent }) {
+async function handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId = null }) {
   const systemPrompt = buildCeoSystemPrompt(context);
   const tools = buildAgentTools();
 
@@ -846,7 +882,7 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, user
     onToolCalls: async (toolCalls) => {
       for (const call of toolCalls) {
         if (call.name === 'delegate_to_agent') {
-          await handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages: enrichedMessages });
+          await handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages: enrichedMessages, sessionId });
         } else if (call.name === 'ask_user') {
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
@@ -1109,7 +1145,7 @@ async function handleCheckEmails({ res, call, userId }) {
 }
 
 // ── Agent Delegation (CEO calls a specialist agent) ──
-async function handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages = [] }) {
+async function handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages = [], sessionId = null }) {
   let args;
   try { args = JSON.parse(call.arguments); } catch { args = {}; }
 
@@ -1136,6 +1172,7 @@ async function handleAgentDelegation({ res, call, context, userId, currentHtml, 
         agentName,
         editInstruction: taskDescription,
         priorMessages,
+        sessionId,
         userId,
         context,
         currentHtml,
@@ -1235,12 +1272,17 @@ ${taskDescription}`;
     },
   });
 
-  // Save to file store for future edits
+  // Save to file store for future edits + commit an initial version snapshot.
   if (userId && result.content) {
     try {
       const parsed = tryParseJSON(result.content);
       if (parsed?.html) {
         saveFile(userId, agentName, parsed.html);
+        commitArtifactVersion({
+          userId, sessionId, agentName,
+          content: parsed.html,
+          summary: parsed.summary || 'Generated page',
+        });
       }
     } catch {}
   }
