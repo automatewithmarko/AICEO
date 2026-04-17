@@ -2,7 +2,11 @@ import OpenAI from 'openai';
 import { Readable } from 'stream';
 import path from 'path';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Use Groq for transcription (OpenAI-compatible API, much faster)
+const groq = new OpenAI({
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: 'https://api.groq.com/openai/v1',
+});
 
 const SUPPORTED_EXTENSIONS = ['mp4', 'mp3', 'webm', 'wav', 'm4a', 'ogg', 'mpeg', 'mpga'];
 const MAX_SIZE = 25 * 1024 * 1024; // 25MB Whisper limit
@@ -22,8 +26,8 @@ export async function transcribe(buffer, filename) {
     type: getMimeType(filename),
   });
 
-  const response = await openai.audio.transcriptions.create({
-    model: 'whisper-1',
+  const response = await groq.audio.transcriptions.create({
+    model: 'whisper-large-v3',
     file,
     response_format: 'verbose_json',
   });
