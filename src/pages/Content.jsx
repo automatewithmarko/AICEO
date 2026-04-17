@@ -1506,6 +1506,7 @@ export default function Content() {
     setMessages(data.messages || []);
     setCurrentQuestion(null);
     setShowSessions(false);
+    setLinkedinPreview(null);
   }, []);
 
   // Start a fresh conversation
@@ -1514,6 +1515,7 @@ export default function Content() {
     setMessages([]);
     setCurrentQuestion(null);
     setShowSessions(false);
+    setLinkedinPreview(null);
   }, []);
 
   // Delete a session
@@ -2687,7 +2689,7 @@ export default function Content() {
                 <button
                   key={p.id}
                   className={`content-pill-btn ${selectedPlatform === p.id ? 'content-pill-btn--active' : ''}`}
-                  onClick={() => setSelectedPlatform(p.id)}
+                  onClick={() => { setSelectedPlatform(p.id); setLinkedinPreview(null); }}
                   title={p.name}
                 >
                   {p.icon}
