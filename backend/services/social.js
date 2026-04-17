@@ -59,7 +59,7 @@ async function extractInstagramApify(url) {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: [url], resultsLimit: 1 }),
+        body: JSON.stringify({ username: [url], resultsLimit: 1, addTranscript: true, downloadVideo: true }),
         signal: AbortSignal.timeout(120000),
       }
     );
@@ -78,6 +78,9 @@ async function extractInstagramApify(url) {
 
     const item = items[0];
     const caption = item.caption || '';
+    console.log(`[social] Apify response keys: ${Object.keys(item).join(', ')}`);
+    console.log(`[social] Apify audioUrl: ${item.audioUrl || '(none)'}, videoUrl: ${item.videoUrl || '(none)'}`);
+    console.log(`[social] Apify transcript field: ${item.transcript ? item.transcript.slice(0, 100) + '...' : '(none)'}`);
 
     const result = {
       url,
@@ -91,23 +94,66 @@ async function extractInstagramApify(url) {
       source: 'apify_metadata',
     };
 
-    // Apify gives us audioUrl or videoUrl — transcribe with Whisper
-    const mediaUrl = item.audioUrl || item.videoUrl;
-    if (mediaUrl) {
-      try {
-        console.log(`[social] Transcribing via Whisper (${item.audioUrl ? 'audio' : 'video'} URL)...`);
-        const whisperResult = await transcribeFromVideoUrl(mediaUrl);
-        if (whisperResult) {
-          result.transcript = whisperResult.text;
-          result.language = whisperResult.language;
-          result.source = 'apify_whisper';
+    // Check if Apify returned a transcript directly (with addTranscript flag)
+    if (item.transcript) {
+      result.transcript = typeof item.transcript === 'string' ? item.transcript : JSON.stringify(item.transcript);
+      result.source = 'apify_transcript';
+      console.log(`[social] Got transcript directly from Apify (${result.transcript.length} chars)`);
+    }
+
+    // If no transcript yet, try Whisper with audioUrl/videoUrl
+    if (!result.transcript) {
+      const mediaUrl = item.audioUrl || item.videoUrl;
+      if (mediaUrl) {
+        try {
+          console.log(`[social] Transcribing via Whisper (${item.audioUrl ? 'audio' : 'video'} URL)...`);
+          const whisperResult = await transcribeFromVideoUrl(mediaUrl);
+          if (whisperResult) {
+            result.transcript = whisperResult.text;
+            result.language = whisperResult.language;
+            result.source = 'apify_whisper';
+          }
+        } catch (err) {
+          console.log(`[social] Whisper transcription failed: ${err.message?.slice(0, 100)}`);
         }
-      } catch (err) {
-        console.log(`[social] Whisper transcription failed: ${err.message?.slice(0, 100)}`);
+      } else {
+        console.log('[social] No audioUrl or videoUrl from Apify — cannot transcribe with Whisper');
       }
     }
 
-    console.log(`[social] Instagram extracted: "${result.title.slice(0, 60)}" by @${result.uploader} (source: ${result.source})`);
+    // Fallback: use dedicated transcript extractor actor
+    if (!result.transcript) {
+      try {
+        console.log('[social] Trying fallback transcript extractor (bulletproof/instagram-transcript-extractor)...');
+        const txRes = await fetch(
+          `https://api.apify.com/v2/acts/bulletproof~instagram-transcript-extractor/run-sync-get-dataset-items?token=${APIFY_TOKEN}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls: [url] }),
+            signal: AbortSignal.timeout(120000),
+          }
+        );
+        if (txRes.ok) {
+          const txItems = await txRes.json();
+          const tx = txItems?.[0];
+          const fullText = tx?.fullTranscript || tx?.transcript || (Array.isArray(tx?.segments) ? tx.segments.map(s => s.text).join(' ') : null);
+          if (fullText) {
+            result.transcript = fullText;
+            result.source = 'bulletproof_transcript';
+            console.log(`[social] Fallback transcript extracted (${fullText.length} chars)`);
+          } else {
+            console.log('[social] Fallback extractor returned no transcript');
+          }
+        } else {
+          console.log(`[social] Fallback extractor failed: ${txRes.status}`);
+        }
+      } catch (txErr) {
+        console.log(`[social] Fallback transcript extractor error: ${txErr.message?.slice(0, 100)}`);
+      }
+    }
+
+    console.log(`[social] Instagram extracted: "${result.title.slice(0, 60)}" by @${result.uploader} (source: ${result.source}, hasTranscript: ${!!result.transcript})`);
     return result;
   } catch (err) {
     console.log(`[social] Apify extraction failed, falling back to yt-dlp: ${err.message}`);
