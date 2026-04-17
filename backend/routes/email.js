@@ -513,50 +513,158 @@ router.post('/api/emails/ai-draft', async (req, res) => {
     return res.status(400).json({ error: 'prompt is required' });
   }
 
-  // Load brand DNA for voice/signature hints (best-effort).
+  // Load full brand DNA so the HTML version can match the user's visual identity.
   let brandDescription = '';
+  let brandLogoUrl = null;
+  let brandPrimaryColor = '';
+  let brandTextColor = '';
+  let brandSecondaryColor = '';
+  let brandMainFont = '';
   let userName = '';
   try {
     const [brandRes, userRes] = await Promise.all([
-      supabase.from('brand_dna').select('description').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
+      supabase.from('brand_dna').select('description, colors, main_font, secondary_font, logo_url, logos').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
       supabase.from('users').select('full_name').eq('id', userId).limit(1),
     ]);
-    brandDescription = brandRes.data?.[0]?.description || '';
+    const brand = brandRes.data?.[0] || {};
+    brandDescription = brand.description || '';
+    brandLogoUrl = brand.logos?.find((l) => l.isDefault)?.url
+      || brand.logos?.[0]?.url
+      || brand.logo_url
+      || null;
+    brandPrimaryColor = brand.colors?.primary || '';
+    brandTextColor = brand.colors?.text || '';
+    brandSecondaryColor = brand.colors?.secondary || '';
+    brandMainFont = brand.main_font || '';
     userName = userRes.data?.[0]?.full_name || '';
   } catch {
-    // non-fatal
+    // non-fatal — fall back to plain output without branding
   }
 
   const trim = (t, n = 4000) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
 
+  // ── Email body cleaner ──
+  // Turns a raw email body (either HTML or plain-text from mailparser's
+  // alternative part) into clean prose the model can actually reason over.
+  // Strips: HTML tags/styles/tracking-pixel placeholders, quote-chains
+  // ("> prev reply"), signatures, "On <date> wrote:" / "From: ... Sent: ..."
+  // attribution blocks, "Sent from my iPhone" footers, ASCII dividers.
+  function stripHtml(html) {
+    if (!html) return '';
+    return String(html)
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<head[\s\S]*?<\/head>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|tr|li|h[1-6]|blockquote|table|section|article)>/gi, '\n')
+      .replace(/<img[^>]*>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&(?:rsquo|lsquo|apos);/g, "'")
+      .replace(/&(?:rdquo|ldquo);/g, '"')
+      .replace(/&(?:ndash|mdash);/g, '-')
+      .replace(/&hellip;/g, '...')
+      .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+      .replace(/&[a-z]+;/gi, ' ');
+  }
+
+  function cleanEmailBody({ body_html, body_text }) {
+    let text = body_html ? stripHtml(body_html) : String(body_text || '');
+    if (!text) return '';
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // Zero-width + soft-hyphen artifacts
+    text = text.replace(/[\u200B-\u200D\uFEFF\u00AD]/g, '');
+    // Tracking-pixel / image placeholders like [image: logo.png]
+    text = text.replace(/\[image:\s*[^\]]*\]/gi, '');
+    // Cut the RFC signature ("-- \n" on its own line) + everything after
+    const sigMatch = text.match(/\n--\s*\n/);
+    if (sigMatch) text = text.slice(0, sigMatch.index);
+    // Cut "On <date>, X wrote:" + everything after (Gmail/Apple quote header)
+    text = text.replace(/^On\s+.{0,120}\s+wrote:[\s\S]*$/m, '');
+    // Cut Outlook-style "From: ... Sent/Date/To/Cc/Subject: ..." block + after
+    text = text.replace(/^From:\s+.{0,200}\n(?:Sent|Date|To|Cc|Subject):[\s\S]*$/m, '');
+    // Drop quoted-reply lines starting with > (handles ">> nested" too)
+    text = text.split('\n').filter((line) => !/^\s*>/.test(line)).join('\n');
+    // Mobile footers
+    text = text.replace(/^\s*Sent from my\s+[^\n]+$/gmi, '');
+    text = text.replace(/^\s*Get\s+Outlook\s+for[^\n]+$/gmi, '');
+    // ASCII/divider lines (--- === *** ___ ~~~)
+    text = text.replace(/^\s*[-=_*~]{3,}\s*$/gm, '');
+    // Per-line whitespace + blank-line collapse
+    text = text.split('\n').map((l) => l.replace(/[ \t]+/g, ' ').trimEnd()).join('\n');
+    text = text.replace(/\n{3,}/g, '\n\n').trim();
+    return text;
+  }
+
+  // Build brand theme block for the HTML version (skipped cleanly if brand DNA is empty).
+  const primary = brandPrimaryColor || '#1a1a1a';
+  const text = brandTextColor || '#333333';
+  const secondary = brandSecondaryColor || '#6b7280';
+  const font = brandMainFont
+    ? `${brandMainFont}, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif`
+    : "-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif";
+
+  const brandThemeBlock = `BRAND THEME TO APPLY TO THE HTML VERSION:
+- Primary color (links, headings, accent): ${primary}
+- Body text color: ${text}
+- Muted / secondary text: ${secondary}
+- Font family: ${font}${brandLogoUrl ? `\n- Logo URL: ${brandLogoUrl}` : '\n- No logo available — skip the logo row entirely'}`;
+
   const systemPrompt = `You are an email assistant drafting a response on behalf of the user${userName ? ` (${userName})` : ''}.
 
-Rules:
-- Output ONLY the email body text. No subject line, no preamble, no "Here's a draft:", no markdown code fences.
+OUTPUT FORMAT — respond with ONLY a JSON object, no preamble, no markdown fences:
+{
+  "text": "plain text version of the email body",
+  "html": "HTML version with inline styles applying the user's brand theme"
+}
+
+COPY RULES (apply to both "text" and "html"):
+- Write the email body only. No subject line, no preamble, no "Here's a draft:".
 - Address the original sender by name when known. Reference specific points from their email so the reply feels read, not templated.
 - Match the tone and register of the original email (formal / casual / friendly).
 - Be concise and direct. No filler phrases like "I hope this finds you well", "Thank you for reaching out", or "Looking forward to hearing from you" unless they genuinely fit.
 - Never use em dashes. Never use hashtags.
 - Do NOT invent facts, commitments, dates, prices, or details that aren't in the user's instruction or the provided context.
-- If the user instruction is short, infer the intent from the original email and the instruction together.
-- End with a plain sign-off (e.g. "${userName || 'Best'}") — no "Best regards," templates unless the original used that register.${brandDescription ? `\n- Voice/brand context: ${trim(brandDescription, 600)}` : ''}`;
+- End with a plain sign-off (e.g. "${userName || 'Best'}") — no "Best regards," templates unless the original used that register.${brandDescription ? `\n- Voice/brand context: ${trim(brandDescription, 600)}` : ''}
+
+HTML RULES (for the "html" field):
+${brandThemeBlock}
+
+- Produce a complete email-safe HTML fragment. Email clients strip <style> blocks and <link> tags — use ONLY inline styles.
+- Wrap the whole body in: <div style="font-family: ${font}; color: ${text}; font-size: 15px; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 24px;">...</div>
+- If a logo URL is provided above, include ONE row at the top: <div style="margin-bottom: 24px;"><img src="${brandLogoUrl || ''}" alt="" style="max-height: 40px; width: auto; display: block;" /></div>. If no logo, skip this row.
+- Paragraphs: <p style="margin: 0 0 16px;">...</p>. Keep them short (1-3 sentences each).
+- Links: <a href="..." style="color: ${primary}; text-decoration: underline;">...</a>.
+- Subtle emphasis: <strong style="color: ${primary};">...</strong> sparingly — never on whole sentences.
+- Signature: separate with a <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; color: ${secondary}; font-size: 14px;">...</div>. Include the user's name${userName ? ` (${userName})` : ''} on the first line. If brand description mentions a company/role, include a second line in ${secondary} at 13px.
+- Do NOT include <html>, <head>, or <body> tags — just the wrapping <div>.
+- Do NOT use background images, gradients, or CSS that email clients strip. Plain inline styles only.
+- Match the plain "text" version exactly in words — the HTML is the same content with brand styling added, not a rewrite.`;
 
   // Build the user-facing payload the model sees.
   const lines = [`MODE: ${mode}`, '', `USER INSTRUCTION:\n${String(prompt).trim()}`];
 
-  if (original && (original.body_text || original.subject)) {
+  if (original && (original.body_text || original.body_html || original.subject)) {
     lines.push('', '--- ORIGINAL EMAIL (reply to this) ---');
     if (original.from_name || original.from_email) lines.push(`From: ${original.from_name || ''} <${original.from_email || ''}>`);
     if (original.date) lines.push(`Date: ${new Date(original.date).toString()}`);
     if (original.subject) lines.push(`Subject: ${original.subject}`);
-    lines.push('', trim(original.body_text, 6000));
+    const cleaned = cleanEmailBody({ body_html: original.body_html, body_text: original.body_text });
+    lines.push('', trim(cleaned, 6000));
   }
 
   if (Array.isArray(context_emails) && context_emails.length > 0) {
     lines.push('', '--- ADDITIONAL EMAIL CONTEXT ---');
     for (const e of context_emails.slice(0, 5)) {
       lines.push(`From: ${e.from || ''} | Subject: ${e.subject || ''}`);
-      lines.push(trim(e.body_text, 1500));
+      const cleaned = cleanEmailBody({ body_html: e.body_html, body_text: e.body_text });
+      lines.push(trim(cleaned, 1500));
       lines.push('');
     }
   }
@@ -595,10 +703,27 @@ Rules:
     }
 
     const data = await r.json();
-    const draft = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
-    if (!draft) return res.status(500).json({ error: 'Empty draft from model' });
+    const raw = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+    if (!raw) return res.status(500).json({ error: 'Empty draft from model' });
 
-    res.json({ draft });
+    // The model is instructed to return JSON { text, html }. Parse defensively
+    // in case it strays (strips code fences, extracts first JSON object).
+    let parsed = null;
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    try { parsed = JSON.parse(cleaned); }
+    catch {
+      const m = cleaned.match(/\{[\s\S]*\}/);
+      if (m) { try { parsed = JSON.parse(m[0]); } catch { /* fall through */ } }
+    }
+
+    const draft = (parsed && typeof parsed.text === 'string' && parsed.text.trim())
+      ? parsed.text.trim()
+      : raw; // graceful fallback: use whole response as plain text
+    const draftHtml = (parsed && typeof parsed.html === 'string' && parsed.html.trim())
+      ? parsed.html.trim()
+      : null; // missing HTML = caller sends plain text only
+
+    res.json({ draft, draft_html: draftHtml });
   } catch (err) {
     console.error('[ai-draft] failed:', err.message);
     res.status(500).json({ error: err.message });

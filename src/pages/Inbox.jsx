@@ -98,6 +98,10 @@ export default function Inbox() {
   const [composeTo, setComposeTo] = useState('');
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
+  // Brand-themed HTML version produced by the AI draft. Sent alongside
+  // body_text so the recipient sees the styled email. Cleared when the
+  // user edits the textarea (edits drop the HTML since it's now stale).
+  const [composeBodyHtml, setComposeBodyHtml] = useState(null);
   const [composeInReplyTo, setComposeInReplyTo] = useState(null);
   const [composeReferences, setComposeReferences] = useState(null);
   const [composeDraftId, setComposeDraftId] = useState(null);
@@ -419,6 +423,7 @@ export default function Inbox() {
     // the AI draft feature reads it via selectedEmailFull, so dumping a
     // cluttered "> quoted" block into the textarea just creates noise.
     setComposeBody('');
+    setComposeBodyHtml(null);
     setComposeInReplyTo(full.message_id || null);
     setComposeReferences(full.thread_id ? [full.thread_id] : null);
     setComposeDraftId(null);
@@ -433,6 +438,7 @@ export default function Inbox() {
     setComposeTo('');
     setComposeSubject(full.subject?.startsWith('Fwd:') ? full.subject : `Fwd: ${full.subject || ''}`);
     setComposeBody(`\n\n--- Forwarded message ---\nFrom: ${full.from_name || ''} <${full.from_email || ''}>\nDate: ${new Date(full.date).toLocaleDateString()}\nSubject: ${full.subject || ''}\n\n${full.body_text || ''}`);
+    setComposeBodyHtml(null);
     setComposeInReplyTo(null);
     setComposeReferences(null);
     setComposeDraftId(null);
@@ -468,6 +474,7 @@ export default function Inbox() {
     setComposeTo('');
     setComposeSubject('');
     setComposeBody('');
+    setComposeBodyHtml(null);
     setComposeInReplyTo(null);
     setComposeReferences(null);
     setComposeDraftId(null);
@@ -511,6 +518,7 @@ export default function Inbox() {
         to: [{ name: '', email: composeTo.trim() }],
         subject: composeSubject,
         body_text: composeBody,
+        body_html: composeBodyHtml || undefined,
         in_reply_to: composeInReplyTo || undefined,
         references: composeReferences || undefined,
       });
@@ -611,7 +619,7 @@ export default function Inbox() {
       .map((c) => ({ title: c.title || '', transcript: c.transcript || '' }));
 
     try {
-      const { draft } = await generateEmailDraft({
+      const { draft, draft_html } = await generateEmailDraft({
         prompt: aiPrompt,
         mode: composeMode || 'new',
         original,
@@ -619,6 +627,9 @@ export default function Inbox() {
         context_calls: contextCallsPayload,
       });
       if (draft) setComposeBody(draft);
+      // Store the brand-themed HTML for sending. The textarea still shows
+      // the plain text for editing — if the user edits, the HTML is cleared.
+      setComposeBodyHtml(draft_html || null);
       setAiMode(false);
       setAiPrompt('');
     } catch (err) {
@@ -1170,7 +1181,16 @@ export default function Inbox() {
             className={`inbox-compose-body ${aiMode ? 'inbox-compose-body--ai' : ''}`}
             placeholder={aiMode ? 'Write your prompt…' : 'Write your email here... (supports markdown)'}
             value={aiMode ? aiPrompt : composeBody}
-            onChange={(e) => (aiMode ? setAiPrompt(e.target.value) : setComposeBody(e.target.value))}
+            onChange={(e) => {
+              if (aiMode) {
+                setAiPrompt(e.target.value);
+              } else {
+                setComposeBody(e.target.value);
+                // User-edited plain text invalidates the stale brand HTML —
+                // drop it so we don't send mismatched body_text vs body_html.
+                if (composeBodyHtml) setComposeBodyHtml(null);
+              }
+            }}
             onKeyDown={(e) => {
               if (aiMode && (e.key === 'Enter') && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
