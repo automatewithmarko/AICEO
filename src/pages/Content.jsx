@@ -1681,13 +1681,24 @@ function extractImagePromptFromText(text) {
 
 // Stream Grok response with tool calling support
 async function streamContentResponse(messages, systemPrompt, onTextChunk, onToolCall, abortSignal, { searchMode = false, onSearchStatus } = {}) {
-  // Research mode: use Responses API with web_search tool (no image tool in research)
+  // Responses API mode: web_search + generate_image function tool
   if (searchMode) {
     if (onSearchStatus) onSearchStatus('searching');
 
     const input = [
       { role: 'system', content: systemPrompt },
       ...messages,
+    ];
+
+    // Include both web_search and generate_image tools
+    const tools = [
+      { type: 'web_search' },
+      {
+        type: 'function',
+        name: 'generate_image',
+        description: IMAGE_TOOL.function.description,
+        parameters: IMAGE_TOOL.function.parameters,
+      },
     ];
 
     const res = await fetch('/api/xai/v1/responses', {
@@ -1700,7 +1711,7 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
         model: 'grok-4-1-fast-non-reasoning',
         input,
         stream: true,
-        tools: [{ type: 'web_search' }],
+        tools,
       }),
       signal: abortSignal,
     });
@@ -1714,6 +1725,7 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
     let fullContent = '';
     let buffer = '';
     let citations = [];
+    let functionCalls = {};
 
     while (true) {
       const { done, value } = await reader.read();
@@ -1741,9 +1753,31 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
             if (delta) { fullContent += delta; onTextChunk(fullContent); }
           }
 
+          // Capture function call outputs from Responses API
+          if (eventType === 'response.function_call_arguments.delta') {
+            const callId = parsed.call_id || parsed.item_id || 'default';
+            if (!functionCalls[callId]) functionCalls[callId] = { name: parsed.name || '', arguments: '' };
+            if (parsed.name) functionCalls[callId].name = parsed.name;
+            if (parsed.delta) functionCalls[callId].arguments += parsed.delta;
+          }
+          if (eventType === 'response.function_call_arguments.done') {
+            const callId = parsed.call_id || parsed.item_id || 'default';
+            if (!functionCalls[callId]) functionCalls[callId] = { name: parsed.name || '', arguments: '' };
+            if (parsed.name) functionCalls[callId].name = parsed.name;
+            if (parsed.arguments) functionCalls[callId].arguments = parsed.arguments;
+          }
+
           if (eventType === 'response.completed' || eventType === 'response.done') {
             const respCitations = parsed.response?.citations || [];
             if (respCitations.length) citations = respCitations;
+            // Also check for function calls in the completed response output
+            const output = parsed.response?.output || [];
+            for (const item of output) {
+              if (item.type === 'function_call' && item.name === 'generate_image') {
+                const callId = item.call_id || item.id || `fc-${Object.keys(functionCalls).length}`;
+                functionCalls[callId] = { name: item.name, arguments: item.arguments || '' };
+              }
+            }
           }
 
           // Fallback for chat-completions compatible format
@@ -1762,11 +1796,32 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
       onTextChunk(fullContent);
     }
 
+    // Process any generate_image function calls
+    const imageCalls = [];
+    for (const call of Object.values(functionCalls)) {
+      if (call.name === 'generate_image') {
+        try {
+          const args = JSON.parse(call.arguments);
+          if (args.prompt) imageCalls.push({ id: call.id || 'fc', prompt: args.prompt });
+        } catch { /* skip bad JSON */ }
+      }
+    }
+
+    let hadToolCall = false;
+    if (imageCalls.length === 0 && fullContent) {
+      const extractedPrompt = extractImagePromptFromText(fullContent);
+      if (extractedPrompt) imageCalls.push({ id: 'fallback', prompt: extractedPrompt });
+    }
+    if (imageCalls.length > 0) {
+      hadToolCall = true;
+      await onToolCall(imageCalls);
+    }
+
     if (onSearchStatus) onSearchStatus(null);
-    return { content: fullContent, hadToolCall: false };
+    return { content: fullContent, hadToolCall };
   }
 
-  // Normal mode: Chat Completions API with image tool
+  // Fallback mode: Chat Completions API with image tool only (no web search)
   const res = await fetch('/api/xai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -2382,7 +2437,7 @@ export default function Content() {
           }
         },
         abort.signal,
-        { searchMode: contentResearchMode || selectedPlatform === 'linkedin', onSearchStatus: setSearchStatus },
+        { searchMode: true, onSearchStatus: setSearchStatus },
       );
       // Check if the response contains a JSON question (may be preceded by text)
       const finalContent = streamedContent || '';
