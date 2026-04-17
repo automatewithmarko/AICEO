@@ -7,7 +7,7 @@ const openai = new OpenAI({
   baseURL: 'https://api.x.ai/v1',
 });
 
-const MODEL = 'grok-3-mini-fast';
+const MODEL = 'grok-4-1-fast-non-reasoning';
 
 async function chatComplete(systemPrompt, userPrompt) {
   const res = await openai.chat.completions.create({

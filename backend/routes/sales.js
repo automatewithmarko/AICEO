@@ -327,7 +327,7 @@ router.post('/api/sales/calls/:id/generate-action-items', async (req, res) => {
 
   try {
     const completion = await xai.chat.completions.create({
-      model: 'grok-3-mini-fast',
+      model: 'grok-4-1-fast-non-reasoning',
       messages: [
         { role: 'system', content: 'You are an expert at extracting action items from meeting transcripts. Return valid JSON only with an "action_items" key.' },
         { role: 'user', content: `Analyze this meeting transcript and extract ALL action items, to-dos, commitments, and follow-ups. Be thorough — even implicit commitments like "I'll send that over" or "let's circle back on that" count as action items.

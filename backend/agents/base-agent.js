@@ -108,7 +108,7 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
   if (!apiKey) throw new Error('XAI_API_KEY not configured');
 
   const body = {
-    model: model || 'grok-3-fast',
+    model: model || 'grok-4-1-fast-non-reasoning',
     messages: [{ role: 'system', content: systemPrompt }, ...messages],
     stream: true,
     max_tokens: maxTokens || 8000,
@@ -221,7 +221,7 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'grok-4-fast-reasoning',
+      model: 'grok-4-1-fast-non-reasoning',
       input,
       stream: true,
       tools: [{ type: 'web_search' }],
@@ -334,7 +334,7 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
       const researchResult = await streamXaiResearch({
         systemPrompt: 'You are a research assistant. Find relevant, current information to help create content.',
         messages,
-        model: 'grok-4-fast-reasoning',
+        model: 'grok-4-1-fast-non-reasoning',
         onChunk: () => {}, // Don't stream research chunks to the user
         onSearchStatus,
         abortSignal,
@@ -363,7 +363,7 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
   }
 
   if (searchMode) {
-    return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-fast-reasoning', onChunk, onSearchStatus, abortSignal });
+    return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal });
   }
 
   if (provider === 'anthropic') {
@@ -463,10 +463,10 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
 // After tool calls, sends results back to the model for a follow-up response
 export async function executeCeoOrchestrator({ systemPrompt, messages, tools, onChunk, onToolCalls, searchMode, onSearchStatus, abortSignal }) {
   if (searchMode) {
-    return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-fast-reasoning', onChunk, onSearchStatus, abortSignal });
+    return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal });
   }
 
-  const model = 'grok-4.20-beta-0309-non-reasoning';
+  const model = 'grok-4-1-fast-non-reasoning';
   let conversationMessages = [...messages];
   let iterations = 0;
   const MAX_ITERATIONS = 5;
