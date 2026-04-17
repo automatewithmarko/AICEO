@@ -717,6 +717,8 @@ const PLATFORM_GUIDANCE = {
 - NEVER use generic filler, excessive emojis, or "Hey guys!" energy. Write like a real person, not a marketing bot.`,
   facebook: `Facebook content that gets shared, not scrolled past. Focus on storytelling, relatable moments, and discussion starters. Longer-form posts perform well. Ask genuine questions. Use line breaks for readability.`,
   linkedin: `=== LINKEDIN CONTENT TYPE ROUTING ===
+ABSOLUTE RULE: NEVER use em dashes (—) anywhere in any output. Use commas, periods, colons, or new sentences instead. Zero tolerance.
+
 IMPORTANT: Before creating any LinkedIn content, you MUST first determine the content type.
 Ask the user this question using the JSON format:
 {"type":"question","text":"What type of LinkedIn content would you like to create?","options":["Text Post","Carousel"]}
@@ -1818,7 +1820,10 @@ export default function Content() {
         ));
         // Launch separate post generation call — streams into preview panel
         const postMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
-        const postSystemPrompt = `You are a LinkedIn post writer. Based on the conversation, generate the final LinkedIn post NOW.\n\nRULES:\n- Output ONLY the post text, ready to copy-paste into LinkedIn\n- No preamble, no commentary, no "here is your post", no character counts\n- Just the raw post content with proper line breaks\n- Follow the post structure discussed in the conversation\n\n${LINKEDIN_TEXT_PROMPT}`;
+        let postSystemPrompt = `You are a LinkedIn post writer. Based on the conversation, generate the final LinkedIn post NOW.\n\nRULES:\n- Output ONLY the post text, ready to copy-paste into LinkedIn\n- No preamble, no commentary, no "here is your post", no character counts\n- Just the raw post content with proper line breaks\n- Follow the post structure discussed in the conversation\n- ABSOLUTELY NEVER use em dashes (—). Use commas, periods, colons, or start a new sentence instead. This is non-negotiable.\n- NEVER use [Your Name] or [Name] placeholders. Use the user's ACTUAL name provided below.\n\n`;
+        if (user?.name) postSystemPrompt += `USER'S NAME: ${user.name}\nAlways sign off with this exact name, never use [Your Name] or placeholders.\n\n`;
+        if (brandDna?.description) postSystemPrompt += `BRAND DESCRIPTION: ${brandDna.description}\n\n`;
+        postSystemPrompt += LINKEDIN_TEXT_PROMPT;
         setLinkedinPreview({ content: '', images: [], msgId: assistantMsgId });
         try {
           await streamContentResponse(
