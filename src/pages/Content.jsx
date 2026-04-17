@@ -724,39 +724,28 @@ Ask the user this question using the JSON format:
 Wait for their answer. Then follow the appropriate section below.
 If the user already indicated the type (e.g. "write me a text post", "make a carousel"), skip the question and follow the matching section directly.
 
-=== CRITICAL OUTPUT FORMAT (NON-NEGOTIABLE) ===
-When you generate the final LinkedIn post, you MUST format your response EXACTLY like this:
+=== CRITICAL OUTPUT RULES (NON-NEGOTIABLE) ===
+You must NEVER write the actual LinkedIn post text in your response. A separate system generates the post.
 
-1. First, write a SHORT SUMMARY (2-4 sentences) describing the post you created. Include:
-   - The content intent used (educating, nurturing, soft sell, hard sell, engagement)
+Your job is to:
+1. Ask clarifying questions if needed (content intent, topic, angle)
+2. Do web research if the topic involves companies, products, competitors, stats, or current events
+3. Once you have enough context to generate, respond with a SHORT SUMMARY (2-4 sentences) of the post you WILL create. Include:
+   - The content intent (educating, nurturing, soft sell, hard sell, engagement)
    - The hook angle or main theme
-   - Why you chose this approach based on the user's input
-   This summary is shown in the chat so the user understands what was generated.
+   - Why you chose this approach
+4. End your summary with the EXACT marker: <<READY>>
 
-2. Then, wrap the ENTIRE post content inside <<LINKEDIN_POST>> and <</LINKEDIN_POST>> tags.
-   The post inside the tags is displayed in a separate preview panel.
+CORRECT example response:
+"I'll create a soft-selling post comparing BooSend.ai vs ManyChat, highlighting the 27% response rate improvement from a real client switch. Using a two-choices framework to drive action while keeping it conversational for SaaS founders. <<READY>>"
 
-3. Do NOT include ANY text after the closing tag. No character counts. No "this post is optimized for..." commentary.
-
-CORRECT example:
-Created a soft-selling post highlighting your client's 27% response rate improvement. Used a two-choices framework to drive action while keeping the tone conversational and authentic.
-
-<<LINKEDIN_POST>>
-The actual post text goes here...
-
-With proper line breaks and formatting.
-
-P.S. This is part of the post.
-<</LINKEDIN_POST>>
-
-WRONG examples (NEVER do these):
-- Writing the post text outside of the tags (the post MUST be inside tags)
-- Adding commentary after the closing tag
-- Skipping the summary before the tags
-- Including "Here is your LinkedIn post:" as the summary (be specific about what you wrote)
+WRONG (NEVER do these):
+- Writing the actual post copy in your message
+- Skipping the <<READY>> marker when you're done planning
+- Adding <<READY>> before you've gathered enough context
 
 === WEB RESEARCH ===
-You have access to web search. When the user's topic involves specific companies, products, competitors, statistics, trends, or current events, USE web search to gather real data before writing the post. This ensures the post contains accurate, current information rather than hallucinated claims.
+You have access to web search. When the user's topic involves specific companies, products, competitors, statistics, trends, or current events, USE web search to gather real data. This data will be passed to the post generator.
 
 ============================================================
 SECTION A: TEXT POST (use when user chose "Text Post")
@@ -1700,25 +1689,8 @@ export default function Content() {
           const fenceStart2 = text.indexOf('```\n{');
           const cutIdx = [jsonStart, jsonStart2, fenceStart, fenceStart2].filter(i => i !== -1).sort((a, b) => a - b)[0];
           if (cutIdx !== undefined) displayText = text.slice(0, cutIdx).trim();
-          // Strip LinkedIn post tags from chat — stream post content into preview panel live
-          const liTagStart = displayText.indexOf('<<LINKEDIN_POST>>');
-          if (liTagStart !== -1) {
-            displayText = displayText.slice(0, liTagStart).trim();
-            if (!displayText) displayText = 'Generating your LinkedIn post...';
-            // Extract post content streaming into the preview panel in real-time
-            const tagLen = '<<LINKEDIN_POST>>'.length;
-            let postContent = text.slice(text.indexOf('<<LINKEDIN_POST>>') + tagLen);
-            const closeIdx = postContent.indexOf('<</LINKEDIN_POST>>');
-            if (closeIdx !== -1) postContent = postContent.slice(0, closeIdx);
-            postContent = postContent.trim();
-            if (postContent) {
-              setLinkedinPreview({
-                content: postContent,
-                images: [],
-                msgId: assistantMsgId,
-              });
-            }
-          }
+          // Strip <<READY>> marker from LinkedIn chat display
+          displayText = displayText.replace(/<<READY>>/g, '').trim();
           setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: displayText } : m)));
         },
         // onToolCalls  -  all generate_image calls at once, run in parallel
@@ -1837,31 +1809,30 @@ export default function Content() {
           m.id === assistantMsgId ? { ...m, content: questionParsed.text } : m
         ));
       }
-      // Open LinkedIn preview — extract post from <<LINKEDIN_POST>> tags
-      if (selectedPlatform === 'linkedin' && !questionParsed && streamedContent) {
-        const liMatch = streamedContent.match(/<<LINKEDIN_POST>>([\s\S]*?)<<\/LINKEDIN_POST>>/);
-        if (liMatch) {
-          const postContent = liMatch[1].trim();
-          const chatMsg = streamedContent.slice(0, streamedContent.indexOf('<<LINKEDIN_POST>>')).trim() || 'Here\'s your LinkedIn post.';
-          setLinkedinPreview({
-            content: postContent,
-            images: [],
-            msgId: assistantMsgId,
-          });
-          setMessages((prev) => prev.map((m) =>
-            m.id === assistantMsgId ? { ...m, content: chatMsg } : m
-          ));
-        } else if (streamedContent.trim().length > 100) {
-          // Fallback: AI didn't use tags, use the whole content
-          const postContent = streamedContent.replace(/\[CONTEXT[^\]]*\]\n?/g, '').trim();
-          setLinkedinPreview({
-            content: postContent,
-            images: [],
-            msgId: assistantMsgId,
-          });
-          setMessages((prev) => prev.map((m) =>
-            m.id === assistantMsgId ? { ...m, content: 'Here\'s your LinkedIn post.' } : m
-          ));
+      // Detect <<READY>> marker — trigger separate post generation call
+      if (selectedPlatform === 'linkedin' && !questionParsed && streamedContent && streamedContent.includes('<<READY>>')) {
+        // Clean up the chat message (remove marker)
+        const chatMsg = streamedContent.replace(/<<READY>>/g, '').trim();
+        setMessages((prev) => prev.map((m) =>
+          m.id === assistantMsgId ? { ...m, content: chatMsg } : m
+        ));
+        // Launch separate post generation call — streams into preview panel
+        const postMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
+        const postSystemPrompt = `You are a LinkedIn post writer. Based on the conversation, generate the final LinkedIn post NOW.\n\nRULES:\n- Output ONLY the post text, ready to copy-paste into LinkedIn\n- No preamble, no commentary, no "here is your post", no character counts\n- Just the raw post content with proper line breaks\n- Follow the post structure discussed in the conversation\n\n${LINKEDIN_TEXT_PROMPT}`;
+        setLinkedinPreview({ content: '', images: [], msgId: assistantMsgId });
+        try {
+          await streamContentResponse(
+            postMsgs,
+            postSystemPrompt,
+            (postText) => {
+              setLinkedinPreview(prev => prev ? { ...prev, content: postText.trim() } : { content: postText.trim(), images: [], msgId: assistantMsgId });
+            },
+            async () => {}, // no image tool calls for post generation
+            abort.signal,
+            { searchMode: false, onSearchStatus: null },
+          );
+        } catch (postErr) {
+          if (postErr.name !== 'AbortError') console.error('LinkedIn post generation failed:', postErr);
         }
       }
     } catch (err) {
