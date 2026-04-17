@@ -610,9 +610,26 @@ router.post('/api/emails/ai-draft', async (req, res) => {
   }
 
   // Brand theme values (only used when wantsHtml is true).
+  // Body text ALWAYS uses safe dark colors — brand text color from brand DNA
+  // is often set for dark-themed landing pages, and using it for email body
+  // text on the white default email-client background produces invisible
+  // white-on-white text. Brand primary color is used only for accents.
   const primary = brandPrimaryColor || '#1a1a1a';
-  const text = brandTextColor || '#333333';
-  const secondary = brandSecondaryColor || '#6b7280';
+  // Luminance-safe primary: if the brand's primary is too light to read on
+  // white (e.g. pale yellow, lime), use a fallback dark tone for accents too.
+  const isTooLight = (() => {
+    const hex = String(primary).replace('#', '');
+    if (hex.length !== 6) return false;
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    // perceived luminance
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return lum > 0.75;
+  })();
+  const accent = isTooLight ? '#1a1a1a' : primary;
+  const bodyText = '#1a1a1a';   // hardcoded — safe on white
+  const mutedText = '#6b7280';  // hardcoded — safe on white
   const font = brandMainFont
     ? `${brandMainFont}, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif`
     : "-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif";
@@ -640,20 +657,22 @@ OUTPUT FORMAT — respond with ONLY a JSON object, no preamble, no markdown fenc
 ${copyRules}
 
 HTML RULES (for the "html" field):
-BRAND THEME TO APPLY:
-- Primary color (links, headings, accent): ${primary}
-- Body text color: ${text}
-- Muted / secondary text: ${secondary}
+BRAND THEME — apply these EXACTLY:
+- Body text color: ${bodyText} (DO NOT use any other color for paragraph text — emails render on white backgrounds by default and lighter text becomes invisible)
+- Accent color (for links, emphasis, heading touches): ${accent}
+- Muted text (signature, meta): ${mutedText}
 - Font family: ${font}${brandLogoUrl ? `\n- Logo URL: ${brandLogoUrl}` : '\n- No logo available — skip the logo row entirely'}
 
-- Produce a complete email-safe HTML fragment. Email clients strip <style> blocks and <link> tags — use ONLY inline styles.
-- Wrap the whole body in: <div style="font-family: ${font}; color: ${text}; font-size: 15px; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 24px;">...</div>
+- Produce an email-safe HTML fragment. Email clients strip <style> blocks and <link> tags — use ONLY inline styles.
+- The outermost wrapper MUST set an explicit white background so the email is readable in any client:
+  <div style="background: #ffffff; font-family: ${font}; color: ${bodyText}; font-size: 15px; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 24px;">...</div>
 - If a logo URL is provided above, include ONE row at the top: <div style="margin-bottom: 24px;"><img src="${brandLogoUrl || ''}" alt="" style="max-height: 40px; width: auto; display: block;" /></div>. If no logo, skip this row.
-- Paragraphs: <p style="margin: 0 0 16px;">...</p>. Keep them short (1-3 sentences each).
-- Links: <a href="..." style="color: ${primary}; text-decoration: underline;">...</a>.
-- Subtle emphasis: <strong style="color: ${primary};">...</strong> sparingly — never on whole sentences.
-- Signature: separate with a <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; color: ${secondary}; font-size: 14px;">...</div>. Include the user's name${userName ? ` (${userName})` : ''} on the first line.
+- Paragraphs: <p style="margin: 0 0 16px; color: ${bodyText};">...</p>. Keep them short (1-3 sentences each). NEVER use white, pale yellow, or any light color for paragraph text.
+- Links: <a href="..." style="color: ${accent}; text-decoration: underline;">...</a>.
+- Subtle emphasis: <strong style="color: ${accent};">...</strong> sparingly — never on whole sentences. If ${accent} is very light, use ${bodyText} instead.
+- Signature: separate with <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; color: ${mutedText}; font-size: 14px;">...</div>. Include the user's name${userName ? ` (${userName})` : ''} on the first line in ${bodyText} (use <strong style="color: ${bodyText};">${userName || 'Name'}</strong>). Role/company line in ${mutedText}.
 - Do NOT include <html>, <head>, or <body> tags — just the wrapping <div>.
+- Do NOT use background images, gradients, dark backgrounds, or CSS variables.
 - Match the plain "text" version exactly in words — the HTML is the same content with brand styling added, not a rewrite.`
     : `You are an email assistant drafting a response on behalf of the user${userName ? ` (${userName})` : ''}.
 

@@ -1183,30 +1183,56 @@ export default function Inbox() {
             </div>
           )}
 
-          {/* Body */}
-          <textarea
-            ref={bodyRef}
-            className={`inbox-compose-body ${aiMode ? 'inbox-compose-body--ai' : ''}`}
-            placeholder={aiMode ? 'Write your prompt…' : 'Write your email here... (supports markdown)'}
-            value={aiMode ? aiPrompt : composeBody}
-            onChange={(e) => {
-              if (aiMode) {
-                setAiPrompt(e.target.value);
-              } else {
-                setComposeBody(e.target.value);
-                // User-edited plain text invalidates the stale brand HTML —
-                // drop it so we don't send mismatched body_text vs body_html.
-                if (composeBodyHtml) setComposeBodyHtml(null);
-              }
-            }}
-            onKeyDown={(e) => {
-              if (aiMode && (e.key === 'Enter') && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                handleAiGenerate();
-              }
-            }}
-            disabled={aiLoading}
-          />
+          {/* Body — renders an HTML preview when a branded HTML draft is ready,
+              otherwise the plain textarea. AI-prompt mode always shows textarea. */}
+          {!aiMode && composeBodyHtml ? (
+            <div className="inbox-compose-body inbox-compose-body--html">
+              <div className="inbox-compose-html-bar">
+                <span className="inbox-compose-html-badge">Branded HTML preview</span>
+                <button
+                  type="button"
+                  className="inbox-compose-html-edit"
+                  onClick={() => setComposeBodyHtml(null)}
+                  title="Switch to plain text editing (HTML version will be discarded)"
+                >
+                  Edit plain text
+                </button>
+              </div>
+              <div
+                className="inbox-compose-html-preview"
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(composeBodyHtml, {
+                    ADD_ATTR: ['target'],
+                    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'style'],
+                  }),
+                }}
+              />
+            </div>
+          ) : (
+            <textarea
+              ref={bodyRef}
+              className={`inbox-compose-body ${aiMode ? 'inbox-compose-body--ai' : ''}`}
+              placeholder={aiMode ? 'Write your prompt…' : 'Write your email here... (supports markdown)'}
+              value={aiMode ? aiPrompt : composeBody}
+              onChange={(e) => {
+                if (aiMode) {
+                  setAiPrompt(e.target.value);
+                } else {
+                  setComposeBody(e.target.value);
+                  // User-edited plain text invalidates the stale brand HTML —
+                  // drop it so we don't send mismatched body_text vs body_html.
+                  if (composeBodyHtml) setComposeBodyHtml(null);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (aiMode && (e.key === 'Enter') && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  handleAiGenerate();
+                }
+              }}
+              disabled={aiLoading}
+            />
+          )}
 
           {/* Footer */}
           <div className="inbox-compose-footer">
