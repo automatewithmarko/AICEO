@@ -3204,7 +3204,7 @@ export default function Content() {
               content={linkedinPreview.content}
               images={linkedinPreview.images}
               userName={user?.name}
-              userAvatar={user?.avatar}
+              userAvatar={brandDna?.photo_urls?.[0] || user?.avatar}
               onClose={() => setLinkedinPreview(null)}
               onGenerateImage={handleLinkedinGenerateImage}
               isGeneratingImage={liGeneratingImage}

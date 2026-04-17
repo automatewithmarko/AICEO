@@ -45,7 +45,6 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                 <span className="li-name">{userName || 'Your Name'}</span>
                 <span className="li-degree">· 1st</span>
               </div>
-              <span className="li-headline">Your headline here</span>
               <span className="li-time">
                 Just now ·{' '}
                 {/* Globe icon — public visibility */}
