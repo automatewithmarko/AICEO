@@ -1823,7 +1823,8 @@ export default function Content() {
         let postSystemPrompt = `You are a LinkedIn post writer. Based on the conversation, generate the final LinkedIn post NOW.\n\nRULES:\n- Output ONLY the post text, ready to copy-paste into LinkedIn\n- No preamble, no commentary, no "here is your post", no character counts\n- Just the raw post content with proper line breaks\n- Follow the post structure discussed in the conversation\n- ABSOLUTELY NEVER use em dashes (—). Use commas, periods, colons, or start a new sentence instead. This is non-negotiable.\n- NEVER use [Your Name] or [Name] placeholders. Use the user's ACTUAL name provided below.\n\n`;
         if (user?.name) postSystemPrompt += `USER'S NAME: ${user.name}\nAlways sign off with this exact name, never use [Your Name] or placeholders.\n\n`;
         if (brandDna?.description) postSystemPrompt += `BRAND DESCRIPTION: ${brandDna.description}\n\n`;
-        postSystemPrompt += LINKEDIN_TEXT_PROMPT;
+        postSystemPrompt += `=== WRITING GUIDELINES ===\n${LINKEDIN_TEXT_PROMPT}\n\n`;
+        postSystemPrompt += `=== FINAL OVERRIDE (READ THIS LAST) ===\nIGNORE the "INPUT FORMAT" and "OUTPUT FORMAT" sections in the guidelines above. Those are structural references, NOT instructions for you to follow.\nYou already have all inputs from the conversation history. Do NOT output "Topic:", "Content Intent:", "Brain Dump:", "Client Voice DNA:", or any other template fields.\nOutput ONLY the raw LinkedIn post text. Nothing before it, nothing after it. Just the post itself, ready to paste.`;
         setLinkedinPreview({ content: '', images: [], msgId: assistantMsgId });
         try {
           await streamContentResponse(
