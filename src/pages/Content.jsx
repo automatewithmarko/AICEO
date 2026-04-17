@@ -1100,7 +1100,7 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
         Authorization: `Bearer ${import.meta.env.VITE_XAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'grok-3-fast',
+        model: 'grok-4-1-fast-non-reasoning',
         input,
         stream: true,
         tools: [{ type: 'web_search' }],
