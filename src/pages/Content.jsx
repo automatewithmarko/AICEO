@@ -1910,13 +1910,16 @@ export default function Content() {
   const [liGeneratingImage, setLiGeneratingImage] = useState(false);
 
   // Keep LinkedIn preview images in sync with the message's images
+  // Only sync FROM message TO preview when message actually has images (text post image generation)
+  // Skip when preview already has images (carousel — images are managed directly in preview state)
   useEffect(() => {
     if (!linkedinPreview?.msgId) return;
+    if (linkedinPreview.totalSlides > 0) return; // Carousel — images managed in preview, not message
     const msg = messages.find(m => m.id === linkedinPreview.msgId);
-    if (msg && msg.images?.length !== linkedinPreview.images?.length) {
+    if (msg?.images?.length && msg.images.length !== linkedinPreview.images?.length) {
       setLinkedinPreview(prev => prev ? { ...prev, images: msg.images } : null);
     }
-  }, [messages, linkedinPreview?.msgId]);
+  }, [messages, linkedinPreview?.msgId, linkedinPreview?.totalSlides]);
 
   const [brandDna, setBrandDna] = useState(null);
   const [integrationCtx, setIntegrationCtx] = useState('');
