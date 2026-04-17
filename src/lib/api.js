@@ -280,9 +280,18 @@ export async function getOutlierVideos(params = {}) {
   if (params.platform) url.searchParams.set('platform', params.platform);
   if (params.limit) url.searchParams.set('limit', String(params.limit));
   if (params.offset) url.searchParams.set('offset', String(params.offset));
+  if (params.sort) url.searchParams.set('sort', params.sort);
   const res = await fetch(url.toString(), { headers });
   if (!res.ok) return { videos: [] };
   return res.json();
+}
+
+// URL to the backend thumbnail proxy — works as a direct <img src="...">.
+// The backend route is unauthenticated (see server.js) because <img> tags
+// can't send Authorization headers; thumbnails are public social-media
+// content anyway and the video id is a UUID.
+export function getOutlierThumbnailUrl(videoId) {
+  return `${API_URL}/api/outlier/videos/${videoId}/thumbnail`;
 }
 
 export async function scanOutlierCreator(creatorId) {
@@ -743,12 +752,12 @@ export async function updateEmail(id, updates) {
   return res.json();
 }
 
-export async function generateEmailDraft({ prompt, mode, original, context_emails, context_calls }) {
+export async function generateEmailDraft({ prompt, mode, original, context_emails, context_calls, useBrandTemplate = false }) {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/emails/ai-draft`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, mode, original, context_emails, context_calls }),
+    body: JSON.stringify({ prompt, mode, original, context_emails, context_calls, useBrandTemplate }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Draft generation failed' }));

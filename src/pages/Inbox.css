@@ -1251,9 +1251,35 @@
 .inbox-compose-footer {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 10px;
   padding: 12px 20px;
   border-top: 1px solid var(--border-light);
+}
+
+.inbox-compose-ai-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: auto;
+  font-family: 'Inter', sans-serif;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.inbox-compose-ai-option input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--brand-red);
+  cursor: pointer;
+  margin: 0;
+}
+
+.inbox-compose-ai-option:hover {
+  color: var(--text-primary);
 }
 
 .inbox-compose-discard {

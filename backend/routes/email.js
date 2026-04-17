@@ -508,10 +508,17 @@ router.post('/api/emails/ai-draft', async (req, res) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
 
-  const { prompt, mode = 'reply', original = null, context_emails = [], context_calls = [] } = req.body || {};
+  const { prompt, mode = 'reply', original = null, context_emails = [], context_calls = [], useBrandTemplate = false } = req.body || {};
   if (!prompt || !String(prompt).trim()) {
     return res.status(400).json({ error: 'prompt is required' });
   }
+
+  // Detect an explicit HTML/template request in the prompt itself (path #3).
+  // Plain text is the default; brand template is opt-in via toggle OR
+  // auto-applied when the user's instruction clearly asks for styled output.
+  const promptLower = String(prompt).toLowerCase();
+  const explicitHtmlRequest = /\b(html|styled|branded|template|newsletter-style|with (?:my )?(?:brand|logo|colors))\b/.test(promptLower);
+  const wantsHtml = Boolean(useBrandTemplate) || explicitHtmlRequest;
 
   // Load full brand DNA so the HTML version can match the user's visual identity.
   let brandDescription = '';
@@ -602,7 +609,7 @@ router.post('/api/emails/ai-draft', async (req, res) => {
     return text;
   }
 
-  // Build brand theme block for the HTML version (skipped cleanly if brand DNA is empty).
+  // Brand theme values (only used when wantsHtml is true).
   const primary = brandPrimaryColor || '#1a1a1a';
   const text = brandTextColor || '#333333';
   const secondary = brandSecondaryColor || '#6b7280';
@@ -610,13 +617,19 @@ router.post('/api/emails/ai-draft', async (req, res) => {
     ? `${brandMainFont}, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif`
     : "-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif";
 
-  const brandThemeBlock = `BRAND THEME TO APPLY TO THE HTML VERSION:
-- Primary color (links, headings, accent): ${primary}
-- Body text color: ${text}
-- Muted / secondary text: ${secondary}
-- Font family: ${font}${brandLogoUrl ? `\n- Logo URL: ${brandLogoUrl}` : '\n- No logo available — skip the logo row entirely'}`;
+  // Core copy rules shared by both modes.
+  const copyRules = `COPY RULES:
+- Write the email body only. No subject line, no preamble, no "Here's a draft:".
+- Address the original sender by name when known. Reference specific points from their email so the reply feels read, not templated.
+- Match the tone and register of the original email (formal / casual / friendly).
+- Be concise and direct. No filler phrases like "I hope this finds you well", "Thank you for reaching out", or "Looking forward to hearing from you" unless they genuinely fit.
+- Never use em dashes. Never use hashtags.
+- Do NOT invent facts, commitments, dates, prices, or details that aren't in the user's instruction or the provided context.
+- End with a plain sign-off (e.g. "${userName || 'Best'}") — no "Best regards," templates unless the original used that register.${brandDescription ? `\n- Voice/brand context: ${trim(brandDescription, 600)}` : ''}`;
 
-  const systemPrompt = `You are an email assistant drafting a response on behalf of the user${userName ? ` (${userName})` : ''}.
+  // Two prompt paths — plain text (default) vs brand-themed HTML (opt-in or explicit).
+  const systemPrompt = wantsHtml
+    ? `You are an email assistant drafting a response on behalf of the user${userName ? ` (${userName})` : ''}. The user has asked for a BRAND-THEMED HTML email.
 
 OUTPUT FORMAT — respond with ONLY a JSON object, no preamble, no markdown fences:
 {
@@ -624,17 +637,14 @@ OUTPUT FORMAT — respond with ONLY a JSON object, no preamble, no markdown fenc
   "html": "HTML version with inline styles applying the user's brand theme"
 }
 
-COPY RULES (apply to both "text" and "html"):
-- Write the email body only. No subject line, no preamble, no "Here's a draft:".
-- Address the original sender by name when known. Reference specific points from their email so the reply feels read, not templated.
-- Match the tone and register of the original email (formal / casual / friendly).
-- Be concise and direct. No filler phrases like "I hope this finds you well", "Thank you for reaching out", or "Looking forward to hearing from you" unless they genuinely fit.
-- Never use em dashes. Never use hashtags.
-- Do NOT invent facts, commitments, dates, prices, or details that aren't in the user's instruction or the provided context.
-- End with a plain sign-off (e.g. "${userName || 'Best'}") — no "Best regards," templates unless the original used that register.${brandDescription ? `\n- Voice/brand context: ${trim(brandDescription, 600)}` : ''}
+${copyRules}
 
 HTML RULES (for the "html" field):
-${brandThemeBlock}
+BRAND THEME TO APPLY:
+- Primary color (links, headings, accent): ${primary}
+- Body text color: ${text}
+- Muted / secondary text: ${secondary}
+- Font family: ${font}${brandLogoUrl ? `\n- Logo URL: ${brandLogoUrl}` : '\n- No logo available — skip the logo row entirely'}
 
 - Produce a complete email-safe HTML fragment. Email clients strip <style> blocks and <link> tags — use ONLY inline styles.
 - Wrap the whole body in: <div style="font-family: ${font}; color: ${text}; font-size: 15px; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 24px;">...</div>
@@ -642,10 +652,14 @@ ${brandThemeBlock}
 - Paragraphs: <p style="margin: 0 0 16px;">...</p>. Keep them short (1-3 sentences each).
 - Links: <a href="..." style="color: ${primary}; text-decoration: underline;">...</a>.
 - Subtle emphasis: <strong style="color: ${primary};">...</strong> sparingly — never on whole sentences.
-- Signature: separate with a <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; color: ${secondary}; font-size: 14px;">...</div>. Include the user's name${userName ? ` (${userName})` : ''} on the first line. If brand description mentions a company/role, include a second line in ${secondary} at 13px.
+- Signature: separate with a <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb; color: ${secondary}; font-size: 14px;">...</div>. Include the user's name${userName ? ` (${userName})` : ''} on the first line.
 - Do NOT include <html>, <head>, or <body> tags — just the wrapping <div>.
-- Do NOT use background images, gradients, or CSS that email clients strip. Plain inline styles only.
-- Match the plain "text" version exactly in words — the HTML is the same content with brand styling added, not a rewrite.`;
+- Match the plain "text" version exactly in words — the HTML is the same content with brand styling added, not a rewrite.`
+    : `You are an email assistant drafting a response on behalf of the user${userName ? ` (${userName})` : ''}.
+
+OUTPUT: plain text only. No HTML, no markdown fences, no JSON wrapper, no preamble, no "Here's a draft:". Just the email body.
+
+${copyRules}`;
 
   // Build the user-facing payload the model sees.
   const lines = [`MODE: ${mode}`, '', `USER INSTRUCTION:\n${String(prompt).trim()}`];
@@ -706,8 +720,13 @@ ${brandThemeBlock}
     const raw = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
     if (!raw) return res.status(500).json({ error: 'Empty draft from model' });
 
-    // The model is instructed to return JSON { text, html }. Parse defensively
-    // in case it strays (strips code fences, extracts first JSON object).
+    if (!wantsHtml) {
+      // Plain-text path (default). Return the response as-is — no HTML.
+      return res.json({ draft: raw, draft_html: null });
+    }
+
+    // Brand-template path. The model returned JSON { text, html }. Parse
+    // defensively — strip code fences and extract the first JSON object.
     let parsed = null;
     const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
     try { parsed = JSON.parse(cleaned); }
@@ -718,10 +737,10 @@ ${brandThemeBlock}
 
     const draft = (parsed && typeof parsed.text === 'string' && parsed.text.trim())
       ? parsed.text.trim()
-      : raw; // graceful fallback: use whole response as plain text
+      : raw;
     const draftHtml = (parsed && typeof parsed.html === 'string' && parsed.html.trim())
       ? parsed.html.trim()
-      : null; // missing HTML = caller sends plain text only
+      : null;
 
     res.json({ draft, draft_html: draftHtml });
   } catch (err) {

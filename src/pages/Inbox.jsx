@@ -110,6 +110,9 @@ export default function Inbox() {
   const [linkUrl, setLinkUrl] = useState('');
   const [aiPopoverOpen, setAiPopoverOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
+  // Opt-in flag: when true, AI draft returns a brand-themed HTML version
+  // alongside plain text. Default OFF — plain text is the baseline.
+  const [aiUseBrandTemplate, setAiUseBrandTemplate] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiMode, setAiMode] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
@@ -484,6 +487,7 @@ export default function Inbox() {
     setAiPopoverOpen(false);
     setAiPrompt('');
     setAiLoading(false);
+    setAiUseBrandTemplate(false);
     setContextOpen(false);
     setContextTab('calls');
     setSelectedCalls(new Set());
@@ -625,6 +629,7 @@ export default function Inbox() {
         original,
         context_emails: contextEmailsPayload,
         context_calls: contextCallsPayload,
+        useBrandTemplate: aiUseBrandTemplate,
       });
       if (draft) setComposeBody(draft);
       // Store the brand-themed HTML for sending. The textarea still shows
@@ -644,7 +649,10 @@ export default function Inbox() {
     setLinkPopoverOpen(false);
     setContextOpen(false);
     setAiMode((prev) => {
-      if (prev) setAiPrompt('');
+      if (prev) {
+        setAiPrompt('');
+        setAiUseBrandTemplate(false); // reset the brand-template opt-in each time
+      }
       return !prev;
     });
   };
@@ -1203,14 +1211,25 @@ export default function Inbox() {
           {/* Footer */}
           <div className="inbox-compose-footer">
             {aiMode ? (
-              <button
-                className="inbox-compose-send inbox-compose-generate"
-                onClick={handleAiGenerate}
-                disabled={aiLoading || !aiPrompt.trim()}
-              >
-                <Sparkles size={14} />
-                {aiLoading ? 'Generating…' : 'Generate email'}
-              </button>
+              <>
+                <label className="inbox-compose-ai-option" title="Wrap the AI draft in your brand's styled HTML template (logo, colors, fonts).">
+                  <input
+                    type="checkbox"
+                    checked={aiUseBrandTemplate}
+                    onChange={(e) => setAiUseBrandTemplate(e.target.checked)}
+                    disabled={aiLoading}
+                  />
+                  <span>Use brand template</span>
+                </label>
+                <button
+                  className="inbox-compose-send inbox-compose-generate"
+                  onClick={handleAiGenerate}
+                  disabled={aiLoading || !aiPrompt.trim()}
+                >
+                  <Sparkles size={14} />
+                  {aiLoading ? 'Generating…' : 'Generate email'}
+                </button>
+              </>
             ) : (
               <>
                 <button className="inbox-compose-discard" onClick={resetCompose}>Discard</button>
