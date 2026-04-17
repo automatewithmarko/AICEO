@@ -5,6 +5,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts } from '../lib/api';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
+import LinkedInPreview from '../components/LinkedInPreview';
 import './Content.css';
 
 const platforms = [
@@ -1241,6 +1243,7 @@ function SocialThumb({ src }) {
 }
 
 export default function Content() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [selectedPlatform, setSelectedPlatform] = useState('instagram');
   const [input, setInput] = useState('');
@@ -1278,6 +1281,18 @@ export default function Content() {
   const customTitleIdsRef = useRef(new Set());
   const saveTimer = useRef(null);
   const [editPrompt, setEditPrompt] = useState('');
+  const [linkedinPreview, setLinkedinPreview] = useState(null); // { content, images, msgId }
+  const [liGeneratingImage, setLiGeneratingImage] = useState(false);
+
+  // Keep LinkedIn preview images in sync with the message's images
+  useEffect(() => {
+    if (!linkedinPreview?.msgId) return;
+    const msg = messages.find(m => m.id === linkedinPreview.msgId);
+    if (msg && msg.images?.length !== linkedinPreview.images?.length) {
+      setLinkedinPreview(prev => prev ? { ...prev, images: msg.images } : null);
+    }
+  }, [messages, linkedinPreview?.msgId]);
+
   const [brandDna, setBrandDna] = useState(null);
   const [integrationCtx, setIntegrationCtx] = useState('');
   const longPressTimer = useRef(null);
@@ -1718,6 +1733,14 @@ export default function Content() {
           m.id === assistantMsgId ? { ...m, content: questionParsed.text } : m
         ));
       }
+      // Open LinkedIn preview when text content is generated on LinkedIn platform (no question, has text)
+      if (selectedPlatform === 'linkedin' && !questionParsed && streamedContent && streamedContent.trim().length > 100) {
+        setLinkedinPreview({
+          content: streamedContent.replace(/\[CONTEXT[^\]]*\]\n?/g, '').trim(),
+          images: [],
+          msgId: assistantMsgId,
+        });
+      }
     } catch (err) {
       if (err.name !== 'AbortError') {
         setMessages((prev) => prev.map((m) =>
@@ -1807,6 +1830,38 @@ export default function Content() {
       setIsGenerating(false);
     }
   }, [editingImage, isGenerating, selectedPlatform]);
+
+  const handleLinkedinGenerateImage = useCallback(async (postText) => {
+    if (!linkedinPreview || liGeneratingImage) return;
+    setLiGeneratingImage(true);
+    try {
+      const imgPrompt = `Professional LinkedIn post image. Clean, minimal design with authority. 4:3 landscape ratio. The image should complement this LinkedIn post: "${postText.slice(0, 200)}". Use brand colors if available. Bold headline text, professional photography or clean graphic design. No cartoons, no clip-art.`;
+      const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
+      const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
+      const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
+      const brandImageData = {
+        photoUrls: allPhotoUrls,
+        logoUrl: null,
+        colors: brandDna?.colors || {},
+        mainFont: brandDna?.main_font || null,
+      };
+      const result = await generateImage(imgPrompt, 'linkedin', brandImageData, null);
+      if (result.image) {
+        const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+        const newImg = { src, idx: 0 };
+        setMessages(prev => prev.map(m =>
+          m.id === linkedinPreview.msgId
+            ? { ...m, images: [...(m.images || []), newImg] }
+            : m
+        ));
+        setLinkedinPreview(prev => prev ? { ...prev, images: [...(prev.images || []), newImg] } : null);
+      }
+    } catch (err) {
+      console.error('LinkedIn image generation failed:', err);
+    } finally {
+      setLiGeneratingImage(false);
+    }
+  }, [linkedinPreview, liGeneratingImage, photos, brandDna]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -2614,7 +2669,8 @@ export default function Content() {
       </div>
 
       {/* Main content area */}
-      <div className="content-main">
+      <div className={`content-main${linkedinPreview ? ' content-main--split' : ''}`}>
+        <div className="content-main-chat">
         {/* Platform Pill Selector */}
         <div className="content-top-bar">
           <button className="content-prev-convos" title="Previous conversations" onClick={() => setShowSessions((v) => { if (!v) setSidebarOpen(false); return !v; })}>
@@ -3048,6 +3104,20 @@ export default function Content() {
             </div>
           </div>
         </div>
+        </div>
+        {linkedinPreview && (
+          <div className="content-main-preview">
+            <LinkedInPreview
+              content={linkedinPreview.content}
+              images={linkedinPreview.images}
+              userName={user?.name}
+              userAvatar={user?.avatar}
+              onClose={() => setLinkedinPreview(null)}
+              onGenerateImage={handleLinkedinGenerateImage}
+              isGeneratingImage={liGeneratingImage}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
