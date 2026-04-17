@@ -1700,11 +1700,24 @@ export default function Content() {
           const fenceStart2 = text.indexOf('```\n{');
           const cutIdx = [jsonStart, jsonStart2, fenceStart, fenceStart2].filter(i => i !== -1).sort((a, b) => a - b)[0];
           if (cutIdx !== undefined) displayText = text.slice(0, cutIdx).trim();
-          // Strip LinkedIn post tags from chat display — post content goes to preview panel only
+          // Strip LinkedIn post tags from chat — stream post content into preview panel live
           const liTagStart = displayText.indexOf('<<LINKEDIN_POST>>');
           if (liTagStart !== -1) {
             displayText = displayText.slice(0, liTagStart).trim();
             if (!displayText) displayText = 'Generating your LinkedIn post...';
+            // Extract post content streaming into the preview panel in real-time
+            const tagLen = '<<LINKEDIN_POST>>'.length;
+            let postContent = text.slice(text.indexOf('<<LINKEDIN_POST>>') + tagLen);
+            const closeIdx = postContent.indexOf('<</LINKEDIN_POST>>');
+            if (closeIdx !== -1) postContent = postContent.slice(0, closeIdx);
+            postContent = postContent.trim();
+            if (postContent) {
+              setLinkedinPreview({
+                content: postContent,
+                images: [],
+                msgId: assistantMsgId,
+              });
+            }
           }
           setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: displayText } : m)));
         },
@@ -3262,6 +3275,7 @@ export default function Content() {
               onClose={() => setLinkedinPreview(null)}
               onGenerateImage={handleLinkedinGenerateImage}
               isGeneratingImage={liGeneratingImage}
+              streaming={isGenerating}
             />
           </div>
         )}

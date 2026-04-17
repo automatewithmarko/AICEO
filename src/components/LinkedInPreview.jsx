@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { Copy, Check, ImagePlus, Loader, X } from 'lucide-react';
 import './LinkedInPreview.css';
 
-export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage }) {
+export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming }) {
   const [editedText, setEditedText] = useState(null);
   const [copied, setCopied] = useState(false);
   const textRef = useRef(null);
@@ -47,7 +47,6 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
               </div>
               <span className="li-time">
                 Just now ·{' '}
-                {/* Globe icon — public visibility */}
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="li-globe">
                   <path d="M8 1a7 7 0 110 14A7 7 0 018 1zM3.17 9H5.1c.1 1.63.44 3.04.95 3.9A6.02 6.02 0 013.17 9zm-.01-2c.38-1.86 1.49-3.44 3.03-4.37C5.68 3.76 5.2 5.37 5.1 7H3.16zm9.67 0h-1.95c-.1-1.63-.58-3.24-1.09-4.37A6.02 6.02 0 0112.83 7zM7.1 7c.12-1.8.64-3.57 1.18-4.46.4.68.85 2.35.97 4.46H7.1zm2.15 2H7.1c.12 1.56.5 3.06.9 3.93.54-.89.97-2.37 1.09-3.93h.16zm3.58 0h-1.95c-.1 1.63-.44 3.04-.95 3.9A6.02 6.02 0 0012.83 9z"/>
                 </svg>
@@ -60,16 +59,23 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
             </button>
           </div>
 
-          {/* Post text — editable */}
-          <div
-            className="li-card-text"
-            ref={textRef}
-            contentEditable
-            suppressContentEditableWarning
-            onInput={handleTextInput}
-          >
-            {text}
-          </div>
+          {/* Post text — streaming: read-only div that updates live. Done: contentEditable for editing */}
+          {streaming ? (
+            <div className="li-card-text li-card-text--streaming" ref={textRef}>
+              {text}
+              <span className="li-cursor" />
+            </div>
+          ) : (
+            <div
+              className="li-card-text"
+              ref={textRef}
+              contentEditable
+              suppressContentEditableWarning
+              onInput={handleTextInput}
+            >
+              {text}
+            </div>
+          )}
 
           {/* Post image */}
           {hasImage && (
@@ -101,21 +107,18 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
           {/* Action buttons — LinkedIn style */}
           <div className="li-actions">
             <button className="li-action">
-              {/* Like icon */}
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="li-action-icon">
                 <path d="M19.46 11l-3.91-3.91a7 7 0 01-1.69-2.74l-.49-1.47A2.76 2.76 0 0010.76 1 2.75 2.75 0 008 3.74v1.12a9.19 9.19 0 00.46 2.85L8.89 9H4.12A2.12 2.12 0 002 11.12a2.16 2.16 0 00.92 1.76A2.11 2.11 0 002 14.62a2.14 2.14 0 001.28 2 2 2 0 00-.28 1 2.12 2.12 0 002 2.12v.14A2.12 2.12 0 007.12 22h7.49a8.08 8.08 0 003.58-.84l.31-.16H21V11z" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
               <span>Like</span>
             </button>
             <button className="li-action">
-              {/* Comment icon */}
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="li-action-icon">
                 <path d="M7 9h10M7 13h6M21 20l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-1v4z" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
               <span>Comment</span>
             </button>
             <button className="li-action">
-              {/* Repost icon */}
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="li-action-icon">
                 <path d="M13.5 2L17 5.5 13.5 9" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M6 10.5V8a2.5 2.5 0 012.5-2.5H17" stroke="#666" strokeWidth="1.5" strokeLinecap="round"/>
@@ -125,7 +128,6 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
               <span>Repost</span>
             </button>
             <button className="li-action">
-              {/* Send icon */}
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="li-action-icon">
                 <path d="M21 3L14.5 21l-3-7.5L4 10.5 21 3z" stroke="#666" strokeWidth="1.5" strokeLinejoin="round"/>
               </svg>
@@ -155,10 +157,10 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
 
       {/* Bottom toolbar */}
       <div className="li-preview-toolbar">
-        <button className="li-toolbar-btn" onClick={handleCopy}>
+        <button className="li-toolbar-btn" onClick={handleCopy} disabled={streaming}>
           {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy Text</>}
         </button>
-        {onGenerateImage && (
+        {onGenerateImage && !streaming && (
           <button
             className="li-toolbar-btn li-toolbar-btn--primary"
             onClick={() => onGenerateImage(text)}
