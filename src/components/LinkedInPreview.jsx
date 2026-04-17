@@ -1,16 +1,13 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Copy, Check, ImagePlus, Loader, X } from 'lucide-react';
 import './LinkedInPreview.css';
 
 export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage }) {
-  const [text, setText] = useState(content || '');
+  const [editedText, setEditedText] = useState(null); // null = not edited, use content prop
   const [copied, setCopied] = useState(false);
   const textRef = useRef(null);
 
-  // Sync when new content arrives (streaming)
-  useEffect(() => {
-    if (content) setText(content);
-  }, [content]);
+  const text = editedText !== null ? editedText : (content || '');
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(text);
@@ -19,7 +16,7 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
   };
 
   const handleTextInput = (e) => {
-    setText(e.currentTarget.innerText);
+    setEditedText(e.currentTarget.innerText);
   };
 
   const sortedImages = images ? [...images].sort((a, b) => a.idx - b.idx) : [];
