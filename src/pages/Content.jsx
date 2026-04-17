@@ -2838,6 +2838,18 @@ export default function Content() {
       const sid = await ensureSession();
       const { results } = await extractSocialUrls([url], sid);
       const result = results[0];
+      console.group(`[Content] Social URL extracted: ${url}`);
+      console.log('Platform:', result?.platform);
+      console.log('Source:', result?.source);
+      console.log('Title:', result?.title?.slice(0, 100));
+      console.log('Uploader:', result?.uploader);
+      console.log('Duration:', result?.duration, 'seconds');
+      console.log('Has transcript:', !!result?.transcript);
+      console.log('Transcript preview:', result?.transcript ? result.transcript.slice(0, 200) + '...' : '(none)');
+      console.log('Description preview:', result?.description ? result.description.slice(0, 200) + '...' : '(none)');
+      console.log('Thumbnail:', result?.thumbnail ? 'yes' : 'no');
+      console.log('Full result:', result);
+      console.groupEnd();
       setSocialUrls((prev) => prev.map((item) =>
         item.url === url
           ? { ...item, status: result?.error ? 'error' : 'done', result, dbId: result?.dbId }
