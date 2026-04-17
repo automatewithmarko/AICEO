@@ -853,56 +853,45 @@ export default function AiCeo() {
           } catch (parseErr) {
             console.log('[agent-result] JSON parse failed, attempting raw HTML extraction:', parseErr.message?.slice(0, 100));
 
-            // ALWAYS try to extract the "html" value from a JSON-shaped string
-            // FIRST — even if the content contains <!DOCTYPE, because that
-            // <!DOCTYPE may be INSIDE a JSON string value like {"type":"html",
-            // "html":"<!DOCTYPE..."}. If we skip this step we'd set the entire
-            // JSON blob as the artifact, which renders as broken text.
+            // The LLM returned {"type":"html","html":"...","summary":"..."} but
+            // with raw newlines and/or unescaped quotes inside the HTML value,
+            // so every JSON.parse variant failed. Instead of trying to parse the
+            // malformed JSON, extract the HTML by its own boundaries (<!DOCTYPE
+            // or <html through </html>) which are always present and unambiguous.
             let rawHtml = '';
 
-            // Strategy 1: regex-extract the value of the "html" key.
-            // Handles the common case where JSON.parse fails because of raw
-            // newlines inside the HTML string value.
-            const htmlKeyMatch = content.match(/"html"\s*:\s*"/);
-            if (htmlKeyMatch) {
-              const valueStart = htmlKeyMatch.index + htmlKeyMatch[0].length;
-              // Scan forward for the unescaped closing quote of the value.
-              // This is more reliable than a single regex for multi-KB values.
-              let i = valueStart;
-              while (i < content.length) {
-                if (content[i] === '\\') { i += 2; continue; }
-                if (content[i] === '"') break;
-                i++;
+            // Strategy 1: extract <!DOCTYPE.....</html> by HTML boundaries.
+            // Works regardless of surrounding JSON, markdown fences, or any
+            // other wrapper — we just grab the HTML document itself.
+            const docStart = content.indexOf('<!DOCTYPE');
+            const htmlTagStart = docStart === -1 ? content.indexOf('<html') : docStart;
+            if (htmlTagStart !== -1) {
+              const htmlEnd = content.lastIndexOf('</html>');
+              if (htmlEnd !== -1 && htmlEnd > htmlTagStart) {
+                let extracted = content.slice(htmlTagStart, htmlEnd + '</html>'.length);
+                // The HTML may still have JSON string escapes baked in
+                // (e.g. \" instead of ", \\n instead of newline) if the LLM
+                // wrote it inside a JSON string value. Unescape them.
+                if (extracted.includes('\\n') || extracted.includes('\\"')) {
+                  extracted = extracted
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\t/g, '\t')
+                    .replace(/\\r/g, '\r')
+                    .replace(/\\"/g, '"')
+                    .replace(/\\\\/g, '\\');
+                }
+                rawHtml = extracted;
               }
-              let extracted = content.slice(valueStart, i);
-              // Unescape JSON string escapes.
-              extracted = extracted
-                .replace(/\\n/g, '\n')
-                .replace(/\\t/g, '\t')
-                .replace(/\\r/g, '\r')
-                .replace(/\\"/g, '"')
-                .replace(/\\\\/g, '\\');
-              if (extracted.includes('<')) rawHtml = extracted;
             }
 
-            // Strategy 2: if the content itself IS raw HTML (no JSON wrapper).
+            // Strategy 2: content itself is raw HTML without any wrapper.
             if (!rawHtml && !content.trimStart().startsWith('{')) {
-              if (content.includes('<!DOCTYPE') || content.includes('<html') || content.includes('<body')) {
+              if (content.includes('<html') || content.includes('<body') || content.includes('<table')) {
                 rawHtml = content;
               }
             }
 
-            // Safety: NEVER set content that looks like a JSON object as the
-            // artifact — it would render as a wall of JSON text.
-            if (!rawHtml && content.trimStart().startsWith('{')) {
-              console.error('[agent-result] Could not extract HTML from JSON response. Raw content starts with:', content.slice(0, 200));
-              setMessages(prev => prev.map(m =>
-                m.id === assistantMsgId ? { ...m, content: 'The page was generated but couldn\'t be rendered. Try again or ask for a simpler edit.' } : m
-              ));
-              return;
-            }
-
-            if (rawHtml && (rawHtml.includes('<!DOCTYPE') || rawHtml.includes('<html') || rawHtml.includes('<table') || rawHtml.includes('<body'))) {
+            if (rawHtml && (rawHtml.includes('<html') || rawHtml.includes('<body') || rawHtml.includes('<!DOCTYPE'))) {
               const isNewsletter = agentName === 'newsletter';
               setArtifact({
                 id: Date.now(),
@@ -915,10 +904,20 @@ export default function AiCeo() {
               setPanelOpen(true);
               if (isMobileRef.current) setMobileArtifactOpen(true);
             } else {
-              console.error('[agent-result] Extracted content does not look like HTML:', (rawHtml || content).slice(0, 200));
-              setMessages(prev => prev.map(m =>
-                m.id === assistantMsgId ? { ...m, content: 'The page was generated but the output format was unexpected. Try again.' } : m
-              ));
+              // Extraction failed. If the streaming preview already has a good
+              // artifact loaded, DON'T overwrite it — the preview is better
+              // than nothing. Only show an error if there's no preview either.
+              const currentArt = artifactRef.current;
+              if (currentArt?.content && currentArt.content.includes('<html')) {
+                console.log('[agent-result] Extraction failed but streaming preview is intact — keeping it.');
+                // Just update the title so it doesn't say "Crafting..."
+                setArtifact(prev => prev ? { ...prev, title: `${agentName} output` } : prev);
+              } else {
+                console.error('[agent-result] Could not extract HTML. Content starts with:', content.slice(0, 200));
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantMsgId ? { ...m, content: 'The page was generated but couldn\'t be rendered. Please try again.' } : m
+                ));
+              }
             }
           }
         },
