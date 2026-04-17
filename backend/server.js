@@ -10,6 +10,7 @@ import { extractFromUrl } from './services/social.js';
 import { resolveChannel, fetchRecentVideos, calculateOutliers } from './services/youtube.js';
 import * as tiktokService from './services/tiktok.js';
 import * as instagramService from './services/instagram.js';
+import * as linkedinService from './services/linkedin.js';
 import emailRoutes from './routes/email.js';
 import integrationRoutes from './routes/integrations.js';
 import webhookRoutes from './routes/webhooks.js';
@@ -580,6 +581,56 @@ app.post('/api/outlier/creators', requireAuth, async (req, res) => {
         outlierCount: enriched.filter((v) => v.isOutlier).length,
       });
 
+    } else if (platform === 'linkedin') {
+      console.log(`[outlier] Resolving LinkedIn profile: ${username}`);
+      const profile = await linkedinService.resolveProfile(username);
+
+      const { data: creator, error: insertErr } = await supabase
+        .from('outlier_creators')
+        .upsert({
+          user_id: userId,
+          platform: 'linkedin',
+          username: username.startsWith('@') ? username : '@' + username,
+          platform_id: profile.userId,
+          display_name: profile.displayName,
+          avatar_url: profile.avatarUrl,
+          subscriber_count: profile.followerCount,
+          last_scanned_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,platform,username' })
+        .select()
+        .single();
+
+      if (insertErr) throw insertErr;
+
+      console.log(`[outlier] Fetching LinkedIn posts for ${profile.displayName}`);
+      const posts = await linkedinService.fetchRecentPosts(username, 100);
+      const { videos: enriched, averages } = linkedinService.calculateOutliers(posts);
+
+      await supabase.from('outlier_creators').update({
+        avg_views: averages.views, avg_likes: averages.likes, avg_comments: averages.comments,
+      }).eq('id', creator.id);
+
+      if (enriched.length > 0) {
+        const videoRows = enriched.map((v) => ({
+          creator_id: creator.id, user_id: userId, platform: 'linkedin',
+          video_id: v.videoId, title: v.title, thumbnail_url: v.thumbnailUrl,
+          url: v.url, published_at: v.publishedAt,
+          views: v.views, likes: v.likes, comments: v.comments,
+          duration_seconds: v.durationSeconds,
+          views_multiplier: v.viewsMultiplier, likes_multiplier: v.likesMultiplier,
+          comments_multiplier: v.commentsMultiplier, is_outlier: v.isOutlier,
+        }));
+        const { error: vidErr } = await supabase.from('outlier_videos').upsert(videoRows, { onConflict: 'creator_id,video_id' });
+        if (vidErr) console.log('[outlier] LinkedIn post upsert error:', vidErr.message);
+      }
+
+      console.log(`[outlier] LinkedIn done: ${enriched.length} posts, ${enriched.filter(v => v.isOutlier).length} outliers`);
+      res.json({
+        creator: { ...creator, avg_views: averages.views, avg_likes: averages.likes, avg_comments: averages.comments },
+        videoCount: enriched.length,
+        outlierCount: enriched.filter((v) => v.isOutlier).length,
+      });
+
     } else {
       res.status(400).json({ error: `${platform} not supported` });
     }
@@ -611,11 +662,18 @@ app.get('/api/outlier/videos', requireAuth, async (req, res) => {
 
   const { limit = 50, offset = 0 } = req.query;
 
+  const sort = req.query.sort === 'recent' ? 'recent' : 'multiplier';
+
   let query = supabase
     .from('outlier_videos')
     .select('*, outlier_creators!inner(username, display_name, avatar_url, platform, avg_views, avg_likes, avg_comments)')
-    .eq('user_id', userId)
-    .order('views_multiplier', { ascending: false });
+    .eq('user_id', userId);
+
+  if (sort === 'recent') {
+    query = query.order('published_at', { ascending: false, nullsFirst: false });
+  } else {
+    query = query.order('views_multiplier', { ascending: false });
+  }
 
   if (req.query.outliers_only === 'true') {
     query = query.eq('is_outlier', true);
@@ -642,6 +700,64 @@ app.get('/api/outlier/videos', requireAuth, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   res.json({ videos: data || [] });
+});
+
+// Thumbnail proxy — Instagram/TikTok thumbnail URLs are signed + expire,
+// and their CDNs don't send CORS headers, so direct <img> loads fail in
+// the browser. Stream the bytes through the backend with a cache header.
+// No auth: <img> tags can't send Authorization headers. Video IDs are
+// UUIDs and the thumbnails are already public social-media content, so
+// leaking the URL is not a meaningful information disclosure.
+app.get('/api/outlier/videos/:id/thumbnail', async (req, res) => {
+  const { data: video, error } = await supabase
+    .from('outlier_videos')
+    .select('thumbnail_url, platform')
+    .eq('id', req.params.id)
+    .single();
+
+  if (error || !video?.thumbnail_url) return res.status(404).end();
+
+  // Instagram CDN (fbcdn.net, cdninstagram.com) gates some images by Referer;
+  // other platforms don't care but accept it. TikTok (tiktokcdn) wants a
+  // browser-ish UA but no specific referer.
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+  };
+  const host = (() => { try { return new URL(video.thumbnail_url).hostname; } catch { return ''; } })();
+  if (host.includes('fbcdn') || host.includes('cdninstagram') || video.platform === 'instagram') {
+    headers['Referer'] = 'https://www.instagram.com/';
+  } else if (host.includes('tiktok') || video.platform === 'tiktok') {
+    headers['Referer'] = 'https://www.tiktok.com/';
+  } else if (host.includes('licdn') || video.platform === 'linkedin') {
+    headers['Referer'] = 'https://www.linkedin.com/';
+  }
+
+  try {
+    const upstream = await fetch(video.thumbnail_url, {
+      headers,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!upstream.ok || !upstream.body) {
+      console.log(`[thumbnail-proxy] ${req.params.id} upstream ${upstream.status} (host=${host})`);
+      return res.status(404).end();
+    }
+
+    const ct = upstream.headers.get('content-type') || 'image/jpeg';
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 day
+    // Be explicit about CORS + cross-origin policy so <img> loads aren't
+    // blocked by COEP or stricter client policies.
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.end(buf);
+  } catch (err) {
+    console.log(`[thumbnail-proxy] ${req.params.id} threw: ${err.message}`);
+    res.status(502).end();
+  }
 });
 
 // Re-scan a creator (refresh videos)

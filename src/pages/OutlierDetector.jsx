@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, UserPlus, Play, User, Loader, RefreshCw, ExternalLink, PlusCircle, Check } from 'lucide-react';
-import { getOutlierCreators, addOutlierCreator, deleteOutlierCreator, getOutlierVideos, addOutlierToContext } from '../lib/api';
+import { getOutlierCreators, addOutlierCreator, deleteOutlierCreator, getOutlierVideos, addOutlierToContext, getOutlierThumbnailUrl } from '../lib/api';
 import './Pages.css';
 import './OutlierDetector.css';
 
@@ -40,10 +40,22 @@ const PLATFORMS = [
       </svg>
     ),
   },
+  {
+    id: 'linkedin',
+    name: 'LinkedIn',
+    color: '#0A66C2',
+    bgLight: '#eff6fb',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="currentColor" className="od-platform-icon">
+        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.063 2.063 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+      </svg>
+    ),
+  },
 ];
 
 const METRICS = ['Views', 'Likes', 'Comments'];
 const MULTIPLIERS = ['2x', '5x', '10x'];
+const RECENT_KEY = 'recent';
 
 function getPlatform(id) {
   return PLATFORMS.find((p) => p.id === id);
@@ -97,6 +109,20 @@ export default function OutlierDetector() {
   const [loadingMore, setLoadingMore] = useState(false);
   const PAGE_SIZE = 50;
 
+  // When activeMultiplier is 'recent' we switch the backend sort to
+  // published_at DESC so deep-paginated recent posts aren't missed.
+  const sortMode = activeMultiplier === RECENT_KEY ? 'recent' : undefined;
+
+  // Filtering by a single creator should show that creator's full catalog,
+  // not whatever happens to land in the top-N by multiplier across everyone.
+  // Push the filter down to the backend query with a larger page size.
+  const fetchParams = () => ({
+    limit: PAGE_SIZE,
+    sort: sortMode,
+    creatorId: activeCreatorFilter || undefined,
+    platform: activePlatformFilter || undefined,
+  });
+
   // Load creators and videos on mount
   useEffect(() => {
     Promise.all([getOutlierCreators(), getOutlierVideos({ limit: PAGE_SIZE })])
@@ -110,25 +136,39 @@ export default function OutlierDetector() {
       .finally(() => setLoading(false));
   }, []);
 
-  const refreshVideos = useCallback(() => {
-    getOutlierVideos({ limit: PAGE_SIZE }).then(({ videos: v }) => {
+  // Refetch whenever sort / creator / platform filters change so results
+  // match the active filter.
+  useEffect(() => {
+    if (loading) return;
+    getOutlierVideos(fetchParams()).then(({ videos: v }) => {
       const vids = v || [];
       setVideos(vids);
       setHasMore(vids.length >= PAGE_SIZE);
     }).catch(() => {});
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortMode, activeCreatorFilter, activePlatformFilter]);
+
+  const refreshVideos = useCallback(() => {
+    getOutlierVideos(fetchParams()).then(({ videos: v }) => {
+      const vids = v || [];
+      setVideos(vids);
+      setHasMore(vids.length >= PAGE_SIZE);
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortMode, activeCreatorFilter, activePlatformFilter]);
 
   const loadMoreVideos = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const { videos: more } = await getOutlierVideos({ limit: PAGE_SIZE, offset: videos.length });
+      const { videos: more } = await getOutlierVideos({ ...fetchParams(), offset: videos.length });
       const fetched = more || [];
       setVideos(prev => [...prev, ...fetched]);
       setHasMore(fetched.length >= PAGE_SIZE);
-    } catch {}
+    } catch { /* noop */ }
     setLoadingMore(false);
-  }, [loadingMore, hasMore, videos.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingMore, hasMore, videos.length, sortMode, activeCreatorFilter, activePlatformFilter]);
 
   const handleFollowCreator = async () => {
     if (!usernameInput.trim() || !selectedPlatform) return;
@@ -183,9 +223,10 @@ export default function OutlierDetector() {
     }
   };
 
-  // Apply filters
+  // Apply filters. "Most Recent" disables the multiplier threshold and
+  // swaps the sort order to published_at DESC.
   const filteredVideos = videos.filter((video) => {
-    if (activeMultiplier) {
+    if (activeMultiplier && activeMultiplier !== RECENT_KEY) {
       const threshold = parseFloat(activeMultiplier);
       const multiplier = getMultiplier(video, activeMetric);
       if (multiplier < threshold) return false;
@@ -195,7 +236,12 @@ export default function OutlierDetector() {
     if (activePlatformFilter && video.platform !== activePlatformFilter) return false;
 
     return true;
-  }).sort((a, b) => getMultiplier(b, activeMetric) - getMultiplier(a, activeMetric));
+  }).sort((a, b) => {
+    if (activeMultiplier === RECENT_KEY) {
+      return new Date(b.published_at || 0) - new Date(a.published_at || 0);
+    }
+    return getMultiplier(b, activeMetric) - getMultiplier(a, activeMetric);
+  });
 
   if (loading) {
     return (
@@ -360,6 +406,12 @@ export default function OutlierDetector() {
                   {m}+
                 </button>
               ))}
+              <button
+                className={`od-filter-pill ${activeMultiplier === RECENT_KEY ? 'od-filter-pill--active' : ''}`}
+                onClick={() => setActiveMultiplier(activeMultiplier === RECENT_KEY ? null : RECENT_KEY)}
+              >
+                Most Recent
+              </button>
             </div>
           </div>
 
@@ -418,18 +470,41 @@ export default function OutlierDetector() {
             <div key={video.id} className="od-card od-card--landscape">
               <a href={video.url} target="_blank" rel="noopener noreferrer" className="od-card-link">
                 <div className="od-card-thumbnail od-card-thumbnail--landscape">
-                  {video.thumbnail_url ? (
+                  {video.thumbnail_url || video.platform === 'youtube' ? (
                     <img
-                      src={video.thumbnail_url.replace('i.ytimg.com', 'img.youtube.com')}
+                      // YouTube CDN is friendly in the browser — use the
+                      // standard img.youtube.com path. For every other
+                      // platform go through the backend proxy immediately:
+                      // Instagram/TikTok/LinkedIn CDNs gate by Referer and
+                      // their signed URLs expire, so direct <img> loads
+                      // silently produce broken images where onError may
+                      // never fire. The proxy bypasses both problems.
+                      src={video.platform === 'youtube'
+                        ? (video.thumbnail_url || '').replace('i.ytimg.com', 'img.youtube.com')
+                          || `https://img.youtube.com/vi/${video.video_id}/mqdefault.jpg`
+                        : getOutlierThumbnailUrl(video.id)}
                       alt=""
                       className="od-card-thumb-img"
                       loading="lazy"
                       referrerPolicy="no-referrer"
-                      crossOrigin="anonymous"
                       onError={(e) => {
-                        if (!e.target.dataset.retried) {
-                          e.target.dataset.retried = '1';
+                        const step = e.target.dataset.fallback || '0';
+                        if (step === '0' && video.platform === 'youtube') {
+                          e.target.dataset.fallback = '1';
+                          // mqdefault exists for every YouTube video id.
                           e.target.src = `https://img.youtube.com/vi/${video.video_id}/mqdefault.jpg`;
+                        } else if (step === '0') {
+                          // Proxy failed (upstream 4xx/expired signed URL).
+                          // Fall back to the creator avatar so the card
+                          // isn't empty.
+                          e.target.dataset.fallback = '1';
+                          const avatar = video.outlier_creators?.avatar_url || creator.avatar_url;
+                          if (avatar) {
+                            e.target.src = avatar;
+                            e.target.classList.add('od-card-thumb-img--avatar-fallback');
+                          } else {
+                            e.target.style.display = 'none';
+                          }
                         } else {
                           e.target.style.display = 'none';
                         }
