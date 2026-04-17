@@ -1,10 +1,11 @@
 import { useState, useRef } from 'react';
-import { Copy, Check, ImagePlus, Loader, X } from 'lucide-react';
+import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import './LinkedInPreview.css';
 
-export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming }) {
+export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, pendingImages }) {
   const [editedText, setEditedText] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [slideIdx, setSlideIdx] = useState(0);
   const textRef = useRef(null);
 
   const text = editedText !== null ? editedText : (content || '');
@@ -77,10 +78,44 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
             </div>
           )}
 
-          {/* Post image */}
-          {hasImage && (
+          {/* Post image / Carousel */}
+          {(hasImage || pendingImages > 0) && (
             <div className="li-card-image">
-              <img src={sortedImages[0].src} alt="" />
+              {sortedImages.length > 1 ? (
+                /* Carousel with navigation */
+                <div className="li-carousel">
+                  <img src={sortedImages[slideIdx]?.src} alt={`Slide ${slideIdx + 1}`} />
+                  {slideIdx > 0 && (
+                    <button className="li-carousel-nav li-carousel-nav--left" onClick={() => setSlideIdx(i => i - 1)}>
+                      <ChevronLeft size={20} />
+                    </button>
+                  )}
+                  {slideIdx < sortedImages.length - 1 && (
+                    <button className="li-carousel-nav li-carousel-nav--right" onClick={() => setSlideIdx(i => i + 1)}>
+                      <ChevronRight size={20} />
+                    </button>
+                  )}
+                  <div className="li-carousel-dots">
+                    {sortedImages.map((_, i) => (
+                      <span key={i} className={`li-carousel-dot${i === slideIdx ? ' li-carousel-dot--active' : ''}`} onClick={() => setSlideIdx(i)} />
+                    ))}
+                  </div>
+                  <span className="li-carousel-counter">{slideIdx + 1} / {sortedImages.length}</span>
+                  <a className="li-carousel-download" href={sortedImages[slideIdx]?.src} download={`slide-${slideIdx + 1}.png`}>
+                    <Download size={14} />
+                  </a>
+                </div>
+              ) : hasImage ? (
+                /* Single image */
+                <img src={sortedImages[0].src} alt="" />
+              ) : null}
+              {/* Pending image placeholders */}
+              {pendingImages > 0 && !hasImage && (
+                <div className="li-image-pending">
+                  <Loader size={20} className="li-spin" />
+                  <span>Generating {pendingImages} slide{pendingImages > 1 ? 's' : ''}...</span>
+                </div>
+              )}
             </div>
           )}
 

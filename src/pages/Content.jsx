@@ -1319,22 +1319,29 @@ Your job is to:
    - Why you chose this approach
    - The post style: VARIATION_A (framework/list posts with numbered points) or VARIATION_B (story/narrative posts)
 4. End your summary with EXACTLY one of these markers:
+
+FOR TEXT POSTS:
    - <<READY_A>> if using Variation A (framework-heavy, numbered lists, tactical playbook)
    - <<READY_B>> if using Variation B (story-flow, personal narrative, emotional connection)
 
-WHEN TO USE EACH VARIATION:
-- VARIATION A: Educating, engagement, hard selling. Posts with numbered steps, frameworks, action lists. "If I had to X by tomorrow:" style.
-- VARIATION B: Nurturing, soft selling. Story posts, personal experiences, transformation journeys. "I finally X" or "Three months ago X" style.
+FOR CAROUSELS:
+   - <<READY_CAROUSEL>> always for carousel content
+
+WHEN TO USE EACH (TEXT POSTS):
+- VARIATION A: Educating, engagement, hard selling. Posts with numbered steps, frameworks, action lists.
+- VARIATION B: Nurturing, soft selling. Story posts, personal experiences, transformation journeys.
 
 CORRECT example responses:
 "I'll create a framework post with 7 actionable steps for switching from ManyChat to BooSend.ai. Educating intent with a hypothetical authority hook. <<READY_A>>"
 
-"I'll create a soft-selling story post about a client's transformation from ManyChat to BooSend.ai, using the two-choices framework. <<READY_B>>"
+"I'll create a soft-selling story post about a client's transformation. Using the two-choices framework. <<READY_B>>"
+
+"I'll create an 8-slide carousel breaking down how BooSend.ai outperforms ManyChat, with a problem-solution framework and a comment CTA. <<READY_CAROUSEL>>"
 
 WRONG (NEVER do these):
-- Writing the actual post copy in your message
-- Skipping the <<READY_A>> or <<READY_B>> marker
-- Using just <<READY>> without A or B
+- Writing the actual post copy or slide content in your message
+- Skipping the marker
+- Using just <<READY>> without A, B, or CAROUSEL
 - Adding the marker before you've gathered enough context
 
 === WEB RESEARCH ===
@@ -2282,8 +2289,8 @@ export default function Content() {
           const fenceStart2 = text.indexOf('```\n{');
           const cutIdx = [jsonStart, jsonStart2, fenceStart, fenceStart2].filter(i => i !== -1).sort((a, b) => a - b)[0];
           if (cutIdx !== undefined) displayText = text.slice(0, cutIdx).trim();
-          // Strip <<READY_A>> / <<READY_B>> markers from LinkedIn chat display
-          displayText = displayText.replace(/<<READY_[AB]>>/g, '').trim();
+          // Strip <<READY_A>> / <<READY_B>> / <<READY_CAROUSEL>> markers from LinkedIn chat display
+          displayText = displayText.replace(/<<READY_(?:[AB]|CAROUSEL)>>/g, '').trim();
           setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: displayText } : m)));
         },
         // onToolCalls  -  all generate_image calls at once, run in parallel
@@ -2402,21 +2409,22 @@ export default function Content() {
           m.id === assistantMsgId ? { ...m, content: questionParsed.text } : m
         ));
       }
-      // Detect <<READY_A>> or <<READY_B>> marker — trigger separate post generation call with the right variation
-      const readyA = selectedPlatform === 'linkedin' && !questionParsed && streamedContent && streamedContent.includes('<<READY_A>>');
-      const readyB = selectedPlatform === 'linkedin' && !questionParsed && streamedContent && streamedContent.includes('<<READY_B>>');
+      // Detect <<READY_A>>, <<READY_B>>, or <<READY_CAROUSEL>> — trigger separate generation call
+      const isLinkedinReady = selectedPlatform === 'linkedin' && !questionParsed && streamedContent;
+      const readyA = isLinkedinReady && streamedContent.includes('<<READY_A>>');
+      const readyB = isLinkedinReady && streamedContent.includes('<<READY_B>>');
+      const readyCarousel = isLinkedinReady && streamedContent.includes('<<READY_CAROUSEL>>');
+
       if (readyA || readyB) {
-        // Clean up the chat message (remove marker)
-        const chatMsg = streamedContent.replace(/<<READY_[AB]>>/g, '').trim();
+        // TEXT POST — clean up chat, launch post generation
+        const chatMsg = streamedContent.replace(/<<READY_(?:[AB]|CAROUSEL)>>/g, '').trim();
         setMessages((prev) => prev.map((m) =>
           m.id === assistantMsgId ? { ...m, content: chatMsg } : m
         ));
-        // Pick the right variation prompt
         const variationPrompt = readyA ? LINKEDIN_TEXT_VARIATION_A : LINKEDIN_TEXT_VARIATION_B;
         const variationName = readyA ? 'Variation A (Framework-Heavy)' : 'Variation B (Story-Flow)';
-        // Launch separate post generation call — streams into preview panel
         const postMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
-        let postSystemPrompt = `You are a LinkedIn post writer using ${variationName}. Based on the conversation, generate the final LinkedIn post NOW.\n\nRULES:\n- Output ONLY the post text, ready to copy-paste into LinkedIn\n- No preamble, no commentary, no "here is your post", no character counts\n- Just the raw post content with proper line breaks\n- Follow the EXACT post structure from the writing guidelines below\n- ABSOLUTELY NEVER use em dashes (the long dash character "—"). Use commas, periods, colons, or start a new sentence instead. This is non-negotiable. Zero em dashes.\n- NEVER use [Your Name] or [Name] placeholders. Use the user's ACTUAL name provided below.\n\n`;
+        let postSystemPrompt = `You are a LinkedIn post writer using ${variationName}. Based on the conversation, generate the final LinkedIn post NOW.\n\nRULES:\n- Output ONLY the post text, ready to copy-paste into LinkedIn\n- No preamble, no commentary, no "here is your post", no character counts\n- Just the raw post content with proper line breaks\n- Follow the EXACT post structure from the writing guidelines below\n- ABSOLUTELY NEVER use em dashes (the long dash character "\u2014"). Use commas, periods, colons, or start a new sentence instead. This is non-negotiable. Zero em dashes.\n- NEVER use [Your Name] or [Name] placeholders. Use the user's ACTUAL name provided below.\n\n`;
         if (user?.name) postSystemPrompt += `USER'S NAME: ${user.name}\nAlways sign off with this exact name, never use [Your Name] or placeholders.\n\n`;
         if (brandDna?.description) postSystemPrompt += `BRAND DESCRIPTION: ${brandDna.description}\n\n`;
         postSystemPrompt += `=== WRITING GUIDELINES (FOLLOW THIS STRUCTURE EXACTLY) ===\n${variationPrompt}\n\n`;
@@ -2435,6 +2443,67 @@ export default function Content() {
           );
         } catch (postErr) {
           if (postErr.name !== 'AbortError') console.error('LinkedIn post generation failed:', postErr);
+        }
+      } else if (readyCarousel) {
+        // CAROUSEL — clean up chat, launch carousel generation with image tool
+        const chatMsg = streamedContent.replace(/<<READY_(?:[AB]|CAROUSEL)>>/g, '').trim();
+        setMessages((prev) => prev.map((m) =>
+          m.id === assistantMsgId ? { ...m, content: chatMsg } : m
+        ));
+        const carouselMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
+        let carouselSystemPrompt = `You are a LinkedIn carousel designer. Based on the conversation, generate the carousel NOW.\n\nRULES:\n- First output the caption text for the LinkedIn post (the text that accompanies the carousel images)\n- Then call generate_image for EACH slide separately (cover slide, content slides, CTA slide)\n- Each image should be 4:5 PORTRAIT ratio for LinkedIn carousel\n- ABSOLUTELY NEVER use em dashes. Zero tolerance.\n- NEVER use [Your Name] placeholders.\n\n`;
+        if (user?.name) carouselSystemPrompt += `USER'S NAME: ${user.name}\n\n`;
+        if (brandDna?.description) carouselSystemPrompt += `BRAND DESCRIPTION: ${brandDna.description}\n\n`;
+        if (brandDna?.colors) {
+          const c = brandDna.colors;
+          carouselSystemPrompt += `BRAND COLORS: Primary: ${c.primary || 'N/A'}, Secondary: ${c.secondary || 'N/A'}, Text: ${c.text || 'N/A'}\n\n`;
+        }
+        if (brandDna?.main_font) carouselSystemPrompt += `BRAND FONT: ${brandDna.main_font}\n\n`;
+        carouselSystemPrompt += `=== CAROUSEL GUIDELINES ===\n${LINKEDIN_CAROUSEL_PROMPT}\n\n`;
+        carouselSystemPrompt += `=== IMAGE GENERATION RULES ===\n- Call generate_image for EACH slide\n- Each slide image must be 4:5 portrait ratio\n- Include ACTUAL TEXT to render on each slide image (headline, body text, key points)\n- Specify typography: bold sans-serif, clean modern font\n- Use brand colors in every slide\n- Maintain visual consistency across all slides (same background, font, layout)\n- Cover slide: bold hook text, eye-catching, founder photo if available\n- Content slides: numbered title + body text, clean layout\n- CTA slide: clear call-to-action, founder photo if available\n\n`;
+        carouselSystemPrompt += `=== FINAL OVERRIDE ===\nIGNORE "INPUT FORMAT" and "OUTPUT FORMAT" sections. You have all inputs from conversation.\nOutput the caption text first, then call generate_image for each slide.`;
+
+        setLinkedinPreview({ content: '', images: [], msgId: assistantMsgId });
+        try {
+          await streamContentResponse(
+            carouselMsgs,
+            carouselSystemPrompt,
+            (postText) => {
+              setLinkedinPreview(prev => prev ? { ...prev, content: postText.trim() } : { content: postText.trim(), images: [], msgId: assistantMsgId });
+            },
+            // onToolCalls — generate images for each carousel slide
+            async (imageCalls) => {
+              setLinkedinPreview(prev => prev ? { ...prev, pendingImages: imageCalls.length } : prev);
+              const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
+              const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
+              const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
+              const brandImageData = {
+                photoUrls: allPhotoUrls,
+                logoUrl: null,
+                colors: brandDna?.colors || {},
+                mainFont: brandDna?.main_font || null,
+              };
+              const results = await Promise.allSettled(
+                imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
+                  const result = await generateImage(imgPrompt, 'linkedin', brandImageData, null);
+                  if (result.image) {
+                    const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+                    setLinkedinPreview(prev => prev ? {
+                      ...prev,
+                      images: [...(prev.images || []), { src, idx }],
+                    } : prev);
+                  }
+                  return result;
+                })
+              );
+              const failed = results.filter(r => r.status === 'rejected');
+              if (failed.length > 0) console.warn(`${failed.length} carousel slide(s) failed`);
+            },
+            abort.signal,
+            { searchMode: false, onSearchStatus: null },
+          );
+        } catch (postErr) {
+          if (postErr.name !== 'AbortError') console.error('LinkedIn carousel generation failed:', postErr);
         }
       }
     } catch (err) {
@@ -3849,6 +3918,7 @@ export default function Content() {
               onGenerateImage={handleLinkedinGenerateImage}
               isGeneratingImage={liGeneratingImage}
               streaming={isGenerating}
+              pendingImages={linkedinPreview?.pendingImages || 0}
             />
           </div>
         )}
