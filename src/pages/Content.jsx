@@ -724,6 +724,29 @@ Ask the user this question using the JSON format:
 Wait for their answer. Then follow the appropriate section below.
 If the user already indicated the type (e.g. "write me a text post", "make a carousel"), skip the question and follow the matching section directly.
 
+=== CRITICAL OUTPUT FORMAT (NON-NEGOTIABLE) ===
+When you generate the final LinkedIn post, you MUST format your response EXACTLY like this:
+1. Write ONLY a very short message (max 10 words) before the tags. Example: "Here's your post." or "Done." Keep it minimal.
+2. Wrap the ENTIRE post content inside <<LINKEDIN_POST>> and <</LINKEDIN_POST>> tags.
+3. Do NOT include ANY text after the closing tag. No commentary. No explanation. No character counts. No descriptions of what you did.
+4. The post content inside the tags must be the FINAL ready-to-paste post. Nothing else.
+
+CORRECT example:
+Here's your post.
+<<LINKEDIN_POST>>
+The actual post text goes here...
+
+With proper line breaks and formatting.
+
+P.S. This is part of the post.
+<</LINKEDIN_POST>>
+
+WRONG examples (NEVER do these):
+- Writing the post outside of tags
+- Adding "This post is 1300 characters..." after the tags
+- Adding "Here's a soft selling post crafted for..." before the tags
+- Any commentary, explanation or meta-discussion before or after
+
 ============================================================
 SECTION A: TEXT POST (use when user chose "Text Post")
 ============================================================
@@ -1666,6 +1689,12 @@ export default function Content() {
           const fenceStart2 = text.indexOf('```\n{');
           const cutIdx = [jsonStart, jsonStart2, fenceStart, fenceStart2].filter(i => i !== -1).sort((a, b) => a - b)[0];
           if (cutIdx !== undefined) displayText = text.slice(0, cutIdx).trim();
+          // Strip LinkedIn post tags from chat display — post content goes to preview panel only
+          const liTagStart = displayText.indexOf('<<LINKEDIN_POST>>');
+          if (liTagStart !== -1) {
+            displayText = displayText.slice(0, liTagStart).trim();
+            if (!displayText) displayText = 'Generating your LinkedIn post...';
+          }
           setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: displayText } : m)));
         },
         // onToolCalls  -  all generate_image calls at once, run in parallel
@@ -1784,18 +1813,32 @@ export default function Content() {
           m.id === assistantMsgId ? { ...m, content: questionParsed.text } : m
         ));
       }
-      // Open LinkedIn preview when text content is generated on LinkedIn platform (no question, has text)
-      if (selectedPlatform === 'linkedin' && !questionParsed && streamedContent && streamedContent.trim().length > 100) {
-        const postContent = streamedContent.replace(/\[CONTEXT[^\]]*\]\n?/g, '').trim();
-        setLinkedinPreview({
-          content: postContent,
-          images: [],
-          msgId: assistantMsgId,
-        });
-        // Replace chat message with brief note — post text lives only in the preview panel
-        setMessages((prev) => prev.map((m) =>
-          m.id === assistantMsgId ? { ...m, content: 'Your LinkedIn post is ready — check the preview panel to review and edit it.' } : m
-        ));
+      // Open LinkedIn preview — extract post from <<LINKEDIN_POST>> tags
+      if (selectedPlatform === 'linkedin' && !questionParsed && streamedContent) {
+        const liMatch = streamedContent.match(/<<LINKEDIN_POST>>([\s\S]*?)<<\/LINKEDIN_POST>>/);
+        if (liMatch) {
+          const postContent = liMatch[1].trim();
+          const chatMsg = streamedContent.slice(0, streamedContent.indexOf('<<LINKEDIN_POST>>')).trim() || 'Here\'s your LinkedIn post.';
+          setLinkedinPreview({
+            content: postContent,
+            images: [],
+            msgId: assistantMsgId,
+          });
+          setMessages((prev) => prev.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: chatMsg } : m
+          ));
+        } else if (streamedContent.trim().length > 100) {
+          // Fallback: AI didn't use tags, use the whole content
+          const postContent = streamedContent.replace(/\[CONTEXT[^\]]*\]\n?/g, '').trim();
+          setLinkedinPreview({
+            content: postContent,
+            images: [],
+            msgId: assistantMsgId,
+          });
+          setMessages((prev) => prev.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: 'Here\'s your LinkedIn post.' } : m
+          ));
+        }
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
