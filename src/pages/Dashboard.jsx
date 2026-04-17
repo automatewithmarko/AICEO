@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Check, ChevronDown, ChevronUp, ExternalLink, X, Copy, Loader, Upload, Plus } from 'lucide-react';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
 import { connectIntegration, getIntegrations, getEmailAccounts, uploadBrandDnaFiles, getDashboardStats } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
@@ -89,6 +90,37 @@ export default function Dashboard() {
   };
   const platformCreated = (p) => overviewStats?.content_created?.[p] ?? 0;
   const platformPublished = (p) => overviewStats?.content_published?.[p] ?? 0;
+
+  // ── Chart data ──
+  const revenueChartData = useMemo(() => {
+    const series = overviewStats?.revenue_series || [];
+    const isHourly = overviewStats?.granularity === 'hour';
+    return series.map((pt) => {
+      const d = new Date(pt.date);
+      const label = isHourly
+        ? d.toLocaleTimeString('en-US', { hour: 'numeric' })
+        : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return { label, value: Number(pt.value) || 0, rawDate: pt.date };
+    });
+  }, [overviewStats]);
+
+  const contentMixData = useMemo(() => {
+    const PLATFORM_META = [
+      { id: 'instagram', name: 'Instagram', color: '#E4405F' },
+      { id: 'tiktok', name: 'TikTok', color: '#111111' },
+      { id: 'youtube', name: 'YouTube', color: '#FF0000' },
+      { id: 'linkedin', name: 'LinkedIn', color: '#0A66C2' },
+      { id: 'x', name: 'X', color: '#555555' },
+    ];
+    const rows = PLATFORM_META.map((p) => ({
+      ...p,
+      value: platformCreated(p.id) + platformPublished(p.id),
+    })).filter((r) => r.value > 0);
+    return rows;
+  }, [overviewStats]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const revenueTotal = overviewStats?.revenue_generated || 0;
+  const contentTotal = contentMixData.reduce((s, r) => s + r.value, 0);
 
   const [ghlLocationId, setGhlLocationId] = useState('');
 
@@ -787,6 +819,129 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Charts ── */}
+      <div className="dashboard-charts">
+        <div className="dashboard-chart-card dashboard-chart-card--primary">
+          <div className="dashboard-chart-head">
+            <div>
+              <span className="dashboard-chart-label">Revenue</span>
+              <span className="dashboard-chart-value">{fmtMoney(revenueTotal)}</span>
+            </div>
+            <span className="dashboard-chart-subtitle">
+              {overviewStats?.granularity === 'hour' ? 'Hourly' : 'Daily'}
+            </span>
+          </div>
+          <div className="dashboard-chart-body">
+            {revenueChartData.length === 0 ? (
+              <div className="dashboard-chart-empty">No revenue in this range yet.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <AreaChart data={revenueChartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#e91a44" stopOpacity={0.28} />
+                      <stop offset="100%" stopColor="#e91a44" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#eef0f3" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: '#8a8f98', fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                    minTickGap={24}
+                  />
+                  <YAxis
+                    tick={{ fill: '#8a8f98', fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => (v >= 1000 ? `$${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `$${v}`)}
+                    width={48}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: '#e91a44', strokeOpacity: 0.25, strokeWidth: 1 }}
+                    contentStyle={{
+                      background: '#fff',
+                      border: '1px solid #e6e8ec',
+                      borderRadius: 10,
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.06)',
+                      fontSize: 12,
+                    }}
+                    labelStyle={{ color: '#8a8f98', fontWeight: 500 }}
+                    formatter={(v) => [fmtMoney(v), 'Revenue']}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#e91a44"
+                    strokeWidth={2}
+                    fill="url(#revenueGradient)"
+                    activeDot={{ r: 4, fill: '#e91a44', stroke: '#fff', strokeWidth: 2 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        <div className="dashboard-chart-card">
+          <div className="dashboard-chart-head">
+            <div>
+              <span className="dashboard-chart-label">Content Mix</span>
+              <span className="dashboard-chart-value">{fmtInt(contentTotal)}</span>
+            </div>
+            <span className="dashboard-chart-subtitle">By platform</span>
+          </div>
+          <div className="dashboard-chart-body">
+            {contentMixData.length === 0 ? (
+              <div className="dashboard-chart-empty">No content in this range yet.</div>
+            ) : (
+              <div className="dashboard-donut-wrap">
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={contentMixData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={80}
+                      paddingAngle={2}
+                      stroke="none"
+                    >
+                      {contentMixData.map((entry) => (
+                        <Cell key={entry.id} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        background: '#fff',
+                        border: '1px solid #e6e8ec',
+                        borderRadius: 10,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.06)',
+                        fontSize: 12,
+                      }}
+                      formatter={(v, name) => [fmtInt(v), name]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <ul className="dashboard-donut-legend">
+                  {contentMixData.map((row) => (
+                    <li key={row.id} className="dashboard-donut-legend-item">
+                      <span className="dashboard-donut-swatch" style={{ background: row.color }} />
+                      <span className="dashboard-donut-name">{row.name}</span>
+                      <span className="dashboard-donut-count">{fmtInt(row.value)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       </div>

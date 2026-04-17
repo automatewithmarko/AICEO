@@ -32,6 +32,51 @@ function groupByPlatform(rows, platformField) {
   return out;
 }
 
+// Bucket rows into a continuous time series so the chart x-axis never has
+// gaps. Granularity is picked from the timeframe: 'today' → hourly, anything
+// longer → daily. Value is summed per bucket (set valueField = null to count
+// rows instead).
+function bucketTimeSeries(rows, { timestampField, valueField, since, until, granularity }) {
+  const addHour = (d) => { d.setHours(d.getHours() + 1, 0, 0, 0); };
+  const addDay = (d) => { d.setDate(d.getDate() + 1); d.setHours(0, 0, 0, 0); };
+  const keyOf = granularity === 'hour'
+    ? (d) => d.toISOString().slice(0, 13) + ':00'
+    : (d) => d.toISOString().slice(0, 10);
+  const step = granularity === 'hour' ? addHour : addDay;
+
+  // Establish the window start/end — fall back to the row range if no bound.
+  const rowTimes = rows
+    .map((r) => r[timestampField])
+    .filter(Boolean)
+    .map((t) => new Date(t).getTime());
+  const startMs = since
+    ? new Date(since).getTime()
+    : (rowTimes.length ? Math.min(...rowTimes) : Date.now());
+  const endMs = until ? new Date(until).getTime() : Date.now();
+
+  const map = new Map();
+  const cur = new Date(startMs);
+  if (granularity === 'hour') cur.setMinutes(0, 0, 0);
+  else cur.setHours(0, 0, 0, 0);
+  // Safety cap at 400 buckets so "all" on a long history doesn't explode.
+  let guard = 400;
+  while (cur.getTime() <= endMs && guard-- > 0) {
+    map.set(keyOf(cur), { date: keyOf(cur), value: 0 });
+    step(cur);
+  }
+
+  for (const row of rows) {
+    const t = row[timestampField];
+    if (!t) continue;
+    const key = keyOf(new Date(t));
+    const bucket = map.get(key) || { date: key, value: 0 };
+    bucket.value += valueField ? (Number(row[valueField]) || 0) : 1;
+    map.set(key, bucket);
+  }
+
+  return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // ── GET /api/dashboard-stats?timeframe=week|month|year ──
 router.get('/api/dashboard-stats', async (req, res) => {
   const userId = req.user?.id;
@@ -60,7 +105,7 @@ router.get('/api/dashboard-stats', async (req, res) => {
         'created_at'
       ),
       inRange(
-        supabase.from('sales').select('amount').eq('user_id', userId),
+        supabase.from('sales').select('amount, created_at').eq('user_id', userId),
         'created_at'
       ),
       inRange(
@@ -95,14 +140,26 @@ router.get('/api/dashboard-stats', async (req, res) => {
     const socialPostsRows = socialPostsRes.error ? [] : (socialPostsRes.data || []);
     const contentPublished = groupByPlatform(socialPostsRows, 'platform');
 
+    // Time-series for the revenue chart. Hourly for "today", daily otherwise.
+    const granularity = timeframe === 'today' ? 'hour' : 'day';
+    const revenueSeries = bucketTimeSeries(salesRes.data || [], {
+      timestampField: 'created_at',
+      valueField: 'amount',
+      since,
+      until,
+      granularity,
+    });
+
     res.json({
       timeframe,
+      granularity,
       new_contacts: newContacts,
       revenue_generated: revenueGenerated,
       emails_sent: emailsSent,
       newsletters_sent: newslettersSent,
       content_created: contentCreated,
       content_published: contentPublished,
+      revenue_series: revenueSeries,
     });
   } catch (err) {
     console.error('[dashboard-stats] failed:', err.message);

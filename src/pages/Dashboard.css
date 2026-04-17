@@ -1155,3 +1155,148 @@
     grid-template-columns: repeat(3, 1fr);
   }
 }
+
+/* ── Dashboard charts ── */
+.dashboard-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 16px;
+  margin: 20px 0 28px;
+}
+
+.dashboard-chart-card {
+  background: var(--bg-white);
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  padding: 18px 18px 14px;
+  min-width: 0;
+}
+
+.dashboard-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.dashboard-chart-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+}
+
+.dashboard-chart-value {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.dashboard-chart-subtitle {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-top: 4px;
+}
+
+.dashboard-chart-body {
+  margin-top: 6px;
+}
+
+.dashboard-chart-empty {
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Donut chart layout — chart + legend side by side on wider cards */
+.dashboard-donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 200px;
+}
+
+.dashboard-donut-wrap > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.dashboard-donut-legend {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 120px;
+}
+
+.dashboard-donut-legend-item {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.dashboard-donut-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.dashboard-donut-name {
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-donut-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Recharts defaults clean-up */
+.recharts-default-tooltip {
+  padding: 8px 10px !important;
+}
+.recharts-tooltip-item {
+  padding: 0 !important;
+}
+.recharts-cartesian-axis-tick-value {
+  font-family: inherit;
+}
+
+@media (max-width: 900px) {
+  .dashboard-charts {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-donut-wrap {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dashboard-donut-legend {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 12px 16px;
+    min-width: 0;
+  }
+  .dashboard-donut-legend-item {
+    grid-template-columns: 10px auto auto;
+    gap: 6px;
+  }
+}
