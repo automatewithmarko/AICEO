@@ -1626,7 +1626,15 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   }
 
   if (hasContext) {
-    prompt += `Use ALL of the above context  -  photos, documents, transcripts, and social media links  -  as source material when the user asks you to create or repurpose content. Reference specific quotes, topics, ideas, and visual elements from the provided context.\n\n`;
+    prompt += `=== CONTEXT PRIORITY (CRITICAL) ===\n`;
+    prompt += `The content above (social media links, transcripts, documents, photos) is the user's REFERENCE MATERIAL. It takes the HIGHEST PRIORITY, even above system writing guidelines.\n\n`;
+    prompt += `When the user attaches a post, video, or link and asks you to create content:\n`;
+    prompt += `1. STUDY THE STRUCTURE: Analyze the reference content's exact structure. How does it hook? How does it flow? What's the CTA? How long are the sentences? What's the pacing?\n`;
+    prompt += `2. REPLICATE THE FRAMEWORK: Your output must follow the SAME structural pattern. Same hook style, same content flow, same engagement mechanics, same CTA approach. Mirror it precisely.\n`;
+    prompt += `3. APPLY THE USER'S TOPIC: Keep the structure identical but swap the subject matter to whatever topic the user specifies.\n`;
+    prompt += `4. MATCH THE ENERGY: If the reference is punchy and direct, yours must be too. If it's storytelling, match that. The reference IS the template.\n\n`;
+    prompt += `Example: If the user attaches a video transcript with a specific hook pattern, 3-part story arc, and "DM me X" CTA, your content must use that EXACT same hook pattern, 3-part story arc, and "DM me X" CTA structure. Only the topic changes.\n\n`;
+    prompt += `The reference content overrides any conflicting advice in the writing guidelines below. The reference IS the prompt.\n\n`;
   }
 
   if (integrationContext) {
@@ -2427,11 +2435,36 @@ export default function Content() {
         const variationPrompt = readyA ? LINKEDIN_TEXT_VARIATION_A : LINKEDIN_TEXT_VARIATION_B;
         const variationName = readyA ? 'Variation A (Framework-Heavy)' : 'Variation B (Story-Flow)';
         const postMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
+
+        // Build reference context for Call 2 (social links, docs, transcripts)
+        let refContext = '';
+        const doneSocial = socialUrls.filter(s => s.status === 'done' && s.result);
+        if (doneSocial.length > 0) {
+          refContext += `=== REFERENCE CONTENT (HIGHEST PRIORITY) ===\n`;
+          refContext += `The user attached this content as a STRUCTURAL BLUEPRINT. Your post MUST mirror its exact structure: same hook style, same flow, same engagement mechanics, same CTA approach. Only change the topic.\n\n`;
+          doneSocial.forEach(item => {
+            const r = item.result;
+            refContext += `--- ${r.platform || 'Post'}: ${r.title || item.url} ---\n`;
+            if (r.uploader) refContext += `Creator: ${r.uploader}\n`;
+            if (r.description) refContext += `Caption: ${r.description.slice(0, 2000)}\n`;
+            if (r.transcript) refContext += `Transcript:\n${r.transcript.slice(0, 4000)}\n`;
+            refContext += '\n';
+          });
+        }
+        const doneDocs = documents.filter(d => d.status === 'done' && d.result?.extractedText);
+        if (doneDocs.length > 0) {
+          refContext += `=== REFERENCE DOCUMENTS ===\n`;
+          doneDocs.forEach((doc, i) => {
+            refContext += `--- ${doc.result?.filename || `Doc ${i+1}`} ---\n${doc.result.extractedText.slice(0, 3000)}\n\n`;
+          });
+        }
+
         let postSystemPrompt = `You are a LinkedIn post writer using ${variationName}. Based on the conversation, generate the final LinkedIn post NOW.\n\nRULES:\n- Output ONLY the post text, ready to copy-paste into LinkedIn\n- No preamble, no commentary, no "here is your post", no character counts\n- Just the raw post content with proper line breaks\n- Follow the EXACT post structure from the writing guidelines below\n- ABSOLUTELY NEVER use em dashes (the long dash character "\u2014"). Use commas, periods, colons, or start a new sentence instead. This is non-negotiable. Zero em dashes.\n- NEVER use [Your Name] or [Name] placeholders. Use the user's ACTUAL name provided below.\n\n`;
         if (user?.name) postSystemPrompt += `USER'S NAME: ${user.name}\nAlways sign off with this exact name, never use [Your Name] or placeholders.\n\n`;
         if (brandDna?.description) postSystemPrompt += `BRAND DESCRIPTION: ${brandDna.description}\n\n`;
-        postSystemPrompt += `=== WRITING GUIDELINES (FOLLOW THIS STRUCTURE EXACTLY) ===\n${variationPrompt}\n\n`;
-        postSystemPrompt += `=== FINAL OVERRIDE (READ THIS LAST) ===\nIGNORE the "INPUT FORMAT", "OUTPUT FORMAT", and "QUALITY CHECKLIST" sections in the guidelines above. Those are structural references, NOT instructions for you to output.\nYou already have all inputs from the conversation history. Do NOT output "Topic:", "Content Intent:", "Brain Dump:", "Client Voice DNA:", or any template fields.\nOutput ONLY the raw LinkedIn post text. Nothing before it, nothing after it. Just the post itself, ready to paste into LinkedIn.`;
+        if (refContext) postSystemPrompt += refContext;
+        postSystemPrompt += `=== WRITING GUIDELINES ${refContext ? '(use as fallback if no reference content above)' : '(FOLLOW THIS STRUCTURE EXACTLY)'} ===\n${variationPrompt}\n\n`;
+        postSystemPrompt += `=== FINAL OVERRIDE (READ THIS LAST) ===\nIGNORE the "INPUT FORMAT", "OUTPUT FORMAT", and "QUALITY CHECKLIST" sections in the guidelines above. Those are structural references, NOT instructions for you to output.\nYou already have all inputs from the conversation history. Do NOT output "Topic:", "Content Intent:", "Brain Dump:", "Client Voice DNA:", or any template fields.\n${refContext ? 'IMPORTANT: The reference content above is your PRIMARY template. Mirror its structure exactly. The writing guidelines are secondary.\n' : ''}Output ONLY the raw LinkedIn post text. Nothing before it, nothing after it. Just the post itself, ready to paste into LinkedIn.`;
         setLinkedinPreview({ content: '', images: [], msgId: assistantMsgId });
         try {
           await streamContentResponse(
@@ -2454,6 +2487,30 @@ export default function Content() {
           m.id === assistantMsgId ? { ...m, content: chatMsg } : m
         ));
         const carouselMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
+
+        // Build reference context for carousel Call 2
+        let carouselRefContext = '';
+        const doneSocialC = socialUrls.filter(s => s.status === 'done' && s.result);
+        if (doneSocialC.length > 0) {
+          carouselRefContext += `=== REFERENCE CONTENT (HIGHEST PRIORITY) ===\n`;
+          carouselRefContext += `The user attached this content as a STRUCTURAL BLUEPRINT. Your carousel MUST mirror its structure: same hook style, same slide flow, same engagement mechanics, same CTA. Only change the topic.\n\n`;
+          doneSocialC.forEach(item => {
+            const r = item.result;
+            carouselRefContext += `--- ${r.platform || 'Post'}: ${r.title || item.url} ---\n`;
+            if (r.uploader) carouselRefContext += `Creator: ${r.uploader}\n`;
+            if (r.description) carouselRefContext += `Caption: ${r.description.slice(0, 2000)}\n`;
+            if (r.transcript) carouselRefContext += `Transcript:\n${r.transcript.slice(0, 4000)}\n`;
+            carouselRefContext += '\n';
+          });
+        }
+        const docsC = documents.filter(d => d.status === 'done' && d.result?.extractedText);
+        if (docsC.length > 0) {
+          carouselRefContext += `=== REFERENCE DOCUMENTS ===\n`;
+          docsC.forEach((doc, i) => {
+            carouselRefContext += `--- ${doc.result?.filename || `Doc ${i+1}`} ---\n${doc.result.extractedText.slice(0, 3000)}\n\n`;
+          });
+        }
+
         let carouselSystemPrompt = `You are a LinkedIn carousel image generator. Based on the conversation, create the carousel slides NOW.\n\n`;
         carouselSystemPrompt += `=== ABSOLUTE RULES ===\n`;
         carouselSystemPrompt += `1. Your text output should be ONLY the LinkedIn caption (the short text that appears above the carousel when posted). Write it like a normal LinkedIn caption, 2-4 sentences max. No slide descriptions.\n`;
@@ -2465,6 +2522,7 @@ export default function Content() {
         carouselSystemPrompt += `7. Each generate_image prompt must include the ACTUAL TEXT to render on the slide image.\n\n`;
         if (user?.name) carouselSystemPrompt += `USER'S NAME: ${user.name}\n\n`;
         if (brandDna?.description) carouselSystemPrompt += `BRAND DESCRIPTION: ${brandDna.description}\n\n`;
+        if (carouselRefContext) carouselSystemPrompt += carouselRefContext;
         if (brandDna?.colors) {
           const c = brandDna.colors;
           carouselSystemPrompt += `BRAND COLORS: Primary: ${c.primary || 'N/A'}, Secondary: ${c.secondary || 'N/A'}, Text: ${c.text || 'N/A'}\n`;
