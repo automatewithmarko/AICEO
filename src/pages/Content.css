@@ -652,8 +652,8 @@
 }
 
 .content-main-preview {
-  width: 420px;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
   height: 100%;
   overflow: hidden;
 }
@@ -667,7 +667,7 @@
     bottom: 0;
     width: 100%;
     z-index: 100;
-    background: var(--bg-primary, #0a0a0a);
+    background: #f4f2ee;
   }
 }
 

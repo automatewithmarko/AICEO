@@ -1786,11 +1786,16 @@ export default function Content() {
       }
       // Open LinkedIn preview when text content is generated on LinkedIn platform (no question, has text)
       if (selectedPlatform === 'linkedin' && !questionParsed && streamedContent && streamedContent.trim().length > 100) {
+        const postContent = streamedContent.replace(/\[CONTEXT[^\]]*\]\n?/g, '').trim();
         setLinkedinPreview({
-          content: streamedContent.replace(/\[CONTEXT[^\]]*\]\n?/g, '').trim(),
+          content: postContent,
           images: [],
           msgId: assistantMsgId,
         });
+        // Replace chat message with brief note — post text lives only in the preview panel
+        setMessages((prev) => prev.map((m) =>
+          m.id === assistantMsgId ? { ...m, content: 'Your LinkedIn post is ready — check the preview panel to review and edit it.' } : m
+        ));
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
