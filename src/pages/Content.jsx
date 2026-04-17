@@ -726,13 +726,21 @@ If the user already indicated the type (e.g. "write me a text post", "make a car
 
 === CRITICAL OUTPUT FORMAT (NON-NEGOTIABLE) ===
 When you generate the final LinkedIn post, you MUST format your response EXACTLY like this:
-1. Write ONLY a very short message (max 10 words) before the tags. Example: "Here's your post." or "Done." Keep it minimal.
-2. Wrap the ENTIRE post content inside <<LINKEDIN_POST>> and <</LINKEDIN_POST>> tags.
-3. Do NOT include ANY text after the closing tag. No commentary. No explanation. No character counts. No descriptions of what you did.
-4. The post content inside the tags must be the FINAL ready-to-paste post. Nothing else.
+
+1. First, write a SHORT SUMMARY (2-4 sentences) describing the post you created. Include:
+   - The content intent used (educating, nurturing, soft sell, hard sell, engagement)
+   - The hook angle or main theme
+   - Why you chose this approach based on the user's input
+   This summary is shown in the chat so the user understands what was generated.
+
+2. Then, wrap the ENTIRE post content inside <<LINKEDIN_POST>> and <</LINKEDIN_POST>> tags.
+   The post inside the tags is displayed in a separate preview panel.
+
+3. Do NOT include ANY text after the closing tag. No character counts. No "this post is optimized for..." commentary.
 
 CORRECT example:
-Here's your post.
+Created a soft-selling post highlighting your client's 27% response rate improvement. Used a two-choices framework to drive action while keeping the tone conversational and authentic.
+
 <<LINKEDIN_POST>>
 The actual post text goes here...
 
@@ -742,10 +750,13 @@ P.S. This is part of the post.
 <</LINKEDIN_POST>>
 
 WRONG examples (NEVER do these):
-- Writing the post outside of tags
-- Adding "This post is 1300 characters..." after the tags
-- Adding "Here's a soft selling post crafted for..." before the tags
-- Any commentary, explanation or meta-discussion before or after
+- Writing the post text outside of the tags (the post MUST be inside tags)
+- Adding commentary after the closing tag
+- Skipping the summary before the tags
+- Including "Here is your LinkedIn post:" as the summary (be specific about what you wrote)
+
+=== WEB RESEARCH ===
+You have access to web search. When the user's topic involves specific companies, products, competitors, statistics, trends, or current events, USE web search to gather real data before writing the post. This ensures the post contains accurate, current information rather than hallucinated claims.
 
 ============================================================
 SECTION A: TEXT POST (use when user chose "Text Post")
@@ -1775,7 +1786,7 @@ export default function Content() {
           }
         },
         abort.signal,
-        { searchMode: contentResearchMode, onSearchStatus: setSearchStatus },
+        { searchMode: contentResearchMode || selectedPlatform === 'linkedin', onSearchStatus: setSearchStatus },
       );
       // Check if the response contains a JSON question (may be preceded by text)
       const finalContent = streamedContent || '';
