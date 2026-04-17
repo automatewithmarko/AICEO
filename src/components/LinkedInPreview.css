@@ -280,16 +280,35 @@
   background: rgba(0,0,0,0.8);
 }
 
-.li-image-pending {
+.li-carousel-img {
+  width: 100%;
+  display: block;
+}
+
+.li-carousel-pending-slide {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  background: linear-gradient(135deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+  background-size: 200% 200%;
+  animation: li-shimmer 1.5s ease-in-out infinite;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 40px 16px;
-  color: rgba(0,0,0,0.5);
+  gap: 10px;
+  color: rgba(0,0,0,0.4);
   font-size: 13px;
   font-weight: 500;
-  background: #f0f0f0;
+}
+
+@keyframes li-shimmer {
+  0% { background-position: 200% 200%; }
+  100% { background-position: 0% 0%; }
+}
+
+.li-carousel-dot--pending {
+  background: rgba(0,0,0,0.1);
+  border: 1px dashed rgba(0,0,0,0.2);
 }
 
 /* ── Reactions bar ── */

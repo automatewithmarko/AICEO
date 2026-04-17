@@ -2479,7 +2479,9 @@ export default function Content() {
         carouselSystemPrompt += `- CTA: clear action text, profile reference\n\n`;
         carouselSystemPrompt += `=== FINAL OVERRIDE ===\nIGNORE "INPUT FORMAT" and "OUTPUT FORMAT" sections from the guidelines. You have all inputs from conversation.\nYour text = caption only. Your generate_image calls = the slides. Keep them separate.`;
 
-        setLinkedinPreview({ content: '', images: [], pendingImages: 0, msgId: assistantMsgId });
+        // Use a ref to accumulate images safely across concurrent promises
+        const carouselImagesRef = [];
+        setLinkedinPreview({ content: '', images: [], totalSlides: 0, msgId: assistantMsgId });
         try {
           await streamContentResponse(
             carouselMsgs,
@@ -2488,11 +2490,12 @@ export default function Content() {
               // Strip any slide descriptions that leak into text
               let caption = postText.trim();
               caption = caption.replace(/\*\*Slide \d+[^*]*\*\*/g, '').replace(/Slide \d+:.*/g, '').trim();
-              setLinkedinPreview(prev => prev ? { ...prev, content: caption } : { content: caption, images: [], pendingImages: 0, msgId: assistantMsgId });
+              setLinkedinPreview(prev => prev ? { ...prev, content: caption } : { content: caption, images: [], totalSlides: 0, msgId: assistantMsgId });
             },
             // onToolCalls — generate images for each carousel slide
             async (imageCalls) => {
-              setLinkedinPreview(prev => prev ? { ...prev, pendingImages: (prev.pendingImages || 0) + imageCalls.length } : prev);
+              // Set total slide count so the UI knows how many slots to show
+              setLinkedinPreview(prev => prev ? { ...prev, totalSlides: (prev.totalSlides || 0) + imageCalls.length } : prev);
               const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
               const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
               const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
@@ -2507,24 +2510,18 @@ export default function Content() {
                   const result = await generateImage(imgPrompt, 'linkedin', brandImageData, null);
                   if (result.image) {
                     const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+                    // Accumulate in array ref to avoid race condition, then set state from it
+                    carouselImagesRef.push({ src, idx });
                     setLinkedinPreview(prev => prev ? {
                       ...prev,
-                      images: [...(prev.images || []), { src, idx }],
-                      pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
+                      images: [...carouselImagesRef],
                     } : prev);
-                  } else {
-                    // Image failed — decrement pending
-                    setLinkedinPreview(prev => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
                   }
                   return result;
                 })
               );
               const failed = results.filter(r => r.status === 'rejected');
-              if (failed.length > 0) {
-                console.warn(`${failed.length} carousel slide(s) failed`);
-                // Clear any remaining pending for rejected promises
-                setLinkedinPreview(prev => prev ? { ...prev, pendingImages: 0 } : prev);
-              }
+              if (failed.length > 0) console.warn(`${failed.length} carousel slide(s) failed`);
             },
             abort.signal,
             { searchMode: false, onSearchStatus: null },
@@ -3945,7 +3942,7 @@ export default function Content() {
               onGenerateImage={handleLinkedinGenerateImage}
               isGeneratingImage={liGeneratingImage}
               streaming={isGenerating}
-              pendingImages={linkedinPreview?.pendingImages || 0}
+              totalSlides={linkedinPreview?.totalSlides || 0}
             />
           </div>
         )}

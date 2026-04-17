@@ -1,14 +1,27 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import './LinkedInPreview.css';
 
-export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, pendingImages }) {
+export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides }) {
   const [editedText, setEditedText] = useState(null);
   const [copied, setCopied] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
   const textRef = useRef(null);
 
   const text = editedText !== null ? editedText : (content || '');
+
+  const sortedImages = images ? [...images].sort((a, b) => a.idx - b.idx) : [];
+  const hasImage = sortedImages.length > 0;
+  const isCarousel = totalSlides > 0;
+
+  // Auto-advance to newly arrived slide
+  const prevCountRef = useRef(0);
+  useEffect(() => {
+    if (sortedImages.length > prevCountRef.current && prevCountRef.current > 0) {
+      setSlideIdx(sortedImages.length - 1);
+    }
+    prevCountRef.current = sortedImages.length;
+  }, [sortedImages.length]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(text);
@@ -20,8 +33,9 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
     setEditedText(e.currentTarget.innerText);
   };
 
-  const sortedImages = images ? [...images].sort((a, b) => a.idx - b.idx) : [];
-  const hasImage = sortedImages.length > 0;
+  // Build carousel slots: completed images + pending placeholders
+  const pendingCount = Math.max(0, (totalSlides || 0) - sortedImages.length);
+  const totalDisplaySlots = sortedImages.length + pendingCount;
 
   return (
     <div className="li-preview">
@@ -32,7 +46,7 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
 
       <div className="li-preview-body">
         <div className="li-card">
-          {/* Post header — matches LinkedIn exactly */}
+          {/* Post header */}
           <div className="li-card-header">
             <div className="li-avatar">
               {userAvatar ? (
@@ -60,7 +74,7 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
             </button>
           </div>
 
-          {/* Post text — streaming: read-only div that updates live. Done: contentEditable for editing */}
+          {/* Post text */}
           {streaming ? (
             <div className="li-card-text li-card-text--streaming" ref={textRef}>
               {text}
@@ -78,44 +92,59 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
             </div>
           )}
 
-          {/* Post image / Carousel */}
-          {(hasImage || pendingImages > 0) && (
+          {/* Carousel / Image area */}
+          {(isCarousel || hasImage) && (
             <div className="li-card-image">
-              {sortedImages.length > 1 ? (
-                /* Carousel with navigation */
+              {isCarousel ? (
+                /* Carousel view — shows completed slides + pending placeholders */
                 <div className="li-carousel">
-                  <img src={sortedImages[slideIdx]?.src} alt={`Slide ${slideIdx + 1}`} />
+                  {/* Current slot: either a completed image or a pending placeholder */}
+                  {slideIdx < sortedImages.length ? (
+                    <img src={sortedImages[slideIdx].src} alt={`Slide ${slideIdx + 1}`} className="li-carousel-img" />
+                  ) : (
+                    <div className="li-carousel-pending-slide">
+                      <Loader size={24} className="li-spin" />
+                      <span>Generating slide {slideIdx + 1}...</span>
+                    </div>
+                  )}
+
+                  {/* Nav arrows */}
                   {slideIdx > 0 && (
                     <button className="li-carousel-nav li-carousel-nav--left" onClick={() => setSlideIdx(i => i - 1)}>
                       <ChevronLeft size={20} />
                     </button>
                   )}
-                  {slideIdx < sortedImages.length - 1 && (
+                  {slideIdx < totalDisplaySlots - 1 && (
                     <button className="li-carousel-nav li-carousel-nav--right" onClick={() => setSlideIdx(i => i + 1)}>
                       <ChevronRight size={20} />
                     </button>
                   )}
+
+                  {/* Counter */}
+                  <span className="li-carousel-counter">{slideIdx + 1} / {totalDisplaySlots}</span>
+
+                  {/* Download button — only for completed slides */}
+                  {slideIdx < sortedImages.length && (
+                    <a className="li-carousel-download" href={sortedImages[slideIdx].src} download={`slide-${slideIdx + 1}.png`}>
+                      <Download size={14} />
+                    </a>
+                  )}
+
+                  {/* Dots */}
                   <div className="li-carousel-dots">
-                    {sortedImages.map((_, i) => (
-                      <span key={i} className={`li-carousel-dot${i === slideIdx ? ' li-carousel-dot--active' : ''}`} onClick={() => setSlideIdx(i)} />
+                    {Array.from({ length: totalDisplaySlots }).map((_, i) => (
+                      <span
+                        key={i}
+                        className={`li-carousel-dot${i === slideIdx ? ' li-carousel-dot--active' : ''}${i >= sortedImages.length ? ' li-carousel-dot--pending' : ''}`}
+                        onClick={() => setSlideIdx(i)}
+                      />
                     ))}
                   </div>
-                  <span className="li-carousel-counter">{slideIdx + 1} / {sortedImages.length}</span>
-                  <a className="li-carousel-download" href={sortedImages[slideIdx]?.src} download={`slide-${slideIdx + 1}.png`}>
-                    <Download size={14} />
-                  </a>
                 </div>
               ) : hasImage ? (
-                /* Single image */
+                /* Single image (text post with generated image) */
                 <img src={sortedImages[0].src} alt="" />
               ) : null}
-              {/* Pending slides indicator — shows even when some images have arrived */}
-              {pendingImages > 0 && (
-                <div className="li-image-pending">
-                  <Loader size={16} className="li-spin" />
-                  <span>{hasImage ? `${sortedImages.length} ready, ${pendingImages} generating...` : `Generating ${pendingImages} slide${pendingImages > 1 ? 's' : ''}...`}</span>
-                </div>
-              )}
             </div>
           )}
 
@@ -139,45 +168,30 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
 
           <div className="li-divider" />
 
-          {/* Action buttons — LinkedIn style */}
+          {/* Action buttons */}
           <div className="li-actions">
             <button className="li-action">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="li-action-icon">
-                <path d="M19.46 11l-3.91-3.91a7 7 0 01-1.69-2.74l-.49-1.47A2.76 2.76 0 0010.76 1 2.75 2.75 0 008 3.74v1.12a9.19 9.19 0 00.46 2.85L8.89 9H4.12A2.12 2.12 0 002 11.12a2.16 2.16 0 00.92 1.76A2.11 2.11 0 002 14.62a2.14 2.14 0 001.28 2 2 2 0 00-.28 1 2.12 2.12 0 002 2.12v.14A2.12 2.12 0 007.12 22h7.49a8.08 8.08 0 003.58-.84l.31-.16H21V11z" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="li-action-icon"><path d="M19.46 11l-3.91-3.91a7 7 0 01-1.69-2.74l-.49-1.47A2.76 2.76 0 0010.76 1 2.75 2.75 0 008 3.74v1.12a9.19 9.19 0 00.46 2.85L8.89 9H4.12A2.12 2.12 0 002 11.12a2.16 2.16 0 00.92 1.76A2.11 2.11 0 002 14.62a2.14 2.14 0 001.28 2 2 2 0 00-.28 1 2.12 2.12 0 002 2.12v.14A2.12 2.12 0 007.12 22h7.49a8.08 8.08 0 003.58-.84l.31-.16H21V11z" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
               <span>Like</span>
             </button>
             <button className="li-action">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="li-action-icon">
-                <path d="M7 9h10M7 13h6M21 20l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-1v4z" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="li-action-icon"><path d="M7 9h10M7 13h6M21 20l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-1v4z" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
               <span>Comment</span>
             </button>
             <button className="li-action">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="li-action-icon">
-                <path d="M13.5 2L17 5.5 13.5 9" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M6 10.5V8a2.5 2.5 0 012.5-2.5H17" stroke="#666" strokeWidth="1.5" strokeLinecap="round"/>
-                <path d="M10.5 22L7 18.5 10.5 15" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M18 13.5V16a2.5 2.5 0 01-2.5 2.5H7" stroke="#666" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="li-action-icon"><path d="M13.5 2L17 5.5 13.5 9" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M6 10.5V8a2.5 2.5 0 012.5-2.5H17" stroke="#666" strokeWidth="1.5" strokeLinecap="round"/><path d="M10.5 22L7 18.5 10.5 15" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M18 13.5V16a2.5 2.5 0 01-2.5 2.5H7" stroke="#666" strokeWidth="1.5" strokeLinecap="round"/></svg>
               <span>Repost</span>
             </button>
             <button className="li-action">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="li-action-icon">
-                <path d="M21 3L14.5 21l-3-7.5L4 10.5 21 3z" stroke="#666" strokeWidth="1.5" strokeLinejoin="round"/>
-              </svg>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="li-action-icon"><path d="M21 3L14.5 21l-3-7.5L4 10.5 21 3z" stroke="#666" strokeWidth="1.5" strokeLinejoin="round"/></svg>
               <span>Send</span>
             </button>
           </div>
 
-          {/* Comment input area — like real LinkedIn */}
+          {/* Comment area */}
           <div className="li-comment-area">
             <div className="li-comment-avatar">
-              {userAvatar ? (
-                <img src={userAvatar} alt="" />
-              ) : (
-                <div className="li-comment-avatar-ph">{(userName || 'U')[0]}</div>
-              )}
+              {userAvatar ? <img src={userAvatar} alt="" /> : <div className="li-comment-avatar-ph">{(userName || 'U')[0]}</div>}
             </div>
             <div className="li-comment-input">
               <span className="li-comment-placeholder">Add a comment...</span>
@@ -195,7 +209,7 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
         <button className="li-toolbar-btn" onClick={handleCopy} disabled={streaming}>
           {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy Text</>}
         </button>
-        {onGenerateImage && !streaming && (
+        {onGenerateImage && !streaming && !isCarousel && (
           <button
             className="li-toolbar-btn li-toolbar-btn--primary"
             onClick={() => onGenerateImage(text)}
