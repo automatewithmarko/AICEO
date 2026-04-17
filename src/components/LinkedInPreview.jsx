@@ -109,11 +109,11 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                 /* Single image */
                 <img src={sortedImages[0].src} alt="" />
               ) : null}
-              {/* Pending image placeholders */}
-              {pendingImages > 0 && !hasImage && (
+              {/* Pending slides indicator — shows even when some images have arrived */}
+              {pendingImages > 0 && (
                 <div className="li-image-pending">
-                  <Loader size={20} className="li-spin" />
-                  <span>Generating {pendingImages} slide{pendingImages > 1 ? 's' : ''}...</span>
+                  <Loader size={16} className="li-spin" />
+                  <span>{hasImage ? `${sortedImages.length} ready, ${pendingImages} generating...` : `Generating ${pendingImages} slide${pendingImages > 1 ? 's' : ''}...`}</span>
                 </div>
               )}
             </div>

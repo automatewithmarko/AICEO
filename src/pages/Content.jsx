@@ -2451,29 +2451,48 @@ export default function Content() {
           m.id === assistantMsgId ? { ...m, content: chatMsg } : m
         ));
         const carouselMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
-        let carouselSystemPrompt = `You are a LinkedIn carousel designer. Based on the conversation, generate the carousel NOW.\n\nRULES:\n- First output the caption text for the LinkedIn post (the text that accompanies the carousel images)\n- Then call generate_image for EACH slide separately (cover slide, content slides, CTA slide)\n- Each image should be 4:5 PORTRAIT ratio for LinkedIn carousel\n- ABSOLUTELY NEVER use em dashes. Zero tolerance.\n- NEVER use [Your Name] placeholders.\n\n`;
+        let carouselSystemPrompt = `You are a LinkedIn carousel image generator. Based on the conversation, create the carousel slides NOW.\n\n`;
+        carouselSystemPrompt += `=== ABSOLUTE RULES ===\n`;
+        carouselSystemPrompt += `1. Your text output should be ONLY the LinkedIn caption (the short text that appears above the carousel when posted). Write it like a normal LinkedIn caption, 2-4 sentences max. No slide descriptions.\n`;
+        carouselSystemPrompt += `2. Do NOT write "Slide 1:", "Slide 2:", "Cover Slide:", or ANY slide descriptions/headings in your text output. The slides are IMAGES, not text.\n`;
+        carouselSystemPrompt += `3. Do NOT use hashtags. Zero hashtags.\n`;
+        carouselSystemPrompt += `4. NEVER use em dashes. Zero tolerance.\n`;
+        carouselSystemPrompt += `5. NEVER say "game-changer", "unlock", "dive in", or any AI slop phrases.\n`;
+        carouselSystemPrompt += `6. Call generate_image for EACH slide separately. This is how slides are created.\n`;
+        carouselSystemPrompt += `7. Each generate_image prompt must include the ACTUAL TEXT to render on the slide image.\n\n`;
         if (user?.name) carouselSystemPrompt += `USER'S NAME: ${user.name}\n\n`;
         if (brandDna?.description) carouselSystemPrompt += `BRAND DESCRIPTION: ${brandDna.description}\n\n`;
         if (brandDna?.colors) {
           const c = brandDna.colors;
-          carouselSystemPrompt += `BRAND COLORS: Primary: ${c.primary || 'N/A'}, Secondary: ${c.secondary || 'N/A'}, Text: ${c.text || 'N/A'}\n\n`;
+          carouselSystemPrompt += `BRAND COLORS: Primary: ${c.primary || 'N/A'}, Secondary: ${c.secondary || 'N/A'}, Text: ${c.text || 'N/A'}\n`;
         }
-        if (brandDna?.main_font) carouselSystemPrompt += `BRAND FONT: ${brandDna.main_font}\n\n`;
-        carouselSystemPrompt += `=== CAROUSEL GUIDELINES ===\n${LINKEDIN_CAROUSEL_PROMPT}\n\n`;
-        carouselSystemPrompt += `=== IMAGE GENERATION RULES ===\n- Call generate_image for EACH slide\n- Each slide image must be 4:5 portrait ratio\n- Include ACTUAL TEXT to render on each slide image (headline, body text, key points)\n- Specify typography: bold sans-serif, clean modern font\n- Use brand colors in every slide\n- Maintain visual consistency across all slides (same background, font, layout)\n- Cover slide: bold hook text, eye-catching, founder photo if available\n- Content slides: numbered title + body text, clean layout\n- CTA slide: clear call-to-action, founder photo if available\n\n`;
-        carouselSystemPrompt += `=== FINAL OVERRIDE ===\nIGNORE "INPUT FORMAT" and "OUTPUT FORMAT" sections. You have all inputs from conversation.\nOutput the caption text first, then call generate_image for each slide.`;
+        if (brandDna?.main_font) carouselSystemPrompt += `BRAND FONT: ${brandDna.main_font}\n`;
+        carouselSystemPrompt += `\n=== CAROUSEL CONTENT GUIDELINES ===\n${LINKEDIN_CAROUSEL_PROMPT}\n\n`;
+        carouselSystemPrompt += `=== IMAGE GENERATION SPECS ===\n`;
+        carouselSystemPrompt += `- 4:5 PORTRAIT ratio for every slide\n`;
+        carouselSystemPrompt += `- Include ACTUAL TEXT to render on the image (title, body text, key points)\n`;
+        carouselSystemPrompt += `- Specify: "bold sans-serif text, clean modern design"\n`;
+        carouselSystemPrompt += `- Use brand colors consistently across all slides\n`;
+        carouselSystemPrompt += `- Same background color, same font style on every content slide\n`;
+        carouselSystemPrompt += `- Cover: bold hook text, eye-catching, vibrant\n`;
+        carouselSystemPrompt += `- Content slides: numbered title + 2-3 sentences body text, left-aligned\n`;
+        carouselSystemPrompt += `- CTA: clear action text, profile reference\n\n`;
+        carouselSystemPrompt += `=== FINAL OVERRIDE ===\nIGNORE "INPUT FORMAT" and "OUTPUT FORMAT" sections from the guidelines. You have all inputs from conversation.\nYour text = caption only. Your generate_image calls = the slides. Keep them separate.`;
 
-        setLinkedinPreview({ content: '', images: [], msgId: assistantMsgId });
+        setLinkedinPreview({ content: '', images: [], pendingImages: 0, msgId: assistantMsgId });
         try {
           await streamContentResponse(
             carouselMsgs,
             carouselSystemPrompt,
             (postText) => {
-              setLinkedinPreview(prev => prev ? { ...prev, content: postText.trim() } : { content: postText.trim(), images: [], msgId: assistantMsgId });
+              // Strip any slide descriptions that leak into text
+              let caption = postText.trim();
+              caption = caption.replace(/\*\*Slide \d+[^*]*\*\*/g, '').replace(/Slide \d+:.*/g, '').trim();
+              setLinkedinPreview(prev => prev ? { ...prev, content: caption } : { content: caption, images: [], pendingImages: 0, msgId: assistantMsgId });
             },
             // onToolCalls — generate images for each carousel slide
             async (imageCalls) => {
-              setLinkedinPreview(prev => prev ? { ...prev, pendingImages: imageCalls.length } : prev);
+              setLinkedinPreview(prev => prev ? { ...prev, pendingImages: (prev.pendingImages || 0) + imageCalls.length } : prev);
               const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
               const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
               const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
@@ -2491,13 +2510,21 @@ export default function Content() {
                     setLinkedinPreview(prev => prev ? {
                       ...prev,
                       images: [...(prev.images || []), { src, idx }],
+                      pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
                     } : prev);
+                  } else {
+                    // Image failed — decrement pending
+                    setLinkedinPreview(prev => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
                   }
                   return result;
                 })
               );
               const failed = results.filter(r => r.status === 'rejected');
-              if (failed.length > 0) console.warn(`${failed.length} carousel slide(s) failed`);
+              if (failed.length > 0) {
+                console.warn(`${failed.length} carousel slide(s) failed`);
+                // Clear any remaining pending for rejected promises
+                setLinkedinPreview(prev => prev ? { ...prev, pendingImages: 0 } : prev);
+              }
             },
             abort.signal,
             { searchMode: false, onSearchStatus: null },
