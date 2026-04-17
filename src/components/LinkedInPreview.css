@@ -287,7 +287,7 @@
 
 .li-carousel-pending-slide {
   width: 100%;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 4 / 3;
   background: linear-gradient(135deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
   background-size: 200% 200%;
   animation: li-shimmer 1.5s ease-in-out infinite;
