@@ -414,7 +414,11 @@ export default function Inbox() {
     setComposeAccountId(full.account_id || accounts[0]?.id || '');
     setComposeTo(full.from_email || '');
     setComposeSubject(full.subject?.startsWith('Re:') ? full.subject : `Re: ${full.subject || ''}`);
-    setComposeBody(`\n\n---\nOn ${new Date(full.date).toLocaleDateString()}, ${full.from_name || full.from_email} wrote:\n> ${(full.body_text || '').split('\n').join('\n> ')}`);
+    // Start with an empty body — the user types their reply at the top.
+    // The original email is visible in the detail panel behind compose, and
+    // the AI draft feature reads it via selectedEmailFull, so dumping a
+    // cluttered "> quoted" block into the textarea just creates noise.
+    setComposeBody('');
     setComposeInReplyTo(full.message_id || null);
     setComposeReferences(full.thread_id ? [full.thread_id] : null);
     setComposeDraftId(null);
@@ -588,6 +592,7 @@ export default function Inbox() {
           from_email: src.from_email || '',
           subject: src.subject || '',
           body_text: src.body_text || src.preview || '',
+          body_html: src.body_html || '',
           date: src.date || null,
         }
       : null;
@@ -598,6 +603,7 @@ export default function Inbox() {
         from: [e.from_name, e.from_email].filter(Boolean).join(' '),
         subject: e.subject || '',
         body_text: e.body_text || e.preview || '',
+        body_html: e.body_html || '',
       }));
 
     const contextCallsPayload = contextCalls
