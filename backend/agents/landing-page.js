@@ -221,45 +221,33 @@ COPY PATTERNS (creator mode):
 - Footer: creator's name, year, links to socials (Twitter/X, LinkedIn, RSS if applicable), a tiny "Unsubscribe anytime • Privacy" line. That's it.
 
 VISUAL SYSTEM (creator mode — overrides default):
-The creator page must feel DESIGNED, not like a Google Doc. Think high-end magazine layout: clean and confident but with real visual craft. Every section should feel intentionally styled, not just text dumped on white.
+The design sophistication of a great creator page comes from TYPOGRAPHY, SPACING, and RESTRAINT — not from gradients, card grids, or alternating colored backgrounds. Study jamesclear.com, morningbrew.com, stratechery.com: they're mostly white, but they feel premium because of excellent font pairing, generous whitespace, and one or two well-placed visual moments. That's the target.
 
-- TYPOGRAPHY: Google Fonts via <link>. Pair ONE display font with ONE body font.
+- TYPOGRAPHY IS THE DESIGN. This is the single most important visual lever in creator mode. Google Fonts via <link>. Pair ONE display serif with ONE body sans:
   Suggested pairings (pick one per page):
-    • Fraunces (headings, weight 600-800) + Inter (body, 400-500)
-    • Instrument Serif (headings) + Inter (body)
-    • Tiempos Headline or Playfair Display (headings) + Source Sans (body)
-    • Inter Display (headings, 800) + Inter (body, 400) — sans-only option for technical creators
-- COLORS: NOT monochrome white. Use a warm, sophisticated palette:
-  • Hero background: a refined warm gradient (e.g. linear-gradient(160deg, #fdfbf7 0%, #f0ebe3 50%, #e8e0d4 100%)) OR a deep-tinted section (e.g. soft navy #1a1f36, warm charcoal #2a2a2a) with light text. The hero MUST NOT be plain white — it's the first thing the visitor sees and it must feel premium.
-  • Section backgrounds MUST alternate to create visual rhythm. At minimum use THREE distinct backgrounds across the page:
-    a) Hero: warm gradient, tinted, or dark
-    b) About-creator / credibility: a warm off-white (#faf8f4, #f5f0eb)
-    c) Content-showcase or what-you-get: the other warm tone you haven't used yet, or white
-    d) Testimonials: subtle tinted background (very light brand-accent tint, e.g. rgba(brand, 0.04))
-    e) Final CTA: repeat the hero background for visual bookending
-  • Text: #111 for headlines on light bgs, #f5f5f5 on dark bgs, #333 for body, #666 for muted.
-  • Accent: user's brand color (if set) OR a warm accent like #c2703e, #4a6cf7, #2d6a4f. Use it on: subscribe button, link hovers, pull-quote border, card icon backgrounds, section heading underline accent.
-  • NO yellow highlighter (DR territory). Use bold text or italic for inline emphasis.
-- CARD STYLING: what-you-get cards and content-showcase items must have visible card styling:
-  • Cards: white or slightly lighter than section background, border-radius: 14-16px, subtle shadow (0 2px 12px rgba(0,0,0,0.06)), padding 28-32px.
-  • Card icon: 48px circle in a light tint of the accent color, with an inline SVG icon (line style, 1.5px stroke) in the accent color.
-  • Cards MUST NOT be bare text on white. They need a container, border, or shadow to distinguish them as a designed element.
-- SPACING: generous. Section vertical padding 80-120px desktop / 56px mobile. Between-element spacing 24-32px. Content column 680-780px max-width, but sections themselves can be full-bleed for background color.
-- BUTTONS: subscribe button is the primary action. Solid fill (brand accent or warm dark), white text, 52-58px tall, 24-32px horizontal padding, border-radius 10px. Subtle hover: translate -1px + slight shadow deepening. The button should be visually prominent without being garish.
-- ICONS: inline SVGs, 20-24px, 1.5-2px stroke, line style (Lucide style). NEVER use emoji as icons — they make the page look unprofessional.
-- DECORATION (do NOT leave the page bare):
-  • Subtle accent underlines on section headings: a 40-60px CSS line (3px tall, brand accent color) centered below the heading text.
-  • Pull-quote marks: large decorative curly quote (" character, 72-80px, serif font, muted opacity 0.2) above each testimonial.
-  • Section dividers: use alternating backgrounds instead of bare <hr> lines. When sections share the same background, a subtle 1px border or 32px gap is fine.
-  • Optional: a tiny decorative dot or diamond between the hero sub-hook and the email form.
-- HIGHLIGHTER: do NOT use .hl-yellow in creator mode. Use bold text or italic for inline emphasis.
-
-AI-GENERATED IMAGERY (creator mode):
-The page should NOT be text-only. Use {{GENERATE:...}} for decorative / aspirational visuals that add warmth and design quality. Safe to auto-generate:
-- Hero background image or decorative illustration: abstract, warm, editorial-feeling. Examples: "Soft warm abstract background with subtle paper texture and muted gold accents, editorial magazine feel, no text" or "Minimalist desk scene with open notebook and coffee, warm morning light, shot from above, soft focus, muted tones". Place as a background-image with overlay gradient for text readability.
-- About-creator section: a {{GENERATE:...}} background or adjacent decorative element if no real photos provided.
-- What-you-get card icons: if you need illustrative icons beyond simple line SVGs, generate small 64x64 abstract icons.
-- Final CTA section: a subtle background texture or image to bookend with the hero.
+    • Fraunces (headings, weight 600-800) + Inter (body, 400-500) — warm, literary
+    • Instrument Serif (headings) + Inter (body) — refined, modern
+    • Playfair Display (headings, 700-800) + Source Sans (body) — classic editorial
+    • Inter (headings, 800) + Inter (body, 400) — clean sans-only for technical creators
+  Headlines: clamp(40px, 6vw, 64px). Tight letter-spacing (-0.02em). Line-height 1.05-1.1. The headline alone should feel designed — that's the whole trick.
+- COLORS: mostly white is FINE. Don't force colored sections.
+  • Background: #ffffff for most sections. AT MOST one or two sections (e.g. content-showcase or final-cta) can use a subtle warm tint (#faf8f4) for gentle rhythm — but this is optional, not mandatory.
+  • Text: #111 for headlines, #333 for body, #888 for muted/meta. Simple hierarchy.
+  • Accent: user's brand color on the subscribe button, link hovers, and pull-quote left-border. That's it — ONE accent color in THREE places. Don't splash it everywhere.
+  • NO gradients. NO dark hero sections. NO alternating multi-colored backgrounds. That's SaaS territory.
+  • NO yellow highlighter (DR territory). Use bold or italic for inline emphasis.
+- SPACING: this is the second most important lever. Generous whitespace IS the design. Section padding: 80-120px vertical on desktop, 48-64px on mobile. Content column: 680-780px max-width. Between elements: 20-32px. The visitor should feel the page breathes.
+- LAYOUT: single-column, flowing, editorial. NOT a card grid. NOT a 3-column feature layout.
+  • What-you-get: simple list with inline SVG icons (20-24px, line style) beside each item. Each item: icon + bold title + 1-2 line description. Stacked vertically. NO card containers, NO shadows, NO grid. Just clean typographic list with generous spacing.
+  • Content-showcase: list layout — each row: date (small, muted) + title (serif, bold) + 1-line preview (muted). A thin 1px bottom border between items. On hover: slight underline on title. Like a Substack archive.
+  • Testimonials: pull-quote style. One column. Large decorative " mark (serif, 72px, muted opacity 0.2). Quote text in the serif display font (18-20px). Attribution: bold name + muted role. Thin left-border in accent color. Generous vertical margin between quotes.
+- BUTTONS: the email subscribe button is the only "loud" element. Solid fill (brand accent or near-black #111), white text, 52-58px tall, 24px+ horizontal padding, border-radius 8-10px. Subtle hover. Everything else on the page is quieter than this button.
+- ICONS: inline SVGs, 20-24px, 1.5-2px stroke, line style (Lucide-style). NEVER use emoji as icons.
+- VISUAL MOMENTS (the 1-2 things that lift the page above plain text):
+  • The creator photo: this IS the primary visual. Real photo, circular or soft-rounded frame, 88-120px, placed prominently in the about-creator section. One real human face adds more visual warmth than any gradient or illustration.
+  • ONE optional {{GENERATE:...}} illustration: a single tasteful hero illustration (abstract, editorial, warm tones, related to the newsletter's topic) placed beside or below the headline. NOT a background image covering the section — a contained illustration element (max-width 400-500px, centered or offset). Only if it ADDS to the message; skip it if the headline + form are strong enough on their own.
+  • A thin accent-colored underline below ONE section heading (the "What you get" or "About" heading) — 40px wide, 3px tall, centered. One instance. Subtle.
+  That's it. Three visual moments max. The rest is typography and space.
 
 NEVER auto-generate:
 - Creator photos / headshots (must be real or placeholder)
@@ -267,11 +255,11 @@ NEVER auto-generate:
 - Screenshots or data visuals claiming to be real
 - Reader photos for testimonials
 
-PRE-BUILT CSS SNIPPETS (drop into <style> and extend — DO NOT use the bare-white defaults; customize the hero gradient + section backgrounds per brand):
-  :root { --cn-text: #111; --cn-body: #333; --cn-mute: #666; --cn-line: #e5e2dd; --cn-bg-alt: #f5f0eb; --cn-bg-warm: #faf8f4; --cn-accent: /* inherit from brand, e.g. #c2703e */; }
-  body { font-family: 'Inter', sans-serif; color: var(--cn-body); line-height: 1.65; background: #fff; }
+PRE-BUILT CSS SNIPPETS (drop into <style> and extend. The design is TYPOGRAPHY + SPACING. Keep backgrounds white. Let the fonts do the work):
+  :root { --cn-text: #111; --cn-body: #333; --cn-mute: #888; --cn-line: #eee; --cn-bg-alt: #faf8f4; --cn-accent: /* inherit from brand */; }
+  body { font-family: 'Inter', sans-serif; color: var(--cn-body); line-height: 1.65; background: #fff; -webkit-font-smoothing: antialiased; }
   .cn-container { max-width: 780px; margin: 0 auto; padding: 0 24px; }
-  .cn-hero { text-align: center; padding: 120px 24px 80px; background: linear-gradient(160deg, #fdfbf7 0%, #f0ebe3 50%, #e8e0d4 100%); position: relative; }
+  .cn-hero { text-align: center; padding: 120px 24px 80px; }
   .cn-hero h1 { font-family: 'Fraunces', serif; font-weight: 700; font-size: clamp(40px, 6vw, 64px); line-height: 1.08; color: var(--cn-text); margin: 0 0 20px; letter-spacing: -0.02em; }
   .cn-hero p.sub { font-size: clamp(17px, 1.4vw, 20px); color: var(--cn-mute); max-width: 560px; margin: 0 auto 36px; }
   .cn-form { display: flex; gap: 8px; max-width: 480px; margin: 0 auto; }
@@ -283,16 +271,15 @@ PRE-BUILT CSS SNIPPETS (drop into <style> and extend — DO NOT use the bare-whi
   .cn-credibility { padding: 40px 24px; border-top: 1px solid var(--cn-line); border-bottom: 1px solid var(--cn-line); text-align: center; }
   .cn-credibility .label { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--cn-mute); margin-bottom: 20px; }
   .cn-credibility .row { display: flex; justify-content: center; flex-wrap: wrap; gap: 32px; font-family: 'Fraunces', serif; font-size: 16px; color: var(--cn-mute); }
-  .cn-card { background: #fff; border-radius: 16px; padding: 28px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
-  .cn-card-icon { width: 48px; height: 48px; border-radius: 12px; background: rgba(var(--cn-accent-rgb, 194,112,62), 0.1); display: flex; align-items: center; justify-content: center; margin-bottom: 16px; color: var(--cn-accent); }
-  .cn-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; max-width: 780px; margin: 0 auto; }
-  .cn-heading-accent { display: block; width: 48px; height: 3px; background: var(--cn-accent, #111); margin: 16px auto 0; border-radius: 2px; }
+  .cn-list-item { display: flex; gap: 16px; align-items: flex-start; padding: 16px 0; }
+  .cn-list-icon { width: 24px; height: 24px; flex-shrink: 0; color: var(--cn-accent, #111); margin-top: 2px; }
+  .cn-list-title { font-weight: 600; font-size: 17px; color: var(--cn-text); margin: 0 0 4px; }
+  .cn-list-desc { font-size: 15px; color: var(--cn-mute); margin: 0; line-height: 1.5; }
+  .cn-heading-accent { display: block; width: 40px; height: 3px; background: var(--cn-accent, #111); margin: 12px auto 0; border-radius: 2px; }
   .cn-about { display: flex; gap: 24px; align-items: flex-start; max-width: 680px; margin: 0 auto; padding: 80px 24px; }
   .cn-about img { width: 88px; height: 88px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
   .cn-about h3 { font-family: 'Fraunces', serif; font-size: 24px; font-weight: 600; margin: 0 0 8px; color: var(--cn-text); }
-  .cn-section-warm { background: var(--cn-bg-warm); }
-  .cn-section-alt { background: var(--cn-bg-alt); }
-  .cn-showcase { padding: 80px 24px; background: var(--cn-bg-alt); }
+  .cn-showcase { padding: 80px 24px; }
   .cn-showcase-item { padding: 20px 0; border-bottom: 1px solid var(--cn-line); display: block; text-decoration: none; color: inherit; transition: background 0.15s; }
   .cn-showcase-item:hover { background: #fff; padding-left: 12px; margin-left: -12px; padding-right: 12px; margin-right: -12px; border-radius: 8px; }
   .cn-showcase-date { font-size: 12px; color: var(--cn-mute); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
@@ -303,7 +290,7 @@ PRE-BUILT CSS SNIPPETS (drop into <style> and extend — DO NOT use the bare-whi
   .cn-quote p { font-family: 'Fraunces', serif; font-size: 19px; line-height: 1.5; color: var(--cn-text); margin: 0 0 16px; }
   .cn-quote cite { font-style: normal; font-size: 14px; color: var(--cn-mute); }
   .cn-quote cite strong { color: var(--cn-text); font-weight: 600; }
-  .cn-final { padding: 120px 24px; text-align: center; background: linear-gradient(160deg, #fdfbf7 0%, #f0ebe3 50%, #e8e0d4 100%); }
+  .cn-final { padding: 120px 24px; text-align: center; }
   .cn-footer { padding: 40px 24px; text-align: center; border-top: 1px solid var(--cn-line); font-size: 13px; color: var(--cn-mute); }
   .cn-footer a { color: var(--cn-mute); margin: 0 12px; text-decoration: none; }
   .cn-footer a:hover { color: var(--cn-text); }
@@ -311,31 +298,32 @@ PRE-BUILT CSS SNIPPETS (drop into <style> and extend — DO NOT use the bare-whi
 ANTI-PATTERNS (the enemy list — do not do any of these):
 - "Welcome to my blog" / "Subscribe to my newsletter" as the headline. Vague = dead.
 - A Twitter/X feed embed or thread gallery instead of a real value prop.
-- PLAIN WHITE on every section — this makes the page look like an unfinished draft, not an editorial product. MUST have visual rhythm through alternating section backgrounds.
-- Emojis used as icons (🎯, ⚡, 🚨). Always use inline SVGs instead.
-- Stock imagery of a laptop on a desk / a team high-fiving / a glass building. Use {{GENERATE:...}} for warm abstract/aspirational imagery instead.
+- Emojis used as icons (🎯, ⚡, 🚨). Always use inline SVGs.
+- Card grids with shadows, colored card containers, SaaS-style feature layouts. This is NOT a SaaS page — don't design it like one.
+- Gradient hero backgrounds, dark hero sections, alternating multi-colored section backgrounds. Those are SaaS / DR moves that feel wrong here.
+- Stock imagery of a laptop on a desk / a team high-fiving. If you use {{GENERATE:...}}, make it ONE tasteful illustration, not multiple background images.
 - More than one primary CTA color / style on the page.
 - Long walls of unbroken text. Break to one-sentence paragraphs.
-- Heavy DR-style elements in creator mode: no yellow highlighter, no countdown timers, no offer stacks, no scarcity bars.
-- Fabricated subscriber counts, testimonials, or press logos. Trust collapses instantly if a reader spots one.
-- A page that looks like a Google Doc or plain-text email. Every section must feel intentionally DESIGNED.
+- DR elements in creator mode: no yellow highlighter, no countdown timers, no offer stacks, no scarcity bars, no hand-drawn arrows.
+- Fabricated subscriber counts, testimonials, or press logos.
+- Over-designing: if you've added more than 3 visual elements (photo + illustration + accent line), you've probably gone too far. Restraint is the point.
 
 VALIDATION CHECKLIST (before emitting HTML, verify):
 [ ] Hero has a specific value-prop headline (NOT "subscribe to my newsletter")
-[ ] Hero background is NOT plain white (gradient, warm tint, dark, or background image)
+[ ] Headline uses a premium serif or heavy sans font — the typography alone should feel designed
 [ ] Inline email form appears in the hero AND in final-cta
-[ ] At least THREE different section backgrounds across the page (visual rhythm, not all-white)
-[ ] Creator photo is real OR clearly marked as a placeholder (no stock, no AI face)
+[ ] Creator photo is real OR clearly-marked placeholder (no stock, no AI face)
 [ ] About-creator section feels warm, specific, and credible (not "passionate about...")
-[ ] What-you-get cards have visible card styling (border/shadow/background — not bare text)
-[ ] At least ONE {{GENERATE:...}} image used for decorative/aspirational warmth (hero, CTA, etc.)
+[ ] What-you-get is a clean typographic list with icons — NOT a SaaS card grid with shadows
 [ ] No emojis used as icons (inline SVGs only)
-[ ] Content-showcase uses real post titles provided by user (or is omitted)
-[ ] Testimonials are real quotes (or omitted, or explicit placeholders) with pull-quote styling
-[ ] Max 780px content column for text, but sections go full-bleed for background color
-[ ] No highlighter, no countdown timers, no offer stacks, no scarcity bars (wrong register)
+[ ] No gradient backgrounds, no dark hero sections, no card grids (those are SaaS/DR moves)
+[ ] Content-showcase uses real post titles (or is omitted) — list layout, not cards
+[ ] Testimonials use pull-quote styling with serif font + decorative quote mark + accent border
+[ ] Max 780px content column throughout
+[ ] Generous whitespace between all elements (80-120px section padding)
+[ ] ≤ 3 visual elements total: creator photo + (optional) one illustration + (optional) one accent line
 [ ] Short-to-medium page length (4-6 screens)
-[ ] Page feels DESIGNED — not a Google Doc
+[ ] No highlighter, no countdown timers, no offer stacks, no scarcity bars
 [ ] No "passionate / revolutionizing / empowering / unlock potential / game-changer"
 
 If any item fails, regenerate the relevant section before emitting.
