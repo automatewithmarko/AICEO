@@ -4,7 +4,7 @@ import { executeAgent, executeCeoOrchestrator, executeAnthropicWithTools } from 
 import { loadUserContext, saveSoulNote } from '../services/context.js';
 import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
-import { buildBrandContext } from '../agents/brand-context.js';
+import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
 import { extractFromUrl } from '../services/social.js';
 
@@ -134,7 +134,7 @@ If the user picks "No, just use a CTA button" -> delegate without a form.
 
 === LANDING / SQUEEZE PAGE FLOW (overrides rule 3 for landing/squeeze pages) ===
 
-The agent supports multiple stylistic modes: "direct-response" (Hormozi / Brunson / Kennedy — long-scroll sales pages with VSL, offer stack, testimonials, scarcity), "corporate-saas" (Stripe / Linear — clean, minimal, product-focused), "creator-newsletter" (James Clear / Morning Brew — editorial, email-first, warm), and "marketing-agency" (Wojo Advertising / Basic Agency — bold, portfolio-first, results-driven). More coming (event/webinar, e-commerce DTC); any choice not in these four falls back to corporate-saas.
+The agent supports multiple stylistic modes: "direct-response" (Hormozi / Brunson / Kennedy — long-scroll sales pages), "corporate-saas" (Stripe / Linear — clean product pages), "creator-newsletter" (James Clear / Morning Brew — editorial, email-first), "marketing-agency" (Wojo / Basic Agency — bold, portfolio-first), and "event-conference" (Funnel Hacking Live / Webflow Conf — date-driven, FOMO, transformation promise). E-commerce DTC coming next; any choice not in these five falls back to corporate-saas.
 
 You will ALWAYS ask the user to choose the style — do NOT auto-route based on their CTA answer. Users often don't know the tradeoffs, so your job is to explain the choice in simple terms through the option labels themselves.
 
@@ -151,8 +151,9 @@ Q5. STYLE — ask EXACTLY this question (phrased to help the user decide):
       - "Corporate / SaaS product page — clean, minimal, product-focused (best for software, platforms, B2B tools)"
       - "Creator / newsletter / personal brand — editorial, email-first, warm (best for writers, podcasters, newsletters, thought leaders)"
       - "Marketing agency / creative studio — bold, portfolio-first, results-driven (best for agencies, studios, consultancies with client work to show)"
-      - "Let AI pick based on my offer" (if they choose this, infer: DR for coaching/course/high-ticket info-product; corporate-saas for software/SaaS/platform/tool; creator-newsletter for newsletter/podcast/blog/essay/thought-leadership; marketing-agency for agencies/studios/consultancies/freelancers with a portfolio of client work)
-    Set an internal flag PAGE_STYLE based on the answer: "direct-response", "corporate-saas", "creator-newsletter", or "marketing-agency".
+      - "Event / conference / webinar — date-driven, speakers, tickets, FOMO (best for live events, workshops, masterminds, summits)"
+      - "Let AI pick based on my offer" (if they choose this, infer: DR for coaching/course/high-ticket info-product; corporate-saas for software/SaaS/platform/tool; creator-newsletter for newsletter/podcast/blog/essay/thought-leadership; marketing-agency for agencies/studios/consultancies; event-conference for conferences/webinars/summits/masterminds/workshops/live events)
+    Set an internal flag PAGE_STYLE based on the answer: "direct-response", "corporate-saas", "creator-newsletter", "marketing-agency", or "event-conference".
 
 Q6 — FORM EMBEDDING: follow the FORM EMBEDDING RULE block above.
 
@@ -189,6 +190,25 @@ Q10. Positioning niche. ask_user: "What kind of businesses do you serve best?"
 Q11. Client testimonials. ask_user: "Do you have client testimonials?"
     Options: "I'll paste 2-4 real testimonials with names + companies", "Not yet — use placeholders", "Skip testimonials".
 
+── EVENT / CONFERENCE ONLY (skip unless PAGE_STYLE === "event-conference") ──
+
+Q7. Event date(s) + location. ask_user: "When and where is the event?"
+    Options: "Specific date(s) — I'll type them", "Date TBD — use 'Coming Soon'", "It's a virtual event (no physical location)".
+    If specific dates: follow up in plain text — "What are the exact dates and city? (e.g., 'September 21-23, 2026 | Las Vegas, NV' or 'March 15, 2026 | Virtual')"
+Q8. Event format. ask_user: "What kind of event is this?"
+    Options: "Multi-day conference (2-4 days)", "Single-day summit or workshop", "Webinar or virtual masterclass", "Recurring event series".
+Q9. Speaker / host lineup. ask_user: "Do you have speakers or hosts to showcase?"
+    Options: "Yes — I'll paste names, titles, and credibility hooks", "It's just me (solo host)", "Speakers TBD — use placeholder slots".
+    If yes: follow up — "Paste each speaker: Name | Title | One-line credibility hook (e.g., 'Built a $100M company in 3 years'). Photo URL optional. Separate with ---."
+Q10. Ticket pricing. ask_user: "How does ticketing work?"
+     Options: "Multiple tiers (GA, VIP, etc.) — I'll list them", "Single price", "Free event / no ticketing", "Application-only (no public pricing)".
+     If tiers: follow up — "List each tier: Tier Name | Price | What's included. e.g., 'General: $497 | 3-day access + recordings' --- 'VIP: $1,297 | Front row + dinner + 1-on-1'. Separate with ---."
+Q11. Scarcity / urgency mechanic. ask_user: "What's the urgency angle?"
+     Options: "Early bird deadline (I'll give the date)", "Limited seats (I'll give the number)", "Price increase on a specific date", "No urgency — it's evergreen/on-demand".
+Q12. Past event proof. ask_user: "Do you have proof from past events?"
+     Options: "Yes — past attendee testimonials + photos/video", "First-time event — no past proof yet", "I have some testimonials but no photos".
+     If yes: follow up — "Paste 2-4 past attendee quotes (name + quote focused on what CHANGED for them, not 'it was fun'). Photo URLs optional. Separate with ---."
+
 ── ASSET GATHERING (applies to ALL styles — do this AFTER style-specific questions are done, BEFORE delegating) ──
 
 This is where you earn your keep. Most users don't know what a high-converting landing page actually needs. Teach them by listing what would make the page great, explain why each matters in ONE line, then ask them to paste whatever they have in a single reply. Do NOT ask_user here — use a plain-text message so they can paste multiple URLs and blocks of text at once.
@@ -210,6 +230,14 @@ The list is style-aware. Phrase it like a friend walking them through it, not a 
   Paste what you've got, one block per item, or just say 'skip all' if you want me to use placeholders for everything and you'll add assets later in the editor."
 
 For CORPORATE-SAAS, adjust the list to: product screenshots/mockups (URLs or 'upload to brand DNA first'), demo video (YouTube/Loom), customer/company logos (logo bar), team photos, integration logos, any stats/numbers (users, uptime, ROI). Same tone — one-line explanations, user can paste or skip.
+
+For EVENT-CONFERENCE, adjust the list to:
+  1. **Past event photos/video** — shots of packed rooms, engaged audiences, connection moments. The ENERGY is what sells tickets. URL links to images. If first-time event, say so — we'll use {{GENERATE:...}} for aspirational crowd imagery.
+  2. **Speaker headshots** — real photos, consistent quality. These transfer authority. URL per speaker.
+  3. **Venue photo** — if in-person, one strong venue shot adds legitimacy. URL or 'skip'.
+  4. **Past attendee testimonials** — TRANSFORMATION-focused quotes, not "it was fun." What CHANGED for them after the event? Revenue, mindset, network, strategy. Name + company + quote.
+  5. **Sponsor / partner logos** — if applicable, for the logo bar.
+  The single most powerful asset for events is REAL photos of past crowds. Push the user hard for these. If it's a first-time event, emphasize speaker headshots + the transformation promise in copy instead.
 
 For MARKETING-AGENCY, adjust the list to:
   1. **Founder / team photo** — the face behind the agency. URL or 'use brand DNA'.
@@ -267,6 +295,22 @@ For CORPORATE-SAAS:
   CUSTOMER_LOGOS: <list or "placeholder">
   TEAM_PHOTOS: <URLs or "use brand DNA" or "none">
   STATS: <any numbers they provided>
+
+For EVENT-CONFERENCE:
+
+  EVENT_NAME: <from Q1 or brand DNA>
+  EVENT_DATES: <Q7 — exact dates, "TBD", or "Virtual">
+  EVENT_LOCATION: <Q7 — city + venue, or "Virtual", or "TBD">
+  EVENT_FORMAT: <Q8 — multi-day / single-day / webinar / series>
+  AUDIENCE: <Q2>
+  TONE: <Q3>
+  CTA: <Q4 — usually "Reserve Your Seat" / "Get Your Ticket" / "Register Now">
+  SPEAKERS: <Q9 — each as "Name | Title | Credibility hook | Photo URL" separated by ---, or "solo host: [name]", or "TBD">
+  TICKETS: <Q10 — each tier as "Tier | Price | Inclusions" separated by ---, or "single: $X", or "free", or "application-only">
+  SCARCITY: <Q11 — early bird date / seat limit / price increase date / "none">
+  PAST_EVENT_PROOF: <Q12 — testimonials + photo URLs separated by ---, or "first-time event">
+  VENUE_PHOTO: <URL or "skip">
+  SPONSOR_LOGOS: <URLs or names, or "none">
 
 For MARKETING-AGENCY:
 
@@ -461,12 +505,46 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
 
   if (products?.length) {
     prompt += `=== PRODUCTS (${products.length}) ===\n`;
-    products.forEach(p => {
-      prompt += `- ${p.name}: $${p.price || 0}`;
-      if (p.description) prompt += `  -  ${p.description.slice(0, 200)}`;
+    prompt += `Use these product assets (photos, descriptions, pricing, checkout links) when drafting landing pages, emails, social posts, or anything that markets the offer. Reference photo URLs directly in image slots. Use checkout URLs in CTAs.\n\n`;
+    products.forEach((p, idx) => {
+      prompt += `--- Product ${idx + 1}: ${p.name} ---\n`;
+      if (p.type) prompt += `Type: ${p.type}\n`;
+
+      // Pricing — show every tier, not just the first.
+      const priceLines = [];
+      if (Array.isArray(p.pricing_options) && p.pricing_options.length) {
+        p.pricing_options.forEach((opt) => {
+          const dollars = opt.price_cents != null ? (opt.price_cents / 100).toFixed(2) : null;
+          if (dollars != null) {
+            const mode = opt.price_mode === 'monthly' ? '/month' : ' one-time';
+            const line = `$${dollars}${mode}${opt.payment_link_url ? ` — checkout: ${opt.payment_link_url}` : ''}`;
+            priceLines.push(line);
+          }
+        });
+      } else if (p.price_cents != null) {
+        priceLines.push(`$${(p.price_cents / 100).toFixed(2)}`);
+      } else if (p.price != null) {
+        priceLines.push(`$${p.price}`);
+      }
+      if (priceLines.length === 1) prompt += `Price: ${priceLines[0]}\n`;
+      else if (priceLines.length > 1) prompt += `Pricing tiers:\n${priceLines.map((l) => `  - ${l}`).join('\n')}\n`;
+
+      if (p.payment_link_url && !priceLines.some((l) => l.includes(p.payment_link_url))) {
+        prompt += `Checkout URL: ${p.payment_link_url}\n`;
+      }
+
+      // Photos / images — real URLs, usable by marketing agents as <img src="...">.
+      const photoUrls = (Array.isArray(p.photos) ? p.photos : [])
+        .map((ph) => (typeof ph === 'string' ? ph : ph?.url))
+        .filter(Boolean);
+      if (p.image_url && !photoUrls.includes(p.image_url)) photoUrls.unshift(p.image_url);
+      if (photoUrls.length) {
+        prompt += `Photos (${photoUrls.length}):\n${photoUrls.map((u) => `  - ${u}`).join('\n')}\n`;
+      }
+
+      if (p.description) prompt += `Description: ${p.description.slice(0, 1200)}\n`;
       prompt += '\n';
     });
-    prompt += '\n';
   }
 
   if (contacts?.length) {
@@ -668,7 +746,7 @@ async function handleDirectAgent({ res, agentName, messages, context, searchMode
   console.log(`[orchestrate] Running regular agent execution for ${agent.name}, msgCount=${messages?.length}`);
   sendSSE(res, { type: 'status', text: `Running ${agent.name} agent...` });
 
-  const systemPrompt = agent.buildSystemPrompt(context.brandDna) + GLOBAL_OUTPUT_RULES;
+  const systemPrompt = agent.buildSystemPrompt(context.brandDna) + buildProductsContext(context.products) + GLOBAL_OUTPUT_RULES;
 
   // For edit mode fallback, build messages with current HTML and section-based instructions
   let agentMessages = messages;
@@ -1269,7 +1347,7 @@ async function handleAgentDelegation({ res, call, context, userId, currentHtml, 
     }
   }
 
-  const systemPrompt = agent.buildSystemPrompt(context.brandDna) + GLOBAL_OUTPUT_RULES;
+  const systemPrompt = agent.buildSystemPrompt(context.brandDna) + buildProductsContext(context.products) + GLOBAL_OUTPUT_RULES;
 
   // If editing but file-based failed, use section-based editing
   let agentMessages;

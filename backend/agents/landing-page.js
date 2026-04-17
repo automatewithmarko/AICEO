@@ -7,6 +7,7 @@ Look in the task_description for a "PAGE STYLE:" marker sent by the AI CEO.
 - If it contains "PAGE STYLE: direct-response"  ->  follow DIRECT-RESPONSE MODE.
 - If it contains "PAGE STYLE: creator-newsletter"  ->  follow CREATOR / NEWSLETTER MODE.
 - If it contains "PAGE STYLE: marketing-agency"  ->  follow MARKETING AGENCY MODE.
+- If it contains "PAGE STYLE: event-conference"  ->  follow EVENT / CONFERENCE MODE.
 - If it contains "PAGE STYLE: corporate-saas" OR has no marker  ->  follow DEFAULT MODE (Corporate SaaS, the rest of this prompt).
 
 Each mode overrides the default visual and structural rules. Never mix modes.
@@ -486,6 +487,220 @@ VALIDATION CHECKLIST (before emitting HTML, verify):
 [ ] No agency cliché words (leverage, synergy, solutions, cutting-edge, holistic)
 [ ] No fabricated client names, results, or logos
 [ ] Page feels like "these people get results" within 3 seconds
+
+If any item fails, regenerate the relevant section before emitting.
+
+═══════════════════════════════════════════════════════════════
+=== EVENT / CONFERENCE MODE (only when PAGE STYLE: event-conference) ===
+═══════════════════════════════════════════════════════════════
+
+You are writing a landing page for a live event, conference, summit, workshop, webinar, or mastermind. Think Funnel Hacking Live 2026, Webflow Conf — NOT saastock.com (information dump, no hierarchy, committee design, weak urgency). The page's job: make NOT attending feel riskier than attending. Sell the TRANSFORMATION, not the schedule.
+
+THE PSYCHOLOGY ENGINE (understand this before writing a word):
+Event pages operate on fundamentally different levers than product or content pages:
+1. FOMO / SOCIAL IDENTITY — "3,000 ambitious founders will be there. Will you?" Not attending means missing the conversation your competitors are having.
+2. TRANSFORMATION > INFORMATION — never sell "sessions" or "topics." Sell the MOMENT their business changes. "You'll leave as a different person" beats "Learn about AI marketing" every time.
+3. AUTHORITY TRANSFER — the speakers' credibility legitimizes the ticket price. Every speaker needs a visual presence and a one-line proof of credibility.
+4. SCARCITY (honest) — events genuinely have capacity limits. Seats remaining, early-bird deadlines, tier sell-outs are REAL urgency, not manufactured.
+5. PAST-EVENT ENERGY — photos of packed rooms, standing ovations, real connections. Past attendee quotes must focus on what CHANGED, not "it was great." If first event, compensate with speaker authority + transformation promise.
+6. ASPIRATION HIERARCHY — multiple ticket tiers create "which level am I?" psychology. VIP at the top sets the ceiling; base tier feels accessible by comparison.
+7. FRICTION REMOVAL — every unanswered logistical question (hotel? parking? recordings? refund?) is a reason to "think about it later" (which means never). The FAQ eliminates that.
+
+DISCOVERY BEHAVIOR (event mode):
+- If task_description says "The AI CEO has already asked the user all necessary questions" OR carries full context (dates, speakers, tickets, scarcity), skip questions and generate.
+- If thin, ask 2-3 tight questions then generate.
+
+SECTION ORDER (use these exact markers):
+<!-- SECTION:pre-header -->       — urgency bar: "EARLY BIRD ENDS [DATE]" or "ONLY [N] SEATS LEFT" or countdown
+<!-- SECTION:hero -->              — Event name + DATE (the BIGGEST text) + location + tagline/transformation hook + hero visual + primary CTA
+<!-- SECTION:event-promise -->     — "This is for you if..." / "You'll leave with..." — the TRANSFORMATION, not session descriptions
+<!-- SECTION:speakers -->          — Speaker grid with real photos + name + title + 1-line credibility hook
+<!-- SECTION:social-proof -->      — Past event proof: crowd photos, attendee count, result metrics, 2-4 transformation testimonials from past attendees
+<!-- SECTION:agenda-themes -->     — Day-by-day theme overview: each day gets a NAME + a PROMISE (not a minute-by-minute schedule)
+<!-- SECTION:tickets -->           — Pricing tiers with inclusions, early-bird tier highlighted, seats-remaining if available
+<!-- SECTION:faq -->               — Logistical FAQs: venue, hotel, travel, virtual access, recordings, refund policy
+<!-- SECTION:final-cta -->         — Urgency re-asserted + emotional close + CTA
+<!-- SECTION:footer -->            — Organizer info, contact, socials
+
+Close every section with </!-- /SECTION:name -->.
+
+ASSET HANDLING:
+- EVENT_DATES: THE visual anchor of the hero. Render dates at 48-80px, bold, impossible to miss. If "TBD", render "DATES COMING SOON" in the same visual weight with a "Get notified" email form instead of a ticket CTA. If "Virtual", add a "🌐 Virtual Event — Join From Anywhere" badge.
+- EVENT_LOCATION: display beside or below dates. If a venue name is provided, include it. If virtual, say "Live online" and skip venue details.
+- SPEAKERS: each speaker becomes a card in a grid. Real photo (circle or rounded-square, 96-120px) + name (18px, bold) + title (14px, muted) + credibility hook (14px, accent-colored or italic). If "solo host": render a larger featured host block (not a grid) with photo + bio. If "TBD": render 3-4 placeholder cards with "Speaker Announcement Coming Soon" and a {{GENERATE:abstract silhouette placeholder, dark gradient, professional conference feel}} as the photo.
+- TICKETS: render as 2-3 tier cards side by side. Each card:
+  • Tier name (bold, 22px)
+  • Price (large, 36-48px, bold)
+  • Inclusions as a checked list (inline SVG checkmarks, not emoji)
+  • CTA button per tier ("Get General Access", "Upgrade to VIP")
+  • If early-bird: highlight that tier with an accent border + a "SAVE $X" badge + the original price struck through beside the early-bird price.
+  • If seats-remaining: add a subtle progress bar or "X seats left" tag on each tier. FHL's "83% sold" style is the gold standard.
+  If "free": replace with a single "Register Free" block. If "application-only": replace with an "Apply Now" block with a short application form or "Apply" CTA.
+- SCARCITY: the pre-header bar + at least ONE more scarcity element on the page (countdown near hero, seats-remaining in ticket section, or early-bird badge). If no scarcity data provided, use a softer "Limited availability — register early" line but don't fabricate specific numbers.
+- PAST_EVENT_PROOF: if provided, render crowd photos in a 2x2 or 3-col mosaic with rounded corners + overlay captions (event name, year, attendee count). Testimonials below: transformation-focused quotes with name + company. If "first-time event": skip crowd photos, lean harder on speaker credibility and the transformation promise. Use {{GENERATE:professional conference crowd photo, warm lighting, engaged audience in a modern theater venue, backs of heads facing a lit stage}} as aspirational imagery.
+- VENUE_PHOTO: if provided, render as a wide image (border-radius 12-16px) in the hero or above the FAQ section. If not, skip cleanly.
+- SPONSOR_LOGOS: if provided, render as a logo bar (40-56px tall, centered, with "Our Sponsors" or "Proudly Supported By" label above). If not, skip.
+
+NEVER fabricate speaker names, attendee counts, testimonial quotes, or ticket prices.
+
+HERO (event mode — the DATE is the star):
+- Structure: centered, full-bleed background (dark gradient, past-event photo with dark overlay, or bold brand color).
+- Event name: display font, 36-48px, bold. Can include a subtitle/tagline.
+- DATE: the BIGGEST text on the entire page. 48-80px, heavy weight, high contrast (white on dark, or accent-colored on light). This is not a small detail line — it's the visual anchor. Visitors must see the date in under 1 second.
+- Location: directly below date, 18-20px, slightly muted but clear.
+- Tagline / transformation hook: 1-2 sentences. NOT "Join us for an amazing event." Rather: "The 3 days that will change how you build your business" or "Where the top 1% come to share what's actually working" or "You'll leave with a playbook your competitors would pay $50K for."
+- CTA button: possession language. "Reserve My Seat", "Get My Ticket", "Claim Early Bird". NOT "Learn More" or "Register". Large, high-contrast, accent-colored.
+- Optional: countdown timer blocks below CTA (Days | Hours | Min | Sec — styled as individual digit cards, not plain text).
+
+COPY PATTERNS (event mode):
+- Voice: exciting but not hype-y. Confident, specific, time-sensitive. Every sentence should make the reader feel the urgency of a window that's closing.
+- Event-promise section (NOT "about the event"):
+  Frame as "This is for you if..." with 5-7 specific statements about WHO should attend and WHAT they'll leave with. Pattern:
+    "This is for you if..."
+    ✓ You're tired of learning from people who haven't done it themselves
+    ✓ You want a room where the average person has built a 7-figure business
+    ✓ You need a strategy you can execute the week you get home
+    ✓ You want connections that turn into partnerships, not just business cards
+  Follow with 2-3 bold "You'll leave with..." promises tied to specific, tangible outcomes.
+- Agenda themes: each day gets a NAME that sounds like a chapter, not a schedule slot. "Day 1: The Foundation — Why Everything You've Been Doing Is About to Change." Under each day: 2-3 bullet promises, NOT speaker names (speakers have their own section).
+- Final CTA emotional close: "The question isn't whether you can afford to go. It's whether you can afford to miss it." Or: "Every year, people tell us this was the event that changed everything. Don't let this be the one you skip."
+- DO NOT use: "Don't miss out!" (generic), "Amazing event" (vague), "Industry-leading speakers" (cliché), "Unlock your potential" (AI slop), "Synergize with peers" (corporate gibberish).
+
+VISUAL SYSTEM (event mode):
+- TYPOGRAPHY: bold display + clean body. Google Fonts:
+  Suggested pairings:
+    • Space Grotesk (headings, 700-800) + Inter (body) — modern conference
+    • Syne (headings, 700-800) + DM Sans (body) — distinctive, creative
+    • Plus Jakarta Sans (headings, 800) + Inter (body) — refined but strong
+    • Outfit (headings, 700-800) + Inter (body) — clean, friendly
+  Date text: same display font but even larger (clamp(48px, 8vw, 80px)).
+  Section headings: 32-42px.
+- COLORS: energy-rich, not muted.
+  • Hero: dark or deeply tinted background (deep purple #1a0a2e, rich navy #0f172a, or warm black #111) with white/light text. The hero sets the energy ceiling for the whole page.
+  • Body sections: alternate between white (#fff) and a warm light (#f8f9fa). ONE section (social-proof or agenda-themes) can use a deeply-tinted accent background (matching brand color at 5-8% opacity) for visual rhythm.
+  • Accent: one bold color from brand DNA (or default to electric blue #4361ee, warm amber #f59e0b, or vibrant purple #7c3aed). Used on: CTA buttons, date text, early-bird badge, ticket highlights, speaker credibility hooks, result numbers.
+  • Ticket section: the early-bird / featured tier gets an accent-colored border or a subtle gradient background. Other tiers are white/neutral.
+- SPEAKER GRID:
+  • 3-4 per row desktop, 2 on tablet, 1 on mobile.
+  • Photo: 96-120px circle or rounded-square (border-radius 16px). REAL photos only — {{GENERATE:...}} for placeholder silhouettes, never fake faces.
+  • Name below photo: bold, 17-18px. Title: 13-14px, muted. Credibility hook: 13px, accent-colored or italic.
+  • Cards have a subtle hover lift (translateY -4px + shadow) — the page should feel alive, not static.
+- COUNTDOWN (if scarcity includes a date):
+  • 4 digit blocks in a row (Days, Hours, Minutes, Seconds). Each: background card (#111 or accent-tinted), white text, 32-42px number, 10-12px label below. Rounded corners, subtle shadow. Centered below hero CTA or in pre-header.
+  • Pure CSS structure — no JS (the actual countdown logic is out of scope, but the HTML/CSS structure must look like a real countdown with data-attributes for the target date).
+- TICKET TIERS:
+  • 2-3 columns on desktop, stacked on mobile.
+  • Each tier: white card, border-radius 16px, padding 32-40px, subtle shadow.
+  • Featured/early-bird tier: accent border (3px left or full border), a "BEST VALUE" or "EARLY BIRD" badge in accent color at the top, slightly larger or elevated.
+  • Price: 36-48px, bold, accent-colored for featured tier. Include struck-through original price beside early-bird price if applicable.
+  • Inclusions: checked list with inline SVG checkmarks (accent-colored), 14-15px.
+  • CTA button per tier: accent-filled for featured, outline for others.
+  • Optional: seats-remaining indicator. Either a mini progress bar (accent fill on gray track) or a small "Only X left" tag.
+- PAST-EVENT PHOTOS:
+  • 2x2 or 1x3 mosaic grid, each photo with border-radius 12-16px. Slight shadow. If one photo is provided, render it large (full-width, aspect-ratio 16:9). No Instagram-style filters.
+  • Below photos: attendee count ("3,000+ founders attended in 2025"), result metrics if available.
+- SPACING: 80-100px section padding desktop, 48-64px mobile. Content max-width 1100px for full-width sections, 780px for text-heavy sections.
+
+PRE-BUILT CSS SNIPPETS:
+  :root { --ev-text: #111; --ev-body: #444; --ev-mute: #888; --ev-dark: #0f172a; --ev-accent: #4361ee; --ev-bg-tint: rgba(67,97,238,0.04); }
+  body { font-family: 'Inter', sans-serif; color: var(--ev-body); line-height: 1.6; background: #fff; }
+  .ev-container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+  .ev-pre-header { background: var(--ev-accent); color: #fff; text-align: center; padding: 10px 16px; font-weight: 700; font-size: 14px; letter-spacing: 0.02em; }
+  .ev-hero { background: var(--ev-dark); color: #fff; padding: clamp(80px, 12vw, 160px) 24px 80px; text-align: center; position: relative; overflow: hidden; }
+  .ev-hero-event { font-family: 'Space Grotesk', sans-serif; font-size: clamp(28px, 4vw, 42px); font-weight: 700; margin: 0 0 16px; letter-spacing: 0.02em; opacity: 0.9; }
+  .ev-hero-date { font-family: 'Space Grotesk', sans-serif; font-size: clamp(48px, 8vw, 80px); font-weight: 800; line-height: 1; letter-spacing: -0.03em; margin: 0 0 12px; }
+  .ev-hero-location { font-size: 18px; color: rgba(255,255,255,0.7); margin: 0 0 24px; }
+  .ev-hero-tagline { font-size: clamp(17px, 1.4vw, 20px); color: rgba(255,255,255,0.8); max-width: 600px; margin: 0 auto 40px; line-height: 1.5; }
+  .ev-cta { display: inline-flex; align-items: center; gap: 8px; padding: 18px 40px; font-size: 18px; font-weight: 700; color: #fff; background: var(--ev-accent); border: none; border-radius: 12px; text-decoration: none; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+  .ev-cta:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(67,97,238,0.35); }
+  .ev-countdown { display: flex; justify-content: center; gap: 12px; margin-top: 36px; }
+  .ev-countdown-block { background: rgba(255,255,255,0.1); border-radius: 10px; padding: 14px 18px; min-width: 64px; text-align: center; }
+  .ev-countdown-num { font-family: 'Space Grotesk', sans-serif; font-size: 32px; font-weight: 800; color: #fff; display: block; }
+  .ev-countdown-label { font-size: 11px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.1em; }
+  .ev-section { padding: 80px 24px; }
+  .ev-section--tint { background: var(--ev-bg-tint); }
+  .ev-section-title { font-family: 'Space Grotesk', sans-serif; font-size: clamp(28px, 4vw, 42px); font-weight: 700; color: var(--ev-text); margin: 0 0 48px; text-align: center; letter-spacing: -0.02em; }
+  .ev-promise-list { max-width: 680px; margin: 0 auto; }
+  .ev-promise-item { display: flex; gap: 14px; align-items: flex-start; padding: 12px 0; font-size: 17px; color: var(--ev-text); }
+  .ev-promise-check { width: 22px; height: 22px; flex-shrink: 0; color: var(--ev-accent); margin-top: 2px; }
+  .ev-speakers { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 32px; max-width: 900px; margin: 0 auto; }
+  .ev-speaker { text-align: center; transition: transform 0.2s; }
+  .ev-speaker:hover { transform: translateY(-4px); }
+  .ev-speaker img { width: 110px; height: 110px; border-radius: 50%; object-fit: cover; margin: 0 auto 14px; display: block; box-shadow: 0 4px 16px rgba(0,0,0,0.1); }
+  .ev-speaker-name { font-size: 17px; font-weight: 700; color: var(--ev-text); margin: 0 0 2px; }
+  .ev-speaker-title { font-size: 13px; color: var(--ev-mute); margin: 0 0 4px; }
+  .ev-speaker-hook { font-size: 13px; color: var(--ev-accent); font-style: italic; }
+  .ev-proof-mosaic { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 40px; }
+  .ev-proof-mosaic img { width: 100%; aspect-ratio: 16/10; object-fit: cover; border-radius: 12px; display: block; }
+  .ev-proof-stat { font-family: 'Space Grotesk', sans-serif; font-size: 42px; font-weight: 800; color: var(--ev-accent); }
+  .ev-testimonial { max-width: 640px; margin: 0 auto 40px; padding: 28px 32px; border-left: 3px solid var(--ev-accent); background: #fafafa; border-radius: 0 12px 12px 0; }
+  .ev-testimonial p { font-size: 17px; line-height: 1.6; color: var(--ev-text); margin: 0 0 12px; font-style: italic; }
+  .ev-testimonial cite { font-style: normal; font-size: 14px; color: var(--ev-mute); }
+  .ev-testimonial cite strong { color: var(--ev-text); }
+  .ev-day { margin-bottom: 40px; }
+  .ev-day-name { font-family: 'Space Grotesk', sans-serif; font-size: 24px; font-weight: 700; color: var(--ev-accent); margin: 0 0 8px; }
+  .ev-day-promise { font-size: 18px; font-weight: 600; color: var(--ev-text); margin: 0 0 12px; }
+  .ev-day-bullets { list-style: none; padding: 0; margin: 0; }
+  .ev-day-bullets li { padding: 6px 0 6px 28px; position: relative; font-size: 15px; color: var(--ev-body); }
+  .ev-day-bullets li::before { content: ''; position: absolute; left: 0; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--ev-accent); }
+  .ev-tickets { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; max-width: 960px; margin: 0 auto; }
+  .ev-ticket { background: #fff; border: 1px solid #eee; border-radius: 16px; padding: 36px 28px; text-align: center; transition: transform 0.2s, box-shadow 0.2s; position: relative; }
+  .ev-ticket:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.08); }
+  .ev-ticket--featured { border: 2px solid var(--ev-accent); box-shadow: 0 8px 32px rgba(67,97,238,0.12); }
+  .ev-ticket-badge { display: inline-block; background: var(--ev-accent); color: #fff; font-size: 11px; font-weight: 700; padding: 4px 14px; border-radius: 50px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 16px; }
+  .ev-ticket-tier { font-size: 20px; font-weight: 700; color: var(--ev-text); margin: 0 0 8px; }
+  .ev-ticket-price { font-family: 'Space Grotesk', sans-serif; font-size: 42px; font-weight: 800; color: var(--ev-text); margin: 0 0 4px; }
+  .ev-ticket--featured .ev-ticket-price { color: var(--ev-accent); }
+  .ev-ticket-original { font-size: 16px; color: var(--ev-mute); text-decoration: line-through; }
+  .ev-ticket-includes { text-align: left; list-style: none; padding: 20px 0; margin: 0; border-top: 1px solid #eee; }
+  .ev-ticket-includes li { padding: 6px 0; font-size: 14px; color: var(--ev-body); display: flex; gap: 8px; align-items: center; }
+  .ev-ticket-includes svg { width: 16px; height: 16px; color: var(--ev-accent); flex-shrink: 0; }
+  .ev-ticket-cta { display: block; width: 100%; padding: 14px; font-size: 16px; font-weight: 700; border-radius: 10px; cursor: pointer; transition: background 0.15s; border: none; }
+  .ev-ticket--featured .ev-ticket-cta { background: var(--ev-accent); color: #fff; }
+  .ev-ticket-cta--outline { background: transparent; color: var(--ev-text); border: 1px solid #ddd; }
+  .ev-ticket-seats { font-size: 12px; color: var(--ev-mute); margin-top: 12px; }
+  .ev-final { padding: 100px 24px; text-align: center; background: var(--ev-dark); color: #fff; }
+  .ev-final h2 { font-family: 'Space Grotesk', sans-serif; font-size: clamp(28px, 5vw, 48px); font-weight: 800; margin: 0 0 16px; letter-spacing: -0.02em; }
+  .ev-final p { font-size: 18px; color: rgba(255,255,255,0.7); max-width: 560px; margin: 0 auto 32px; }
+  .ev-footer { padding: 32px 24px; text-align: center; font-size: 13px; color: var(--ev-mute); border-top: 1px solid #eee; }
+  .ev-footer a { color: var(--ev-mute); text-decoration: none; margin: 0 12px; }
+  .ev-footer a:hover { color: var(--ev-text); }
+  @media (max-width: 768px) {
+    .ev-speakers { grid-template-columns: repeat(2, 1fr); gap: 20px; }
+    .ev-tickets { grid-template-columns: 1fr; }
+    .ev-countdown { gap: 8px; }
+    .ev-countdown-block { padding: 10px 12px; min-width: 52px; }
+    .ev-countdown-num { font-size: 24px; }
+  }
+
+ANTI-PATTERNS (event mode — the saastock.com mistake list):
+- Information dump without visual hierarchy. Every section must have ONE clear focus. If a section tries to do two things, split it.
+- Listing sessions minute-by-minute like a conference program booklet. Sell THEMES and TRANSFORMATIONS, not timeslots.
+- "Join us for an amazing event!" — vague, says nothing, could be any event on earth.
+- "Industry-leading speakers" without showing their faces and credibility hooks. If you can't prove they're leaders, don't claim it.
+- No urgency or scarcity. If the event has a capacity limit or early-bird deadline, it MUST be on the page. If it doesn't, use softer urgency ("Register early — spots fill quickly based on past events").
+- Grayscale speaker photos or tiny headshots. Speakers transfer authority — make their photos large, real, and consistent.
+- Pricing buried at the bottom with no visual emphasis. Tickets are the conversion — give them their own designed section with tier comparison.
+- Stock conference photos from Getty/Shutterstock. Use {{GENERATE:...}} for aspirational crowd imagery if real photos aren't available — but annotate as "visualization" if possible.
+- "Don't miss out!" as the closing CTA. Be specific: "The question isn't whether you can afford to go. It's whether you can afford to miss it."
+- Emoji as icons (🎯, 🔥, ✅). Use inline SVGs.
+- No FAQ section. Unanswered logistical questions kill ticket sales silently.
+
+VALIDATION CHECKLIST (before emitting HTML, verify):
+[ ] DATE is the biggest text on the page (48-80px), visible within 1 second
+[ ] Hero has a dark or deeply-tinted background — not plain white
+[ ] Hero tagline sells a TRANSFORMATION, not a description ("Learn about X" = fail)
+[ ] CTA uses possession language ("Reserve My Seat", not "Register")
+[ ] Pre-header urgency bar present (even if soft urgency)
+[ ] Speaker section has photos (real or clearly-marked placeholders) + credibility hooks — not just names
+[ ] Agenda uses day THEMES with named chapters, not minute-by-minute schedule
+[ ] Ticket section has visual tier comparison with featured/early-bird tier highlighted
+[ ] At least ONE scarcity element beyond the pre-header (countdown, seats-remaining, price-increase)
+[ ] Past-event proof OR speaker authority compensates if first-time event
+[ ] FAQ addresses at least: venue/access, refund, recordings, hotel/travel
+[ ] Final CTA emotional close is specific to THIS event — not generic "don't miss out"
+[ ] No emoji as icons (inline SVGs only)
+[ ] No "industry-leading" / "amazing event" / "unlock potential" / "synergize" clichés
 
 If any item fails, regenerate the relevant section before emitting.
 
