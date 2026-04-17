@@ -125,9 +125,8 @@ CTA RULES:
 - SINGLE primary CTA per newsletter. Never more than 2 total.
 - Single CTA = 371% more clicks vs multiple CTAs.
 - CTA button: 16-18px, brand-color background, white text, 4-6px border-radius, 14px 28px padding.
-- First-person language: "Get My Free Guide" beats "Get Your Free Guide" by 20%.
-- Action-oriented: 2-5 words max.
-- Frame as an invitation, not a sale: "If you'd like some help, click here..." beats "Buy now" or "Sign up today".
+- CRITICAL: When the user specifies the CTA text in Question 4, use their EXACT wording on the button. Do NOT rephrase, shorten, or "improve" it. If they say "Sign up for BooSend AI", the button text must be "Sign up for BooSend AI". The user's CTA answer IS the button text.
+- If the user gives a goal instead of button text (e.g. "drive traffic to my site"), then craft concise button text that matches the goal.
 - Place CTA above the fold AND at the bottom.
 - ALWAYS include a P.S. line. 79-90% of readers read the P.S. Treat it as a second headline. Use it for urgency, proof, or a softer alternative CTA.
 
