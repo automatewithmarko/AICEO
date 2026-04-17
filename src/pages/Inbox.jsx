@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import DOMPurify from 'dompurify';
 import { useOutletContext } from 'react-router-dom';
 import { Search, Star, Paperclip, ChevronDown, Reply, Forward, Trash2, Archive, MoreHorizontal, Plus, X, Bold, Italic, Link2, ImagePlus, Sparkles, FileText, Check, RefreshCw, Mail, Settings, LogOut, Loader2 } from 'lucide-react';
-import { MOCK_CALLS } from './Sales';
 import {
   addEmailAccount, syncEmailAccount,
-  getEmails, getEmail, updateEmail, sendEmailApi, saveDraft, getEmailCounts, deleteEmail,
+  getEmails, getEmail, updateEmail, sendEmailApi, saveDraft, getEmailCounts, deleteEmail, generateEmailDraft,
+  getSalesCalls,
 } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -45,22 +46,6 @@ const PROVIDER_PRESETS = {
     ),
   },
 };
-
-const AI_DRAFT = `Hi there,
-
-Thank you for reaching out! I wanted to follow up on our recent conversation and share a few thoughts.
-
-Based on what we discussed, I believe the next steps would be:
-
-1. **Review the proposal** I've attached
-2. **Schedule a follow-up call** for next week
-3. **Share any feedback** you have on the timeline
-
-I'm confident we can make this work within your budget and timeline. Please don't hesitate to reach out if you have any questions.
-
-Looking forward to hearing from you!
-
-Best regards`;
 
 function insertAtCursor(textareaRef, before, after, placeholder) {
   const ta = textareaRef.current;
@@ -113,6 +98,10 @@ export default function Inbox() {
   const [composeTo, setComposeTo] = useState('');
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
+  // Brand-themed HTML version produced by the AI draft. Sent alongside
+  // body_text so the recipient sees the styled email. Cleared when the
+  // user edits the textarea (edits drop the HTML since it's now stale).
+  const [composeBodyHtml, setComposeBodyHtml] = useState(null);
   const [composeInReplyTo, setComposeInReplyTo] = useState(null);
   const [composeReferences, setComposeReferences] = useState(null);
   const [composeDraftId, setComposeDraftId] = useState(null);
@@ -121,11 +110,19 @@ export default function Inbox() {
   const [linkUrl, setLinkUrl] = useState('');
   const [aiPopoverOpen, setAiPopoverOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
+  // Opt-in flag: when true, AI draft returns a brand-themed HTML version
+  // alongside plain text. Default OFF — plain text is the baseline.
+  const [aiUseBrandTemplate, setAiUseBrandTemplate] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiMode, setAiMode] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [contextTab, setContextTab] = useState('calls');
   const [selectedCalls, setSelectedCalls] = useState(new Set());
   const [selectedContextEmails, setSelectedContextEmails] = useState(new Set());
+  const [contextCalls, setContextCalls] = useState([]);
+  const [contextCallsLoading, setContextCallsLoading] = useState(false);
+  const [contextPanelStyle, setContextPanelStyle] = useState(null);
+  const contextPanelRef = useRef(null);
 
   // Reply bar state
   const [replyText, setReplyText] = useState('');
@@ -424,7 +421,12 @@ export default function Inbox() {
     setComposeAccountId(full.account_id || accounts[0]?.id || '');
     setComposeTo(full.from_email || '');
     setComposeSubject(full.subject?.startsWith('Re:') ? full.subject : `Re: ${full.subject || ''}`);
-    setComposeBody(`\n\n---\nOn ${new Date(full.date).toLocaleDateString()}, ${full.from_name || full.from_email} wrote:\n> ${(full.body_text || '').split('\n').join('\n> ')}`);
+    // Start with an empty body — the user types their reply at the top.
+    // The original email is visible in the detail panel behind compose, and
+    // the AI draft feature reads it via selectedEmailFull, so dumping a
+    // cluttered "> quoted" block into the textarea just creates noise.
+    setComposeBody('');
+    setComposeBodyHtml(null);
     setComposeInReplyTo(full.message_id || null);
     setComposeReferences(full.thread_id ? [full.thread_id] : null);
     setComposeDraftId(null);
@@ -439,6 +441,7 @@ export default function Inbox() {
     setComposeTo('');
     setComposeSubject(full.subject?.startsWith('Fwd:') ? full.subject : `Fwd: ${full.subject || ''}`);
     setComposeBody(`\n\n--- Forwarded message ---\nFrom: ${full.from_name || ''} <${full.from_email || ''}>\nDate: ${new Date(full.date).toLocaleDateString()}\nSubject: ${full.subject || ''}\n\n${full.body_text || ''}`);
+    setComposeBodyHtml(null);
     setComposeInReplyTo(null);
     setComposeReferences(null);
     setComposeDraftId(null);
@@ -474,6 +477,7 @@ export default function Inbox() {
     setComposeTo('');
     setComposeSubject('');
     setComposeBody('');
+    setComposeBodyHtml(null);
     setComposeInReplyTo(null);
     setComposeReferences(null);
     setComposeDraftId(null);
@@ -483,6 +487,7 @@ export default function Inbox() {
     setAiPopoverOpen(false);
     setAiPrompt('');
     setAiLoading(false);
+    setAiUseBrandTemplate(false);
     setContextOpen(false);
     setContextTab('calls');
     setSelectedCalls(new Set());
@@ -517,6 +522,7 @@ export default function Inbox() {
         to: [{ name: '', email: composeTo.trim() }],
         subject: composeSubject,
         body_text: composeBody,
+        body_html: composeBodyHtml || undefined,
         in_reply_to: composeInReplyTo || undefined,
         references: composeReferences || undefined,
       });
@@ -585,15 +591,70 @@ export default function Inbox() {
     e.target.value = '';
   };
 
-  const handleAiGenerate = () => {
-    if (!aiPrompt) return;
+  const handleAiGenerate = async () => {
+    if (!aiPrompt.trim()) return;
     setAiLoading(true);
-    setTimeout(() => {
-      setComposeBody(AI_DRAFT);
-      setAiLoading(false);
-      setAiPopoverOpen(false);
+
+    // Include the email being replied to / forwarded so the model works from
+    // the real conversation, not a generic template.
+    const src = selectedEmailFull || selectedEmail;
+    const original = (src && (composeMode === 'reply' || composeMode === 'forward'))
+      ? {
+          from_name: src.from_name || '',
+          from_email: src.from_email || '',
+          subject: src.subject || '',
+          body_text: src.body_text || src.preview || '',
+          body_html: src.body_html || '',
+          date: src.date || null,
+        }
+      : null;
+
+    const contextEmailsPayload = emails
+      .filter((e) => selectedContextEmails.has(e.id))
+      .map((e) => ({
+        from: [e.from_name, e.from_email].filter(Boolean).join(' '),
+        subject: e.subject || '',
+        body_text: e.body_text || e.preview || '',
+        body_html: e.body_html || '',
+      }));
+
+    const contextCallsPayload = contextCalls
+      .filter((c) => selectedCalls.has(c.id))
+      .map((c) => ({ title: c.title || '', transcript: c.transcript || '' }));
+
+    try {
+      const { draft, draft_html } = await generateEmailDraft({
+        prompt: aiPrompt,
+        mode: composeMode || 'new',
+        original,
+        context_emails: contextEmailsPayload,
+        context_calls: contextCallsPayload,
+        useBrandTemplate: aiUseBrandTemplate,
+      });
+      if (draft) setComposeBody(draft);
+      // Store the brand-themed HTML for sending. The textarea still shows
+      // the plain text for editing — if the user edits, the HTML is cleared.
+      setComposeBodyHtml(draft_html || null);
+      setAiMode(false);
       setAiPrompt('');
-    }, 1500);
+    } catch (err) {
+      showToast(err.message || 'AI draft failed', 'error');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const toggleAiMode = () => {
+    setAiPopoverOpen(false);
+    setLinkPopoverOpen(false);
+    setContextOpen(false);
+    setAiMode((prev) => {
+      if (prev) {
+        setAiPrompt('');
+        setAiUseBrandTemplate(false); // reset the brand-template opt-in each time
+      }
+      return !prev;
+    });
   };
 
   const toggleCallContext = (id) => {
@@ -618,8 +679,10 @@ export default function Inbox() {
   useEffect(() => {
     if (!contextOpen && !aiPopoverOpen) return;
     const handleClick = (e) => {
-      if (contextOpen && contextRef.current && !contextRef.current.contains(e.target)) {
-        setContextOpen(false);
+      if (contextOpen) {
+        const inTrigger = contextRef.current && contextRef.current.contains(e.target);
+        const inPanel = contextPanelRef.current && contextPanelRef.current.contains(e.target);
+        if (!inTrigger && !inPanel) setContextOpen(false);
       }
       if (aiPopoverOpen && aiRef.current && !aiRef.current.contains(e.target)) {
         setAiPopoverOpen(false);
@@ -628,6 +691,44 @@ export default function Inbox() {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [contextOpen, aiPopoverOpen]);
+
+  // Position the Add Context panel as a portal (so it escapes any ancestor's overflow: hidden).
+  useLayoutEffect(() => {
+    if (!contextOpen || !contextRef.current) return;
+    const update = () => {
+      const rect = contextRef.current.getBoundingClientRect();
+      const panelWidth = 320;
+      const gap = 6;
+      const right = Math.max(8, window.innerWidth - rect.right);
+      // Open downward from the button; clamp so bottom never goes off-screen.
+      const maxHeight = Math.min(360, window.innerHeight - rect.bottom - gap - 16);
+      setContextPanelStyle({
+        position: 'fixed',
+        top: rect.bottom + gap,
+        right,
+        width: panelWidth,
+        maxHeight: Math.max(180, maxHeight),
+      });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [contextOpen]);
+
+  // Preload sales calls on mount so the Add Context panel is instant.
+  useEffect(() => {
+    let cancelled = false;
+    setContextCallsLoading(true);
+    getSalesCalls()
+      .then((res) => { if (!cancelled) setContextCalls(res.calls || []); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setContextCallsLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   const contextCount = selectedCalls.size + selectedContextEmails.size;
 
@@ -751,8 +852,12 @@ export default function Inbox() {
               <div className="inbox-detail-header">
                 <h2 className="inbox-detail-subject">{displayEmail.subject || '(no subject)'}</h2>
                 <div className="inbox-detail-actions">
-                  <button className="inbox-detail-action" title="Reply" onClick={handleReply}><Reply size={16} /></button>
-                  <button className="inbox-detail-action" title="Forward" onClick={handleForward}><Forward size={16} /></button>
+                  <button className="inbox-detail-action inbox-detail-action--labeled" onClick={handleReply}>
+                    <Reply size={16} /><span>Reply</span>
+                  </button>
+                  <button className="inbox-detail-action inbox-detail-action--labeled" onClick={handleForward}>
+                    <Forward size={16} /><span>Forward</span>
+                  </button>
                   <button className="inbox-detail-action" title="Archive" onClick={handleArchive}><Archive size={16} /></button>
                   <button className="inbox-detail-action" title="Delete" onClick={handleDelete}><Trash2 size={16} /></button>
                 </div>
@@ -958,32 +1063,12 @@ export default function Inbox() {
             <div className="inbox-compose-toolbar-right">
               <div className="inbox-compose-tool-wrap" ref={aiRef}>
                 <button
-                  className="inbox-compose-ai-btn"
-                  onClick={() => { setAiPopoverOpen(!aiPopoverOpen); setLinkPopoverOpen(false); setContextOpen(false); }}
+                  className={`inbox-compose-ai-btn ${aiMode ? 'inbox-compose-ai-btn--active' : ''}`}
+                  onClick={toggleAiMode}
                 >
                   <Sparkles size={14} />
-                  <span>{aiLoading ? 'Generating...' : 'Write with AI'}</span>
+                  <span>{aiLoading ? 'Generating...' : aiMode ? 'Cancel AI' : 'Write with AI'}</span>
                 </button>
-                {aiPopoverOpen && (
-                  <div className="inbox-compose-ai-popover">
-                    <input
-                      type="text"
-                      className="inbox-compose-ai-input"
-                      placeholder="Describe what you want to write..."
-                      value={aiPrompt}
-                      onChange={(e) => setAiPrompt(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleAiGenerate()}
-                      autoFocus
-                    />
-                    <button
-                      className="inbox-compose-ai-generate"
-                      onClick={handleAiGenerate}
-                      disabled={aiLoading || !aiPrompt}
-                    >
-                      {aiLoading ? 'Generating...' : 'Generate'}
-                    </button>
-                  </div>
-                )}
               </div>
 
               <div className="inbox-compose-tool-wrap" ref={contextRef}>
@@ -995,8 +1080,12 @@ export default function Inbox() {
                   <span>Add Context</span>
                   {contextCount > 0 && <span className="inbox-compose-context-badge">{contextCount}</span>}
                 </button>
-                {contextOpen && (
-                  <div className="inbox-compose-context-panel">
+                {contextOpen && contextPanelStyle && createPortal(
+                  <div
+                    ref={contextPanelRef}
+                    className="inbox-compose-context-panel"
+                    style={contextPanelStyle}
+                  >
                     <div className="inbox-compose-context-tabs">
                       <button
                         className={`inbox-compose-context-tab ${contextTab === 'calls' ? 'inbox-compose-context-tab--active' : ''}`}
@@ -1013,40 +1102,58 @@ export default function Inbox() {
                     </div>
                     <div className="inbox-compose-context-list">
                       {contextTab === 'calls' ? (
-                        MOCK_CALLS.map((call) => (
-                          <button
-                            key={call.id}
-                            className={`inbox-compose-context-row ${selectedCalls.has(call.id) ? 'inbox-compose-context-row--active' : ''}`}
-                            onClick={() => toggleCallContext(call.id)}
-                          >
-                            <div className="inbox-compose-context-check">
-                              {selectedCalls.has(call.id) && <Check size={12} />}
-                            </div>
-                            <div className="inbox-compose-context-info">
-                              <span className="inbox-compose-context-name">{call.name}</span>
-                              <span className="inbox-compose-context-date">{call.date}</span>
-                            </div>
-                          </button>
-                        ))
+                        contextCallsLoading && contextCalls.length === 0 ? (
+                          <div className="inbox-compose-context-empty">
+                            <Loader2 size={14} className="inbox-compose-context-spinner" />
+                            <span>Loading calls…</span>
+                          </div>
+                        ) : contextCalls.length === 0 ? (
+                          <div className="inbox-compose-context-empty">
+                            <span>No sales calls yet</span>
+                          </div>
+                        ) : (
+                          contextCalls.map((call) => (
+                            <button
+                              key={call.id}
+                              className={`inbox-compose-context-row ${selectedCalls.has(call.id) ? 'inbox-compose-context-row--active' : ''}`}
+                              onClick={() => toggleCallContext(call.id)}
+                            >
+                              <div className="inbox-compose-context-check">
+                                {selectedCalls.has(call.id) && <Check size={12} />}
+                              </div>
+                              <div className="inbox-compose-context-info">
+                                <span className="inbox-compose-context-name">{call.name}</span>
+                                <span className="inbox-compose-context-date">{call.date}</span>
+                              </div>
+                            </button>
+                          ))
+                        )
                       ) : (
-                        emails.map((em) => (
-                          <button
-                            key={em.id}
-                            className={`inbox-compose-context-row ${selectedContextEmails.has(em.id) ? 'inbox-compose-context-row--active' : ''}`}
-                            onClick={() => toggleEmailContext(em.id)}
-                          >
-                            <div className="inbox-compose-context-check">
-                              {selectedContextEmails.has(em.id) && <Check size={12} />}
-                            </div>
-                            <div className="inbox-compose-context-info">
-                              <span className="inbox-compose-context-name">{em.from_name || em.from_email}</span>
-                              <span className="inbox-compose-context-date">{em.subject}</span>
-                            </div>
-                          </button>
-                        ))
+                        emails.length === 0 ? (
+                          <div className="inbox-compose-context-empty">
+                            <span>No emails yet</span>
+                          </div>
+                        ) : (
+                          emails.map((em) => (
+                            <button
+                              key={em.id}
+                              className={`inbox-compose-context-row ${selectedContextEmails.has(em.id) ? 'inbox-compose-context-row--active' : ''}`}
+                              onClick={() => toggleEmailContext(em.id)}
+                            >
+                              <div className="inbox-compose-context-check">
+                                {selectedContextEmails.has(em.id) && <Check size={12} />}
+                              </div>
+                              <div className="inbox-compose-context-info">
+                                <span className="inbox-compose-context-name">{em.from_name || em.from_email}</span>
+                                <span className="inbox-compose-context-date">{em.subject}</span>
+                              </div>
+                            </button>
+                          ))
+                        )
                       )}
                     </div>
-                  </div>
+                  </div>,
+                  document.body
                 )}
               </div>
             </div>
@@ -1056,7 +1163,7 @@ export default function Inbox() {
           {contextCount > 0 && (
             <div className="inbox-compose-context-pills">
               {[...selectedCalls].map((id) => {
-                const call = MOCK_CALLS.find((c) => c.id === id);
+                const call = contextCalls.find((c) => c.id === id);
                 return call ? (
                   <span key={`call-${id}`} className="inbox-compose-context-pill">
                     {call.name}
@@ -1076,21 +1183,87 @@ export default function Inbox() {
             </div>
           )}
 
-          {/* Body */}
-          <textarea
-            ref={bodyRef}
-            className="inbox-compose-body"
-            placeholder="Write your email here... (supports markdown)"
-            value={composeBody}
-            onChange={(e) => setComposeBody(e.target.value)}
-          />
+          {/* Body — renders an HTML preview when a branded HTML draft is ready,
+              otherwise the plain textarea. AI-prompt mode always shows textarea. */}
+          {!aiMode && composeBodyHtml ? (
+            <div className="inbox-compose-body inbox-compose-body--html">
+              <div className="inbox-compose-html-bar">
+                <span className="inbox-compose-html-badge">Branded HTML preview</span>
+                <button
+                  type="button"
+                  className="inbox-compose-html-edit"
+                  onClick={() => setComposeBodyHtml(null)}
+                  title="Switch to plain text editing (HTML version will be discarded)"
+                >
+                  Edit plain text
+                </button>
+              </div>
+              <div
+                className="inbox-compose-html-preview"
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(composeBodyHtml, {
+                    ADD_ATTR: ['target'],
+                    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'style'],
+                  }),
+                }}
+              />
+            </div>
+          ) : (
+            <textarea
+              ref={bodyRef}
+              className={`inbox-compose-body ${aiMode ? 'inbox-compose-body--ai' : ''}`}
+              placeholder={aiMode ? 'Write your prompt…' : 'Write your email here... (supports markdown)'}
+              value={aiMode ? aiPrompt : composeBody}
+              onChange={(e) => {
+                if (aiMode) {
+                  setAiPrompt(e.target.value);
+                } else {
+                  setComposeBody(e.target.value);
+                  // User-edited plain text invalidates the stale brand HTML —
+                  // drop it so we don't send mismatched body_text vs body_html.
+                  if (composeBodyHtml) setComposeBodyHtml(null);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (aiMode && (e.key === 'Enter') && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  handleAiGenerate();
+                }
+              }}
+              disabled={aiLoading}
+            />
+          )}
 
           {/* Footer */}
           <div className="inbox-compose-footer">
-            <button className="inbox-compose-discard" onClick={resetCompose}>Discard</button>
-            <button className="inbox-compose-send" onClick={handleSend} disabled={composeSending}>
-              {composeSending ? 'Sending...' : 'Send'}
-            </button>
+            {aiMode ? (
+              <>
+                <label className="inbox-compose-ai-option" title="Wrap the AI draft in your brand's styled HTML template (logo, colors, fonts).">
+                  <input
+                    type="checkbox"
+                    checked={aiUseBrandTemplate}
+                    onChange={(e) => setAiUseBrandTemplate(e.target.checked)}
+                    disabled={aiLoading}
+                  />
+                  <span>Use brand template</span>
+                </label>
+                <button
+                  className="inbox-compose-send inbox-compose-generate"
+                  onClick={handleAiGenerate}
+                  disabled={aiLoading || !aiPrompt.trim()}
+                >
+                  <Sparkles size={14} />
+                  {aiLoading ? 'Generating…' : 'Generate email'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button className="inbox-compose-discard" onClick={resetCompose}>Discard</button>
+                <button className="inbox-compose-send" onClick={handleSend} disabled={composeSending}>
+                  {composeSending ? 'Sending...' : 'Send'}
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

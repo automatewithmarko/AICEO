@@ -17,6 +17,65 @@ export default function QuestionRenderer({ question, value, onChange, themeVars 
   };
 
   switch (question.type) {
+    case 'contact_block': {
+      const includePhone = !!question.settings?.includePhone;
+      const v = value || {};
+      const update = (field, fieldValue) => onChange({ ...v, [field]: fieldValue });
+      const accent = themeVars?.['--theme-accent'] || '#6b7280';
+      const text = themeVars?.['--theme-text'] || '#1a1a1a';
+      const labelStyle = { fontSize: '13px', fontWeight: 600, opacity: 0.75, color: text, display: 'block', marginBottom: '4px' };
+      const fieldStyle = { ...inputStyle, fontSize: '18px', borderBottom: `2px solid ${accent}` };
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', width: '100%' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '18px' }}>
+            <div>
+              <label style={labelStyle}>First name</label>
+              <input
+                type="text"
+                style={fieldStyle}
+                value={v.firstName || ''}
+                onChange={(e) => update('firstName', e.target.value)}
+                placeholder="John"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Last name</label>
+              <input
+                type="text"
+                style={fieldStyle}
+                value={v.lastName || ''}
+                onChange={(e) => update('lastName', e.target.value)}
+                placeholder="Doe"
+              />
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Email</label>
+            <input
+              type="email"
+              style={fieldStyle}
+              value={v.email || ''}
+              onChange={(e) => update('email', e.target.value)}
+              placeholder="name@example.com"
+            />
+          </div>
+          {includePhone && (
+            <div>
+              <label style={labelStyle}>Phone number</label>
+              <input
+                type="tel"
+                style={fieldStyle}
+                value={v.phone || ''}
+                onChange={(e) => update('phone', e.target.value)}
+                placeholder="+1 (555) 000-0000"
+              />
+            </div>
+          )}
+        </div>
+      );
+    }
+
     case 'contact_first_name':
     case 'contact_last_name':
     case 'contact_full_name':

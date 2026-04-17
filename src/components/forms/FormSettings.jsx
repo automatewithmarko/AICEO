@@ -1,4 +1,18 @@
+const REDIRECT_PREFIX = 'redirect::';
+
 export default function FormSettings({ slug, description, thankYouMessage, onChange }) {
+  const isRedirect = typeof thankYouMessage === 'string' && thankYouMessage.startsWith(REDIRECT_PREFIX);
+  const redirectUrl = isRedirect ? thankYouMessage.slice(REDIRECT_PREFIX.length) : '';
+  const messageValue = isRedirect ? '' : (thankYouMessage || '');
+
+  const switchMode = (mode) => {
+    if (mode === 'redirect' && !isRedirect) {
+      onChange('thank_you_message', REDIRECT_PREFIX);
+    } else if (mode === 'message' && isRedirect) {
+      onChange('thank_you_message', '');
+    }
+  };
+
   return (
     <div className="form-settings">
       <div className="form-settings-field">
@@ -22,13 +36,42 @@ export default function FormSettings({ slug, description, thankYouMessage, onCha
         />
       </div>
       <div className="form-settings-field">
-        <label>Thank You Message</label>
-        <textarea
-          rows={3}
-          value={thankYouMessage}
-          onChange={(e) => onChange('thank_you_message', e.target.value)}
-          placeholder="Thank you for your response!"
-        />
+        <label>On successful submission</label>
+        <div className="form-settings-pill" role="tablist" aria-label="Submission action">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!isRedirect}
+            className={`form-settings-pill-btn${!isRedirect ? ' form-settings-pill-btn--active' : ''}`}
+            onClick={() => switchMode('message')}
+          >
+            Thank you message
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={isRedirect}
+            className={`form-settings-pill-btn${isRedirect ? ' form-settings-pill-btn--active' : ''}`}
+            onClick={() => switchMode('redirect')}
+          >
+            Redirect to URL
+          </button>
+        </div>
+        {isRedirect ? (
+          <input
+            type="url"
+            value={redirectUrl}
+            onChange={(e) => onChange('thank_you_message', REDIRECT_PREFIX + e.target.value)}
+            placeholder="https://example.com/thanks"
+          />
+        ) : (
+          <textarea
+            rows={3}
+            value={messageValue}
+            onChange={(e) => onChange('thank_you_message', e.target.value)}
+            placeholder="Thank you for your response!"
+          />
+        )}
       </div>
     </div>
   );

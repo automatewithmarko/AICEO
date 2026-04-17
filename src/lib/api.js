@@ -41,8 +41,24 @@ export async function streamFromBackend(endpoint, body, callbacks = {}, signal) 
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // Frontend watchdog: if we don't see ANY data (including the backend's
+  // 3s heartbeats) for 90s, treat the stream as dead and abort. This is the
+  // last-line defense against an upstream LLM stalling past the backend's
+  // 60s watchdog without properly closing the SSE connection.
+  const IDLE_MS = 90_000;
+  const readWithIdle = () => {
+    let t;
+    const idle = new Promise((_, reject) => {
+      t = setTimeout(() => {
+        try { reader.cancel(); } catch { /* noop */ }
+        reject(new Error('Connection idle — aborted'));
+      }, IDLE_MS);
+    });
+    return Promise.race([reader.read(), idle]).finally(() => clearTimeout(t));
+  };
+
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithIdle();
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
@@ -115,10 +131,11 @@ export async function streamFromBackend(endpoint, body, callbacks = {}, signal) 
  * Files are processed on the backend — documents get text extraction,
  * videos get transcription, images are stored as-is.
  */
-export async function uploadContextFiles(files) {
+export async function uploadContextFiles(files, sessionId = null) {
   const headers = await getAuthHeaders();
   const formData = new FormData();
 
+  if (sessionId) formData.append('sessionId', sessionId);
   for (const file of files) {
     formData.append('files', file);
   }
@@ -167,13 +184,13 @@ export async function uploadBrandDnaFiles(files) {
  * Backend downloads video/audio via yt-dlp, grabs captions or
  * transcribes with Whisper, and returns metadata + transcript.
  */
-export async function extractSocialUrls(urls) {
+export async function extractSocialUrls(urls, sessionId = null) {
   const headers = await getAuthHeaders();
 
   const res = await fetch(`${API_URL}/api/social/extract`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ urls }),
+    body: JSON.stringify({ urls, sessionId }),
   });
 
   if (!res.ok) {
@@ -187,9 +204,10 @@ export async function extractSocialUrls(urls) {
 /**
  * Load saved content items from the database.
  */
-export async function getContentItems() {
+export async function getContentItems(sessionId = null) {
   const headers = await getAuthHeaders();
-  const res = await fetch(`${API_URL}/api/content-items`, { headers });
+  const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+  const res = await fetch(`${API_URL}/api/content-items${qs}`, { headers });
   if (!res.ok) return { items: [] };
   return res.json();
 }
@@ -262,9 +280,18 @@ export async function getOutlierVideos(params = {}) {
   if (params.platform) url.searchParams.set('platform', params.platform);
   if (params.limit) url.searchParams.set('limit', String(params.limit));
   if (params.offset) url.searchParams.set('offset', String(params.offset));
+  if (params.sort) url.searchParams.set('sort', params.sort);
   const res = await fetch(url.toString(), { headers });
   if (!res.ok) return { videos: [] };
   return res.json();
+}
+
+// URL to the backend thumbnail proxy — works as a direct <img src="...">.
+// The backend route is unauthenticated (see server.js) because <img> tags
+// can't send Authorization headers; thumbnails are public social-media
+// content anyway and the video id is a UUID.
+export function getOutlierThumbnailUrl(videoId) {
+  return `${API_URL}/api/outlier/videos/${videoId}/thumbnail`;
 }
 
 export async function scanOutlierCreator(creatorId) {
@@ -577,8 +604,58 @@ export async function deployToNetlify(html, siteName) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Deploy failed' }));
-    throw new Error(err.error);
+    const e = new Error(err.error || 'Deploy failed');
+    if (err.code) e.code = err.code;
+    e.status = res.status;
+    throw e;
   }
+  return res.json();
+}
+
+export async function checkNetlifyName(name) {
+  const headers = await getAuthHeaders();
+  const url = new URL(`${API_URL}/api/netlify/check-name`);
+  url.searchParams.set('name', name);
+  const res = await fetch(url.toString(), { headers });
+  if (!res.ok) return { available: false, reason: 'error' };
+  return res.json();
+}
+
+// ── Artifact version history ──
+export async function listArtifactVersions({ sessionId, agent } = {}) {
+  const headers = await getAuthHeaders();
+  const url = new URL(`${API_URL}/api/artifact-versions`);
+  if (sessionId) url.searchParams.set('session_id', sessionId);
+  if (agent) url.searchParams.set('agent', agent);
+  const res = await fetch(url.toString(), { headers });
+  if (!res.ok) return { versions: [] };
+  return res.json();
+}
+
+export async function getArtifactVersion(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/artifact-versions/${id}`, { headers });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function restoreArtifactVersion(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/artifact-versions/${id}/restore`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Restore failed' }));
+    throw new Error(err.error || 'Restore failed');
+  }
+  return res.json();
+}
+
+export async function getNetlifyStatus() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/netlify/status`, { headers });
+  if (!res.ok) return { connected: false };
   return res.json();
 }
 
@@ -626,6 +703,19 @@ export async function syncEmailAccount(id) {
   return res.json();
 }
 
+export async function getDashboardStats(timeframe = 'week', { from, to } = {}) {
+  const headers = await getAuthHeaders();
+  const url = new URL(`${API_URL}/api/dashboard-stats`);
+  url.searchParams.set('timeframe', timeframe);
+  if (timeframe === 'custom') {
+    if (from) url.searchParams.set('from', from);
+    if (to) url.searchParams.set('to', to);
+  }
+  const res = await fetch(url.toString(), { headers });
+  if (!res.ok) return null;
+  return res.json();
+}
+
 export async function getEmails(params = {}) {
   const headers = await getAuthHeaders();
   const url = new URL(`${API_URL}/api/emails`);
@@ -658,6 +748,20 @@ export async function updateEmail(id, updates) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Update failed' }));
     throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function generateEmailDraft({ prompt, mode, original, context_emails, context_calls, useBrandTemplate = false }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/emails/ai-draft`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, mode, original, context_emails, context_calls, useBrandTemplate }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Draft generation failed' }));
+    throw new Error(err.error || 'Draft generation failed');
   }
   return res.json();
 }

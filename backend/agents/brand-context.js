@@ -71,3 +71,54 @@ export function buildBrandContext(brandDna) {
 
   return parts.join('\n');
 }
+
+// Appendix for agents (landing-page, newsletter, squeeze-page, etc.) with the
+// user's product catalog — full names, every pricing tier, checkout links,
+// photo URLs, and descriptions. Lets agents wire real product assets into the
+// generated HTML instead of relying on whatever the CEO happened to quote in
+// the task_description.
+export function buildProductsContext(products) {
+  if (!Array.isArray(products) || products.length === 0) return '';
+
+  const parts = [`\n=== PRODUCTS (${products.length}) — USE REAL ASSETS ===`];
+  parts.push('For any product the user asks you to market, prefer these real assets over placeholders or {{GENERATE}}. Photo URLs drop straight into <img src="...">. Checkout URLs go in CTA buttons.');
+
+  products.forEach((p, idx) => {
+    parts.push(`\n--- Product ${idx + 1}: ${p.name || 'Untitled'} ---`);
+    if (p.type) parts.push(`Type: ${p.type}`);
+
+    const priceLines = [];
+    if (Array.isArray(p.pricing_options) && p.pricing_options.length) {
+      p.pricing_options.forEach((opt) => {
+        const dollars = opt.price_cents != null ? (opt.price_cents / 100).toFixed(2) : null;
+        if (dollars != null) {
+          const mode = opt.price_mode === 'monthly' ? '/month' : ' one-time';
+          priceLines.push(`$${dollars}${mode}${opt.payment_link_url ? ` — checkout: ${opt.payment_link_url}` : ''}`);
+        }
+      });
+    } else if (p.price_cents != null) {
+      priceLines.push(`$${(p.price_cents / 100).toFixed(2)}`);
+    } else if (p.price != null) {
+      priceLines.push(`$${p.price}`);
+    }
+    if (priceLines.length === 1) parts.push(`Price: ${priceLines[0]}`);
+    else if (priceLines.length > 1) parts.push(`Pricing tiers:\n${priceLines.map((l) => `  - ${l}`).join('\n')}`);
+
+    if (p.payment_link_url && !priceLines.some((l) => l.includes(p.payment_link_url))) {
+      parts.push(`Checkout URL: ${p.payment_link_url}`);
+    }
+
+    const photoUrls = (Array.isArray(p.photos) ? p.photos : [])
+      .map((ph) => (typeof ph === 'string' ? ph : ph?.url))
+      .filter(Boolean);
+    if (p.image_url && !photoUrls.includes(p.image_url)) photoUrls.unshift(p.image_url);
+    if (photoUrls.length) {
+      parts.push(`Photos (${photoUrls.length}) — use as <img src="URL">:`);
+      photoUrls.forEach((u, i) => parts.push(`  - Photo ${i + 1}: ${u}`));
+    }
+
+    if (p.description) parts.push(`Description: ${p.description.slice(0, 1500)}`);
+  });
+
+  return parts.join('\n');
+}

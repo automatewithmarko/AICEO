@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Reorder } from 'framer-motion';
 import {
   Save, Eye, Link2, Code, BarChart3,
-  ChevronRight, Palette, Settings as SettingsIcon, List, Plus,
+  ChevronRight, Palette, Settings as SettingsIcon, List, Plus, ArrowLeft, X,
 } from 'lucide-react';
 import { getForm, updateForm, publishForm, unpublishForm, getBranchingRules, saveBranchingRules } from '../lib/forms-api';
 import { createQuestion } from '../components/forms/questionTypes';
@@ -29,6 +29,7 @@ export default function FormBuilder() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [branchingRules, setBranchingRules] = useState([]);
   const [showEmbed, setShowEmbed] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -141,11 +142,20 @@ export default function FormBuilder() {
       {/* Header */}
       <div className="form-builder-header">
         <div className="form-builder-header-left">
+          <button
+            className="form-builder-back"
+            onClick={() => navigate('/forms')}
+            title="Back to Forms"
+            aria-label="Back to Forms"
+          >
+            <ArrowLeft size={18} />
+          </button>
           <input
             className="form-builder-title-input"
             value={form.title}
             onChange={(e) => updateLocal({ title: e.target.value })}
             placeholder="Form title..."
+            size={Math.max((form.title || 'Form title...').length, 8)}
           />
           <span className={`form-builder-status form-builder-status--${form.status}`}>
             {form.status}
@@ -165,7 +175,7 @@ export default function FormBuilder() {
               <button className="form-builder-btn" onClick={copyLink} title="Copy link">
                 <Link2 size={16} /> Copy Link
               </button>
-              <button className="form-builder-btn" onClick={() => window.open(`/f/${form.slug}`, '_blank')} title="View form">
+              <button className="form-builder-btn" onClick={() => setShowPreview(true)} title="View form">
                 <Eye size={16} /> View
               </button>
               <button className="form-builder-btn" onClick={() => setShowEmbed(!showEmbed)} title="Embed code">
@@ -281,6 +291,24 @@ export default function FormBuilder() {
           onSelect={addQuestion}
           onClose={() => setShowAddDialog(false)}
         />
+      )}
+
+      {/* Full-screen preview modal */}
+      {showPreview && form?.slug && (
+        <div className="form-preview-modal">
+          <button
+            className="form-preview-modal-close"
+            onClick={() => setShowPreview(false)}
+            aria-label="Close preview"
+          >
+            <X size={20} />
+          </button>
+          <iframe
+            src={`/f/${form.slug}`}
+            className="form-preview-modal-frame"
+            title="Form preview"
+          />
+        </div>
       )}
     </div>
   );

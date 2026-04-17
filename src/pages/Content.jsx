@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -1280,6 +1280,8 @@ export default function Content() {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const customTitleIdsRef = useRef(new Set());
   const saveTimer = useRef(null);
+  const sessionIdRef = useRef(null);
+  const ensureSessionPromiseRef = useRef(null);
   const [editPrompt, setEditPrompt] = useState('');
   const [linkedinPreview, setLinkedinPreview] = useState(null); // { content, images, msgId }
   const [liGeneratingImage, setLiGeneratingImage] = useState(false);
@@ -1501,6 +1503,14 @@ export default function Content() {
       .eq('id', id)
       .single();
     if (error || !data) return;
+    // Clear sidebar state so the sessionId-scoped fetch below repopulates
+    // from scratch — otherwise items from the previous session leak in.
+    setPhotos([]);
+    setDocuments([]);
+    setSocialUrls([]);
+    setContentSelectedCtx(new Set());
+    ensureSessionPromiseRef.current = null;
+    sessionIdRef.current = data.id;
     setSessionId(data.id);
     setSelectedPlatform(data.platform || 'instagram');
     setMessages(data.messages || []);
@@ -1511,12 +1521,51 @@ export default function Content() {
 
   // Start a fresh conversation
   const newConversation = useCallback(() => {
+    sessionIdRef.current = null;
+    ensureSessionPromiseRef.current = null;
     setSessionId(null);
     setMessages([]);
+    setPhotos([]);
+    setDocuments([]);
+    setSocialUrls([]);
+    setContentSelectedCtx(new Set());
     setCurrentQuestion(null);
     setShowSessions(false);
     setLinkedinPreview(null);
   }, []);
+
+  // Keep sessionIdRef in sync so non-React callers (upload pipeline) see it
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+
+  // Ensure a content_sessions row exists before uploading sidebar items.
+  // Deduplicates concurrent callers via a promise ref so uploads that land
+  // simultaneously don't create multiple sessions.
+  const ensureSession = useCallback(async () => {
+    if (sessionIdRef.current) return sessionIdRef.current;
+    if (ensureSessionPromiseRef.current) return ensureSessionPromiseRef.current;
+    const p = (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error('Not authenticated');
+      const userId = session.user.id;
+      const { data, error } = await supabase.from('content_sessions').insert({
+        user_id: userId,
+        title: 'New conversation',
+        platform: selectedPlatform,
+        messages: [],
+      }).select('id').single();
+      if (error || !data) throw new Error(error?.message || 'Session create failed');
+      sessionIdRef.current = data.id;
+      setSessionId(data.id);
+      setSessions((prev) => [{ id: data.id, title: 'New conversation', platform: selectedPlatform, updated_at: new Date().toISOString() }, ...prev]);
+      return data.id;
+    })();
+    ensureSessionPromiseRef.current = p;
+    try {
+      return await p;
+    } finally {
+      if (ensureSessionPromiseRef.current === p) ensureSessionPromiseRef.current = null;
+    }
+  }, [selectedPlatform]);
 
   // Delete a session
   const startRenameSession = useCallback((s, e) => {
@@ -1759,8 +1808,18 @@ export default function Content() {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; setIsGenerating(false); }
   }, []);
 
+  // Block sending while any attachment is still uploading/extracting  -  otherwise the
+  // AI receives a prompt without the context the user just attached.
+  const pendingAttachments = useMemo(() => {
+    const photoPending = photos.filter(p => p.status === 'pending' || p.status === 'uploading').length;
+    const docPending = documents.filter(d => d.status === 'pending' || d.status === 'uploading').length;
+    const socialPending = socialUrls.filter(s => s.status === 'pending' || s.status === 'extracting').length;
+    return { photos: photoPending, documents: docPending, socialUrls: socialPending, total: photoPending + docPending + socialPending };
+  }, [photos, documents, socialUrls]);
+  const hasPendingAttachments = pendingAttachments.total > 0;
+
   const selectOption = useCallback((option) => {
-    if (isGenerating) return;
+    if (isGenerating || hasPendingAttachments) return;
     setCurrentQuestion(null);
     setCustomTyping(false);
     setCustomText('');
@@ -1769,18 +1828,18 @@ export default function Content() {
     const updated = [...messages, userMsg];
     setMessages(updated);
     sendToAI(updated);
-  }, [isGenerating, messages, sendToAI, contentSelectedCtx, contentCtxCategories]);
+  }, [isGenerating, hasPendingAttachments, messages, sendToAI, contentSelectedCtx, contentCtxCategories]);
 
   const sendMessage = useCallback(() => {
     const text = input.trim();
-    if (!text || isGenerating) return;
+    if (!text || isGenerating || hasPendingAttachments) return;
     const contextStr = buildContentContextString();
     const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: contextStr + text };
     const updated = [...messages, userMsg];
     setMessages(updated);
     setInput('');
     sendToAI(updated);
-  }, [input, isGenerating, messages, sendToAI, contentSelectedCtx, contentCtxCategories]);
+  }, [input, isGenerating, hasPendingAttachments, messages, sendToAI, contentSelectedCtx, contentCtxCategories]);
 
   // Direct image edit  -  sends ONLY the image to Gemini, no brand data, no context
   const handleImageEdit = useCallback(async (editInstruction) => {
@@ -1886,7 +1945,8 @@ export default function Content() {
       ids.includes(item.id) ? { ...item, status: 'uploading' } : item
     ));
     try {
-      const { files: results } = await uploadContextFiles(files);
+      const sid = await ensureSession();
+      const { files: results } = await uploadContextFiles(files, sid);
       setter((prev) => prev.map((item) => {
         const idx = ids.indexOf(item.id);
         if (idx === -1) return item;
@@ -1900,7 +1960,7 @@ export default function Content() {
         ids.includes(item.id) ? { ...item, status: 'error' } : item
       ));
     }
-  }, []);
+  }, [ensureSession]);
 
   const addPhotos = useCallback((newFiles) => {
     setPhotos((prev) => {
@@ -1976,7 +2036,8 @@ export default function Content() {
       item.url === url ? { ...item, status: 'extracting' } : item
     ));
     try {
-      const { results } = await extractSocialUrls([url]);
+      const sid = await ensureSession();
+      const { results } = await extractSocialUrls([url], sid);
       const result = results[0];
       setSocialUrls((prev) => prev.map((item) =>
         item.url === url
@@ -1988,7 +2049,7 @@ export default function Content() {
         item.url === url ? { ...item, status: 'error' } : item
       ));
     }
-  }, []);
+  }, [ensureSession]);
 
   const addSocialUrl = useCallback((text) => {
     if (!SOCIAL_URL_PATTERN.test(text)) {
@@ -2066,10 +2127,16 @@ export default function Content() {
     return () => document.removeEventListener('paste', handler);
   }, [docHover, handleDocPaste]);
 
-  // Load saved content items from DB on mount
+  // Load saved content items from DB, scoped to the active session.
+  // A null sessionId (fresh "New conversation") means empty sidebar — items
+  // get created once the user uploads something (ensureSession creates the
+  // session, upload tags items with its id).
   useEffect(() => {
-    getContentItems().then(({ items }) => {
-      console.log('[Content] Loaded content items:', items?.length, items?.map(i => ({ type: i.type, url: i.url?.slice(0, 60) })));
+    if (!sessionId) return;
+    let cancelled = false;
+    getContentItems(sessionId).then(({ items }) => {
+      if (cancelled) return;
+      console.log('[Content] Loaded content items for session', sessionId, items?.length, items?.map(i => ({ type: i.type, url: i.url?.slice(0, 60) })));
       if (!items?.length) return;
       const savedPhotos = [];
       const savedDocs = [];
@@ -2100,6 +2167,7 @@ export default function Content() {
           });
         }
       }
+      if (cancelled) return;
       console.log('[Content] Restored context  -  photos:', savedPhotos.length, 'docs:', savedDocs.length, 'social:', savedSocial.length);
       savedPhotos.forEach((p, i) => console.log(`  [photo ${i}] url: ${p.url?.slice(0, 80)}, result.url: ${p.result?.url?.slice(0, 80)}`));
       // Merge with existing state instead of replacing (avoids race with fresh uploads)
@@ -2119,7 +2187,8 @@ export default function Content() {
         return [...prev, ...newFromDb];
       });
     }).catch((err) => { console.error('[Content] Failed to load content items:', err); });
-  }, []);
+    return () => { cancelled = true; };
+  }, [sessionId]);
 
   // ── Shared sidebar/sheet content ──
   const contextContent = (isSheet) => (
@@ -2956,7 +3025,7 @@ export default function Content() {
                           ))}
                           {/* Skeleton placeholders for pending images */}
                           {Array.from({ length: msg.pendingImages || 0 }).map((_, i) => (
-                            <div key={`pending-${i}`} className="content-carousel-slide content-image-skeleton">
+                            <div key={`pending-${i}`} className={`content-carousel-slide content-image-skeleton content-image-skeleton--${activePlatform?.id || 'default'}`}>
                               <div className="content-image-skeleton-shimmer" />
                               <div className="content-image-skeleton-label">
                                 <Loader size={16} className="cs-spinner" />
@@ -3009,6 +3078,18 @@ export default function Content() {
 
         {/* Chat Input */}
         <div className="content-input-area">
+          {hasPendingAttachments && (
+            <div className="content-pending-banner">
+              <Loader size={13} className="cs-spinner" />
+              <span>
+                Processing {pendingAttachments.total} attachment{pendingAttachments.total === 1 ? '' : 's'}
+                {pendingAttachments.photos > 0 && ` - ${pendingAttachments.photos} photo${pendingAttachments.photos === 1 ? '' : 's'}`}
+                {pendingAttachments.documents > 0 && ` - ${pendingAttachments.documents} document${pendingAttachments.documents === 1 ? '' : 's'}`}
+                {pendingAttachments.socialUrls > 0 && ` - ${pendingAttachments.socialUrls} link${pendingAttachments.socialUrls === 1 ? '' : 's'}`}
+                . You can type now  -  send unlocks when they finish.
+              </span>
+            </div>
+          )}
           <div className="content-input-wrapper">
             <div className="content-input-top-row">
               <div className="content-ctx-anchor" ref={contentCtxRef}>
@@ -3099,8 +3180,13 @@ export default function Content() {
                   <CircleStop size={18} />
                 </button>
               ) : (
-                <button className="content-send-btn" disabled={!input.trim()} onClick={sendMessage}>
-                  <Send size={18} />
+                <button
+                  className="content-send-btn"
+                  disabled={!input.trim() || hasPendingAttachments}
+                  onClick={sendMessage}
+                  title={hasPendingAttachments ? `Waiting for ${pendingAttachments.total} attachment${pendingAttachments.total === 1 ? '' : 's'} to finish processing...` : undefined}
+                >
+                  {hasPendingAttachments ? <Loader size={18} className="cs-spinner" /> : <Send size={18} />}
                 </button>
               )}
             </div>

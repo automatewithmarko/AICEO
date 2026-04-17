@@ -4,7 +4,7 @@ import { executeAgent, executeCeoOrchestrator, executeAnthropicWithTools } from 
 import { loadUserContext, saveSoulNote } from '../services/context.js';
 import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
-import { buildBrandContext } from '../agents/brand-context.js';
+import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
 import { extractFromUrl } from '../services/social.js';
 
@@ -93,25 +93,262 @@ push_notification: Flag something important for the user's notification bell.`;
     }
   }
 
-  // Inject user's forms so CEO can offer lead capture embedding
-  const formsList = context.forms || [];
-  if (formsList.length > 0) {
+  // Inject form embedding guidance. Always present so CEO can offer to create
+  // a form on the fly when the user has none.
+  {
+    const formsList = context.forms || [];
     const published = formsList.filter(f => f.status === 'published');
     const drafts = formsList.filter(f => f.status === 'draft');
-    prompt += `\n\n=== USER'S FORMS (for lead capture / data collection) ===
-The user has ${formsList.length} form(s) they can embed in landing pages, squeeze pages, etc.
-
-${published.length > 0 ? `Published forms (ready to embed):\n${published.map(f => `- "${f.title}" (slug: ${f.slug}, ${f.questions?.length || 0} questions)`).join('\n')}` : ''}
-${drafts.length > 0 ? `\nDraft forms (not yet published):\n${drafts.map(f => `- "${f.title}" (${f.questions?.length || 0} questions)`).join('\n')}` : ''}
-
+    prompt += `\n\n=== USER'S FORMS (for lead capture / data collection) ===\n`;
+    if (formsList.length === 0) {
+      prompt += `The user has no forms yet. When a landing page or squeeze page needs lead capture, you can create a new form inline via the create_form tool (see FORM EMBEDDING RULE below).\n`;
+    } else {
+      prompt += `The user has ${formsList.length} form(s) available:\n`;
+      if (published.length > 0) {
+        prompt += `\nPublished forms (ready to embed):\n${published.map(f => `- "${f.title}" (slug: ${f.slug}, ${f.questions?.length || 0} questions)`).join('\n')}\n`;
+      }
+      if (drafts.length > 0) {
+        prompt += `\nDraft forms (not published yet, cannot be embedded until published):\n${drafts.map(f => `- "${f.title}" (${f.questions?.length || 0} questions)`).join('\n')}\n`;
+      }
+    }
+    prompt += `
 FORM EMBEDDING RULE:
-When creating a landing page or squeeze page, AFTER the normal 4 questions, ask ONE additional question:
-"Would you like to embed a lead capture form on this page?"
-Options: list each published form by name + "No, just use a CTA button" as the last option.
-If the user picks a form, include it in the task_description when delegating: "EMBED FORM: slug=<slug>, title=<title>"
-If the user has NO published forms, skip this question entirely.
+When creating a landing page or squeeze page, AFTER the normal 4 questions, ask ONE additional question: "Would you like a lead capture form on this page?"
+EXCEPTION: if the user chose "Creator / newsletter / personal brand" as the page style, SKIP this question entirely. The creator-newsletter page has its own built-in inline email opt-in form as the primary CTA; an additional lead-capture form would only fragment the conversion path.
+Options depend on what the user already has:
+  - If there are published forms: list each by name, then add "Create a new one tailored to this page", then "No, just use a CTA button".
+  - If there are NO published forms: options are "Create a simple form for this page" and "No, just use a CTA button".
+
+If the user picks an existing published form -> delegate as before with "EMBED FORM: slug=<slug>, title=<title>" in the task_description.
+
+If the user picks "Create a new one" or "Create a simple form":
+  1. Call create_form with a short, smart field set derived from the 4 discovery answers. Guardrails: 3-5 fields total, always a contact_block first, contact_phone only if the CTA is a call/booking, contact_business only for B2B audiences, plus ONE qualifier question (dropdown preferred) tied to the audience/CTA.
+  2. The tool returns { slug, title, id }. Immediately delegate_to_agent for landing-page / squeeze-page and include "EMBED FORM: slug=<slug>, title=<title>" in the task_description.
+
+If the user picks "No, just use a CTA button" -> delegate without a form.
 `;
   }
+
+  // ── Landing / squeeze page: explicit style choice + asset gathering ──
+  prompt += `
+
+=== LANDING / SQUEEZE PAGE FLOW (overrides rule 3 for landing/squeeze pages) ===
+
+The agent supports multiple stylistic modes: "direct-response" (Hormozi / Brunson / Kennedy — long-scroll sales pages), "corporate-saas" (Stripe / Linear — clean product pages), "creator-newsletter" (James Clear / Morning Brew — editorial, email-first), "marketing-agency" (Wojo / Basic Agency — bold, portfolio-first), and "event-conference" (Funnel Hacking Live / Webflow Conf — date-driven, FOMO, transformation promise). E-commerce DTC coming next; any choice not in these five falls back to corporate-saas.
+
+You will ALWAYS ask the user to choose the style — do NOT auto-route based on their CTA answer. Users often don't know the tradeoffs, so your job is to explain the choice in simple terms through the option labels themselves.
+
+ORDER OF QUESTIONS (ask ONE at a time via ask_user):
+
+Q1. What's the offer / topic?
+Q2. Who's the audience?
+Q3. What tone do you want? (neutral tone options — see rule 4 but drop the "Hormozi" reference. Offer: "Authoritative", "Witty & casual", "Warm & educational", "Contrarian / bold")
+Q4. What's the main CTA? (book a call / buy / apply / register / download / start free trial / get a demo / other)
+Q5. STYLE — ask EXACTLY this question (phrased to help the user decide):
+    question: "What kind of landing page do you want?"
+    options:
+      - "Direct-response sales page — VSL, testimonials, offer stack, urgency (best for coaching, courses, high-ticket offers)"
+      - "Corporate / SaaS product page — clean, minimal, product-focused (best for software, platforms, B2B tools)"
+      - "Creator / newsletter / personal brand — editorial, email-first, warm (best for writers, podcasters, newsletters, thought leaders)"
+      - "Marketing agency / creative studio — bold, portfolio-first, results-driven (best for agencies, studios, consultancies with client work to show)"
+      - "Event / conference / webinar — date-driven, speakers, tickets, FOMO (best for live events, workshops, masterminds, summits)"
+      - "Let AI pick based on my offer" (if they choose this, infer: DR for coaching/course/high-ticket info-product; corporate-saas for software/SaaS/platform/tool; creator-newsletter for newsletter/podcast/blog/essay/thought-leadership; marketing-agency for agencies/studios/consultancies; event-conference for conferences/webinars/summits/masterminds/workshops/live events)
+    Set an internal flag PAGE_STYLE based on the answer: "direct-response", "corporate-saas", "creator-newsletter", "marketing-agency", or "event-conference".
+
+Q6 — FORM EMBEDDING: follow the FORM EMBEDDING RULE block above.
+
+── DIRECT-RESPONSE ONLY (skip unless PAGE_STYLE === "direct-response") ──
+
+Q7. Specific outcome + timeframe. ask_user with 3-4 outcome-style options derived from what you already know about their offer, plus "Something else (I'll type it)". Examples: "Add $10k/mo in 90 days", "Book 10 calls in 30 days", "Get 100 leads in 60 days".
+Q8. Price range. ask_user: "Under $100", "$100-$500", "$500-$2,000", "$2,000-$10,000", "$10,000+".
+    Follow-up in plain text: "What's included? List 3-5 deliverables and their individual value if you know it — or just say 'you decide' and I'll draft a stack."
+Q9. Guarantee. ask_user: "30-day money-back", "Results-or-refund", "Double your money back", "No guarantee", "Custom (I'll write it)".
+Q10. Urgency. ask_user: "Countdown to a date (tell me when)", "Limited seats (cohort)", "Price increase (tell me when)", "No urgency / evergreen".
+
+── CREATOR / NEWSLETTER ONLY (skip unless PAGE_STYLE === "creator-newsletter") ──
+
+Q7. Publishing cadence. ask_user: "Weekly", "Biweekly", "Monthly", "When-I-feel-like-it / irregular".
+Q8. Subscriber count for social proof. ask_user: "Show exact count (I'll type it)", "Hide the count — it's too early to flex", "Skip — use a logo row or press mentions instead".
+    If "Show exact count", follow up in plain text asking for the number (e.g. "4,800 readers").
+Q9. Publications / podcasts / stages where you've been featured. ask_user: "I'll paste names + URLs", "I have a few but no logos yet — just text names", "None yet, skip this section".
+    If they want to include, follow up in plain text: "Paste 3-6 names (Forbes, TechCrunch, [Podcast Name], etc.) — URLs optional."
+Q10. Recent issue/post titles to showcase. ask_user: "I'll paste 3-5 titles + URLs", "Use my 3 most popular (I'll tell you which topics)", "Skip the content showcase".
+    If they want a showcase, follow up in plain text asking them to paste titles + short previews + URLs.
+Q11. Reader testimonials. ask_user: "I'll paste a few real reader quotes", "I don't have any yet — use clearly-marked placeholder slots", "Skip testimonials entirely for now".
+
+── MARKETING AGENCY ONLY (skip unless PAGE_STYLE === "marketing-agency") ──
+
+Q7. Core services. ask_user: "What are your 3-5 core services?" Options (suggest from context if possible): "Paid Ads (Meta/Google/TikTok)", "Branding & Design", "Web Development", "SEO / Content Marketing", "Social Media Management", "Email Marketing", "Video Production", "Let me type my own".
+    If they pick "Let me type", follow up in plain text asking them to list 3-5 services.
+Q8. Case studies / proof of work. ask_user: "Do you have case studies with client results to showcase?"
+    Options: "Yes — I'll paste 2-4 case studies with numbers", "I have some results but no formal case studies", "No case studies yet — use placeholder slots".
+    If they say yes or have some, follow up: "Paste each case study like this: Client Name | Challenge | Result (e.g. '3.2x ROAS in 60 days') | Screenshot URL (optional). Separate each with ---."
+Q9. Client logos. ask_user: "Do you have client logos to display?"
+    Options: "I'll paste logo image URLs", "I'll give you company names only", "No client logos yet — skip this section".
+Q10. Positioning niche. ask_user: "What kind of businesses do you serve best?"
+    Offer options derived from the user's answers (e.g. "E-commerce brands ($1M-$20M)", "SaaS companies", "Local businesses", "Personal brands / creators", "Let me describe it").
+Q11. Client testimonials. ask_user: "Do you have client testimonials?"
+    Options: "I'll paste 2-4 real testimonials with names + companies", "Not yet — use placeholders", "Skip testimonials".
+
+── EVENT / CONFERENCE ONLY (skip unless PAGE_STYLE === "event-conference") ──
+
+Q7. Event date(s) + location. ask_user: "When and where is the event?"
+    Options: "Specific date(s) — I'll type them", "Date TBD — use 'Coming Soon'", "It's a virtual event (no physical location)".
+    If specific dates: follow up in plain text — "What are the exact dates and city? (e.g., 'September 21-23, 2026 | Las Vegas, NV' or 'March 15, 2026 | Virtual')"
+Q8. Event format. ask_user: "What kind of event is this?"
+    Options: "Multi-day conference (2-4 days)", "Single-day summit or workshop", "Webinar or virtual masterclass", "Recurring event series".
+Q9. Speaker / host lineup. ask_user: "Do you have speakers or hosts to showcase?"
+    Options: "Yes — I'll paste names, titles, and credibility hooks", "It's just me (solo host)", "Speakers TBD — use placeholder slots".
+    If yes: follow up — "Paste each speaker: Name | Title | One-line credibility hook (e.g., 'Built a $100M company in 3 years'). Photo URL optional. Separate with ---."
+Q10. Ticket pricing. ask_user: "How does ticketing work?"
+     Options: "Multiple tiers (GA, VIP, etc.) — I'll list them", "Single price", "Free event / no ticketing", "Application-only (no public pricing)".
+     If tiers: follow up — "List each tier: Tier Name | Price | What's included. e.g., 'General: $497 | 3-day access + recordings' --- 'VIP: $1,297 | Front row + dinner + 1-on-1'. Separate with ---."
+Q11. Scarcity / urgency mechanic. ask_user: "What's the urgency angle?"
+     Options: "Early bird deadline (I'll give the date)", "Limited seats (I'll give the number)", "Price increase on a specific date", "No urgency — it's evergreen/on-demand".
+Q12. Past event proof. ask_user: "Do you have proof from past events?"
+     Options: "Yes — past attendee testimonials + photos/video", "First-time event — no past proof yet", "I have some testimonials but no photos".
+     If yes: follow up — "Paste 2-4 past attendee quotes (name + quote focused on what CHANGED for them, not 'it was fun'). Photo URLs optional. Separate with ---."
+
+── ASSET GATHERING (applies to ALL styles — do this AFTER style-specific questions are done, BEFORE delegating) ──
+
+This is where you earn your keep. Most users don't know what a high-converting landing page actually needs. Teach them by listing what would make the page great, explain why each matters in ONE line, then ask them to paste whatever they have in a single reply. Do NOT ask_user here — use a plain-text message so they can paste multiple URLs and blocks of text at once.
+
+The list is style-aware. Phrase it like a friend walking them through it, not a form. Example script (adapt wording to the user's voice and what you already know):
+
+  "Okay, before I build this — here's what makes a page actually convert. Paste whatever you have (and skip whatever you don't, I'll use clear placeholders):
+
+  1. **Video sales letter** (a 2-10 min video where you talk to the camera about the offer). YouTube/Loom/Vimeo link. THIS is the highest-conversion element on a DR page. If you don't have one, I'll put a placeholder box where you can drop the URL later.
+
+  2. **3-5 real testimonials.** Name + short quote + (ideally) a specific result they got. Screenshots of DMs or revenue are gold. If you don't have any yet, I'll leave clearly-marked placeholder slots so you can paste them in once you do.
+
+  3. **Founder photo** — a clean headshot or on-camera shot. URL or 'use the one in my brand DNA' if you've uploaded one.
+
+  4. **Proof screenshots** — any before/after numbers, revenue screenshots, booking confirmations, or result images from clients.
+
+  5. **Anything else** — logos of companies you've worked with, media mentions, press.
+
+  Paste what you've got, one block per item, or just say 'skip all' if you want me to use placeholders for everything and you'll add assets later in the editor."
+
+For CORPORATE-SAAS, adjust the list to: product screenshots/mockups (URLs or 'upload to brand DNA first'), demo video (YouTube/Loom), customer/company logos (logo bar), team photos, integration logos, any stats/numbers (users, uptime, ROI). Same tone — one-line explanations, user can paste or skip.
+
+For EVENT-CONFERENCE, adjust the list to:
+  1. **Past event photos/video** — shots of packed rooms, engaged audiences, connection moments. The ENERGY is what sells tickets. URL links to images. If first-time event, say so — we'll use {{GENERATE:...}} for aspirational crowd imagery.
+  2. **Speaker headshots** — real photos, consistent quality. These transfer authority. URL per speaker.
+  3. **Venue photo** — if in-person, one strong venue shot adds legitimacy. URL or 'skip'.
+  4. **Past attendee testimonials** — TRANSFORMATION-focused quotes, not "it was fun." What CHANGED for them after the event? Revenue, mindset, network, strategy. Name + company + quote.
+  5. **Sponsor / partner logos** — if applicable, for the logo bar.
+  The single most powerful asset for events is REAL photos of past crowds. Push the user hard for these. If it's a first-time event, emphasize speaker headshots + the transformation promise in copy instead.
+
+For MARKETING-AGENCY, adjust the list to:
+  1. **Founder / team photo** — the face behind the agency. URL or 'use brand DNA'.
+  2. **Case study screenshots or mockups** — before/after visuals, dashboard screenshots, campaign creatives. These are the visual proof. URLs only (no fabrication).
+  3. **Client logos** — real logo image URLs for the logo bar. The more recognizable, the better.
+  4. **Results numbers** — total revenue generated, campaigns run, average ROAS, clients served. Used for the big-number stats strip.
+  5. **Client testimonials** — name + title + company + quote. Specific results mentioned in the quote are gold.
+  For agencies, the WORK is the selling point. Push the user to provide real case studies and logos — these matter more than any copy trick.
+
+For CREATOR-NEWSLETTER, adjust the list to:
+  1. **Creator photo** — a warm, real headshot. This is the face of the brand; fake/stock feels instantly off. URL, or 'use the one in my brand DNA'.
+  2. **One-line bio / credibility hook** — who you are and why your readers trust you. If they don't have it, draft one from what they told you.
+  3. **Recent issue / post titles** they'd like to showcase (paste 3-5 titles + 1-line previews + URLs, or 'skip').
+  4. **Press / podcast logos** they've been featured in — URLs for logo images, or just names if no logos.
+  5. **Reader testimonials** — name + quote, ideally with a specific result or reaction.
+  Keep the tone warm and editorial. Mention that for creators, ONE real creator photo outweighs any amount of fancy imagery.
+
+RULE: if the user has brand DNA (photos, documents), mention it explicitly. "I see you've uploaded 3 brand photos already — I'll use those for the founder section." Don't ask for stuff they already gave you.
+
+If the user pastes content, parse it carefully. Identify which block is which asset (a YouTube URL is the VSL, anything with a name+quote is a testimonial, etc.). If ambiguous, ask one clarifying question.
+
+If the user says "skip all" or similar, accept it and proceed with clearly-marked placeholders.
+
+── DELEGATION ──
+
+When every question is answered, call delegate_to_agent with agent_name = "landing-page" (or "squeeze-page" if they asked for a squeeze/opt-in page). The task_description MUST begin with:
+
+  PAGE STYLE: <direct-response | corporate-saas>
+  The AI CEO has already asked the user all necessary questions — generate immediately, do not ask more.
+
+Then include labeled fields. For DIRECT-RESPONSE:
+
+  OFFER: <Q1>
+  AUDIENCE: <Q2>
+  TONE: <Q3>
+  CTA: <Q4>
+  OUTCOME: <Q7>
+  PRICE: <Q8 — range + listed deliverables/values, or "AI chooses the stack">
+  GUARANTEE: <Q9>
+  SCARCITY: <Q10>
+  VSL_URL: <the pasted URL, or "placeholder">
+  TESTIMONIALS: <verbatim text of each testimonial separated by ---, or "placeholder">
+  FOUNDER_PHOTO: <URL, or "use brand DNA photo", or "placeholder">
+  PROOF_SCREENSHOTS: <URLs/descriptions, or "none">
+  OTHER_ASSETS: <anything else they pasted>
+
+For CORPORATE-SAAS:
+
+  OFFER: <Q1>
+  AUDIENCE: <Q2>
+  TONE: <Q3>
+  CTA: <Q4>
+  PRODUCT_SCREENSHOTS: <URLs or "placeholder">
+  DEMO_VIDEO: <URL or "placeholder">
+  CUSTOMER_LOGOS: <list or "placeholder">
+  TEAM_PHOTOS: <URLs or "use brand DNA" or "none">
+  STATS: <any numbers they provided>
+
+For EVENT-CONFERENCE:
+
+  EVENT_NAME: <from Q1 or brand DNA>
+  EVENT_DATES: <Q7 — exact dates, "TBD", or "Virtual">
+  EVENT_LOCATION: <Q7 — city + venue, or "Virtual", or "TBD">
+  EVENT_FORMAT: <Q8 — multi-day / single-day / webinar / series>
+  AUDIENCE: <Q2>
+  TONE: <Q3>
+  CTA: <Q4 — usually "Reserve Your Seat" / "Get Your Ticket" / "Register Now">
+  SPEAKERS: <Q9 — each as "Name | Title | Credibility hook | Photo URL" separated by ---, or "solo host: [name]", or "TBD">
+  TICKETS: <Q10 — each tier as "Tier | Price | Inclusions" separated by ---, or "single: $X", or "free", or "application-only">
+  SCARCITY: <Q11 — early bird date / seat limit / price increase date / "none">
+  PAST_EVENT_PROOF: <Q12 — testimonials + photo URLs separated by ---, or "first-time event">
+  VENUE_PHOTO: <URL or "skip">
+  SPONSOR_LOGOS: <URLs or names, or "none">
+
+For MARKETING-AGENCY:
+
+  AGENCY_NAME: <from brand DNA or Q1>
+  SERVICES: <Q7 — list of 3-5 core services>
+  AUDIENCE: <Q2 + Q10 — who they serve + positioning niche>
+  TONE: <Q3>
+  CTA: <Q4 — usually "Book a strategy call" or "Get a free audit">
+  CASE_STUDIES: <Q8 — each as "Client | Challenge | Result | Screenshot URL" separated by --->
+  CLIENT_LOGOS: <Q9 — URLs or company names, or "none">
+  POSITIONING: <Q10 — the niche and type of businesses they serve best>
+  TESTIMONIALS: <Q11 — verbatim text separated by ---, or "placeholder" or "skip">
+  TEAM_PHOTO: <URL, "use brand DNA photo", or "placeholder">
+  RESULTS_NUMBERS: <from asset gathering — revenue, campaigns, ROAS, client count, etc.>
+
+For CREATOR-NEWSLETTER:
+
+  TOPIC: <Q1 — what the newsletter/content covers>
+  AUDIENCE: <Q2>
+  TONE: <Q3>
+  CTA: <Q4 — usually "Subscribe" — if user picked something else note it here>
+  CADENCE: <Q7>
+  SUBSCRIBER_COUNT: <Q8 — exact number if provided, "hide" if they chose to hide, or "none">
+  PRESS_LOGOS: <Q9 — list of names/URLs, or "none">
+  RECENT_POSTS: <Q10 — each as "Title | 1-line preview | URL" separated by ---, or "skip">
+  TESTIMONIALS: <Q11 — verbatim text separated by ---, "placeholder" if they want empty slots, or "skip">
+  CREATOR_PHOTO: <URL, or "use brand DNA photo", or "placeholder">
+  CREATOR_BIO: <one-line credibility hook, or "auto" to let the agent draft one from TOPIC+AUDIENCE>
+
+If EMBED FORM was selected, append "EMBED FORM: slug=<slug>, title=<title>" as the LAST line.
+
+── IMPORTANT ──
+- NEVER skip the style question. Always ask it explicitly.
+- NEVER repeat a question the user already answered — carry context across turns.
+- If the user says "just generate it" at any point, stop asking and delegate with whatever you have (missing fields become placeholders).
+- When showing the asset-gathering prompt, lead with WHY those assets matter — remember, our users might not know, and your job is to teach them what good pages need.
+`;
+
 
   // ── SOUL FILE  -  who this person is ──
   prompt += `\n\n=== SOUL FILE  -  WHO THIS PERSON IS ===
@@ -268,12 +505,46 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
 
   if (products?.length) {
     prompt += `=== PRODUCTS (${products.length}) ===\n`;
-    products.forEach(p => {
-      prompt += `- ${p.name}: $${p.price || 0}`;
-      if (p.description) prompt += `  -  ${p.description.slice(0, 200)}`;
+    prompt += `Use these product assets (photos, descriptions, pricing, checkout links) when drafting landing pages, emails, social posts, or anything that markets the offer. Reference photo URLs directly in image slots. Use checkout URLs in CTAs.\n\n`;
+    products.forEach((p, idx) => {
+      prompt += `--- Product ${idx + 1}: ${p.name} ---\n`;
+      if (p.type) prompt += `Type: ${p.type}\n`;
+
+      // Pricing — show every tier, not just the first.
+      const priceLines = [];
+      if (Array.isArray(p.pricing_options) && p.pricing_options.length) {
+        p.pricing_options.forEach((opt) => {
+          const dollars = opt.price_cents != null ? (opt.price_cents / 100).toFixed(2) : null;
+          if (dollars != null) {
+            const mode = opt.price_mode === 'monthly' ? '/month' : ' one-time';
+            const line = `$${dollars}${mode}${opt.payment_link_url ? ` — checkout: ${opt.payment_link_url}` : ''}`;
+            priceLines.push(line);
+          }
+        });
+      } else if (p.price_cents != null) {
+        priceLines.push(`$${(p.price_cents / 100).toFixed(2)}`);
+      } else if (p.price != null) {
+        priceLines.push(`$${p.price}`);
+      }
+      if (priceLines.length === 1) prompt += `Price: ${priceLines[0]}\n`;
+      else if (priceLines.length > 1) prompt += `Pricing tiers:\n${priceLines.map((l) => `  - ${l}`).join('\n')}\n`;
+
+      if (p.payment_link_url && !priceLines.some((l) => l.includes(p.payment_link_url))) {
+        prompt += `Checkout URL: ${p.payment_link_url}\n`;
+      }
+
+      // Photos / images — real URLs, usable by marketing agents as <img src="...">.
+      const photoUrls = (Array.isArray(p.photos) ? p.photos : [])
+        .map((ph) => (typeof ph === 'string' ? ph : ph?.url))
+        .filter(Boolean);
+      if (p.image_url && !photoUrls.includes(p.image_url)) photoUrls.unshift(p.image_url);
+      if (photoUrls.length) {
+        prompt += `Photos (${photoUrls.length}):\n${photoUrls.map((u) => `  - ${u}`).join('\n')}\n`;
+      }
+
+      if (p.description) prompt += `Description: ${p.description.slice(0, 1200)}\n`;
       prompt += '\n';
     });
-    prompt += '\n';
   }
 
   if (contacts?.length) {
@@ -373,7 +644,7 @@ RULES:
 // mode: "ceo" or "direct" (direct handles both generation and editing)
 router.post('/api/orchestrate', async (req, res) => {
   const userId = req.user?.id;
-  const { messages, mode = 'ceo', agent: agentName, searchMode = false, currentHtml, editInstruction, currentAgent } = req.body;
+  const { messages, mode = 'ceo', agent: agentName, searchMode = false, currentHtml, editInstruction, currentAgent, sessionId = null, assistantMsgId = null } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array required' });
@@ -397,19 +668,25 @@ router.post('/api/orchestrate', async (req, res) => {
     console.log(`[orchestrate] Context loaded, brandDna=${!!context.brandDna}`);
 
     if (mode === 'direct') {
-      await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction });
+      await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction, sessionId, assistantMsgId });
     } else if (mode === 'ceo' && currentHtml && currentAgent) {
-      // User is editing an existing artifact  -  try surgical file-based edit first
-      const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
+      // User is editing an existing artifact  -  try surgical file-based edit first.
+      // Pass the whole conversation so the edit agent remembers what was built,
+      // the brand, tone, and prior tweaks — instead of treating each edit as a
+      // cold-start where the user has to repeat themselves.
+      const userMessages = messages.filter(m => m.role === 'user');
+      const lastUserMsg = userMessages[userMessages.length - 1]?.content || '';
+      const priorMessages = messages.slice(0, -1); // everything except the current edit instruction
       const agent = getAgent(currentAgent);
       if (agent && lastUserMsg) {
-        console.log(`[orchestrate] CEO edit shortcut: trying file-based edit for ${currentAgent}`);
+        console.log(`[orchestrate] CEO edit shortcut: trying file-based edit for ${currentAgent} (priorMessages=${priorMessages.length})`);
         sendSSE(res, { type: 'status', text: 'Editing...' });
         try {
           const edited = await tryFileBasedEdit({
             res, agent, agentName: currentAgent,
             editInstruction: lastUserMsg,
-            userId, context, currentHtml,
+            priorMessages,
+            userId, context, currentHtml, sessionId, assistantMsgId,
           });
           if (edited) {
             console.log('[orchestrate] CEO edit shortcut succeeded');
@@ -422,9 +699,9 @@ router.post('/api/orchestrate', async (req, res) => {
         }
       }
       // Fall through to full CEO orchestration
-      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent });
+      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId, assistantMsgId });
     } else {
-      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent });
+      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId, assistantMsgId });
     }
     console.log('[orchestrate] Handler completed successfully');
   } catch (err) {
@@ -440,7 +717,7 @@ router.post('/api/orchestrate', async (req, res) => {
 
 // ── Direct Agent Execution ──
 // Handles both generation (no currentHtml) and editing (currentHtml + editInstruction)
-async function handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction }) {
+async function handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction, sessionId = null, assistantMsgId = null }) {
   const agent = getAgent(agentName);
   if (!agent) {
     sendSSE(res, { type: 'error', error: `Unknown agent: ${agentName}` });
@@ -451,7 +728,10 @@ async function handleDirectAgent({ res, agentName, messages, context, searchMode
   if (currentHtml && editInstruction) {
     console.log(`[orchestrate] Attempting file-based edit for ${agentName}`);
     try {
-      const edited = await tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml });
+      // Pass prior messages (minus the final edit instruction) so the edit
+      // agent retains conversation context instead of cold-starting.
+      const priorMessages = Array.isArray(messages) ? messages.slice(0, -1) : [];
+      const edited = await tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml, priorMessages, sessionId, assistantMsgId });
       if (edited) {
         console.log('[orchestrate] File-based edit succeeded');
         return;
@@ -466,7 +746,7 @@ async function handleDirectAgent({ res, agentName, messages, context, searchMode
   console.log(`[orchestrate] Running regular agent execution for ${agent.name}, msgCount=${messages?.length}`);
   sendSSE(res, { type: 'status', text: `Running ${agent.name} agent...` });
 
-  const systemPrompt = agent.buildSystemPrompt(context.brandDna) + GLOBAL_OUTPUT_RULES;
+  const systemPrompt = agent.buildSystemPrompt(context.brandDna) + buildProductsContext(context.products) + GLOBAL_OUTPUT_RULES;
 
   // For edit mode fallback, build messages with current HTML and section-based instructions
   let agentMessages = messages;
@@ -529,7 +809,45 @@ ${currentHtml}`,
 
 // ── File-Based Edit (Claude Code style) ──
 // Returns true if edit succeeded, false/throws if should fall back
-async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml }) {
+// Commit a stable snapshot of an artifact to the version history. Best-effort
+// — never fails the main request. Skips silently when any of the inputs we
+// need (userId, content) are missing.
+async function commitArtifactVersion({ userId, sessionId, agentName, content, summary, messageId }) {
+  if (!userId || userId === 'anonymous' || !content) return;
+  try {
+    let latestQuery = supabase
+      .from('artifact_versions')
+      .select('version_number')
+      .eq('user_id', userId)
+      .eq('agent_name', agentName)
+      .order('version_number', { ascending: false })
+      .limit(1);
+    // Supabase JS: null comparison needs .is(), not .eq().
+    if (sessionId) latestQuery = latestQuery.eq('session_id', sessionId);
+    else latestQuery = latestQuery.is('session_id', null);
+    const { data: latest } = await latestQuery;
+    const nextVersion = ((latest?.[0]?.version_number) || 0) + 1;
+    const { error: insertErr } = await supabase.from('artifact_versions').insert({
+      user_id: userId,
+      session_id: sessionId || null,
+      agent_name: agentName,
+      message_id: messageId || null,
+      version_number: nextVersion,
+      content,
+      summary: (summary || '').slice(0, 500) || null,
+      is_revert: false,
+    });
+    if (insertErr) {
+      console.log(`[artifact-versions] insert failed:`, insertErr.message);
+    } else {
+      console.log(`[artifact-versions] committed v${nextVersion} session=${sessionId || 'none'} agent=${agentName}`);
+    }
+  } catch (err) {
+    console.log(`[artifact-versions] commit failed (non-fatal):`, err.message);
+  }
+}
+
+async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId, context, currentHtml, priorMessages = [], sessionId = null, assistantMsgId = null }) {
   // Always prefer currentHtml from frontend (most up-to-date, includes cover images etc.)
   let fileHtml = currentHtml || getFile(userId, agentName);
   if (!fileHtml) return false;
@@ -539,10 +857,20 @@ async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId
 
   const systemPrompt = buildEditSystemPrompt(context.brandDna);
 
+  // Seed the conversation with the recent chat history so the edit agent
+  // remembers the brand, the original request, earlier tweaks, and can resolve
+  // pronouns / references ("make it bolder", "that section", "same as before").
+  // Cap to the last 16 turns so prompts stay bounded on long sessions.
+  const historyWindow = (priorMessages || [])
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && m.content)
+    .slice(-16)
+    .map((m) => ({ role: m.role, content: typeof m.content === 'string' ? m.content : String(m.content) }));
+
   const editMessages = [
+    ...historyWindow,
     {
       role: 'user',
-      content: `Here is the current HTML file:\n\n${fileHtml}\n\nEdit request: ${editInstruction}`,
+      content: `Here is the current HTML file you previously generated:\n\n${fileHtml}\n\nEdit request: ${editInstruction}\n\nImportant: apply ONLY what is requested. Keep everything else (copy, layout, assets, brand colors, tone) exactly as it is.`,
     },
   ];
 
@@ -596,6 +924,14 @@ async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId
     // Claude didn't make any edits  -  fall back to regular agent
     throw new Error('No edits were applied');
   }
+
+  // Save a revertible snapshot of the post-edit HTML.
+  commitArtifactVersion({
+    userId, sessionId, agentName,
+    messageId: assistantMsgId,
+    content: fileHtml,
+    summary: (summary || editInstruction || `Edit #${editCount}`),
+  });
 
   return true;
 }
@@ -683,7 +1019,7 @@ async function enrichMessagesWithVideoContext(messages, userId, res) {
 }
 
 // ── CEO Orchestration ──
-async function handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent }) {
+async function handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId = null, assistantMsgId = null }) {
   const systemPrompt = buildCeoSystemPrompt(context);
   const tools = buildAgentTools();
 
@@ -706,7 +1042,7 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, user
     onToolCalls: async (toolCalls) => {
       for (const call of toolCalls) {
         if (call.name === 'delegate_to_agent') {
-          await handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent });
+          await handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages: enrichedMessages, sessionId, assistantMsgId });
         } else if (call.name === 'ask_user') {
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
@@ -721,6 +1057,8 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, user
           await handleSendEmail({ res, call, userId });
         } else if (call.name === 'check_emails') {
           await handleCheckEmails({ res, call, userId });
+        } else if (call.name === 'create_form') {
+          await handleCreateForm({ res, call, userId });
         } else if (call.name === 'create_artifact' || call.name === 'generate_image') {
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
@@ -808,6 +1146,75 @@ async function handleSendEmail({ res, call, userId }) {
 }
 
 // ── Check Emails (CEO reads user's inbox from the synced emails table) ──
+// ── Create + publish a form on the fly (CEO calls when landing page needs lead capture) ──
+async function handleCreateForm({ res, call, userId }) {
+  let args;
+  try { args = JSON.parse(call.arguments); } catch { args = {}; }
+
+  const rawTitle = String(args.title || '').trim() || 'Lead Capture';
+  const rawQuestions = Array.isArray(args.questions) ? args.questions : [];
+
+  console.log(`[orchestrate] create_form called: title="${rawTitle}" questions=${rawQuestions.length}`);
+
+  if (rawQuestions.length === 0) {
+    call.result = JSON.stringify({ error: 'create_form called with no questions — cannot create an empty form.' });
+    sendSSE(res, { type: 'text_delta', content: "\n\nCouldn't create the form. No fields were specified." });
+    return;
+  }
+
+  // Normalize questions to the shape the forms table expects.
+  const questions = rawQuestions.slice(0, 10).map((q) => ({
+    id: globalThis.crypto?.randomUUID?.() || `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    type: q.type || 'short_text',
+    title: String(q.title || '').trim() || 'Question',
+    description: String(q.description || ''),
+    required: q.required !== false,
+    options: Array.isArray(q.options) ? q.options.map(String) : [],
+    settings: {},
+  }));
+
+  // Generate a slug. Prefer the DB RPC, fall back to a timestamp suffix.
+  const baseSlug = rawTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'form';
+  let slug = `${baseSlug}-${Date.now()}`;
+  try {
+    const { data: slugResult } = await supabase.rpc('generate_form_slug', { base_slug: baseSlug, uid: userId });
+    if (slugResult) slug = slugResult;
+  } catch {
+    // RPC missing / unavailable — fall back to the timestamped slug.
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('forms')
+      .insert({
+        user_id: userId,
+        title: rawTitle,
+        slug,
+        questions,
+        status: 'published',
+        theme: 'minimal',
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    console.log(`[orchestrate] create_form OK: id=${data.id} slug=${data.slug}`);
+    call.result = JSON.stringify({
+      ok: true,
+      id: data.id,
+      slug: data.slug,
+      title: data.title,
+      instruction: `Now delegate to the landing-page or squeeze-page agent and include "EMBED FORM: slug=${data.slug}, title=${data.title}" in the task_description.`,
+    });
+    sendSSE(res, { type: 'status', text: `Created form "${data.title}"` });
+  } catch (err) {
+    console.error('[orchestrate] create_form failed:', err.message);
+    call.result = JSON.stringify({ error: err.message });
+    sendSSE(res, { type: 'text_delta', content: `\n\nCouldn't create the form: ${err.message}` });
+  }
+}
+
 async function handleCheckEmails({ res, call, userId }) {
   let args;
   try { args = JSON.parse(call.arguments); } catch { args = {}; }
@@ -898,7 +1305,7 @@ async function handleCheckEmails({ res, call, userId }) {
 }
 
 // ── Agent Delegation (CEO calls a specialist agent) ──
-async function handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent }) {
+async function handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages = [], sessionId = null, assistantMsgId = null }) {
   let args;
   try { args = JSON.parse(call.arguments); } catch { args = {}; }
 
@@ -924,6 +1331,9 @@ async function handleAgentDelegation({ res, call, context, userId, currentHtml, 
         agent,
         agentName,
         editInstruction: taskDescription,
+        priorMessages,
+        sessionId,
+        assistantMsgId,
         userId,
         context,
         currentHtml,
@@ -937,7 +1347,7 @@ async function handleAgentDelegation({ res, call, context, userId, currentHtml, 
     }
   }
 
-  const systemPrompt = agent.buildSystemPrompt(context.brandDna) + GLOBAL_OUTPUT_RULES;
+  const systemPrompt = agent.buildSystemPrompt(context.brandDna) + buildProductsContext(context.products) + GLOBAL_OUTPUT_RULES;
 
   // If editing but file-based failed, use section-based editing
   let agentMessages;
@@ -1023,12 +1433,18 @@ ${taskDescription}`;
     },
   });
 
-  // Save to file store for future edits
+  // Save to file store for future edits + commit an initial version snapshot.
   if (userId && result.content) {
     try {
       const parsed = tryParseJSON(result.content);
       if (parsed?.html) {
         saveFile(userId, agentName, parsed.html);
+        commitArtifactVersion({
+          userId, sessionId, agentName,
+          messageId: assistantMsgId,
+          content: parsed.html,
+          summary: parsed.summary || 'Generated page',
+        });
       }
     } catch {}
   }

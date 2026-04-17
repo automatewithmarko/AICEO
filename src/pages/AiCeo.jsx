@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useOutletContext } from 'react-router-dom';
-import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History } from 'lucide-react';
+import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
+import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getSalesCalls, getContentItems, getProducts } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts } from '../lib/api';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
 import { supabase } from '../lib/supabase';
@@ -83,6 +83,8 @@ function mergeSectionEdits(currentHtml, sections) {
 export default function AiCeo() {
   const inboxCtx = useOutletContext() || {};
   const emailAccounts = inboxCtx.accounts || [];
+  const { sessionId: urlSessionId } = useParams();
+  const navigate = useNavigate();
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -105,6 +107,16 @@ export default function AiCeo() {
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [showSessions, setShowSessions] = useState(false);
+  const [renamingSessionId, setRenamingSessionId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  // Track sessions whose title the user manually edited so the autosave
+  // doesn't keep clobbering it with the derived "first user message" title.
+  const customTitleIdsRef = useRef(new Set());
+  // Mirror of `sessions` so the debounced autosave can look up the current
+  // custom title without adding `sessions` to its dep array (which would
+  // cancel the pending save every time the list changes).
+  const sessionsRef = useRef([]);
 
   const messagesEndRef = useRef(null);
   const saveTimer = useRef(null);
@@ -117,6 +129,12 @@ export default function AiCeo() {
   const isMobileRef = useRef(isMobile);
   const ctxMenuRef = useRef(null);
   const artifactRef = useRef(null);
+  // Kept in sync with the `sessionId` state so sendToAI's useCallback (which
+  // intentionally isn't recreated on every sessionId change) always reads
+  // the current value when it fires a backend request.
+  const sessionIdRef = useRef(null);
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
 
   const hasMessages = messages.length > 0;
   const showPanel = panelOpen && artifact && !isMobile;
@@ -131,7 +149,6 @@ export default function AiCeo() {
   const [ceoContextCategories, setCeoContextCategories] = useState([
     { id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png', items: [] },
     { id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png', items: [] },
-    { id: 'calls', label: 'Calls', iconSrc: '/icon-call-recording.png', items: [] },
     { id: 'meetings', label: 'Meetings', iconSrc: '/icon-call-recording.png', items: [] },
     { id: 'content', label: 'Content', iconSrc: '/icon-create-content.png', items: [] },
     { id: 'products', label: 'Products', iconSrc: '/icon-products.png', items: [] },
@@ -144,11 +161,10 @@ export default function AiCeo() {
     Promise.all([
       getTemplates('newsletter').catch(() => ({ templates: [] })),
       getEmails({ limit: 20 }).catch(() => ({ emails: [] })),
-      getSalesCalls().catch(() => ({ calls: [] })),
       getMeetings({ limit: 20 }).catch(() => ({ meetings: [] })),
       getContentItems().catch(() => ({ items: [] })),
       getProducts().catch(() => ({ products: [] })),
-    ]).then(([nlRes, emRes, clRes, mtRes, ctRes, prRes]) => {
+    ]).then(([nlRes, emRes, mtRes, ctRes, prRes]) => {
       if (cancelled) return;
       setCeoContextCategories([
         {
@@ -158,10 +174,6 @@ export default function AiCeo() {
         {
           id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png',
           items: (emRes.emails || []).map((e) => ({ id: `em-${e.id}`, name: e.subject || '(no subject)', date: fmt(e.date), sub: e.from_name || e.from_email || '' })),
-        },
-        {
-          id: 'calls', label: 'Calls', iconSrc: '/icon-call-recording.png',
-          items: (clRes.calls || []).map((c) => ({ id: `cl-${c.id}`, name: c.title || c.name || 'Untitled Call', date: fmt(c.date || c.created_at), sub: c.call_type || c.callType || '' })),
         },
         {
           id: 'meetings', label: 'Meetings', iconSrc: '/icon-call-recording.png',
@@ -356,35 +368,72 @@ export default function AiCeo() {
       }
 
       const firstUser = messages.find((m) => m.role === 'user');
-      const title = firstUser?.content?.replace(/\[CONTEXT[^\]]*\]\n?/g, '').slice(0, 80) || 'New conversation';
+      const derivedTitle = firstUser?.content?.replace(/\[CONTEXT[^\]]*\]\n?/g, '').slice(0, 80) || 'New conversation';
 
-      if (sessionId) {
-        await supabase.from('ceo_sessions').update({
-          messages: stripped, title, artifact: artifactData, updated_at: new Date().toISOString(),
-        }).eq('id', sessionId);
-        setSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, title, updated_at: new Date().toISOString() } : s));
-      } else {
-        const { data, error } = await supabase.from('ceo_sessions').insert({
-          user_id: userId, title, messages: stripped, artifact: artifactData,
-        }).select('id').single();
-        if (data && !error) {
-          setSessionId(data.id);
-          setSessions((prev) => [{ id: data.id, title, updated_at: new Date().toISOString() }, ...prev]);
-        }
+      if (!sessionId) return; // nothing to save against yet
+
+      // If the user manually renamed this session, preserve their title
+      // across autosaves instead of reverting it to the first-user-message.
+      const isCustom = customTitleIdsRef.current.has(sessionId);
+      const existing = sessionsRef.current.find((s) => s.id === sessionId);
+      const title = isCustom ? (existing?.title || derivedTitle) : derivedTitle;
+
+      // Upsert — client owns the uuid now so the URL is stable from the very
+      // first message and can be bookmarked before the server ever sees it.
+      const { error: upsertErr } = await supabase.from('ceo_sessions').upsert({
+        id: sessionId,
+        user_id: userId,
+        title,
+        messages: stripped,
+        artifact: artifactData,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+
+      if (!upsertErr) {
+        setSessions((prev) => {
+          const idx = prev.findIndex((s) => s.id === sessionId);
+          if (idx === -1) {
+            return [{ id: sessionId, title, updated_at: new Date().toISOString() }, ...prev];
+          }
+          const next = [...prev];
+          next[idx] = { ...next[idx], title, updated_at: new Date().toISOString() };
+          return next;
+        });
       }
     }, 2000);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [messages, sessionId, artifact]);
 
-  const loadSession = useCallback(async (id) => {
+  const loadSession = useCallback(async (id, { navigateToUrl = true } = {}) => {
     const { data, error } = await supabase
       .from('ceo_sessions')
       .select('id, title, messages, artifact')
       .eq('id', id)
       .single();
-    if (error || !data) return;
+    if (error || !data) {
+      // Session doesn't exist (e.g. URL to a deleted session) — treat as a
+      // fresh conversation with this id so the user lands somewhere sane.
+      setSessionId(id);
+      setMessages([]);
+      setArtifact(null);
+      setPanelOpen(false);
+      setCurrentQuestion(null);
+      return;
+    }
+    // Detect manual rename on load. customTitleIdsRef is in-memory so it
+    // resets on page refresh; without this, the debounced autosave would
+    // fire ~2s after load and clobber the stored title with the derived
+    // first-user-message title. If the stored title doesn't match what
+    // we'd derive, it was manually renamed — mark it custom so autosave
+    // preserves it.
+    const loadedMessages = data.messages || [];
+    const firstUser = loadedMessages.find((m) => m.role === 'user');
+    const derivedTitle = firstUser?.content?.replace(/\[CONTEXT[^\]]*\]\n?/g, '').slice(0, 80) || 'New conversation';
+    if (data.title && data.title !== derivedTitle) {
+      customTitleIdsRef.current.add(data.id);
+    }
     setSessionId(data.id);
-    setMessages(data.messages || []);
+    setMessages(loadedMessages);
     setCurrentQuestion(null);
     if (data.artifact) {
       setArtifact(data.artifact);
@@ -395,24 +444,80 @@ export default function AiCeo() {
       setPanelOpen(false);
     }
     setShowSessions(false);
-  }, [isMobile]);
+    if (navigateToUrl) navigate(`/ai-ceo/${data.id}`, { replace: true });
+  }, [isMobile, navigate]);
 
   const newConversation = useCallback(() => {
-    setSessionId(null);
+    // Generate the session uuid up front so the URL and any backend calls
+    // (including the new version-history writes) all agree from turn zero.
+    const newId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `ceo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setSessionId(newId);
     setMessages([]);
     setArtifact(null);
     setPanelOpen(false);
     setMobileArtifactOpen(false);
     setCurrentQuestion(null);
     setShowSessions(false);
+    navigate(`/ai-ceo/${newId}`, { replace: true });
+  }, [navigate]);
+
+  const startRenameSession = useCallback((s, e) => {
+    e?.stopPropagation?.();
+    setRenamingSessionId(s.id);
+    setRenameDraft(s.title || '');
   }, []);
 
-  const deleteSession = useCallback(async (id, e) => {
-    e.stopPropagation();
+  const cancelRenameSession = useCallback(() => {
+    setRenamingSessionId(null);
+    setRenameDraft('');
+  }, []);
+
+  const commitRenameSession = useCallback(async () => {
+    const id = renamingSessionId;
+    if (!id) return;
+    const next = renameDraft.trim() || 'Untitled conversation';
+    const current = sessions.find((s) => s.id === id);
+    if (current && current.title === next) {
+      cancelRenameSession();
+      return;
+    }
+    customTitleIdsRef.current.add(id);
+    setSessions((prev) => prev.map((s) => s.id === id ? { ...s, title: next } : s));
+    setRenamingSessionId(null);
+    setRenameDraft('');
+    await supabase.from('ceo_sessions').update({ title: next }).eq('id', id);
+  }, [renamingSessionId, renameDraft, sessions, cancelRenameSession]);
+
+  const requestDeleteSession = useCallback((id, e) => {
+    e?.stopPropagation?.();
+    setConfirmDeleteId(id);
+  }, []);
+
+  const confirmDeleteSession = useCallback(async () => {
+    const id = confirmDeleteId;
+    if (!id) return;
+    setConfirmDeleteId(null);
     await supabase.from('ceo_sessions').delete().eq('id', id);
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (sessionId === id) newConversation();
-  }, [sessionId, newConversation]);
+  }, [confirmDeleteId, sessionId, newConversation]);
+
+  // Sync URL -> session state. When the route's :sessionId changes (direct
+  // URL, back/forward, refresh), load that session; when missing, mint a
+  // fresh uuid so the new conversation has a stable URL from the start.
+  useEffect(() => {
+    if (urlSessionId) {
+      if (urlSessionId !== sessionId) {
+        loadSession(urlSessionId, { navigateToUrl: false });
+      }
+    } else if (!sessionId) {
+      // No URL param and no in-memory session — mint one.
+      newConversation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSessionId]);
 
   // ── Send to AI (via backend orchestrator) ──
   const sendToAI = useCallback(async (chatHistory) => {
@@ -434,6 +539,8 @@ export default function AiCeo() {
         messages: apiMessages,
         mode: 'ceo',
         searchMode: researchMode,
+        sessionId: sessionIdRef.current || null,
+        assistantMsgId,
         ...(hasHtmlArtifact ? { currentHtml: currentArtifact.content, currentAgent: currentArtifact.agentSource || 'newsletter' } : {}),
       }, {
         // CEO text streaming
@@ -743,24 +850,48 @@ export default function AiCeo() {
                 }));
               })();
             }
-          } catch {
-            // Not JSON  -  try to extract HTML from the content
-            let rawHtml = content;
-            if (content.includes('<!DOCTYPE') || content.includes('<html')) {
-              // Content is raw HTML
-            } else {
-              // Try to extract HTML from a partial JSON-like string
-              const htmlMatch = content.match(/"html"\s*:\s*"([\s\S]+)/);
-              if (htmlMatch) {
-                let extracted = htmlMatch[1];
-                try { extracted = JSON.parse('"' + extracted.replace(/"\s*[,}]\s*$/, '') + '"'); } catch {
-                  extracted = extracted.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\').replace(/"\s*[,}]\s*$/, '');
+          } catch (parseErr) {
+            console.log('[agent-result] JSON parse failed, attempting raw HTML extraction:', parseErr.message?.slice(0, 100));
+
+            // The LLM returned {"type":"html","html":"...","summary":"..."} but
+            // with raw newlines and/or unescaped quotes inside the HTML value,
+            // so every JSON.parse variant failed. Instead of trying to parse the
+            // malformed JSON, extract the HTML by its own boundaries (<!DOCTYPE
+            // or <html through </html>) which are always present and unambiguous.
+            let rawHtml = '';
+
+            // Strategy 1: extract <!DOCTYPE.....</html> by HTML boundaries.
+            // Works regardless of surrounding JSON, markdown fences, or any
+            // other wrapper — we just grab the HTML document itself.
+            const docStart = content.indexOf('<!DOCTYPE');
+            const htmlTagStart = docStart === -1 ? content.indexOf('<html') : docStart;
+            if (htmlTagStart !== -1) {
+              const htmlEnd = content.lastIndexOf('</html>');
+              if (htmlEnd !== -1 && htmlEnd > htmlTagStart) {
+                let extracted = content.slice(htmlTagStart, htmlEnd + '</html>'.length);
+                // The HTML may still have JSON string escapes baked in
+                // (e.g. \" instead of ", \\n instead of newline) if the LLM
+                // wrote it inside a JSON string value. Unescape them.
+                if (extracted.includes('\\n') || extracted.includes('\\"')) {
+                  extracted = extracted
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\t/g, '\t')
+                    .replace(/\\r/g, '\r')
+                    .replace(/\\"/g, '"')
+                    .replace(/\\\\/g, '\\');
                 }
-                if (extracted.includes('<')) rawHtml = extracted;
+                rawHtml = extracted;
               }
             }
 
-            if (rawHtml.includes('<!DOCTYPE') || rawHtml.includes('<html') || rawHtml.includes('<table')) {
+            // Strategy 2: content itself is raw HTML without any wrapper.
+            if (!rawHtml && !content.trimStart().startsWith('{')) {
+              if (content.includes('<html') || content.includes('<body') || content.includes('<table')) {
+                rawHtml = content;
+              }
+            }
+
+            if (rawHtml && (rawHtml.includes('<html') || rawHtml.includes('<body') || rawHtml.includes('<!DOCTYPE'))) {
               const isNewsletter = agentName === 'newsletter';
               setArtifact({
                 id: Date.now(),
@@ -772,6 +903,21 @@ export default function AiCeo() {
               });
               setPanelOpen(true);
               if (isMobileRef.current) setMobileArtifactOpen(true);
+            } else {
+              // Extraction failed. If the streaming preview already has a good
+              // artifact loaded, DON'T overwrite it — the preview is better
+              // than nothing. Only show an error if there's no preview either.
+              const currentArt = artifactRef.current;
+              if (currentArt?.content && currentArt.content.includes('<html')) {
+                console.log('[agent-result] Extraction failed but streaming preview is intact — keeping it.');
+                // Just update the title so it doesn't say "Crafting..."
+                setArtifact(prev => prev ? { ...prev, title: `${agentName} output` } : prev);
+              } else {
+                console.error('[agent-result] Could not extract HTML. Content starts with:', content.slice(0, 200));
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantMsgId ? { ...m, content: 'The page was generated but couldn\'t be rendered. Please try again.' } : m
+                ));
+              }
             }
           }
         },
@@ -923,6 +1069,14 @@ export default function AiCeo() {
     el.style.height = el.scrollHeight + 'px';
   };
 
+  useEffect(() => {
+    const els = document.querySelectorAll('.ceo-input');
+    els.forEach((el) => {
+      el.style.height = 'auto';
+      el.style.height = el.scrollHeight + 'px';
+    });
+  }, [input]);
+
   const toggleVoice = () => {
     if (isListening) {
       recognitionRef.current?.stop();
@@ -980,27 +1134,71 @@ export default function AiCeo() {
                   {sessions.length === 0 && (
                     <div className="ceo-sessions-empty">No past conversations yet</div>
                   )}
-                  {sessions.map((s) => (
-                    <div
-                      key={s.id}
-                      className={`ceo-sessions-item ${s.id === sessionId ? 'ceo-sessions-item--active' : ''}`}
-                      onClick={() => loadSession(s.id)}
-                    >
-                      <div className="ceo-sessions-item-info">
-                        <span className="ceo-sessions-item-title">{s.title}</span>
-                        <span className="ceo-sessions-item-meta">
-                          {new Date(s.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </span>
+                  {sessions.map((s) => {
+                    const isRenaming = renamingSessionId === s.id;
+                    return (
+                      <div
+                        key={s.id}
+                        className={`ceo-sessions-item ${s.id === sessionId ? 'ceo-sessions-item--active' : ''}`}
+                        onClick={() => { if (!isRenaming) loadSession(s.id); }}
+                      >
+                        <div className="ceo-sessions-item-info">
+                          {isRenaming ? (
+                            <input
+                              autoFocus
+                              className="ceo-sessions-item-rename"
+                              value={renameDraft}
+                              onChange={(e) => setRenameDraft(e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') { e.preventDefault(); commitRenameSession(); }
+                                else if (e.key === 'Escape') { e.preventDefault(); cancelRenameSession(); }
+                              }}
+                              onBlur={commitRenameSession}
+                              maxLength={120}
+                            />
+                          ) : (
+                            <span className="ceo-sessions-item-title">{s.title}</span>
+                          )}
+                          <span className="ceo-sessions-item-meta">
+                            {new Date(s.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </span>
+                        </div>
+                        {!isRenaming && (
+                          <button className="ceo-sessions-item-rename-btn" onClick={(e) => startRenameSession(s, e)} title="Rename">
+                            <Pencil size={13} />
+                          </button>
+                        )}
+                        <button className="ceo-sessions-item-delete" onClick={(e) => requestDeleteSession(s.id, e)} title="Delete">
+                          <Trash2 size={14} />
+                        </button>
                       </div>
-                      <button className="ceo-sessions-item-delete" onClick={(e) => deleteSession(s.id, e)}>
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </>
           )}
+
+          {/* Delete confirmation modal */}
+          {confirmDeleteId && (() => {
+            const target = sessions.find((s) => s.id === confirmDeleteId);
+            return (
+              <div className="ceo-confirm-backdrop" onClick={() => setConfirmDeleteId(null)}>
+                <div className="ceo-confirm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+                  <div className="ceo-confirm-icon"><Trash2 size={20} /></div>
+                  <div className="ceo-confirm-title">Delete this conversation?</div>
+                  <div className="ceo-confirm-desc">
+                    {target ? `"${target.title}" will be permanently removed.` : 'This conversation will be permanently removed.'}
+                  </div>
+                  <div className="ceo-confirm-actions">
+                    <button className="ceo-confirm-btn ceo-confirm-btn--cancel" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
+                    <button className="ceo-confirm-btn ceo-confirm-btn--danger" onClick={confirmDeleteSession} autoFocus>Delete</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {!hasMessages && (
             <div className="ceo-hero">
@@ -1103,6 +1301,7 @@ export default function AiCeo() {
                       placeholder="How can your AI CEO help you?"
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
+                      onInput={autoResize}
                       onKeyDown={handleKeyDown}
                       rows={3}
                     />
@@ -1401,6 +1600,7 @@ export default function AiCeo() {
               onClose={() => setPanelOpen(false)}
               onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
               onContentChange={(html) => setArtifact(prev => prev ? { ...prev, content: html } : prev)}
+              sessionId={sessionId}
             />
           </div>
         )}

@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Check, ChevronDown, Phone, FileText, ExternalLink, X, Copy, Loader, Upload, Plus } from 'lucide-react';
-import { connectIntegration, getIntegrations, getEmailAccounts, uploadBrandDnaFiles } from '../lib/api';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { Check, ChevronDown, ChevronUp, ExternalLink, X, Copy, Loader, Upload, Plus } from 'lucide-react';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
+import { connectIntegration, getIntegrations, getEmailAccounts, uploadBrandDnaFiles, getDashboardStats } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
 import './Dashboard.css';
@@ -29,9 +29,9 @@ const ONBOARDING_STEPS = [
 ];
 
 export default function Dashboard() {
-  const navigate = useNavigate();
   const [dashLoading, setDashLoading] = useState(true);
-  const [onboardingVisible, setOnboardingVisible] = useState(true);
+  const [onboardingExpanded, setOnboardingExpanded] = useState(true);
+  const autoCollapsedRef = useRef(false);
   const [completedSteps, setCompletedSteps] = useState(new Set([1]));
   const [connectedIntegrations, setConnectedIntegrations] = useState({});
   const [selectedNoteTaker, setSelectedNoteTaker] = useState(NOTE_TAKERS[0]);
@@ -59,6 +59,71 @@ export default function Dashboard() {
   const [brandBrainSaved, setBrandBrainSaved] = useState(false);
   const [brandBrainRawData, setBrandBrainRawData] = useState(null);
 
+  // Dashboard stats (populated from /api/dashboard-stats)
+  const [statsTimeframe, setStatsTimeframe] = useState('week');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [customApplied, setCustomApplied] = useState({ from: '', to: '' });
+  const [overviewStats, setOverviewStats] = useState(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+
+  useEffect(() => {
+    // Don't fetch if user picked Custom but hasn't applied a range yet.
+    if (statsTimeframe === 'custom' && !customApplied.from && !customApplied.to) return;
+    let cancelled = false;
+    setOverviewLoading(true);
+    const opts = statsTimeframe === 'custom'
+      ? { from: customApplied.from || undefined, to: customApplied.to || undefined }
+      : {};
+    getDashboardStats(statsTimeframe, opts)
+      .then((data) => { if (!cancelled && data) setOverviewStats(data); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setOverviewLoading(false); });
+    return () => { cancelled = true; };
+  }, [statsTimeframe, customApplied]);
+
+
+  const fmtInt = (n) => (Number(n) || 0).toLocaleString('en-US');
+  const fmtMoney = (n) => {
+    const v = Number(n) || 0;
+    return `$${v.toLocaleString('en-US', { maximumFractionDigits: v >= 1000 ? 0 : 2 })}`;
+  };
+  const platformCreated = (p) => overviewStats?.content_created?.[p] ?? 0;
+  const platformPublished = (p) => overviewStats?.content_published?.[p] ?? 0;
+
+  // ── Chart data ──
+  const revenueChartData = useMemo(() => {
+    const series = overviewStats?.revenue_series || [];
+    const isHourly = overviewStats?.granularity === 'hour';
+    return series.map((pt) => {
+      const d = new Date(pt.date);
+      const label = isHourly
+        ? d.toLocaleTimeString('en-US', { hour: 'numeric' })
+        : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return { label, value: Number(pt.value) || 0, rawDate: pt.date };
+    });
+  }, [overviewStats]);
+
+  const contentMixData = useMemo(() => {
+    const PLATFORM_META = [
+      { id: 'instagram', name: 'Instagram', color: '#E4405F' },
+      { id: 'tiktok', name: 'TikTok', color: '#111111' },
+      { id: 'youtube', name: 'YouTube', color: '#FF0000' },
+      { id: 'linkedin', name: 'LinkedIn', color: '#0A66C2' },
+      { id: 'x', name: 'X', color: '#555555' },
+    ];
+    const rows = PLATFORM_META.map((p) => ({
+      ...p,
+      value: platformCreated(p.id) + platformPublished(p.id),
+    })).filter((r) => r.value > 0);
+    return rows;
+  }, [overviewStats]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const revenueTotal = overviewStats?.revenue_generated || 0;
+  const contentTotal = contentMixData.reduce((s, r) => s + r.value, 0);
+
+  const [ghlLocationId, setGhlLocationId] = useState('');
+
   // Load onboarding state + integration status on mount
   useEffect(() => {
     async function load() {
@@ -73,7 +138,7 @@ export default function Dashboard() {
           .single();
 
         if (onboarding) {
-          setOnboardingVisible(onboarding.is_visible);
+          setOnboardingExpanded(onboarding.is_visible !== false);
           for (const s of (onboarding.completed_steps || [])) {
             if (s === 'signup') steps.add(1);
             if (s === 'photos') steps.add(2);
@@ -127,6 +192,40 @@ export default function Dashboard() {
   const completedCount = completedSteps.size;
   const progressPercent = (completedCount / totalSteps) * 100;
 
+  const persistOnboardingVisibility = (visible) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.user) return;
+      supabase.from('onboarding').upsert({
+        user_id: session.user.id,
+        is_visible: visible,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+    });
+  };
+
+  const toggleOnboarding = () => {
+    setOnboardingExpanded((prev) => {
+      const next = !prev;
+      persistOnboardingVisibility(next);
+      return next;
+    });
+  };
+
+  // Auto-collapse on the incomplete -> complete transition within this session.
+  // Avoids fighting users who already finished onboarding and deliberately
+  // re-expanded the panel on a prior visit.
+  const prevCompletedRef = useRef(completedCount);
+  useEffect(() => {
+    const wasIncomplete = prevCompletedRef.current < totalSteps;
+    const nowComplete = completedCount === totalSteps;
+    if (wasIncomplete && nowComplete && !autoCollapsedRef.current && onboardingExpanded) {
+      autoCollapsedRef.current = true;
+      setOnboardingExpanded(false);
+      persistOnboardingVisibility(false);
+    }
+    prevCompletedRef.current = completedCount;
+  }, [completedCount, totalSteps, onboardingExpanded]);
+
   const handleComplete = (stepId) => {
     setCompletedSteps((prev) => {
       const next = new Set([...prev, stepId]);
@@ -158,6 +257,28 @@ export default function Dashboard() {
     setModalType('payment'); setModalOpen(true);
   };
 
+  const openBoosendModal = () => {
+    setApiKey(''); setCopiedField(null); setConnectError(null); setConnecting(false);
+    setModalType('boosend'); setModalOpen(true);
+  };
+
+  const openGhlModal = () => {
+    setApiKey(''); setGhlLocationId(''); setCopiedField(null); setConnectError(null); setConnecting(false);
+    setModalType('gohighlevel'); setModalOpen(true);
+  };
+
+  const handleGHLConnect = async () => {
+    if (!apiKey.trim() || !ghlLocationId.trim()) return;
+    setConnecting(true); setConnectError(null);
+    try {
+      await connectIntegration('gohighlevel', apiKey, { location_id: ghlLocationId.trim() });
+      setModalOpen(false);
+      handleComplete(7);
+      setApiKey(''); setGhlLocationId(''); setModalType(null);
+    } catch (err) { setConnectError(err.message); }
+    finally { setConnecting(false); }
+  };
+
   const handleFirefliesNext = async () => {
     if (!apiKey.trim()) return;
     setConnecting(true); setConnectError(null);
@@ -173,10 +294,13 @@ export default function Dashboard() {
     if (!apiKey.trim()) return;
     setConnecting(true); setConnectError(null);
     try {
-      const provider = modalType === 'payment' ? selectedPayment.id : selectedNoteTaker.id;
+      const provider = modalType === 'payment' ? selectedPayment.id
+        : modalType === 'boosend' ? 'boosend'
+        : selectedNoteTaker.id;
       await connectIntegration(provider, apiKey);
       setModalOpen(false);
       if (modalType === 'payment') handleComplete(5);
+      else if (modalType === 'boosend') handleComplete(8);
       else handleComplete(6);
       setApiKey(''); setFirefliesStep(1); setModalType(null);
     } catch (err) { setConnectError(err.message); }
@@ -377,22 +501,27 @@ export default function Dashboard() {
     <div className="page-container">
       <h1 className="page-title">Dashboard</h1>
 
-      {onboardingVisible && (
-        <div className="onboarding">
-          <div className="onboarding-header">
-            <div className="onboarding-header-left">
-              <span className="onboarding-badge">Onboarding</span>
-              <span className="onboarding-progress-label">
-                {completedCount}/{totalSteps} completed
-              </span>
-            </div>
-            {completedCount === totalSteps && (
-              <button className="onboarding-dismiss" onClick={() => setOnboardingVisible(false)}>Dismiss</button>
-            )}
+      <div className={`onboarding ${onboardingExpanded ? '' : 'onboarding--collapsed'}`}>
+        <div className="onboarding-header" onClick={toggleOnboarding} role="button" tabIndex={0}
+             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOnboarding(); } }}>
+          <div className="onboarding-header-left">
+            <span className="onboarding-badge">Onboarding</span>
+            <span className="onboarding-progress-label">
+              {completedCount}/{totalSteps} completed
+            </span>
           </div>
-          <div className="onboarding-progress-bar">
-            <div className="onboarding-progress-fill" style={{ width: `${progressPercent}%` }} />
-          </div>
+          <button
+            className="onboarding-toggle"
+            onClick={(e) => { e.stopPropagation(); toggleOnboarding(); }}
+            aria-label={onboardingExpanded ? 'Collapse onboarding' : 'Expand onboarding'}
+          >
+            {onboardingExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+          </button>
+        </div>
+        {onboardingExpanded && (<>
+        <div className="onboarding-progress-bar">
+          <div className="onboarding-progress-fill" style={{ width: `${progressPercent}%` }} />
+        </div>
 
           <div className="onboarding-steps">
             {ONBOARDING_STEPS.map((step) => {
@@ -474,8 +603,8 @@ export default function Dashboard() {
                             else if (step.type === 'brand-brain') openBrandBrainModal();
                             else if (step.type === 'payment') openPaymentModal();
                             else if (step.type === 'notetaker') openNotetakerModal();
-                            else if (step.type === 'gohighlevel') navigate('/settings');
-                            else if (step.type === 'boosend') navigate('/settings');
+                            else if (step.type === 'gohighlevel') openGhlModal();
+                            else if (step.type === 'boosend') openBoosendModal();
                             else handleComplete(step.id);
                           }}
                         >
@@ -493,22 +622,326 @@ export default function Dashboard() {
               );
             })}
           </div>
-        </div>
-      )}
+        </>)}
+      </div>
 
-      <div className="dashboard-stats">
+      <div className="dashboard-stats-header">
+        <h2 className="dashboard-stats-title">Overview</h2>
+        <div className="dashboard-timeframe-wrap">
+          <div className="dashboard-timeframe" role="tablist" aria-label="Timeframe">
+            {[
+              { id: 'today', label: 'Today' },
+              { id: 'week', label: 'Week' },
+              { id: 'month', label: 'Month' },
+              { id: 'all', label: 'All' },
+            ].map((tf) => (
+              <button
+                key={tf.id}
+                role="tab"
+                aria-selected={statsTimeframe === tf.id}
+                className={`dashboard-timeframe-btn${statsTimeframe === tf.id ? ' dashboard-timeframe-btn--active' : ''}`}
+                onClick={() => {
+                  setStatsTimeframe(tf.id);
+                  setCustomFrom(''); setCustomTo(''); setCustomApplied({ from: '', to: '' });
+                }}
+              >
+                {tf.label}
+              </button>
+            ))}
+          </div>
+          <div className="dashboard-timeframe-custom">
+            <label>
+              <span>From</span>
+              <input
+                type="date"
+                value={customFrom}
+                max={customTo || undefined}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setCustomFrom(v);
+                  if (v || customTo) { setStatsTimeframe('custom'); setCustomApplied({ from: v, to: customTo }); }
+                }}
+              />
+            </label>
+            <label>
+              <span>To</span>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom || undefined}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setCustomTo(v);
+                  if (v || customFrom) { setStatsTimeframe('custom'); setCustomApplied({ from: customFrom, to: v }); }
+                }}
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className={`dashboard-stats dashboard-stats--grid${overviewLoading ? ' dashboard-stats--loading' : ''}`}>
         <div className="stat-card">
-          <div className="stat-icon"><Phone size={22} /></div>
+          <div className="stat-icon">
+            <img src="/icon-crm.png" alt="" className="stat-icon-img" />
+          </div>
           <div className="stat-info">
-            <span className="stat-value">0</span>
-            <span className="stat-label">Sales Calls This Week</span>
+            <span className="stat-value">{fmtInt(overviewStats?.new_contacts)}</span>
+            <span className="stat-label">New Contacts</span>
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon"><FileText size={22} /></div>
+          <div className="stat-icon stat-icon--success">
+            <img src="/icon-sales.png" alt="" className="stat-icon-img" />
+          </div>
           <div className="stat-info">
-            <span className="stat-value">0</span>
-            <span className="stat-label">Posts This Week</span>
+            <span className="stat-value">{fmtMoney(overviewStats?.revenue_generated)}</span>
+            <span className="stat-label">Revenue Generated</span>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon stat-icon--info">
+            <img src="/icon-inbox.png" alt="" className="stat-icon-img" />
+          </div>
+          <div className="stat-info">
+            <span className="stat-value">{fmtInt(overviewStats?.emails_sent)}</span>
+            <span className="stat-label">Emails Sent</span>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon stat-icon--info">
+            <img src="/icon-marketing.png" alt="" className="stat-icon-img" />
+          </div>
+          <div className="stat-info">
+            <span className="stat-value">{fmtInt(overviewStats?.newsletters_sent)}</span>
+            <span className="stat-label">Newsletters Sent</span>
+          </div>
+        </div>
+        <div className="stat-card stat-card--wide">
+          <div className="stat-info stat-info--full">
+            <span className="stat-label stat-label--section">Content Created</span>
+            <div className="stat-platforms">
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--ig">
+                  <img src="/instagram-icon.svg" alt="Instagram" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformCreated('instagram'))}</span>
+                  <span className="stat-platform-name">Instagram</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--tt">
+                  <img src="/tiktok-icon.svg" alt="TikTok" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformCreated('tiktok'))}</span>
+                  <span className="stat-platform-name">TikTok</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--yt">
+                  <img src="/youtube-icon.svg" alt="YouTube" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformCreated('youtube'))}</span>
+                  <span className="stat-platform-name">YouTube</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--li">
+                  <img src="/linkedin-icon.svg" alt="LinkedIn" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformCreated('linkedin'))}</span>
+                  <span className="stat-platform-name">LinkedIn</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--x">
+                  <img src="/x-icon.svg" alt="X" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformCreated('x'))}</span>
+                  <span className="stat-platform-name">X</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="stat-card stat-card--wide">
+          <div className="stat-info stat-info--full">
+            <span className="stat-label stat-label--section">Content Published</span>
+            <div className="stat-platforms">
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--ig">
+                  <img src="/instagram-icon.svg" alt="Instagram" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformPublished('instagram'))}</span>
+                  <span className="stat-platform-name">Instagram</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--tt">
+                  <img src="/tiktok-icon.svg" alt="TikTok" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformPublished('tiktok'))}</span>
+                  <span className="stat-platform-name">TikTok</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--yt">
+                  <img src="/youtube-icon.svg" alt="YouTube" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformPublished('youtube'))}</span>
+                  <span className="stat-platform-name">YouTube</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--li">
+                  <img src="/linkedin-icon.svg" alt="LinkedIn" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformPublished('linkedin'))}</span>
+                  <span className="stat-platform-name">LinkedIn</span>
+                </div>
+              </div>
+              <div className="stat-platform">
+                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--x">
+                  <img src="/x-icon.svg" alt="X" />
+                </div>
+                <div className="stat-platform-meta">
+                  <span className="stat-platform-value">{fmtInt(platformPublished('x'))}</span>
+                  <span className="stat-platform-name">X</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Charts ── */}
+      <div className="dashboard-charts">
+        <div className="dashboard-chart-card dashboard-chart-card--primary">
+          <div className="dashboard-chart-head">
+            <div>
+              <span className="dashboard-chart-label">Revenue</span>
+              <span className="dashboard-chart-value">{fmtMoney(revenueTotal)}</span>
+            </div>
+            <span className="dashboard-chart-subtitle">
+              {overviewStats?.granularity === 'hour' ? 'Hourly' : 'Daily'}
+            </span>
+          </div>
+          <div className="dashboard-chart-body">
+            {revenueChartData.length === 0 ? (
+              <div className="dashboard-chart-empty">No revenue in this range yet.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <AreaChart data={revenueChartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#e91a44" stopOpacity={0.28} />
+                      <stop offset="100%" stopColor="#e91a44" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#eef0f3" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: '#8a8f98', fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                    minTickGap={24}
+                  />
+                  <YAxis
+                    tick={{ fill: '#8a8f98', fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => (v >= 1000 ? `$${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `$${v}`)}
+                    width={48}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: '#e91a44', strokeOpacity: 0.25, strokeWidth: 1 }}
+                    contentStyle={{
+                      background: '#fff',
+                      border: '1px solid #e6e8ec',
+                      borderRadius: 10,
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.06)',
+                      fontSize: 12,
+                    }}
+                    labelStyle={{ color: '#8a8f98', fontWeight: 500 }}
+                    formatter={(v) => [fmtMoney(v), 'Revenue']}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#e91a44"
+                    strokeWidth={2}
+                    fill="url(#revenueGradient)"
+                    activeDot={{ r: 4, fill: '#e91a44', stroke: '#fff', strokeWidth: 2 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        <div className="dashboard-chart-card">
+          <div className="dashboard-chart-head">
+            <div>
+              <span className="dashboard-chart-label">Content Mix</span>
+              <span className="dashboard-chart-value">{fmtInt(contentTotal)}</span>
+            </div>
+            <span className="dashboard-chart-subtitle">By platform</span>
+          </div>
+          <div className="dashboard-chart-body">
+            {contentMixData.length === 0 ? (
+              <div className="dashboard-chart-empty">No content in this range yet.</div>
+            ) : (
+              <div className="dashboard-donut-wrap">
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={contentMixData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={80}
+                      paddingAngle={2}
+                      stroke="none"
+                    >
+                      {contentMixData.map((entry) => (
+                        <Cell key={entry.id} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        background: '#fff',
+                        border: '1px solid #e6e8ec',
+                        borderRadius: 10,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.06)',
+                        fontSize: 12,
+                      }}
+                      formatter={(v, name) => [fmtInt(v), name]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <ul className="dashboard-donut-legend">
+                  {contentMixData.map((row) => (
+                    <li key={row.id} className="dashboard-donut-legend-item">
+                      <span className="dashboard-donut-swatch" style={{ background: row.color }} />
+                      <span className="dashboard-donut-name">{row.name}</span>
+                      <span className="dashboard-donut-count">{fmtInt(row.value)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -519,7 +952,16 @@ export default function Dashboard() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <button className="modal-close" onClick={() => setModalOpen(false)}><X size={18} /></button>
             <div className="modal-logo">
-              <img src={modalType === 'payment' ? selectedPayment.logo : selectedNoteTaker.logo} alt={modalType === 'payment' ? selectedPayment.name : selectedNoteTaker.name} />
+              <img
+                src={modalType === 'payment' ? selectedPayment.logo
+                  : modalType === 'boosend' ? '/boosend-logo.png'
+                  : modalType === 'gohighlevel' ? '/gohighlevel-logo.png'
+                  : selectedNoteTaker.logo}
+                alt={modalType === 'payment' ? selectedPayment.name
+                  : modalType === 'boosend' ? 'BooSend'
+                  : modalType === 'gohighlevel' ? 'GoHighLevel'
+                  : selectedNoteTaker.name}
+              />
             </div>
 
             {modalType === 'payment' && selectedPayment.id === 'stripe' && (
@@ -547,6 +989,97 @@ export default function Dashboard() {
                 <button className="modal-btn modal-btn--primary" disabled={!apiKey.trim() || connecting} onClick={handleConnect}>
                   {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
                 </button>
+              </>
+            )}
+
+            {modalType === 'gohighlevel' && (
+              <>
+                <p className="modal-description">
+                  Connect GoHighLevel for automatic bi-directional CRM syncing. New contacts sync both ways between GoHighLevel and your CRM.
+                </p>
+                <div className="modal-connect-instructions">
+                  <details open>
+                    <summary className="modal-connect-summary">How to get your GoHighLevel credentials</summary>
+                    <ol className="modal-connect-steps">
+                      <li>Go to your GoHighLevel <strong>Settings &rarr; Business Profile</strong> and copy your <strong>Location ID</strong></li>
+                      <li>Go to <strong>Settings &rarr; Integrations &rarr; Private Integrations</strong> and create an <strong>API token</strong></li>
+                      <li>Paste both below</li>
+                    </ol>
+                  </details>
+                </div>
+                <div className="modal-field">
+                  <label className="modal-label">Location ID</label>
+                  <input
+                    type="text"
+                    className="modal-input"
+                    placeholder="e.g. ve9EPM428h8vShlRW1KT"
+                    value={ghlLocationId}
+                    onChange={(e) => setGhlLocationId(e.target.value)}
+                  />
+                </div>
+                <div className="modal-field">
+                  <label className="modal-label">API Token</label>
+                  <input
+                    type="text"
+                    className="modal-input"
+                    placeholder="Paste your API token here"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                </div>
+                {connectError && <p className="modal-error">{connectError}</p>}
+                <button
+                  className="modal-btn modal-btn--primary"
+                  disabled={!apiKey.trim() || !ghlLocationId.trim() || connecting}
+                  onClick={handleGHLConnect}
+                >
+                  {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
+                </button>
+              </>
+            )}
+
+            {modalType === 'boosend' && (
+              <>
+                <p className="modal-description">
+                  Connect your BooSend account to automate DM outreach and follow-ups directly from the AI CEO.
+                </p>
+                <div className="modal-connect-instructions">
+                  <details open>
+                    <summary className="modal-connect-summary">How to get your BooSend API key</summary>
+                    <ol className="modal-connect-steps">
+                      <li>Log in to your <strong>BooSend</strong> dashboard</li>
+                      <li>Go to <strong>Settings</strong> &gt; <strong>API</strong></li>
+                      <li>Copy your <strong>API key</strong> and paste it below</li>
+                    </ol>
+                  </details>
+                </div>
+                <div className="modal-field">
+                  <label className="modal-label">BooSend API Key</label>
+                  <input
+                    type="text"
+                    className="modal-input"
+                    placeholder="Paste your BooSend API key here"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                </div>
+                {connectError && <p className="modal-error">{connectError}</p>}
+                <button
+                  className="modal-btn modal-btn--primary"
+                  disabled={!apiKey.trim() || connecting}
+                  onClick={handleConnect}
+                >
+                  {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
+                </button>
+                <a
+                  className="modal-signup-link"
+                  href="https://boosend.ai"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Don't have a BooSend account? Create one here
+                  <ExternalLink size={13} />
+                </a>
               </>
             )}
 

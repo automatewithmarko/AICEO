@@ -46,6 +46,23 @@ export default function FormPlayer() {
   const progress = questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
 
   function validate(question, value) {
+    if (question.type === 'contact_block') {
+      const v = value || {};
+      const includePhone = !!question.settings?.includePhone;
+      if (question.required) {
+        if (!v.firstName?.trim()) return 'First name is required';
+        if (!v.lastName?.trim()) return 'Last name is required';
+        if (!v.email?.trim()) return 'Email is required';
+        if (includePhone && !v.phone?.trim()) return 'Phone number is required';
+      }
+      if (v.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) {
+        return 'Please enter a valid email address';
+      }
+      if (includePhone && v.phone && !/^[+]?[\d\s\-().]+$/.test(v.phone)) {
+        return 'Please enter a valid phone number';
+      }
+      return '';
+    }
     if (question.required && (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0))) {
       return 'This field is required';
     }
@@ -115,6 +132,14 @@ export default function FormPlayer() {
     setSubmitting(true);
     try {
       await submitFormResponse(slug, answers);
+      const msg = form?.thank_you_message || '';
+      if (msg.startsWith('redirect::')) {
+        const url = msg.slice('redirect::'.length).trim();
+        if (url) {
+          window.location.href = url;
+          return;
+        }
+      }
       setSubmitted(true);
     } catch (err) {
       setValidationError(err.message);

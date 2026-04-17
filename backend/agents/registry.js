@@ -215,6 +215,64 @@ export function buildAgentTools() {
     {
       type: 'function',
       function: {
+        name: 'create_form',
+        description: `Create AND publish a new lead capture form for the user. Use this when the user is building a landing page or squeeze page and either:
+(a) has NO existing published forms, OR
+(b) explicitly picks "Create a new form" / "Create a simple form" when offered.
+
+Design the form intelligently based on what you already learned from the 4 discovery questions (audience, CTA, tone, topic). Rules of thumb for landing-page lead capture forms:
+- Keep it SHORT: 3-5 fields total. Every extra field drops conversions.
+- Always start with a contact_block (first + last name + email) unless the user asked for something specific.
+- Add contact_phone ONLY if the CTA is a call/booking/demo.
+- Add contact_business ONLY if the audience is businesses/operators.
+- Include ONE qualifier question (dropdown preferred, short_text if options don't fit cleanly) relevant to the audience and CTA — e.g., "What's your biggest challenge with X?", "Team size?", "Budget range?". Make dropdown options concrete (3-5 options).
+- Never add more than ONE qualifier unless the user explicitly asks for more fields.
+
+The form is auto-published on creation. The tool returns { slug, title, id } — immediately after, delegate to the landing-page or squeeze-page agent and include "EMBED FORM: slug=<slug>, title=<title>" in the task_description so the agent embeds it into the page.`,
+        parameters: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'Short, conversion-focused form title (visible to form takers). e.g., "Join the Waitlist", "Book a Strategy Call", "Get Your Free Guide".',
+            },
+            questions: {
+              type: 'array',
+              description: 'Ordered list of questions. Lowest friction first (usually contact_block). 3-5 items total.',
+              items: {
+                type: 'object',
+                properties: {
+                  type: {
+                    type: 'string',
+                    enum: [
+                      'contact_block', 'contact_first_name', 'contact_last_name', 'contact_full_name',
+                      'contact_email', 'contact_phone', 'contact_business',
+                      'contact_instagram', 'contact_linkedin', 'contact_x',
+                      'short_text', 'long_text', 'number', 'date',
+                      'dropdown', 'checkboxes', 'yes_no', 'rating', 'opinion_scale', 'url',
+                    ],
+                    description: 'Question type. Prefer contact_block as the first item for lead capture.',
+                  },
+                  title: { type: 'string', description: 'Question prompt shown to the user.' },
+                  description: { type: 'string', description: 'Optional helper text beneath the prompt.' },
+                  required: { type: 'boolean', description: 'Whether the field is required. Default true for contact fields.' },
+                  options: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'For dropdown / checkboxes only. Provide 3-5 concrete options.',
+                  },
+                },
+                required: ['type', 'title'],
+              },
+            },
+          },
+          required: ['title', 'questions'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'send_email',
         description: 'Send an email using the user\'s connected email account. Use when the user asks you to send an email, newsletter, or message to contacts. You can send HTML emails (newsletters) or plain text.',
         parameters: {

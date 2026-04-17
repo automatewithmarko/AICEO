@@ -1,16 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download, ChevronRight } from 'lucide-react';
+import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download, ChevronRight, History, Undo2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
-import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate } from '../lib/api';
+import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion } from '../lib/api';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, sessionId = null }) {
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -18,6 +18,67 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
   const [selectedAccountId, setSelectedAccountId] = useState(externalAccounts?.[0]?.id || null);
   const [deploying, setDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState(null);
+
+  // Netlify connection modal (triggered when deploy hits 400/401 token issue)
+  const [netlifyModalOpen, setNetlifyModalOpen] = useState(false);
+  const [netlifyModalMode, setNetlifyModalMode] = useState('connect'); // 'connect' | 'reconnect'
+  const [netlifyToken, setNetlifyToken] = useState('');
+  const [netlifyConnecting, setNetlifyConnecting] = useState(false);
+  const [netlifyConnectError, setNetlifyConnectError] = useState('');
+
+  // Version history (AI CEO chat artifacts — landing pages, newsletters)
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [versionList, setVersionList] = useState([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [restoring, setRestoring] = useState(null); // version id currently being restored
+
+  const openHistory = async () => {
+    setHistoryOpen(true);
+    setVersionsLoading(true);
+    try {
+      const { versions } = await listArtifactVersions({
+        sessionId: sessionId || undefined,
+        agent: artifact?.agentSource || undefined,
+      });
+      setVersionList(versions || []);
+    } catch {
+      setVersionList([]);
+    } finally {
+      setVersionsLoading(false);
+    }
+  };
+
+  const handleRestore = async (versionId) => {
+    if (restoring) return;
+    setRestoring(versionId);
+    try {
+      // First fetch full content and apply locally (instant feedback), then
+      // persist the restore on the server so the history list shows it.
+      const data = await getArtifactVersion(versionId);
+      if (!data?.version?.content) throw new Error('Version not found');
+      if (onContentChange) onContentChange(data.version.content);
+      await restoreArtifactVersion(versionId);
+      // Refresh list so the new "Reverted to v…" row appears.
+      const { versions } = await listArtifactVersions({
+        sessionId: sessionId || undefined,
+        agent: artifact?.agentSource || undefined,
+      });
+      setVersionList(versions || []);
+      setHistoryOpen(false);
+      if (onChatMessage) onChatMessage(`Restored v${data.version.version_number}${data.version.summary ? ` — ${data.version.summary}` : ''}`);
+    } catch (err) {
+      setSendError(err.message || 'Restore failed');
+    } finally {
+      setRestoring(null);
+    }
+  };
+
+  // Netlify "name your site" modal (triggered on Deploy click)
+  const [nameModalOpen, setNameModalOpen] = useState(false);
+  const [siteNameInput, setSiteNameInput] = useState('');
+  const [nameCheck, setNameCheck] = useState(null); // { available, owned, reason, normalized }
+  const [nameChecking, setNameChecking] = useState(false);
+  const nameCheckTimerRef = useRef(null);
   const iframeRef = useRef(null);
   const editMapRef = useRef(new Map());
   const skipIframeWriteRef = useRef(false);
@@ -144,19 +205,106 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
     URL.revokeObjectURL(url);
   };
 
+  // Suggest a default name from the artifact title, normalized to Netlify's
+  // allowed character set.
+  const suggestSiteName = () => {
+    const raw = (title || 'my-site').toString();
+    return raw
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 63) || 'my-site';
+  };
+
+  // Deploy click: open the "Name your site" modal pre-filled with the last
+  // name the user used (if any) or a slugified suggestion from the title.
   const handleDeploy = async () => {
+    if (deploying) return;
+    setSendError('');
+
+    let initial = suggestSiteName();
+    try {
+      const status = await getNetlifyStatus();
+      if (status?.connected && status?.last_site_name) initial = status.last_site_name;
+    } catch {
+      // status is optional — we can always fall back to the suggestion.
+    }
+
+    setSiteNameInput(initial);
+    setNameCheck(null);
+    setNameModalOpen(true);
+  };
+
+  // Debounced availability check while the user types in the name modal.
+  useEffect(() => {
+    if (!nameModalOpen) return;
+    const raw = siteNameInput.trim().toLowerCase();
+    if (!raw) { setNameCheck(null); return; }
+    if (nameCheckTimerRef.current) clearTimeout(nameCheckTimerRef.current);
+    setNameChecking(true);
+    nameCheckTimerRef.current = setTimeout(async () => {
+      try {
+        const result = await checkNetlifyName(raw);
+        setNameCheck(result);
+      } finally {
+        setNameChecking(false);
+      }
+    }, 400);
+    return () => { if (nameCheckTimerRef.current) clearTimeout(nameCheckTimerRef.current); };
+  }, [siteNameInput, nameModalOpen]);
+
+  // Runs the actual deploy with a confirmed name.
+  const performDeploy = async (name) => {
     if (deploying) return;
     setDeploying(true);
     setDeployResult(null);
     setSendError('');
     try {
-      const result = await deployToNetlify(htmlContent || content);
+      const result = await deployToNetlify(htmlContent || content, name);
       setDeployResult(result);
+      setNameModalOpen(false);
       if (onChatMessage) onChatMessage(`Deployed to Netlify! Live at ${result.url}`);
     } catch (err) {
-      setSendError(err.message);
+      if (err.code === 'netlify_not_connected' || err.code === 'netlify_unauthorized') {
+        setNameModalOpen(false);
+        setNetlifyModalMode(err.code === 'netlify_unauthorized' ? 'reconnect' : 'connect');
+        setNetlifyToken('');
+        setNetlifyConnectError('');
+        setNetlifyModalOpen(true);
+      } else if (err.code === 'netlify_name_taken' || err.code === 'netlify_invalid_name') {
+        // Keep the name modal open so the user can pick another.
+        setNameCheck({ available: false, reason: err.code === 'netlify_name_taken' ? 'taken' : 'invalid_chars' });
+        setSendError(err.message);
+      } else {
+        setNameModalOpen(false);
+        setSendError(err.message);
+      }
     } finally {
       setDeploying(false);
+    }
+  };
+
+  const handleConfirmName = () => {
+    const name = siteNameInput.trim().toLowerCase();
+    if (!name || (nameCheck && nameCheck.available === false)) return;
+    performDeploy(name);
+  };
+
+  const handleNetlifyConnectAndDeploy = async () => {
+    const token = netlifyToken.trim();
+    if (!token || netlifyConnecting) return;
+    setNetlifyConnecting(true);
+    setNetlifyConnectError('');
+    try {
+      await connectIntegration('netlify', token);
+      setNetlifyModalOpen(false);
+      setNetlifyToken('');
+      // Immediately retry the deploy the user originally asked for.
+      await handleDeploy();
+    } catch (err) {
+      setNetlifyConnectError(err.message || 'Could not validate token');
+    } finally {
+      setNetlifyConnecting(false);
     }
   };
 
@@ -309,7 +457,6 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             }}
           ><span className="ap-title-text">{title}</span></span>
           <span className="ap-type-badge">{typeInfo.label}</span>
-          <button className="ap-close" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="ap-header-right">
           {/* Email type — simple send */}
@@ -338,6 +485,9 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                   <Mail size={14} /> Send Email
                 </button>
               )}
+              <button className="ap-btn ap-btn--outline" onClick={openHistory} title="Version history">
+                <History size={14} /> History
+              </button>
               <button className="ap-btn ap-btn--outline" onClick={handleDownload}>
                 <Download size={14} /> Download
               </button>
@@ -362,6 +512,8 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
               {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy</>}
             </button>
           )}
+
+          <button className="ap-close" onClick={onClose} aria-label="Close panel"><X size={18} /></button>
         </div>
       </div>
 
@@ -505,6 +657,194 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Version History Modal ── */}
+      {historyOpen && (
+        <div className="ap-modal-overlay" onClick={() => setHistoryOpen(false)}>
+          <div className="ap-modal ap-history-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ap-modal-header">
+              <h3>Version history</h3>
+              <button className="ap-modal-close" onClick={() => setHistoryOpen(false)}><X size={18} /></button>
+            </div>
+            <div className="ap-history-list">
+              {versionsLoading && <div className="ap-history-empty">Loading…</div>}
+              {!versionsLoading && versionList.length === 0 && (
+                <div className="ap-history-empty">No history yet. Make an edit and it'll show up here.</div>
+              )}
+              {!versionsLoading && versionList.map((v, idx) => (
+                <div key={v.id} className={`ap-history-item${idx === 0 ? ' ap-history-item--current' : ''}`}>
+                  <div className="ap-history-item-info">
+                    <div className="ap-history-item-title">
+                      v{v.version_number}
+                      {v.is_revert && <span className="ap-history-item-badge">reverted</span>}
+                      {idx === 0 && <span className="ap-history-item-current">current</span>}
+                    </div>
+                    {v.summary && <div className="ap-history-item-summary">{v.summary}</div>}
+                    <div className="ap-history-item-meta">
+                      {new Date(v.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                  {idx !== 0 && (
+                    <button
+                      className="ap-btn ap-btn--outline"
+                      onClick={() => handleRestore(v.id)}
+                      disabled={restoring === v.id}
+                    >
+                      <Undo2 size={14} /> {restoring === v.id ? 'Restoring…' : 'Restore'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Name Your Netlify Site Modal ── */}
+      {nameModalOpen && (
+        <div className="ap-modal-overlay" onClick={() => !deploying && setNameModalOpen(false)}>
+          <div className="ap-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ap-modal-header">
+              <h3>Name your site</h3>
+              <button className="ap-modal-close" onClick={() => !deploying && setNameModalOpen(false)}><X size={18} /></button>
+            </div>
+            <div className="ap-netlify-connect">
+              <p className="ap-netlify-connect-desc">
+                This becomes your Netlify subdomain. Pick something memorable — you can share the URL anywhere.
+              </p>
+              <label className="ap-netlify-label">Site name</label>
+              <div className="ap-sitename-row">
+                <input
+                  type="text"
+                  className="ap-netlify-input ap-sitename-input"
+                  placeholder="my-awesome-page"
+                  value={siteNameInput}
+                  onChange={(e) => setSiteNameInput(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmName(); }}
+                  autoFocus
+                  maxLength={63}
+                />
+                <span className="ap-sitename-suffix">.netlify.app</span>
+              </div>
+              <div className="ap-sitename-status">
+                {nameChecking && <span className="ap-sitename-status--checking">Checking availability…</span>}
+                {!nameChecking && nameCheck && nameCheck.available && nameCheck.owned && (
+                  <span className="ap-sitename-status--owned">✓ You already own this site — we'll redeploy to it.</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available && !nameCheck.owned && nameCheck.reason !== 'unverified' && (
+                  <span className="ap-sitename-status--ok">✓ Available</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available && nameCheck.reason === 'unverified' && (
+                  <span className="ap-sitename-status--warn">Couldn't fully verify — deploy will confirm.</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available === false && nameCheck.reason === 'taken' && (
+                  <span className="ap-sitename-status--err">✗ This name is taken. Try another.</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available === false && nameCheck.reason === 'invalid_chars' && (
+                  <span className="ap-sitename-status--err">✗ Use only lowercase letters, digits, and hyphens.</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available === false && nameCheck.reason === 'too_long' && (
+                  <span className="ap-sitename-status--err">✗ Too long — keep it under 63 characters.</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available === false && nameCheck.reason === 'empty' && (
+                  <span className="ap-sitename-status--err">✗ Name can't be empty.</span>
+                )}
+                {!nameChecking && nameCheck && nameCheck.available === false && nameCheck.reason === 'unauthorized' && (
+                  <span className="ap-sitename-status--err">✗ Netlify token rejected. Reconnect in Settings.</span>
+                )}
+              </div>
+              {siteNameInput && (
+                <div className="ap-sitename-preview">
+                  Your URL: <strong>https://{siteNameInput}.netlify.app</strong>
+                </div>
+              )}
+              {sendError && <div className="ap-netlify-error">{sendError}</div>}
+              <div className="ap-netlify-actions">
+                <button
+                  className="ap-btn ap-btn--outline"
+                  onClick={() => setNameModalOpen(false)}
+                  disabled={deploying}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="ap-btn ap-btn--netlify"
+                  onClick={handleConfirmName}
+                  disabled={
+                    !siteNameInput.trim() ||
+                    deploying ||
+                    nameChecking ||
+                    (nameCheck && nameCheck.available === false)
+                  }
+                >
+                  {deploying ? 'Deploying…' : 'Deploy'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Connect / Reconnect Netlify Modal ── */}
+      {netlifyModalOpen && (
+        <div className="ap-modal-overlay" onClick={() => setNetlifyModalOpen(false)}>
+          <div className="ap-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ap-modal-header">
+              <h3>{netlifyModalMode === 'reconnect' ? 'Reconnect Netlify' : 'Connect Netlify to Deploy'}</h3>
+              <button className="ap-modal-close" onClick={() => setNetlifyModalOpen(false)}><X size={18} /></button>
+            </div>
+            <div className="ap-netlify-connect">
+              <p className="ap-netlify-connect-desc">
+                {netlifyModalMode === 'reconnect'
+                  ? 'Your saved Netlify token was rejected (likely expired or revoked). Paste a fresh token to deploy this page.'
+                  : 'Paste your Netlify personal access token to deploy this page with one click.'}
+              </p>
+              <div className="ap-netlify-steps">
+                <div className="ap-netlify-steps-title">How to get a token (30 seconds)</div>
+                <ol className="ap-netlify-steps-list">
+                  <li>
+                    Open{' '}
+                    <a href="https://app.netlify.com/user/applications#personal-access-tokens" target="_blank" rel="noopener noreferrer">
+                      app.netlify.com → User settings → Applications
+                    </a>
+                    .
+                  </li>
+                  <li>Under <strong>Personal access tokens</strong>, click <strong>New access token</strong>.</li>
+                  <li>Name it (e.g. <em>PurelyPersonal</em>) and click <strong>Generate token</strong>.</li>
+                  <li>Copy the token and paste it below.</li>
+                </ol>
+              </div>
+              <label className="ap-netlify-label">Personal Access Token</label>
+              <input
+                type="text"
+                className="ap-netlify-input"
+                placeholder="nfp_..."
+                value={netlifyToken}
+                onChange={(e) => setNetlifyToken(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && netlifyToken.trim()) handleNetlifyConnectAndDeploy(); }}
+                autoFocus
+              />
+              {netlifyConnectError && <div className="ap-netlify-error">{netlifyConnectError}</div>}
+              <div className="ap-netlify-actions">
+                <button
+                  className="ap-btn ap-btn--outline"
+                  onClick={() => setNetlifyModalOpen(false)}
+                  disabled={netlifyConnecting}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="ap-btn ap-btn--netlify"
+                  onClick={handleNetlifyConnectAndDeploy}
+                  disabled={!netlifyToken.trim() || netlifyConnecting}
+                >
+                  {netlifyConnecting ? 'Validating…' : 'Connect & Deploy'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

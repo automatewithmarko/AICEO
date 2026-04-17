@@ -47,6 +47,7 @@ function App() {
       <Route path="/f/:slug" element={<FormPlayer />} />
       <Route element={<Layout />}>
         <Route path="/ai-ceo" element={<AiCeo />} />
+        <Route path="/ai-ceo/:sessionId" element={<AiCeo />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/content" element={<Content />} />
         <Route path="/outlier-detector" element={<OutlierDetector />} />
