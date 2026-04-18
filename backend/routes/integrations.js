@@ -1,8 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { supabase } from '../services/storage.js';
-import * as fireflies from '../services/integrations/fireflies.js';
-import * as fathom from '../services/integrations/fathom.js';
 import * as stripeInt from '../services/integrations/stripe-int.js';
 import * as whop from '../services/integrations/whop.js';
 import * as gohighlevel from '../services/integrations/gohighlevel.js';
@@ -13,7 +11,7 @@ import * as boosend from '../services/integrations/boosend.js';
 
 const router = Router();
 
-const services = { fireflies, fathom, stripe: stripeInt, whop, gohighlevel, shopify, kajabi, netlify, boosend };
+const services = { stripe: stripeInt, whop, gohighlevel, shopify, kajabi, netlify, boosend };
 const VALID_PROVIDERS = Object.keys(services);
 
 // ─── List all user integrations (no keys in response) ───
@@ -62,7 +60,7 @@ router.post('/api/integrations/:provider/connect', async (req, res) => {
     };
 
     // Generate webhook URL and secret for providers that support webhooks
-    if (['fireflies', 'shopify', 'kajabi', 'gohighlevel'].includes(provider)) {
+    if (['shopify', 'kajabi', 'gohighlevel'].includes(provider)) {
       const baseUrl = process.env.API_BASE_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'http://localhost:3001');
       record.webhook_url = `${baseUrl}/api/webhooks/${provider}/${userId}`;
       record.webhook_secret = crypto.randomBytes(16).toString('hex');
@@ -172,17 +170,6 @@ router.get('/api/integration-context', async (req, res) => {
   }
 
   const sections = [];
-
-  if (grouped.fireflies?.length || grouped.fathom?.length) {
-    const transcripts = [...(grouped.fireflies || []), ...(grouped.fathom || [])];
-    sections.push('## Call Transcripts & Meeting Notes');
-    for (const t of transcripts.slice(0, 10)) {
-      sections.push(`### ${t.title}`);
-      if (t.metadata?.summary) sections.push(`Summary: ${t.metadata.summary}`);
-      if (t.content) sections.push(t.content.slice(0, 500));
-      sections.push('');
-    }
-  }
 
   // PurelyPersonal meetings (from meetings table)
   const { data: ppMeetings } = await supabase

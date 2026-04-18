@@ -389,7 +389,7 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
   }
 
   // ── CONNECTION STATUS  -  what's connected and what's missing ──
-  const allPossibleIntegrations = ['fireflies', 'fathom', 'stripe', 'whop', 'shopify', 'kajabi', 'gohighlevel', 'netlify'];
+  const allPossibleIntegrations = ['stripe', 'whop', 'shopify', 'kajabi', 'gohighlevel', 'netlify'];
   const activeIntegrations = context.activeIntegrations || [];
   const emailAccounts = context.emailAccounts || [];
   const connectedProviders = activeIntegrations.filter(i => i.is_active).map(i => i.provider);
@@ -423,7 +423,6 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
 - If Brand DNA is missing, push a notification and tell the user to set it up. It's critical.
 - If they have no email account, mention it when they try to send anything.
 - If they're doing marketing but have no Stripe/Shopify, suggest connecting for revenue tracking.
-- If they mention calls but Fireflies/Fathom isn't connected, suggest it.
 - If they have social content but no outlier tracking, suggest adding creators to track.
 - Use push_notification for important observations they should see even outside this conversation.\n`;
 

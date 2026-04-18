@@ -13,137 +13,37 @@ function sanitizeMeeting(m) {
   return safe;
 }
 
-// Normalize an integration_data transcript record into a meeting-like object
-function normalizeExternalRecording(record) {
-  return {
-    id: record.id,
-    title: record.title || 'Untitled Recording',
-    meeting_url: null,
-    platform: 'unknown',
-    recall_bot_status: 'processed',
-    scheduled_at: null,
-    started_at: record.metadata?.date || null,
-    ended_at: null,
-    duration_seconds: record.metadata?.duration || 0,
-    bot_name: null,
-    participants: record.metadata?.participants || [],
-    summary: record.metadata?.summary ? { overview: record.metadata.summary } : null,
-    action_items: [],
-    created_at: record.synced_at,
-    video_url: null,
-    audio_url: null,
-    source: record.provider,
-    is_external: true,
-  };
-}
-
-// GET /api/meetings — List meetings (paginated, filtered)
+// GET /api/meetings — List PurelyPersonal meetings (paginated, filtered)
 router.get('/', async (req, res) => {
   const userId = req.user.id;
-  const { platform, status, search, source, page = 1, limit = 20 } = req.query;
+  const { platform, status, search, page = 1, limit = 20 } = req.query;
   const pageNum = parseInt(page);
   const limitNum = parseInt(limit);
 
-  const includePP = !source || source === 'all' || source === 'purelypersonal';
-  const includeExternal = !source || source === 'all' || source === 'fireflies' || source === 'fathom';
-  // When platform or status filters are active, external records don't apply
-  const externalFiltered = platform || status;
+  let query = supabase
+    .from('meetings')
+    .select('id, title, meeting_url, platform, recall_bot_status, scheduled_at, started_at, ended_at, duration_seconds, bot_name, participants, summary, action_items, created_at, video_url, audio_url', { count: 'exact' })
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
 
-  let ppMeetings = [];
-  let ppCount = 0;
-  let externalRecords = [];
-  let externalCount = 0;
-
-  // Fetch PurelyPersonal meetings
-  if (includePP) {
-    let query = supabase
-      .from('meetings')
-      .select('id, title, meeting_url, platform, recall_bot_status, scheduled_at, started_at, ended_at, duration_seconds, bot_name, participants, summary, action_items, created_at, video_url, audio_url', { count: 'exact' })
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-
-    if (platform) query = query.eq('platform', platform);
-    if (status) query = query.eq('recall_bot_status', status);
-    if (search) {
-      query = query.or(`title.ilike.%${search}%,transcript_text.ilike.%${search}%`);
-    }
-
-    // If only PP source or filters active, paginate directly
-    if (source === 'purelypersonal' || externalFiltered) {
-      const offset = (pageNum - 1) * limitNum;
-      query = query.range(offset, offset + limitNum - 1);
-    }
-
-    const { data, error, count } = await query;
-    if (error) return res.status(500).json({ error: error.message });
-    ppMeetings = (data || []).map(m => ({ ...sanitizeMeeting(m), source: 'purelypersonal', is_external: false }));
-    ppCount = count || 0;
+  if (platform) query = query.eq('platform', platform);
+  if (status) query = query.eq('recall_bot_status', status);
+  if (search) {
+    query = query.or(`title.ilike.%${search}%,transcript_text.ilike.%${search}%`);
   }
 
-  // Fetch external recordings (Fireflies/Fathom)
-  if (includeExternal && !externalFiltered) {
-    let extQuery = supabase
-      .from('integration_data')
-      .select('id, provider, title, content, metadata, synced_at', { count: 'exact' })
-      .eq('user_id', userId)
-      .eq('data_type', 'transcript')
-      .order('synced_at', { ascending: false });
-
-    if (source === 'fireflies') extQuery = extQuery.eq('provider', 'fireflies');
-    else if (source === 'fathom') extQuery = extQuery.eq('provider', 'fathom');
-    else extQuery = extQuery.in('provider', ['fireflies', 'fathom']);
-
-    if (search) {
-      extQuery = extQuery.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
-    }
-
-    // If only external source, paginate directly
-    if (source === 'fireflies' || source === 'fathom') {
-      const offset = (pageNum - 1) * limitNum;
-      extQuery = extQuery.range(offset, offset + limitNum - 1);
-    }
-
-    const { data: extData, error: extError, count: extCount } = await extQuery;
-    if (extError) console.error('[meetings] External query error:', extError.message);
-    externalRecords = (extData || []).map(normalizeExternalRecording);
-    externalCount = extCount || 0;
-  }
-
-  // If single source or filters active, return directly
-  if (source === 'purelypersonal' || externalFiltered) {
-    return res.json({
-      meetings: ppMeetings,
-      total: ppCount,
-      page: pageNum,
-      totalPages: Math.ceil(ppCount / limitNum),
-    });
-  }
-
-  if (source === 'fireflies' || source === 'fathom') {
-    return res.json({
-      meetings: externalRecords,
-      total: externalCount,
-      page: pageNum,
-      totalPages: Math.ceil(externalCount / limitNum),
-    });
-  }
-
-  // Merged: sort all by date descending, then paginate in memory
-  const allMeetings = [...ppMeetings, ...externalRecords].sort((a, b) => {
-    const dateA = new Date(a.started_at || a.created_at || 0);
-    const dateB = new Date(b.started_at || b.created_at || 0);
-    return dateB - dateA;
-  });
-
-  const totalCount = ppCount + externalCount;
   const offset = (pageNum - 1) * limitNum;
-  const paginated = allMeetings.slice(offset, offset + limitNum);
+  query = query.range(offset, offset + limitNum - 1);
+
+  const { data, error, count } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  const meetings = (data || []).map(m => ({ ...sanitizeMeeting(m), source: 'purelypersonal', is_external: false }));
 
   res.json({
-    meetings: paginated,
-    total: totalCount,
+    meetings,
+    total: count || 0,
     page: pageNum,
-    totalPages: Math.ceil(totalCount / limitNum),
+    totalPages: Math.ceil((count || 0) / limitNum),
   });
 });
 

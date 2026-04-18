@@ -193,37 +193,7 @@ router.get('/api/contacts/:id/detail', async (req, res) => {
   const email = contact.email?.toLowerCase();
   const name = contact.name?.toLowerCase();
 
-  // 1. Call recordings from integration_data (fireflies/fathom)
   let recordings = [];
-  if (email || name) {
-    const { data: transcripts } = await supabase
-      .from('integration_data')
-      .select('*')
-      .eq('user_id', userId)
-      .in('provider', ['fireflies', 'fathom'])
-      .eq('data_type', 'transcript')
-      .order('synced_at', { ascending: false })
-      .limit(50);
-
-    if (transcripts) {
-      recordings = transcripts.filter(t => {
-        const content = (t.content || '').toLowerCase();
-        const title = (t.title || '').toLowerCase();
-        const participants = JSON.stringify(t.metadata?.participants || []).toLowerCase();
-        const attendees = JSON.stringify(t.metadata?.attendees || []).toLowerCase();
-        if (email && (content.includes(email) || title.includes(email) || participants.includes(email) || attendees.includes(email))) return true;
-        if (name && name.length > 2 && (title.includes(name) || participants.includes(name) || attendees.includes(name))) return true;
-        return false;
-      }).map(t => ({
-        id: t.id,
-        name: t.title,
-        date: t.metadata?.date || new Date(t.synced_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        duration: t.metadata?.duration || '',
-        provider: t.provider,
-        summary: t.metadata?.summary || '',
-      }));
-    }
-  }
 
   // 2. Emails from emails table
   let emails = [];
@@ -345,7 +315,7 @@ router.get('/api/contacts/:id/detail', async (req, res) => {
   res.json({ recordings, emails, products });
 });
 
-// ─── Assign external recording (Fireflies/Fathom) to contact ───
+// ─── Assign external recording to contact ───
 router.post('/api/contacts/:id/external-recordings', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
@@ -418,41 +388,7 @@ router.post('/api/contacts/sync', async (req, res) => {
     }
   }
 
-  // 2. Sync from Fireflies/Fathom transcripts (extract participant emails)
-  const { data: transcripts } = await supabase
-    .from('integration_data')
-    .select('*')
-    .eq('user_id', userId)
-    .in('provider', ['fireflies', 'fathom'])
-    .eq('data_type', 'transcript')
-    .limit(100);
-
-  if (transcripts) {
-    for (const t of transcripts) {
-      const participants = t.metadata?.participants || t.metadata?.attendees || [];
-      for (const p of participants) {
-        const pEmail = (typeof p === 'string') ? p : (p.email || '');
-        const pName = (typeof p === 'string') ? '' : (p.name || p.displayName || '');
-        if (!pEmail || !pEmail.includes('@')) continue;
-
-        const { error } = await supabase.from('contacts').upsert({
-          user_id: userId,
-          name: pName,
-          email: pEmail.toLowerCase(),
-          phone: '',
-          business: '',
-          status: 'Contacted',
-          tags: ['Call Participant'],
-          notes: '',
-          socials: { instagram: [], linkedin: [], x: [] },
-          source: t.provider,
-        }, { onConflict: 'user_id,email', ignoreDuplicates: true });
-        if (!error) synced++;
-      }
-    }
-  }
-
-  // 3. Sync from emails (unique from/to addresses)
+  // 2. Sync from emails (unique from/to addresses)
   const { data: emailRows } = await supabase
     .from('emails')
     .select('from_address, from_name, to_address')

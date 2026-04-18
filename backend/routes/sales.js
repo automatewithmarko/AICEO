@@ -188,44 +188,11 @@ router.get('/api/sales/stats', async (req, res) => {
   res.json({ stats });
 });
 
-// ─── Get calls (transcripts from fireflies/fathom) ───
+// ─── Get calls (PurelyPersonal meetings only) ───
 router.get('/api/sales/calls', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.json({ calls: [] });
 
-  const { data: transcripts } = await supabase
-    .from('integration_data')
-    .select('id, provider, title, content, metadata, synced_at')
-    .eq('user_id', userId)
-    .eq('data_type', 'transcript')
-    .order('synced_at', { ascending: false })
-    .limit(50);
-
-  // Get call metadata (type, status)
-  const ids = (transcripts || []).map(t => t.id);
-  let metadataMap = {};
-  if (ids.length > 0) {
-    const { data: meta } = await supabase
-      .from('call_metadata')
-      .select('*')
-      .eq('user_id', userId)
-      .in('integration_data_id', ids);
-    for (const m of (meta || [])) {
-      metadataMap[m.integration_data_id] = m;
-    }
-  }
-
-  const calls = (transcripts || []).map(t => ({
-    id: t.id,
-    name: t.title,
-    date: t.metadata?.date || t.synced_at,
-    summary: t.metadata?.summary || (t.content ? t.content.slice(0, 200) : ''),
-    recorder: t.provider,
-    callType: metadataMap[t.id]?.call_type || 'Other',
-    status: metadataMap[t.id]?.status || null,
-  }));
-
-  // Also include PurelyPersonal meetings
   const { data: ppMeetings } = await supabase
     .from('meetings')
     .select('id, title, platform, started_at, duration_seconds, summary, action_items, recall_bot_status')
@@ -234,23 +201,17 @@ router.get('/api/sales/calls', async (req, res) => {
     .order('created_at', { ascending: false })
     .limit(50);
 
-  if (ppMeetings?.length) {
-    for (const m of ppMeetings) {
-      calls.push({
-        id: `pp-${m.id}`,
-        name: m.title || 'Meeting',
-        date: m.started_at || '',
-        summary: m.summary?.overview || '',
-        recorder: 'purelypersonal',
-        callType: 'Other',
-        status: null,
-        platform: m.platform,
-        meetingId: m.id,
-      });
-    }
-    // Re-sort by date descending
-    calls.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-  }
+  const calls = (ppMeetings || []).map(m => ({
+    id: `pp-${m.id}`,
+    name: m.title || 'Meeting',
+    date: m.started_at || '',
+    summary: m.summary?.overview || '',
+    recorder: 'purelypersonal',
+    callType: 'Other',
+    status: null,
+    platform: m.platform,
+    meetingId: m.id,
+  }));
 
   res.json({ calls });
 });
@@ -482,8 +443,6 @@ router.post('/api/sales/sync', async (req, res) => {
       let service;
       if (int.provider === 'stripe') service = (await import('../services/integrations/stripe-int.js'));
       else if (int.provider === 'whop') service = (await import('../services/integrations/whop.js'));
-      else if (int.provider === 'fireflies') service = (await import('../services/integrations/fireflies.js'));
-      else if (int.provider === 'fathom') service = (await import('../services/integrations/fathom.js'));
       else if (int.provider === 'shopify') service = (await import('../services/integrations/shopify.js'));
       else if (int.provider === 'kajabi') service = (await import('../services/integrations/kajabi.js'));
       else continue;

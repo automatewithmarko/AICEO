@@ -42,7 +42,7 @@ The main backend. Handles everything related to the AI CEO, marketing, sales, co
 **Sales Dashboard** (`routes/sales.js`)
 - Revenue tracking from Stripe, Whop, Shopify, Kajabi, GoHighLevel
 - Manual sale entry
-- Call intelligence - pulls transcripts from Fireflies, Fathom, and PurelyPersonal meetings
+- Call intelligence - pulls transcripts from PurelyPersonal meetings
 - Call type tagging (sales call, coaching, client, other) and status tracking
 
 **Contacts & CRM** (`routes/contacts.js`)
@@ -58,7 +58,6 @@ The main backend. Handles everything related to the AI CEO, marketing, sales, co
 **Integrations** (`routes/integrations.js`, `services/integrations/`)
 - Stripe, Whop, Shopify, Kajabi - revenue/sales data sync
 - GoHighLevel - CRM sync (contacts, opportunities, pipelines)
-- Fireflies, Fathom - call transcript sync
 - Netlify - deploy generated landing pages
 
 **Outlier Detector** (in `server.js`, `services/youtube.js`, `services/tiktok.js`, `services/instagram.js`)

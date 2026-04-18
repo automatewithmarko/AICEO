@@ -11,18 +11,12 @@ const PAYMENT_TRACKERS = [
   { id: 'whop', name: 'Whop', logo: '/whop-logo.svg' },
 ];
 
-const NOTE_TAKERS = [
-  { id: 'fireflies', name: "Fireflies AI", logo: '/fireflies-logo.png' },
-  { id: 'fathom', name: 'Fathom', logo: '/fathom-logo.png' },
-];
-
 const ONBOARDING_STEPS = [
   { id: 1, label: 'Sign up for PuerlyPersonal', completed: true },
   { id: 2, label: 'Upload your photos', type: 'photos' },
   { id: 3, label: 'Upload your logos', type: 'logos' },
   { id: 4, label: 'Build your Brand Brain', type: 'brand-brain' },
   { id: 5, label: 'Connect to track your payments and sales', type: 'payment' },
-  { id: 6, label: 'Connect your AI notetaker to record your calls', type: 'notetaker' },
   { id: 7, label: 'Connect GoHighLevel to sync with your CRM', type: 'gohighlevel' },
   { id: 8, label: 'Connect BooSend to automate your DMs', type: 'boosend' },
   { id: 9, label: 'Connect your social media profiles to automate content posting', type: 'action' },
@@ -34,18 +28,14 @@ export default function Dashboard() {
   const autoCollapsedRef = useRef(false);
   const [completedSteps, setCompletedSteps] = useState(new Set([1]));
   const [connectedIntegrations, setConnectedIntegrations] = useState({});
-  const [selectedNoteTaker, setSelectedNoteTaker] = useState(NOTE_TAKERS[0]);
   const [selectedPayment, setSelectedPayment] = useState(PAYMENT_TRACKERS[0]);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [paymentDropdownOpen, setPaymentDropdownOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalType, setModalType] = useState(null);
   const [apiKey, setApiKey] = useState('');
-  const [firefliesStep, setFirefliesStep] = useState(1);
   const [copiedField, setCopiedField] = useState(null);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState(null);
-  const [firefliesWebhook, setFirefliesWebhook] = useState({ url: '', secret: '' });
 
   // Brand DNA modal state
   const [brandDnaModal, setBrandDnaModal] = useState(null); // 'photos' | 'logos' | 'brand-brain'
@@ -145,7 +135,6 @@ export default function Dashboard() {
             if (s === 'logos') steps.add(3);
             if (s === 'brand-brain') steps.add(4);
             if (s === 'payment') steps.add(5);
-            if (s === 'notetaker') steps.add(6);
             if (s === 'gohighlevel') steps.add(7);
             if (s === 'boosend') steps.add(8);
             if (s === 'social') steps.add(9);
@@ -179,7 +168,6 @@ export default function Dashboard() {
       setConnectedIntegrations(intMap);
 
       if (intMap.stripe?.is_active || intMap.whop?.is_active) steps.add(5);
-      if (intMap.fireflies?.is_active || intMap.fathom?.is_active) steps.add(6);
       if (intMap.boosend?.is_active) steps.add(8);
 
       setCompletedSteps(steps);
@@ -229,7 +217,7 @@ export default function Dashboard() {
   const handleComplete = (stepId) => {
     setCompletedSteps((prev) => {
       const next = new Set([...prev, stepId]);
-      const stepMap = { 1: 'signup', 2: 'photos', 3: 'logos', 4: 'brand-brain', 5: 'payment', 6: 'notetaker', 7: 'gohighlevel', 8: 'boosend', 9: 'social' };
+      const stepMap = { 1: 'signup', 2: 'photos', 3: 'logos', 4: 'brand-brain', 5: 'payment', 7: 'gohighlevel', 8: 'boosend', 9: 'social' };
       const stepsArr = [...next].map(id => stepMap[id]).filter(Boolean);
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
@@ -247,11 +235,6 @@ export default function Dashboard() {
   const handleSkip = (stepId) => handleComplete(stepId);
 
   // --- Integration modals ---
-  const openNotetakerModal = () => {
-    setApiKey(''); setFirefliesStep(1); setCopiedField(null); setConnectError(null); setConnecting(false);
-    setFirefliesWebhook({ url: '', secret: '' }); setModalType('notetaker'); setModalOpen(true);
-  };
-
   const openPaymentModal = () => {
     setApiKey(''); setCopiedField(null); setConnectError(null); setConnecting(false);
     setModalType('payment'); setModalOpen(true);
@@ -279,30 +262,19 @@ export default function Dashboard() {
     finally { setConnecting(false); }
   };
 
-  const handleFirefliesNext = async () => {
-    if (!apiKey.trim()) return;
-    setConnecting(true); setConnectError(null);
-    try {
-      const result = await connectIntegration('fireflies', apiKey);
-      setFirefliesWebhook({ url: result.integration.webhook_url || '', secret: result.integration.webhook_secret || '' });
-      setFirefliesStep(2);
-    } catch (err) { setConnectError(err.message); }
-    finally { setConnecting(false); }
-  };
-
   const handleConnect = async () => {
     if (!apiKey.trim()) return;
     setConnecting(true); setConnectError(null);
     try {
       const provider = modalType === 'payment' ? selectedPayment.id
         : modalType === 'boosend' ? 'boosend'
-        : selectedNoteTaker.id;
+        : null;
+      if (!provider) { setConnecting(false); return; }
       await connectIntegration(provider, apiKey);
       setModalOpen(false);
       if (modalType === 'payment') handleComplete(5);
       else if (modalType === 'boosend') handleComplete(8);
-      else handleComplete(6);
-      setApiKey(''); setFirefliesStep(1); setModalType(null);
+      setApiKey(''); setModalType(null);
     } catch (err) { setConnectError(err.message); }
     finally { setConnecting(false); }
   };
@@ -566,29 +538,6 @@ export default function Dashboard() {
                           <img src="/boosend-logo.png" alt="BooSend" className="step-inline-logo step-inline-logo--boosend" />
                           {' '}to automate your DMs
                         </>
-                      ) : step.type === 'notetaker' ? (
-                        <>Connect{' '}
-                          <span className="notetaker-inline">
-                            <div className="notetaker-select" onClick={(e) => e.stopPropagation()}>
-                              <button className="notetaker-trigger" onClick={() => setDropdownOpen(!dropdownOpen)}>
-                                <img src={selectedNoteTaker.logo} alt={selectedNoteTaker.name} className="notetaker-logo-wide" />
-                                <ChevronDown size={14} className={`notetaker-chevron ${dropdownOpen ? 'notetaker-chevron--open' : ''}`} />
-                              </button>
-                              {dropdownOpen && (
-                                <div className="notetaker-dropdown">
-                                  {NOTE_TAKERS.map((nt) => (
-                                    <button key={nt.id} className={`notetaker-option ${selectedNoteTaker.id === nt.id ? 'notetaker-option--selected' : ''}`}
-                                      onClick={() => { setSelectedNoteTaker(nt); setDropdownOpen(false); }}>
-                                      <img src={nt.logo} alt={nt.name} className="notetaker-logo-wide" />
-                                      {selectedNoteTaker.id === nt.id && <Check size={14} />}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </span>
-                          {' '}to record your calls
-                        </>
                       ) : (
                         step.label
                       )}
@@ -602,13 +551,12 @@ export default function Dashboard() {
                             else if (step.type === 'logos') openLogosModal();
                             else if (step.type === 'brand-brain') openBrandBrainModal();
                             else if (step.type === 'payment') openPaymentModal();
-                            else if (step.type === 'notetaker') openNotetakerModal();
                             else if (step.type === 'gohighlevel') openGhlModal();
                             else if (step.type === 'boosend') openBoosendModal();
                             else handleComplete(step.id);
                           }}
                         >
-                          {['payment', 'notetaker', 'gohighlevel', 'boosend'].includes(step.type) ? 'Connect'
+                          {['payment', 'gohighlevel', 'boosend'].includes(step.type) ? 'Connect'
                             : step.type === 'photos' ? 'Upload Photos'
                             : step.type === 'logos' ? 'Upload Logos'
                             : step.type === 'brand-brain' ? 'Build'
@@ -956,11 +904,11 @@ export default function Dashboard() {
                 src={modalType === 'payment' ? selectedPayment.logo
                   : modalType === 'boosend' ? '/boosend-logo.png'
                   : modalType === 'gohighlevel' ? '/gohighlevel-logo.png'
-                  : selectedNoteTaker.logo}
+                  : ''}
                 alt={modalType === 'payment' ? selectedPayment.name
                   : modalType === 'boosend' ? 'BooSend'
                   : modalType === 'gohighlevel' ? 'GoHighLevel'
-                  : selectedNoteTaker.name}
+                  : ''}
               />
             </div>
 
@@ -1083,58 +1031,6 @@ export default function Dashboard() {
               </>
             )}
 
-            {modalType === 'notetaker' && selectedNoteTaker.id === 'fathom' && (
-              <>
-                <p className="modal-description">Connect your Fathom AI account to automatically sync all of your call recordings to the PuerlyPersonal AI CEO.</p>
-                <div className="modal-field">
-                  <label className="modal-label">Enter your Fathom API key</label>
-                  <input type="text" className="modal-input" placeholder="Paste your API key here" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-                </div>
-                {connectError && <p className="modal-error">{connectError}</p>}
-                <button className="modal-btn modal-btn--primary" disabled={!apiKey.trim() || connecting} onClick={handleConnect}>
-                  {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
-                </button>
-              </>
-            )}
-
-            {modalType === 'notetaker' && selectedNoteTaker.id === 'fireflies' && firefliesStep === 1 && (
-              <>
-                <p className="modal-description">Connect your Fireflies AI account to automatically sync all of your call recordings to the PuerlyPersonal AI CEO.</p>
-                <div className="modal-field">
-                  <label className="modal-label">Enter your Fireflies API key</label>
-                  <input type="text" className="modal-input" placeholder="Paste your API key here" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-                </div>
-                {connectError && <p className="modal-error">{connectError}</p>}
-                <button className="modal-btn modal-btn--primary" disabled={!apiKey.trim() || connecting} onClick={handleFirefliesNext}>
-                  {connecting ? <><Loader size={14} className="settings-spinner" /> Validating...</> : 'Next'}
-                </button>
-              </>
-            )}
-
-            {modalType === 'notetaker' && selectedNoteTaker.id === 'fireflies' && firefliesStep === 2 && (
-              <>
-                <p className="modal-instruction">Copy this into your Fireflies AI settings</p>
-                <div className="modal-field">
-                  <label className="modal-label">Webhook URL</label>
-                  <div className="modal-copy-row">
-                    <input type="text" className="modal-input modal-input--readonly" value={firefliesWebhook.url} readOnly />
-                    <button className="modal-copy-btn" onClick={() => copyToClipboard(firefliesWebhook.url, 'url')}>
-                      {copiedField === 'url' ? <Check size={16} /> : <Copy size={16} />}
-                    </button>
-                  </div>
-                </div>
-                <div className="modal-field">
-                  <label className="modal-label">Webhook Secret</label>
-                  <div className="modal-copy-row">
-                    <input type="text" className="modal-input modal-input--readonly" value={firefliesWebhook.secret} readOnly />
-                    <button className="modal-copy-btn" onClick={() => copyToClipboard(firefliesWebhook.secret, 'secret')}>
-                      {copiedField === 'secret' ? <Check size={16} /> : <Copy size={16} />}
-                    </button>
-                  </div>
-                </div>
-                <button className="modal-btn modal-btn--primary" onClick={() => { handleComplete(6); setModalOpen(false); }}>Done</button>
-              </>
-            )}
           </div>
         </div>
       )}

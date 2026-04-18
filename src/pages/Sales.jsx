@@ -52,8 +52,6 @@ const CALL_TYPES = ['Sales call', 'Coaching call', 'Client call', 'Other'];
 const SALES_STATUSES = ['Closed', 'Need to follow up', 'Not a fit'];
 
 const RECORDER_LOGOS = {
-  fireflies: '/fireflies-square-logo.png',
-  fathom: '/fathom-square-logo.png',
   purelypersonal: '/our-square-logo.png',
 };
 
@@ -633,7 +631,7 @@ export default function Sales() {
         </div>
         {calls.length === 0 && !loading ? (
           <div className="sales-empty-calls">
-            <p>No calls yet. Connect Fireflies or Fathom in Settings to sync your call recordings.</p>
+            <p>No calls yet. Your PuerlyPersonal recordings will appear here.</p>
           </div>
         ) : (
           <div className="sales-calls-grid">
@@ -644,7 +642,7 @@ export default function Sales() {
                 <div key={call.id} className="sales-call-card">
                   <div className="sales-call-left">
                     <img
-                      src={RECORDER_LOGOS[call.recorder] || RECORDER_LOGOS.fireflies}
+                      src={RECORDER_LOGOS[call.recorder] || RECORDER_LOGOS.purelypersonal}
                       alt={call.recorder}
                       className="sales-call-logo"
                     />

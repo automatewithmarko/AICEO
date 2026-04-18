@@ -1107,7 +1107,7 @@ function ToolTab({ config, activeTool, brandDna }) {
   const [contextCategories, setContextCategories] = useState([
     { id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png', items: [] },
     { id: 'emails', label: 'Past Emails', iconSrc: '/icon-inbox.png', items: [] },
-    { id: 'calls', label: 'Calls', iconSrc: '/fireflies-square-logo.png', items: [] },
+    { id: 'calls', label: 'Calls', iconSrc: '/our-square-logo.png', items: [] },
     { id: 'content', label: 'Content', iconSrc: '/icon-create-content.png', items: [] },
     { id: 'products', label: 'Products', iconSrc: '/icon-products.png', items: [] },
   ]);
@@ -1133,7 +1133,7 @@ function ToolTab({ config, activeTool, brandDna }) {
           items: (emRes.emails || []).map((e) => ({ id: `em-${e.id}`, name: e.subject || '(no subject)', date: fmt(e.date), sub: e.from_name || e.from_email || '' })),
         },
         {
-          id: 'calls', label: 'Calls', iconSrc: '/fireflies-square-logo.png',
+          id: 'calls', label: 'Calls', iconSrc: '/our-square-logo.png',
           items: (clRes.calls || []).map((c) => ({ id: `cl-${c.id}`, name: c.title || c.name || 'Untitled Call', date: fmt(c.date || c.created_at), sub: c.call_type || c.callType || '' })),
         },
         {

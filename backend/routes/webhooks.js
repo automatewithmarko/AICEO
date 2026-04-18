@@ -2,7 +2,6 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import Stripe from 'stripe';
 import { supabase } from '../services/storage.js';
-import * as fireflies from '../services/integrations/fireflies.js';
 import * as stripeInt from '../services/integrations/stripe-int.js';
 import * as whop from '../services/integrations/whop.js';
 import * as shopify from '../services/integrations/shopify.js';
@@ -10,41 +9,6 @@ import * as kajabi from '../services/integrations/kajabi.js';
 import * as gohighlevel from '../services/integrations/gohighlevel.js';
 
 const router = Router();
-
-// ─── Fireflies webhook ───
-router.post('/api/webhooks/fireflies/:userId', async (req, res) => {
-  const { userId } = req.params;
-
-  const { data: integration } = await supabase
-    .from('integrations')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('provider', 'fireflies')
-    .eq('is_active', true)
-    .single();
-
-  if (!integration) return res.status(404).json({ error: 'Integration not found' });
-
-  // Verify HMAC signature
-  const signature = req.headers['x-fireflies-signature'] || req.headers['x-webhook-signature'];
-  if (integration.webhook_secret && signature) {
-    const expected = crypto
-      .createHmac('sha256', integration.webhook_secret)
-      .update(JSON.stringify(req.body))
-      .digest('hex');
-    if (signature !== expected) {
-      return res.status(401).json({ error: 'Invalid signature' });
-    }
-  }
-
-  try {
-    await fireflies.handleWebhook(req.body, { ...integration, user_id: userId });
-    res.json({ ok: true });
-  } catch (err) {
-    console.log(`[webhook/fireflies] Error: ${err.message}`);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ─── Stripe global platform webhook (AICEO billing) ───
 // Single URL for Stripe dashboard: https://<backend>/api/webhooks/stripe

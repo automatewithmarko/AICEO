@@ -100,6 +100,7 @@ export default function FormBuilder() {
           theme: form.theme,
           questions: form.questions,
           thank_you_message: form.thank_you_message,
+          submission_tags: form.submission_tags || [],
         }),
         saveBranchingRules(id, branchingRules),
       ]);
@@ -249,6 +250,7 @@ export default function FormBuilder() {
                 slug={form.slug}
                 description={form.description}
                 thankYouMessage={form.thank_you_message}
+                submissionTags={form.submission_tags || []}
                 onChange={(field, value) => updateLocal({ [field]: value })}
               />
             )}
