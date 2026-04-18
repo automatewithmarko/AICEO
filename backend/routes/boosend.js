@@ -205,59 +205,25 @@ router.post('/api/boosend/instagram/publish', async (req, res) => {
   if (!apiKey) return res.status(400).json({ error: 'BooSend integration not connected' });
 
   const { caption, media_items, post_type, instagram_account_id } = req.body;
-  if (!caption && (!media_items || media_items.length === 0)) {
-    return res.status(400).json({ error: 'caption or media_items required' });
-  }
 
   try {
-    // If no account specified, get the first active one
-    let accountId = instagram_account_id;
-    let accessToken;
-
-    if (!accountId) {
-      const { data: accounts } = await supabase
-        .from('instagram_accounts')
-        .select('id, access_token')
-        .eq('owner_id', userId)
-        .eq('is_active', true)
-        .limit(1)
-        .single();
-
-      if (!accounts) return res.status(400).json({ error: 'No Instagram account connected via BooSend' });
-      accountId = accounts.id;
-      accessToken = accounts.access_token;
-    } else {
-      const { data: account } = await supabase
-        .from('instagram_accounts')
-        .select('access_token')
-        .eq('id', accountId)
-        .eq('owner_id', userId)
-        .single();
-
-      if (!account) return res.status(400).json({ error: 'Instagram account not found' });
-      accessToken = account.access_token;
-    }
-
-    // Call BooSend publishing API
-    const publishBody = {
-      action: 'publish',
-      instagram_account_id: accountId,
-      access_token: accessToken,
-      media_items: media_items || [],
-      caption: caption || '',
-      post_type: post_type || 'single',
-    };
-
-    const { status, data } = await boosendFetch(apiKey, userId, '/api/publishing/instagram/publish', {
+    // BooSend handles token lookup internally — just proxy the request
+    const url = new URL('/api/publishing/instagram/publish', BOOSEND_API);
+    const bsRes = await fetch(url.toString(), {
       method: 'POST',
-      body: JSON.stringify(publishBody),
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        instagram_account_id: instagram_account_id || undefined,
+        media_items: media_items || [],
+        caption: caption || '',
+        post_type: post_type || 'single',
+      }),
     });
 
-    if (status >= 400) {
-      return res.status(status).json(data);
-    }
+    const data = await bsRes.json();
+    if (bsRes.status >= 400) return res.status(bsRes.status).json(data);
 
-    // Record in social_posts
+    // Record in AICEO's social_posts for calendar display
     await supabase.from('social_posts').insert({
       user_id: userId,
       platform: 'instagram',
@@ -284,50 +250,31 @@ router.post('/api/boosend/instagram/schedule', async (req, res) => {
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
 
   try {
-    let accountId = instagram_account_id;
-    let accessToken;
-
-    if (!accountId) {
-      const { data: accounts } = await supabase
-        .from('instagram_accounts')
-        .select('id, access_token')
-        .eq('owner_id', userId)
-        .eq('is_active', true)
-        .limit(1)
-        .single();
-
-      if (!accounts) return res.status(400).json({ error: 'No Instagram account connected via BooSend' });
-      accountId = accounts.id;
-      accessToken = accounts.access_token;
-    } else {
-      const { data: account } = await supabase
-        .from('instagram_accounts')
-        .select('access_token')
-        .eq('id', accountId)
-        .eq('owner_id', userId)
-        .single();
-
-      if (!account) return res.status(400).json({ error: 'Instagram account not found' });
-      accessToken = account.access_token;
-    }
-
-    const scheduleBody = {
-      action: 'schedule',
-      instagram_account_id: accountId,
-      access_token: accessToken,
-      user_id: userId,
-      media_items: media_items || [],
-      caption: caption || '',
-      post_type: post_type || 'single',
-      scheduled_at,
-    };
-
-    const { status, data } = await boosendFetch(apiKey, userId, '/api/publishing/instagram/schedule', {
+    // BooSend handles scheduling + token lookup internally
+    const url = new URL('/api/publishing/instagram/schedule', BOOSEND_API);
+    const bsRes = await fetch(url.toString(), {
       method: 'POST',
-      body: JSON.stringify(scheduleBody),
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        instagram_account_id: instagram_account_id || undefined,
+        media_items: media_items || [],
+        caption: caption || '',
+        post_type: post_type || 'single',
+        scheduled_at,
+      }),
     });
 
-    if (status >= 400) return res.status(status).json(data);
+    const data = await bsRes.json();
+    if (bsRes.status >= 400) return res.status(bsRes.status).json(data);
+
+    // Also record in AICEO's social_posts for calendar display
+    await supabase.from('social_posts').insert({
+      user_id: userId,
+      platform: 'instagram',
+      caption: caption || '',
+      status: 'scheduled',
+      scheduled_at,
+    });
 
     res.json({ ok: true, scheduled_post_id: data?.scheduled_post_id });
   } catch (err) {
