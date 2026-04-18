@@ -25,6 +25,7 @@ import dashboardRoutes from './routes/dashboard.js';
 import artifactVersionRoutes from './routes/artifact-versions.js';
 import calendarRoutes from './routes/calendar.js';
 import billingRoutes from './routes/billing.js';
+import adminRoutes from './routes/admin.js';
 import { startEmailSync } from './services/email-sync.js';
 
 const app = express();
@@ -1013,6 +1014,13 @@ app.use((req, res, next) => {
   next();
 });
 app.use(billingRoutes);
+
+// ─── Admin routes (auth + admin check required) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/admin')) return requireAuth(req, res, next);
+  next();
+});
+app.use(adminRoutes);
 
 // ─── Webhook routes (no auth — external services) ───
 app.use(webhookRoutes);
