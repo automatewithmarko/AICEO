@@ -857,9 +857,10 @@ FORM EMBEDDING FOR LEAD CAPTURE:
 When the task_description includes "EMBED FORM: slug=<slug>, title=<title>", embed the user's form into the page:
 - Add a new section BEFORE final-cta:
   <!-- SECTION:form-capture -->
-  <section> with heading + subtitle + <iframe src="FRONTEND_URL/f/SLUG" style="width:100%;min-height:600px;border:none;border-radius:12px;" title="FORM_TITLE"></iframe>
+  <section> with heading + subtitle + <iframe src="${process.env.FRONTEND_URL || 'https://aiceoproduction.netlify.app'}/f/SLUG?embed=1" style="width:100%;min-height:600px;border:none;border-radius:12px;" loading="lazy" sandbox="allow-scripts allow-forms allow-popups" title="FORM_TITLE"></iframe>
   <!-- /SECTION:form-capture -->
-- Replace FRONTEND_URL with the frontend origin from brand context, SLUG with the form slug, FORM_TITLE with the title
+- Replace SLUG with the form slug from the task_description, and FORM_TITLE with the title
+- The base URL above is already correct — do NOT change or guess the domain
 - Style the section to match the page design (brand colors, fonts, appropriate background)
 - Keep the final-cta section below it as a fallback CTA
 
