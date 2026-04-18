@@ -530,7 +530,11 @@ export default function AiCeo() {
       const abort = new AbortController();
       abortRef.current = abort;
 
-      const apiMessages = chatHistory.map(m => ({ role: m.role, content: m.content }));
+      const apiMessages = chatHistory.map(m => {
+        const msg = { role: m.role, content: m.content };
+        if (m.wasAskUser) { msg.wasAskUser = true; msg.askUserOptions = m.askUserOptions; }
+        return msg;
+      });
 
       // Pass current artifact HTML for editing support
       const currentArtifact = artifactRef.current;
@@ -999,9 +1003,9 @@ export default function AiCeo() {
           setCurrentQuestion({ question, options });
           setCustomTyping(false);
           setCustomText('');
-          // Save the question as the assistant's message so it appears in conversation history
+          // Save the question with ask_user metadata so the backend can reconstruct tool call format
           setMessages(prev => prev.map(m =>
-            m.id === assistantMsgId ? { ...m, content: question, status: null } : m
+            m.id === assistantMsgId ? { ...m, content: question, status: null, wasAskUser: true, askUserOptions: options } : m
           ));
         },
       }, abort.signal);
@@ -1020,52 +1024,6 @@ export default function AiCeo() {
         const pending = [...pendingImagesRef.current];
         pendingImagesRef.current = [];
         await Promise.allSettled(pending);
-      }
-      // Fallback: if the model wrote a question as plain text instead of using ask_user,
-      // detect it and convert to a popup. Use askUserFiredRef to avoid overwriting
-      // a real ask_user popup that already arrived during the stream.
-      if (!askUserFiredRef.current) {
-        setMessages(prev => {
-          const lastMsg = prev.find(m => m.id === assistantMsgId);
-          if (lastMsg?.content) {
-            const text = lastMsg.content.trim();
-            // Check for numbered options pattern: "1. Option\n2. Option\n3. Option"
-            const numberedMatch = text.match(/([\s\S]*?\?)\s*\n((?:\s*\d+[.)]\s*.+\n?){2,})/);
-            if (numberedMatch) {
-              const q = numberedMatch[1].trim();
-              const opts = numberedMatch[2].trim().split('\n').map(l => l.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
-              if (opts.length >= 2) {
-                console.log('[AiCeo] Fallback: converted plain-text question to popup:', q, opts);
-                setCurrentQuestion({ question: q, options: opts });
-                setCustomTyping(false);
-                setCustomText('');
-                return prev;
-              }
-            }
-            // Check for bullet options: "- Option\n- Option"
-            const bulletMatch = text.match(/([\s\S]*?\?)\s*\n((?:\s*[-•]\s*.+\n?){2,})/);
-            if (bulletMatch) {
-              const q = bulletMatch[1].trim();
-              const opts = bulletMatch[2].trim().split('\n').map(l => l.replace(/^\s*[-•]\s*/, '').trim()).filter(Boolean);
-              if (opts.length >= 2) {
-                console.log('[AiCeo] Fallback: converted bullet question to popup:', q, opts);
-                setCurrentQuestion({ question: q, options: opts });
-                setCustomTyping(false);
-                setCustomText('');
-                return prev;
-              }
-            }
-            // Check for bare question (short text ending with ?)
-            if (text.endsWith('?') && text.length < 200) {
-              console.log('[AiCeo] Fallback: bare question detected, showing custom input:', text);
-              setCurrentQuestion({ question: text, options: [] });
-              setCustomTyping(true);
-              setCustomText('');
-              return prev;
-            }
-          }
-          return prev;
-        });
       }
       askUserFiredRef.current = false;
       setIsGenerating(false);

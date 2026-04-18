@@ -1026,11 +1026,43 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, user
   // Auto-extract video/social URLs from the user's message before the model sees it
   const enrichedMessages = await enrichMessagesWithVideoContext(messages, userId, res);
 
+  // Convert ask_user history back to tool call format so the model sees it used the tool
+  // and continues using it for subsequent questions (prevents falling back to plain text)
+  const toolAwareMessages = [];
+  for (let i = 0; i < enrichedMessages.length; i++) {
+    const m = enrichedMessages[i];
+    if (m.wasAskUser && m.role === 'assistant') {
+      const callId = `askuser-${i}`;
+      // Add assistant message with tool_calls
+      toolAwareMessages.push({
+        role: 'assistant',
+        content: null,
+        tool_calls: [{
+          id: callId,
+          type: 'function',
+          function: {
+            name: 'ask_user',
+            arguments: JSON.stringify({ question: m.content, options: m.askUserOptions || [] }),
+          },
+        }],
+      });
+      // Add tool result with the user's answer (next message)
+      const nextMsg = enrichedMessages[i + 1];
+      toolAwareMessages.push({
+        role: 'tool',
+        tool_call_id: callId,
+        content: nextMsg?.content || 'User responded',
+      });
+    } else {
+      toolAwareMessages.push({ role: m.role, content: m.content });
+    }
+  }
+
   sendSSE(res, { type: 'status', text: 'Thinking...' });
 
   const result = await executeCeoOrchestrator({
     systemPrompt,
-    messages: enrichedMessages,
+    messages: toolAwareMessages,
     tools,
     searchMode,
     onChunk: (content) => {
