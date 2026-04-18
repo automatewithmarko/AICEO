@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../services/storage.js';
 import * as linkedinApi from '../services/linkedin-api.js';
+import { requireFeature } from '../middleware/gate.js';
 
 const BOOSEND_API = 'https://boosend-automation-api-production.up.railway.app';
 const BOOSEND_API_KEY = process.env.BOOSEND_API_KEY;
@@ -23,7 +24,7 @@ router.get('/api/calendar/posts', async (req, res) => {
 });
 
 // ─── Create / schedule a post ───
-router.post('/api/calendar/posts', async (req, res) => {
+router.post('/api/calendar/posts', requireFeature('content_calendar'), async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 

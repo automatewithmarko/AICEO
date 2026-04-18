@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { supabase } from '../services/storage.js';
+import { requireFeature } from '../middleware/gate.js';
 
 const router = Router();
 const BOOSEND_API = 'https://boosend-automation-api-production.up.railway.app';
@@ -199,7 +200,7 @@ router.get('/api/boosend/instagram-accounts', async (req, res) => {
 });
 
 // ─── Publish to Instagram via BooSend ───
-router.post('/api/boosend/instagram/publish', async (req, res) => {
+router.post('/api/boosend/instagram/publish', requireFeature('instagram_posting'), async (req, res) => {
   const userId = req.user.id;
   const apiKey = await getBoosendKey(userId);
   if (!apiKey) return res.status(400).json({ error: 'BooSend integration not connected' });
@@ -241,7 +242,7 @@ router.post('/api/boosend/instagram/publish', async (req, res) => {
 });
 
 // ─── Schedule Instagram post via BooSend ───
-router.post('/api/boosend/instagram/schedule', async (req, res) => {
+router.post('/api/boosend/instagram/schedule', requireFeature('instagram_posting'), async (req, res) => {
   const userId = req.user.id;
   const apiKey = await getBoosendKey(userId);
   if (!apiKey) return res.status(400).json({ error: 'BooSend integration not connected' });

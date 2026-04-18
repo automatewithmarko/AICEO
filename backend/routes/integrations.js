@@ -9,6 +9,7 @@ import * as kajabi from '../services/integrations/kajabi.js';
 import * as netlify from '../services/integrations/netlify.js';
 import * as boosend from '../services/integrations/boosend.js';
 import * as linkedinApi from '../services/linkedin-api.js';
+import { requireFeature } from '../middleware/gate.js';
 
 const router = Router();
 
@@ -127,7 +128,7 @@ router.get('/api/integrations/linkedin/callback', async (req, res) => {
 });
 
 // Post to LinkedIn — text or text+image
-router.post('/api/integrations/linkedin/post', async (req, res) => {
+router.post('/api/integrations/linkedin/post', requireFeature('linkedin_posting'), async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 

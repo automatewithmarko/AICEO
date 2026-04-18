@@ -7,6 +7,7 @@ import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
 import { extractFromUrl } from '../services/social.js';
+import { requireCredits } from '../middleware/gate.js';
 
 const router = Router();
 
@@ -641,7 +642,7 @@ RULES:
 
 // ── POST /api/orchestrate ──
 // mode: "ceo" or "direct" (direct handles both generation and editing)
-router.post('/api/orchestrate', async (req, res) => {
+router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, res) => {
   const userId = req.user?.id;
   const { messages, mode = 'ceo', agent: agentName, searchMode = false, currentHtml, editInstruction, currentAgent, sessionId = null, assistantMsgId = null } = req.body;
 

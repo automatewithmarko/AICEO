@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import OpenAI from 'openai';
 import { supabase } from '../services/storage.js';
+import { requireCredits, requireFeature } from '../middleware/gate.js';
 
 const router = Router();
 
@@ -268,7 +269,7 @@ router.patch('/api/sales/calls/:id', async (req, res) => {
 });
 
 // ─── Generate action items for external recording ───
-router.post('/api/sales/calls/:id/generate-action-items', async (req, res) => {
+router.post('/api/sales/calls/:id/generate-action-items', requireFeature('call_intelligence'), requireCredits('call_intelligence'), async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 

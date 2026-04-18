@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
+import { requireCredits } from '../middleware/gate.js';
 
 const router = Router();
 
@@ -293,7 +294,7 @@ async function getCachedBrandData(userId) {
 }
 
 // ─── Image generation ───
-router.post('/api/generate/image', async (req, res) => {
+router.post('/api/generate/image', requireCredits('image_generation'), async (req, res) => {
   const { prompt, platform, brandData, referenceImages } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: 'prompt is required' });
