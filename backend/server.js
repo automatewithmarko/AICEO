@@ -23,6 +23,7 @@ import boosendRoutes from './routes/boosend.js';
 import formRoutes from './routes/forms.js';
 import dashboardRoutes from './routes/dashboard.js';
 import artifactVersionRoutes from './routes/artifact-versions.js';
+import calendarRoutes from './routes/calendar.js';
 import { startEmailSync } from './services/email-sync.js';
 
 const app = express();
@@ -997,6 +998,13 @@ app.use((req, res, next) => {
   next();
 });
 app.use(artifactVersionRoutes);
+
+// ─── Calendar routes (auth required) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/calendar')) return requireAuth(req, res, next);
+  next();
+});
+app.use(calendarRoutes);
 
 // ─── Webhook routes (no auth — external services) ───
 app.use(webhookRoutes);

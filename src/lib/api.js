@@ -1022,3 +1022,63 @@ export async function schedulePost({ platform, caption, scheduledAt, thumbnailUr
   }
   return res.json();
 }
+
+// ─── Calendar Posts ───
+
+export async function getCalendarPosts() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/calendar/posts`, { headers });
+  if (!res.ok) throw new Error('Failed to fetch calendar posts');
+  return res.json();
+}
+
+export async function createCalendarPost({ platform, caption, content_type, scheduled_at, media, status }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/calendar/posts`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, caption, content_type, scheduled_at, media, status }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to create post' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function updateCalendarPost(id, updates) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/calendar/posts/${id}`, {
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to update post' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function deleteCalendarPost(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/calendar/posts/${id}`, {
+    method: 'DELETE',
+    headers,
+  });
+  if (!res.ok) throw new Error('Failed to delete post');
+  return res.json();
+}
+
+export async function publishCalendarPost(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/calendar/posts/${id}/publish`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Publishing failed' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}

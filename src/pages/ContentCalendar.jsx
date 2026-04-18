@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, ArrowRight, Check, Image as ImageIcon, Clock, CalendarDays, Video, Layers, Camera, Play } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, ArrowRight, Check, Image as ImageIcon, Clock, CalendarDays, Video, Layers, Camera, Play, Send, Loader } from 'lucide-react';
+import { getCalendarPosts, createCalendarPost, updateCalendarPost, deleteCalendarPost, publishCalendarPost } from '../lib/api';
 import './Pages.css';
 import './ContentCalendar.css';
 
@@ -98,26 +99,40 @@ function buildMonthGrid(cursor) {
 
 // ─── Seed data (relative to today so the calendar always feels alive) ───────
 
-const buildSeedPosts = () => {
-  const today = new Date();
-  return [
-    { id: 'p1', platform: 'instagram', igType: 'reel',     date: toISODate(addDays(today, 1)),  time: '09:00', content: 'Launch day teaser — swipe for the reveal 🎬', media: [], status: 'scheduled' },
-    { id: 'p2', platform: 'linkedin',                       date: toISODate(addDays(today, 2)),  time: '14:30', content: 'Three lessons from shipping our Q2 launch — a thread worth reading before your next release.', media: [], status: 'scheduled' },
-    { id: 'p3', platform: 'facebook',                       date: toISODate(addDays(today, 4)),  time: '10:15', content: 'Community AMA this Friday — drop your questions below.', media: [], status: 'scheduled' },
-    { id: 'p4', platform: 'instagram', igType: 'post',     date: toISODate(addDays(today, 4)),  time: '18:00', content: 'Behind-the-scenes from the shoot.', media: [], status: 'draft' },
-    { id: 'p5', platform: 'linkedin',                       date: toISODate(addDays(today, 7)),  time: '09:00', content: 'Why we rebuilt the onboarding from scratch.', media: [], status: 'scheduled' },
-    { id: 'p6', platform: 'instagram', igType: 'carousel', date: toISODate(addDays(today, 11)), time: '12:00', content: '5 design principles we live by.', media: [], status: 'scheduled' },
-  ];
-};
+// Convert DB row to local post shape
+function dbToLocal(row) {
+  const dt = row.scheduled_at ? new Date(row.scheduled_at) : null;
+  return {
+    id: row.id,
+    platform: row.platform,
+    igType: row.content_type || undefined,
+    date: dt ? toISODate(dt) : toISODate(new Date()),
+    time: dt ? `${pad(dt.getHours())}:${pad(dt.getMinutes())}` : '09:00',
+    content: row.caption || '',
+    media: row.media || [],
+    status: row.status || 'draft',
+    url: row.url || null,
+    externalPostId: row.external_post_id || null,
+  };
+}
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function ContentCalendar() {
   const today = useMemo(() => new Date(), []);
   const [cursor, setCursor] = useState(today);
-  const [posts, setPosts] = useState(buildSeedPosts);
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   // modal shape: { step: 'pick' | 'compose', date: 'YYYY-MM-DD', platform?: 'instagram', editId?: 'p1' }
+
+  // Load posts from Supabase on mount
+  useEffect(() => {
+    getCalendarPosts()
+      .then(({ posts: dbPosts }) => setPosts((dbPosts || []).map(dbToLocal)))
+      .catch((err) => console.error('Failed to load calendar posts:', err))
+      .finally(() => setLoading(false));
+  }, []);
 
   const grid = useMemo(() => buildMonthGrid(cursor), [cursor]);
   const postsByDate = useMemo(() => {
@@ -142,18 +157,46 @@ export default function ContentCalendar() {
   };
   const closeModal = () => setModal(null);
 
-  const savePost = (draft) => {
-    if (modal?.editId) {
-      setPosts((prev) => prev.map((p) => p.id === modal.editId ? { ...p, ...draft } : p));
-    } else {
-      setPosts((prev) => [...prev, { id: `p-${Date.now()}`, ...draft }]);
+  const savePost = async (draft) => {
+    const scheduledAt = draft.date && draft.time
+      ? new Date(`${draft.date}T${draft.time}:00`).toISOString()
+      : null;
+
+    try {
+      if (modal?.editId) {
+        const { post } = await updateCalendarPost(modal.editId, {
+          caption: draft.content,
+          scheduled_at: scheduledAt,
+          content_type: draft.igType || null,
+          media: draft.media || [],
+          status: draft.status || 'scheduled',
+        });
+        setPosts((prev) => prev.map((p) => p.id === modal.editId ? dbToLocal(post) : p));
+      } else {
+        const { post } = await createCalendarPost({
+          platform: draft.platform,
+          caption: draft.content,
+          content_type: draft.igType || null,
+          scheduled_at: scheduledAt,
+          media: draft.media || [],
+          status: draft.status || 'scheduled',
+        });
+        setPosts((prev) => [...prev, dbToLocal(post)]);
+      }
+    } catch (err) {
+      console.error('Failed to save post:', err);
     }
     closeModal();
   };
 
-  const deletePost = () => {
+  const deletePost = async () => {
     if (!modal?.editId) return;
-    setPosts((prev) => prev.filter((p) => p.id !== modal.editId));
+    try {
+      await deleteCalendarPost(modal.editId);
+      setPosts((prev) => prev.filter((p) => p.id !== modal.editId));
+    } catch (err) {
+      console.error('Failed to delete post:', err);
+    }
     closeModal();
   };
 
@@ -276,6 +319,12 @@ export default function ContentCalendar() {
                 post={posts.find((p) => p.id === modal.editId)}
                 onClose={closeModal}
                 onDelete={deletePost}
+                onPublish={async (postId) => {
+                  const result = await publishCalendarPost(postId);
+                  // Update local state to reflect published status
+                  setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, status: 'published', url: result.postUrl } : p));
+                  return result;
+                }}
               />
             )}
           </div>
@@ -312,7 +361,9 @@ function PlatformPicker({ onPick }) {
 
 // ─── Scheduled post view (read-only) ───────────────────────────────────────
 
-function ScheduledView({ post, onClose, onDelete }) {
+function ScheduledView({ post, onClose, onDelete, onPublish }) {
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState(null); // { ok, error, url }
   if (!post) return null;
   const platform = getPlatform(post.platform);
   const igConfig = post.igType ? getIgType(post.igType) : null;
@@ -373,11 +424,41 @@ function ScheduledView({ post, onClose, onDelete }) {
         <span>Scheduled posts can't be edited. Cancel the schedule to make changes.</span>
       </div>
 
+      {publishResult?.ok && (
+        <div className="cc-publish-success">
+          <Check size={14} /> Published! {publishResult.url && <a href={publishResult.url} target="_blank" rel="noopener noreferrer">View post</a>}
+        </div>
+      )}
+      {publishResult?.error && (
+        <div className="cc-publish-error">{publishResult.error}</div>
+      )}
+
       <div className="cc-actions">
         <button className="cc-ghost-btn cc-ghost-btn--danger" onClick={onDelete}>
           Cancel schedule
         </button>
         <div className="cc-actions-right">
+          {post.platform === 'linkedin' && post.status !== 'published' && (
+            <button
+              className="cc-primary-btn cc-primary-btn--lg"
+              style={{ background: '#0a66c2' }}
+              disabled={publishing}
+              onClick={async () => {
+                setPublishing(true);
+                setPublishResult(null);
+                try {
+                  const result = await onPublish(post.id);
+                  setPublishResult({ ok: true, url: result?.postUrl });
+                } catch (err) {
+                  setPublishResult({ error: err.message });
+                } finally {
+                  setPublishing(false);
+                }
+              }}
+            >
+              {publishing ? <><Loader size={14} className="cc-spin" /> Publishing...</> : <><Send size={14} /> Publish Now</>}
+            </button>
+          )}
           <button className="cc-primary-btn cc-primary-btn--lg" onClick={onClose}>Done</button>
         </div>
       </div>

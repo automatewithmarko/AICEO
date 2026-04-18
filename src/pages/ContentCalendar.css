@@ -1810,3 +1810,35 @@
   .cc-step-dot { width: 24px; height: 24px; font-size: 11px; }
   .cc-step-indicator { display: none; }
 }
+
+/* ── Publish states ── */
+.cc-publish-success {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: #ecfdf5;
+  color: #065f46;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.cc-publish-success a {
+  color: #0a66c2;
+  text-decoration: underline;
+}
+.cc-publish-error {
+  padding: 10px 14px;
+  background: #fef2f2;
+  color: #991b1b;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.cc-spin {
+  animation: cc-spin 1s linear infinite;
+}
+@keyframes cc-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
