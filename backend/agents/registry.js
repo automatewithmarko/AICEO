@@ -111,7 +111,7 @@ export function buildAgentTools() {
       type: 'function',
       function: {
         name: 'ask_user',
-        description: 'Ask the user a question with multiple choice options before proceeding. Use this BEFORE delegating to an agent  -  ask 1-2 focused questions to understand what they want. The question appears as a popup overlay with clickable options. ALWAYS use this instead of asking questions in plain text.',
+        description: 'Ask the user a question with multiple choice options. The question appears as a popup overlay with clickable options. You MUST use this tool for EVERY question you ask. NEVER type questions in plain text. Call this tool once per question, and keep calling it for each follow-up question until all questions are answered. There is no limit on how many times you can call this tool.',
         parameters: {
           type: 'object',
           properties: {
