@@ -180,26 +180,15 @@ router.post('/api/boosend/automations/:id/deactivate', async (req, res) => {
 router.get('/api/boosend/instagram-accounts', async (req, res) => {
   const userId = req.user.id;
   const apiKey = await getBoosendKey(userId);
-  if (!apiKey) return res.status(400).json({ error: 'BooSend integration not connected' });
+  if (!apiKey) return res.json({ accounts: [] }); // Not connected, return empty
 
   try {
-    // Query BooSend's Supabase directly for Instagram accounts
-    // These are stored in BooSend's database, accessible via the shared Supabase instance
-    const { data, error } = await supabase
-      .from('instagram_accounts')
-      .select('id, username, profile_picture_url, access_token, page_id')
-      .eq('owner_id', userId)
-      .eq('is_active', true);
-
-    if (error) {
-      console.error('[boosend] instagram accounts error:', error.message);
-      return res.status(500).json({ error: error.message });
-    }
-
-    res.json({ accounts: data || [] });
+    const { status, data } = await boosendFetch(apiKey, userId, `/api/publishing/instagram/accounts?user_id=${userId}`);
+    if (status >= 400) return res.json({ accounts: [] });
+    res.json({ accounts: data?.accounts || [] });
   } catch (err) {
     console.error('[boosend] instagram accounts error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.json({ accounts: [] });
   }
 });
 
