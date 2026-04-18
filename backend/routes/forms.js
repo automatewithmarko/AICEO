@@ -88,7 +88,7 @@ router.post('/api/forms/public/:slug/submit', async (req, res) => {
   // Look up form
   const { data: form, error: formErr } = await supabase
     .from('forms')
-    .select('id, user_id, title, questions')
+    .select('id, user_id, title, questions, submission_tags')
     .eq('slug', req.params.slug)
     .eq('status', 'published')
     .limit(1)
@@ -137,11 +137,13 @@ router.post('/api/forms/public/:slug/submit', async (req, res) => {
     mappedName = [mappedFirstName, mappedLastName].filter(Boolean).join(' ');
   }
 
+  const submissionTags = Array.isArray(form.submission_tags) ? form.submission_tags.filter(t => typeof t === 'string' && t.trim()) : [];
+
   // Attempt CRM contact creation/update
   if (mappedEmail) {
     const { data: existing } = await supabase
       .from('contacts')
-      .select('id, notes')
+      .select('id, notes, tags')
       .eq('user_id', form.user_id)
       .eq('email', mappedEmail)
       .maybeSingle();
@@ -159,6 +161,10 @@ router.post('/api/forms/public/:slug/submit', async (req, res) => {
       if (mappedBusiness) updates.business = mappedBusiness;
       if (noteBlock) updates.notes = (existing.notes || '') + noteBlock;
       if (hasSocials) updates.socials = mappedSocials;
+      if (submissionTags.length > 0) {
+        const merged = [...new Set([...(existing.tags || []), ...submissionTags])];
+        if (merged.length !== (existing.tags || []).length) updates.tags = merged;
+      }
       if (Object.keys(updates).length > 0) {
         await supabase.from('contacts').update(updates).eq('id', existing.id);
       }
@@ -173,7 +179,7 @@ router.post('/api/forms/public/:slug/submit', async (req, res) => {
           name: mappedName || '',
           business: mappedBusiness || '',
           status: 'New Lead',
-          tags: [],
+          tags: submissionTags,
           notes: noteBlock,
           socials: hasSocials ? mappedSocials : { instagram: [], linkedin: [], x: [] },
           source: 'form',
@@ -217,7 +223,7 @@ router.put('/api/forms/:id', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
-  const { title, description, slug, theme, questions, thank_you_message } = req.body;
+  const { title, description, slug, theme, questions, thank_you_message, submission_tags } = req.body;
   const updates = {};
   if (title !== undefined) updates.title = title;
   if (description !== undefined) updates.description = description;
@@ -225,6 +231,11 @@ router.put('/api/forms/:id', async (req, res) => {
   if (theme !== undefined) updates.theme = theme;
   if (questions !== undefined) updates.questions = questions;
   if (thank_you_message !== undefined) updates.thank_you_message = thank_you_message;
+  if (submission_tags !== undefined) {
+    updates.submission_tags = Array.isArray(submission_tags)
+      ? submission_tags.map(t => String(t).trim()).filter(Boolean)
+      : [];
+  }
 
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
 
