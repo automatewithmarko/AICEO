@@ -41,7 +41,7 @@ router.get('/api/integrations/linkedin/auth', async (req, res) => {
     await supabase.from('integrations').upsert({
       user_id: userId,
       provider: 'linkedin_oauth_state',
-      credentials: { state },
+      metadata: { state },
       is_active: false,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id,provider' });
@@ -102,10 +102,10 @@ router.get('/api/integrations/linkedin/callback', async (req, res) => {
     await supabase.from('integrations').upsert({
       user_id: userId,
       provider: 'linkedin',
-      credentials: {
+      metadata: {
         access_token,
         linkedin_user_id: linkedinUserId,
-        name,
+        profile_name: name,
         expires_at,
       },
       is_active: true,
@@ -147,7 +147,7 @@ router.post('/api/integrations/linkedin/post', async (req, res) => {
     return res.status(400).json({ error: 'LinkedIn not connected', code: 'linkedin_not_connected' });
   }
 
-  const { access_token, linkedin_user_id, expires_at } = integration.credentials;
+  const { access_token, linkedin_user_id, expires_at } = integration.metadata;
 
   // Check token expiration
   if (expires_at && new Date(expires_at) < new Date()) {

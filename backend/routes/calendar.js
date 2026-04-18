@@ -104,17 +104,17 @@ router.post('/api/calendar/posts/:id/publish', async (req, res) => {
     // Get LinkedIn credentials
     const { data: integration } = await supabase
       .from('integrations')
-      .select('credentials')
+      .select('metadata')
       .eq('user_id', userId)
       .eq('provider', 'linkedin')
       .eq('is_active', true)
       .single();
 
-    if (!integration?.credentials?.access_token) {
+    if (!integration?.metadata?.access_token) {
       return res.status(400).json({ error: 'LinkedIn not connected. Go to Settings to connect.' });
     }
 
-    const { access_token, linkedin_user_id } = integration.credentials;
+    const { access_token, linkedin_user_id } = integration.metadata;
 
     try {
       const result = await linkedinApi.postText(access_token, linkedin_user_id, post.caption);
