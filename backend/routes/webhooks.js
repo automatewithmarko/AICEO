@@ -7,6 +7,7 @@ import * as whop from '../services/integrations/whop.js';
 import * as shopify from '../services/integrations/shopify.js';
 import * as kajabi from '../services/integrations/kajabi.js';
 import * as gohighlevel from '../services/integrations/gohighlevel.js';
+import { refillMonthlyCredits } from '../services/credits.js';
 
 const router = Router();
 
@@ -155,11 +156,21 @@ router.post('/api/webhooks/stripe', async (req, res) => {
         break;
       }
 
-      // ── Invoice paid (renewal confirmation) ──
+      // ── Invoice paid (renewal confirmation + monthly credit refill) ──
       case 'invoice.paid': {
         if (!userId) break;
         console.log(`[webhook/stripe-global] Invoice paid for user ${userId}: ${(obj.amount_paid / 100).toFixed(2)} ${obj.currency?.toUpperCase()}`);
-        // Optionally add credits or extend period — expand here as needed
+        // Refill monthly credits based on the user's plan
+        try {
+          const refillResult = await refillMonthlyCredits(userId);
+          if (refillResult.success) {
+            console.log(`[webhook/stripe-global] Credits refilled for user ${userId}. New balance: ${refillResult.newBalance}`);
+          } else {
+            console.log(`[webhook/stripe-global] Credit refill skipped for user ${userId}: ${refillResult.reason}`);
+          }
+        } catch (refillErr) {
+          console.error(`[webhook/stripe-global] Credit refill failed for user ${userId}:`, refillErr.message);
+        }
         break;
       }
 

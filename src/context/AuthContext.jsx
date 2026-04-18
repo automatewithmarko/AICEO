@@ -1,17 +1,22 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { getBillingPlan } from '../lib/api';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(undefined); // undefined = loading, null = not logged in
   const [credits, setCredits] = useState(0);
+  const [features, setFeatures] = useState([]);
+  const [planData, setPlanData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const buildUser = async (session) => {
     if (!session?.user) {
       setUser(null);
       setCredits(0);
+      setFeatures([]);
+      setPlanData(null);
       setLoading(false);
       return;
     }
@@ -25,33 +30,61 @@ export function AuthProvider({ children }) {
       .eq('id', authUser.id)
       .single();
 
-    // Fetch credits
-    const { data: creditRow } = await supabase
-      .from('credits')
-      .select('balance')
-      .eq('user_id', authUser.id)
-      .single();
+    // Fetch billing plan (includes plan, subscription, and credits)
+    let billingInfo = null;
+    try {
+      billingInfo = await getBillingPlan();
+    } catch {
+      // Fallback to direct DB queries if billing API not ready
+    }
 
-    // Fetch subscription
-    const { data: subscription } = await supabase
-      .from('subscriptions')
-      .select('plan')
-      .eq('user_id', authUser.id)
-      .eq('status', 'active')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+    let plan = null;
+    let creditBalance = 0;
+    let planFeatures = [];
+    let billingData = null;
+
+    if (billingInfo?.plan) {
+      plan = billingInfo.plan.display_name || billingInfo.plan.name;
+      creditBalance = billingInfo.credits?.balance ?? 0;
+      planFeatures = billingInfo.plan.features || [];
+      billingData = {
+        plan: billingInfo.plan,
+        subscription: billingInfo.subscription,
+        credits: billingInfo.credits,
+      };
+    } else {
+      // Fallback: fetch credits and subscription directly from DB
+      const { data: creditRow } = await supabase
+        .from('credits')
+        .select('balance')
+        .eq('user_id', authUser.id)
+        .single();
+
+      const { data: subscription } = await supabase
+        .from('subscriptions')
+        .select('plan')
+        .eq('user_id', authUser.id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      plan = subscription?.plan
+        ? subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1)
+        : null;
+      creditBalance = creditRow?.balance ?? 0;
+    }
 
     setUser({
       id: authUser.id,
       name: profile?.full_name || 'New User',
       email: authUser.email,
       avatar: profile?.avatar_url || null,
-      plan: subscription?.plan
-        ? subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1)
-        : null,
+      plan,
     });
-    setCredits(creditRow?.balance ?? 0);
+    setCredits(creditBalance);
+    setFeatures(planFeatures);
+    setPlanData(billingData);
     setLoading(false);
   };
 
@@ -69,6 +102,40 @@ export function AuthProvider({ children }) {
     );
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  const hasFeature = useCallback((name) => {
+    return features.includes(name);
+  }, [features]);
+
+  const refreshCredits = useCallback(async () => {
+    try {
+      const billingInfo = await getBillingPlan();
+      if (billingInfo?.credits) {
+        setCredits(billingInfo.credits.balance ?? 0);
+      }
+      if (billingInfo?.plan?.features) {
+        setFeatures(billingInfo.plan.features);
+      }
+      if (billingInfo?.plan) {
+        setPlanData({
+          plan: billingInfo.plan,
+          subscription: billingInfo.subscription,
+          credits: billingInfo.credits,
+        });
+      }
+    } catch {
+      // Fallback: fetch credits directly
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: creditRow } = await supabase
+          .from('credits')
+          .select('balance')
+          .eq('user_id', session.user.id)
+          .single();
+        setCredits(creditRow?.balance ?? 0);
+      }
+    }
   }, []);
 
   const login = async (email, password) => {
@@ -104,7 +171,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, credits, loading, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, credits, features, planData, loading, login, signup, logout, hasFeature, refreshCredits }}>
       {children}
     </AuthContext.Provider>
   );

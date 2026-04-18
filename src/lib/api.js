@@ -1113,3 +1113,33 @@ export async function publishCalendarPost(id) {
   }
   return res.json();
 }
+
+// ─── Billing ───
+
+export async function getBillingPlan() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/billing/plan`, { headers });
+  if (!res.ok) return { plan: null, subscription: null, credits: { balance: 0 } };
+  return res.json();
+}
+
+export async function getBillingCredits() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/billing/credits`, { headers });
+  if (!res.ok) return { balance: 0, transactions: [] };
+  return res.json();
+}
+
+export async function getAvailablePlans() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/billing/plans`, { headers });
+  if (!res.ok) return { plans: [] };
+  return res.json();
+}
+
+export async function getCreditCosts() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/billing/costs`, { headers });
+  if (!res.ok) return { costs: [] };
+  return res.json();
+}

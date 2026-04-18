@@ -24,6 +24,7 @@ import formRoutes from './routes/forms.js';
 import dashboardRoutes from './routes/dashboard.js';
 import artifactVersionRoutes from './routes/artifact-versions.js';
 import calendarRoutes from './routes/calendar.js';
+import billingRoutes from './routes/billing.js';
 import { startEmailSync } from './services/email-sync.js';
 
 const app = express();
@@ -1005,6 +1006,13 @@ app.use((req, res, next) => {
   next();
 });
 app.use(calendarRoutes);
+
+// ─── Billing routes (auth required, except /plans and /costs which are public-ish) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/billing')) return requireAuth(req, res, next);
+  next();
+});
+app.use(billingRoutes);
 
 // ─── Webhook routes (no auth — external services) ───
 app.use(webhookRoutes);

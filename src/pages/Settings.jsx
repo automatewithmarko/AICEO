@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from 'react-router-dom';
-import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, ChevronDown, FileText, Loader, Plus, Dna } from 'lucide-react';
+import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, ChevronDown, FileText, Loader, Plus, Dna, Calendar } from 'lucide-react';
 import ColorWheelPicker from '../components/ColorWheelPicker';
 import FontSelector from '../components/FontSelector';
 import { uploadBrandDnaFiles, uploadContextFiles, getIntegrations, connectIntegration, disconnectIntegration, getLinkedInAuthUrl, disconnectLinkedIn, getEmailAccounts, addEmailAccount, deleteEmailAccount, syncEmailAccount } from '../lib/api';
@@ -31,7 +31,7 @@ const DOC_TYPES = [
 ];
 
 export default function Settings() {
-  const { user, credits } = useAuth();
+  const { user, credits, features, planData } = useAuth();
   const [passwordReset, setPasswordReset] = useState(false);
   const [integrations, setIntegrations] = useState({});
   const [integrationsLoading, setIntegrationsLoading] = useState(true);
@@ -646,8 +646,18 @@ export default function Settings() {
             <div className="settings-row-content">
               <span className="settings-row-label">Subscription</span>
               <div className="settings-row-value">
-                <span className="settings-plan-badge">{user?.plan} Plan</span>
-                <span className="settings-status-badge">Active</span>
+                <span className="settings-plan-badge">{user?.plan || 'Free'} Plan</span>
+                <span className={`settings-tier-badge ${planData?.plan?.id === 'diamond' ? 'settings-tier-badge--diamond' : ''}`}>
+                  {planData?.plan?.id === 'diamond' ? 'Diamond' : 'Complete'}
+                </span>
+                {planData?.subscription?.status && (
+                  <span className={`settings-status-badge ${planData.subscription.status !== 'active' ? 'settings-status-badge--inactive' : ''}`}>
+                    {planData.subscription.status === 'active' ? 'Active' : planData.subscription.status}
+                  </span>
+                )}
+                {!planData?.subscription?.status && (
+                  <span className="settings-status-badge">Active</span>
+                )}
               </div>
             </div>
           </div>
@@ -660,12 +670,61 @@ export default function Settings() {
             </div>
             <div className="settings-row-content">
               <span className="settings-row-label">Credits</span>
-              <span className="settings-row-value">{credits.toLocaleString()} remaining</span>
+              <div className="settings-row-value">
+                <span>{credits.toLocaleString()} remaining</span>
+                {planData?.plan?.credits_per_month && (
+                  <span className="settings-credits-allocation">
+                    / {planData.plan.credits_per_month.toLocaleString()} monthly
+                  </span>
+                )}
+              </div>
+              {credits < 50 && (
+                <span className="settings-credits-warning">Credits running low</span>
+              )}
             </div>
             <button className="settings-btn settings-btn--primary">
               Buy More Credits
             </button>
           </div>
+
+          {planData?.subscription?.current_period_end && (
+            <>
+              <div className="settings-divider" />
+              <div className="settings-row">
+                <div className="settings-row-icon">
+                  <Calendar size={18} />
+                </div>
+                <div className="settings-row-content">
+                  <span className="settings-row-label">Billing Period</span>
+                  <span className="settings-row-value">
+                    Renews {new Date(planData.subscription.current_period_end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+
+          {features.length > 0 && (
+            <>
+              <div className="settings-divider" />
+              <div className="settings-row settings-row--features">
+                <div className="settings-row-icon">
+                  <Check size={18} />
+                </div>
+                <div className="settings-row-content">
+                  <span className="settings-row-label">Included Features</span>
+                  <div className="settings-features-list">
+                    {features.map((feature) => (
+                      <div key={feature} className="settings-feature-item">
+                        <Check size={14} />
+                        <span>{feature}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
