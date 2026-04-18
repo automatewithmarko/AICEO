@@ -8,52 +8,42 @@ const router = Router();
 // ─── GET /api/admin/users — List all users with plan, credits, subscription ───
 router.get('/api/admin/users', requireAdmin, async (req, res) => {
   try {
-    // Fetch all profiles
-    const { data: profiles, error: profileErr } = await supabase
-      .from('profiles')
-      .select('id, email, name, avatar_url, created_at')
-      .order('created_at', { ascending: false });
+    // Fetch auth users (has email) via admin API
+    const { data: authData, error: authErr } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    if (authErr) throw authErr;
 
-    if (profileErr) throw profileErr;
+    const authUsers = authData?.users || [];
+    if (authUsers.length === 0) return res.json({ users: [] });
 
-    if (!profiles || profiles.length === 0) {
-      return res.json({ users: [] });
-    }
+    const userIds = authUsers.map(u => u.id);
 
-    const userIds = profiles.map((p) => p.id);
-
-    // Fetch subscriptions and credits in parallel
-    const [subsRes, creditsRes] = await Promise.all([
-      supabase
-        .from('subscriptions')
-        .select('user_id, plan, status')
-        .in('user_id', userIds),
-      supabase
-        .from('credits')
-        .select('user_id, balance')
-        .in('user_id', userIds),
+    // Fetch profiles, subscriptions, credits in parallel
+    const [profilesRes, subsRes, creditsRes] = await Promise.all([
+      supabase.from('profiles').select('id, full_name, avatar_url, created_at').in('id', userIds),
+      supabase.from('subscriptions').select('user_id, plan, status').in('user_id', userIds),
+      supabase.from('credits').select('user_id, balance').in('user_id', userIds),
     ]);
 
+    const profilesByUser = {};
+    (profilesRes.data || []).forEach(p => { profilesByUser[p.id] = p; });
     const subsByUser = {};
-    (subsRes.data || []).forEach((s) => {
-      subsByUser[s.user_id] = s;
-    });
-
+    (subsRes.data || []).forEach(s => { subsByUser[s.user_id] = s; });
     const creditsByUser = {};
-    (creditsRes.data || []).forEach((c) => {
-      creditsByUser[c.user_id] = c;
-    });
+    (creditsRes.data || []).forEach(c => { creditsByUser[c.user_id] = c; });
 
-    const users = profiles.map((p) => ({
-      id: p.id,
-      email: p.email,
-      name: p.name,
-      avatar_url: p.avatar_url,
-      plan: subsByUser[p.id]?.plan || 'free',
-      credits_balance: creditsByUser[p.id]?.balance ?? 0,
-      subscription_status: subsByUser[p.id]?.status || 'none',
-      created_at: p.created_at,
+    const users = authUsers.map(u => ({
+      id: u.id,
+      email: u.email,
+      name: profilesByUser[u.id]?.full_name || '',
+      avatar_url: profilesByUser[u.id]?.avatar_url || null,
+      plan: subsByUser[u.id]?.plan || 'free',
+      credits_balance: creditsByUser[u.id]?.balance ?? 0,
+      subscription_status: subsByUser[u.id]?.status || 'none',
+      created_at: profilesByUser[u.id]?.created_at || u.created_at,
     }));
+
+    // Sort by created_at descending
+    users.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
     res.json({ users });
   } catch (err) {
@@ -67,37 +57,24 @@ router.get('/api/admin/users/:id', requireAdmin, async (req, res) => {
   try {
     const userId = req.params.id;
 
-    const [profileRes, subRes, creditRes, txRes] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single(),
-      supabase
-        .from('subscriptions')
-        .select('*')
-        .eq('user_id', userId)
-        .single(),
-      supabase
-        .from('credits')
-        .select('balance')
-        .eq('user_id', userId)
-        .single(),
-      supabase
-        .from('credit_transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(50),
-    ]);
+    // Get auth user for email
+    const { data: authData, error: authErr } = await supabase.auth.admin.getUserById(userId);
+    if (authErr || !authData?.user) return res.status(404).json({ error: 'User not found' });
 
-    if (profileRes.error || !profileRes.data) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    const [profileRes, subRes, creditRes, txRes] = await Promise.all([
+      supabase.from('profiles').select('full_name, avatar_url, created_at').eq('id', userId).single(),
+      supabase.from('subscriptions').select('*').eq('user_id', userId).single(),
+      supabase.from('credits').select('balance').eq('user_id', userId).single(),
+      supabase.from('credit_transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(50),
+    ]);
 
     res.json({
       user: {
-        ...profileRes.data,
+        id: userId,
+        email: authData.user.email,
+        name: profileRes.data?.full_name || '',
+        avatar_url: profileRes.data?.avatar_url || null,
+        created_at: profileRes.data?.created_at || authData.user.created_at,
         plan: subRes.data?.plan || 'free',
         subscription_status: subRes.data?.status || 'none',
         subscription: subRes.data || null,
@@ -117,22 +94,16 @@ router.post('/api/admin/users/:id/plan', requireAdmin, async (req, res) => {
     const userId = req.params.id;
     const { plan } = req.body;
 
-    if (!plan) {
-      return res.status(400).json({ error: 'plan is required' });
-    }
+    if (!plan) return res.status(400).json({ error: 'plan is required' });
 
-    // Upsert subscription row
     const { data, error } = await supabase
       .from('subscriptions')
-      .upsert(
-        {
-          user_id: userId,
-          plan,
-          status: 'active',
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id' }
-      )
+      .upsert({
+        user_id: userId,
+        plan,
+        status: 'active',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' })
       .select()
       .single();
 
@@ -171,11 +142,8 @@ router.post('/api/admin/users', requireAdmin, async (req, res) => {
   try {
     const { email, password, name, plan, credits } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'email and password are required' });
-    }
+    if (!email || !password) return res.status(400).json({ error: 'email and password are required' });
 
-    // Create auth user via Supabase Admin API
     const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
       email,
       password,
@@ -186,47 +154,27 @@ router.post('/api/admin/users', requireAdmin, async (req, res) => {
 
     const userId = authData.user.id;
 
-    // Create profile row
-    const { error: profileErr } = await supabase
-      .from('profiles')
-      .insert({
-        id: userId,
-        email,
-        name: name || '',
-      });
+    // Create profile row (full_name, not name/email)
+    await supabase.from('profiles').insert({
+      id: userId,
+      full_name: name || '',
+    });
 
-    if (profileErr) {
-      console.error('[admin/create-user] Profile insert error:', profileErr.message);
-    }
-
-    // Optionally assign plan
     if (plan) {
-      await supabase
-        .from('subscriptions')
-        .upsert(
-          {
-            user_id: userId,
-            plan,
-            status: 'active',
-          },
-          { onConflict: 'user_id' }
-        );
+      await supabase.from('subscriptions').upsert({
+        user_id: userId,
+        plan,
+        status: 'active',
+      }, { onConflict: 'user_id' });
     }
 
-    // Optionally add credits
     if (credits && credits > 0) {
       await addCredits(userId, credits, 'admin_initial_grant');
     }
 
     console.log(`[admin] Created user ${email} (${userId})`);
     res.json({
-      user: {
-        id: userId,
-        email,
-        name: name || '',
-        plan: plan || 'free',
-        credits_balance: credits || 0,
-      },
+      user: { id: userId, email, name: name || '', plan: plan || 'free', credits_balance: credits || 0 },
     });
   } catch (err) {
     console.error('[admin/users POST]', err.message);
@@ -234,27 +182,23 @@ router.post('/api/admin/users', requireAdmin, async (req, res) => {
   }
 });
 
-// ─── DELETE /api/admin/users/:id — Deactivate user (cancel subscription) ───
+// ─── DELETE /api/admin/users/:id — Deactivate user ───
 router.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
   try {
     const userId = req.params.id;
 
-    // Don't delete — just cancel the subscription
     const { error } = await supabase
       .from('subscriptions')
-      .upsert(
-        {
-          user_id: userId,
-          status: 'canceled',
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id' }
-      );
+      .upsert({
+        user_id: userId,
+        status: 'canceled',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
 
     if (error) throw error;
 
-    console.log(`[admin] Deactivated user ${userId} (subscription canceled)`);
-    res.json({ ok: true, message: 'User subscription canceled' });
+    console.log(`[admin] Deactivated user ${userId}`);
+    res.json({ ok: true });
   } catch (err) {
     console.error('[admin/users/:id DELETE]', err.message);
     res.status(500).json({ error: err.message });
@@ -264,57 +208,45 @@ router.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
 // ─── GET /api/admin/stats — Dashboard stats ───
 router.get('/api/admin/stats', requireAdmin, async (req, res) => {
   try {
-    // Run queries in parallel
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const [
-      totalUsersRes,
-      subsRes,
-      creditsUsedRes,
-      recentSignupsRes,
-    ] = await Promise.all([
-      // Total users
-      supabase
-        .from('profiles')
-        .select('id', { count: 'exact', head: true }),
-      // Active subscriptions by plan
-      supabase
-        .from('subscriptions')
-        .select('plan, status')
-        .eq('status', 'active'),
-      // Credits used this month (sum of negative transactions)
-      supabase
-        .from('credit_transactions')
-        .select('amount')
-        .lt('amount', 0)
-        .gte('created_at', startOfMonth),
-      // Recent signups (last 7 days)
-      supabase
-        .from('profiles')
-        .select('id, email, name, created_at')
-        .gte('created_at', last7Days)
-        .order('created_at', { ascending: false }),
+    // Get auth users for total count and recent signups
+    const { data: authData } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    const allUsers = authData?.users || [];
+
+    const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const recentSignups = allUsers
+      .filter(u => new Date(u.created_at) >= last7Days)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 10)
+      .map(u => ({ id: u.id, email: u.email, created_at: u.created_at }));
+
+    // Get profiles for names
+    const recentIds = recentSignups.map(u => u.id);
+    const { data: recentProfiles } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in('id', recentIds);
+    const nameMap = {};
+    (recentProfiles || []).forEach(p => { nameMap[p.id] = p.full_name; });
+    recentSignups.forEach(u => { u.name = nameMap[u.id] || ''; });
+
+    const [subsRes, creditsUsedRes] = await Promise.all([
+      supabase.from('subscriptions').select('plan, status').eq('status', 'active'),
+      supabase.from('credit_transactions').select('amount').lt('amount', 0).gte('created_at', startOfMonth),
     ]);
 
-    // Count active subscriptions by plan
     const activeSubs = {};
-    (subsRes.data || []).forEach((s) => {
-      activeSubs[s.plan] = (activeSubs[s.plan] || 0) + 1;
-    });
+    (subsRes.data || []).forEach(s => { activeSubs[s.plan] = (activeSubs[s.plan] || 0) + 1; });
 
-    // Sum credits used
-    const totalCreditsUsed = (creditsUsedRes.data || []).reduce(
-      (sum, tx) => sum + Math.abs(tx.amount),
-      0
-    );
+    const totalCreditsUsed = (creditsUsedRes.data || []).reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
 
     res.json({
-      total_users: totalUsersRes.count || 0,
+      total_users: allUsers.length,
       active_subscriptions: activeSubs,
       total_credits_used_this_month: totalCreditsUsed,
-      recent_signups: recentSignupsRes.data || [],
+      recent_signups: recentSignups,
     });
   } catch (err) {
     console.error('[admin/stats]', err.message);
