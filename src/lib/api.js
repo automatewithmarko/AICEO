@@ -78,6 +78,11 @@ export async function streamFromBackend(endpoint, body, callbacks = {}, signal) 
       try {
         const event = JSON.parse(data);
 
+        // Log all non-text events for debugging
+        if (event.type !== 'text_delta') {
+          console.log(`[SSE] event: ${event.type}`, event.type === 'ask_user' ? event : '');
+        }
+
         switch (event.type) {
           case 'text_delta':
             if (onTextDelta) onTextDelta(event.content);
@@ -104,6 +109,7 @@ export async function streamFromBackend(endpoint, body, callbacks = {}, signal) 
             if (onFileUpdate) onFileUpdate(event.html);
             break;
           case 'ask_user':
+            console.log('[SSE] ask_user event received:', { question: event.question, options: event.options, hasCallback: !!onAskUser });
             if (onAskUser) onAskUser(event.question, event.options);
             break;
           case 'edit_summary':

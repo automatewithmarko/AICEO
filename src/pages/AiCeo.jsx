@@ -545,6 +545,7 @@ export default function AiCeo() {
       }, {
         // CEO text streaming
         onTextDelta: (content) => {
+          if (content && content.includes('?')) console.log('[AiCeo] text_delta contains question mark:', content.slice(-100));
           setMessages(prev => prev.map(m =>
             m.id === assistantMsgId ? { ...m, content } : m
           ));
@@ -560,6 +561,21 @@ export default function AiCeo() {
           setMessages(prev => prev.map(m =>
             m.id === assistantMsgId ? { ...m, status: `Running ${agentName} agent...` } : m
           ));
+          // Open panel immediately with a loading placeholder so user doesn't see a blank screen
+          const isVisualAgent = ['landing-page', 'landing', 'squeeze-page', 'squeeze', 'newsletter'].includes(agentName);
+          if (isVisualAgent) {
+            const label = agentName === 'newsletter' ? 'Newsletter' : agentName.includes('squeeze') ? 'Squeeze Page' : 'Landing Page';
+            setArtifact({
+              id: Date.now(),
+              type: agentName === 'newsletter' ? 'newsletter' : 'html_template',
+              title: `Crafting your ${label}...`,
+              content: '',
+              loading: true,
+              agentSource: agentName,
+            });
+            setPanelOpen(true);
+            if (isMobileRef.current) setMobileArtifactOpen(true);
+          }
         },
         // Agent streaming chunks (show in artifact panel)
         onAgentChunk: (agentName, content) => {
@@ -977,6 +993,7 @@ export default function AiCeo() {
           }
         },
         onAskUser: (question, options) => {
+          console.log('[AiCeo] onAskUser fired:', { question, options, isGenerating });
           setCurrentQuestion({ question, options });
           setCustomTyping(false);
           setCustomText('');
