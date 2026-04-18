@@ -995,9 +995,17 @@ export async function getBoosendAutomation(id) {
 
 export async function getInstagramAccounts() {
   const headers = await getAuthHeaders();
+  console.log('[API] Fetching Instagram accounts from:', `${API_URL}/api/boosend/instagram-accounts`);
   const res = await fetch(`${API_URL}/api/boosend/instagram-accounts`, { headers });
-  if (!res.ok) return { accounts: [] };
-  return res.json();
+  console.log('[API] Instagram accounts response status:', res.status);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    console.error('[API] Instagram accounts error:', res.status, errText);
+    return { accounts: [] };
+  }
+  const data = await res.json();
+  console.log('[API] Instagram accounts data:', data);
+  return data;
 }
 
 export async function postToInstagram({ caption, media_items, post_type, instagram_account_id }) {

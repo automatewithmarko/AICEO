@@ -134,12 +134,18 @@ export default function ContentCalendar() {
       .then(({ posts: dbPosts }) => setPosts((dbPosts || []).map(dbToLocal)))
       .catch((err) => console.error('Failed to load calendar posts:', err))
       .finally(() => setLoading(false));
+    console.log('[Calendar] Fetching Instagram accounts...');
     getInstagramAccounts()
-      .then(({ accounts }) => {
-        setIgAccounts(accounts || []);
-        if (accounts?.length) setSelectedIgAccount(accounts[0]);
+      .then((res) => {
+        console.log('[Calendar] Instagram accounts response:', res);
+        const accounts = res?.accounts || [];
+        setIgAccounts(accounts);
+        if (accounts.length) setSelectedIgAccount(accounts[0]);
+        console.log('[Calendar] Instagram accounts loaded:', accounts.length, accounts.map(a => a.username));
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error('[Calendar] Instagram accounts fetch failed:', err);
+      });
   }, []);
 
   const grid = useMemo(() => buildMonthGrid(cursor), [cursor]);
