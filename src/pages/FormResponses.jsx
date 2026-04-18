@@ -42,6 +42,22 @@ export default function FormResponses() {
 
   const questions = form?.questions || [];
 
+  // Build display columns — expand contact_block into individual fields
+  const columns = [];
+  for (const q of questions) {
+    if (q.type === 'contact_block') {
+      const includePhone = !!q.settings?.includePhone;
+      columns.push({ id: `${q.id}__firstName`, label: 'First Name', getValue: (ans) => ans?.[q.id]?.firstName || '-' });
+      columns.push({ id: `${q.id}__lastName`, label: 'Last Name', getValue: (ans) => ans?.[q.id]?.lastName || '-' });
+      columns.push({ id: `${q.id}__email`, label: 'Email', getValue: (ans) => ans?.[q.id]?.email || '-' });
+      if (includePhone) {
+        columns.push({ id: `${q.id}__phone`, label: 'Phone', getValue: (ans) => ans?.[q.id]?.phone || '-' });
+      }
+    } else {
+      columns.push({ id: q.id, label: q.title || q.type, getValue: (ans) => formatAnswer(ans?.[q.id]) });
+    }
+  }
+
   const filtered = responses.filter((r) => {
     if (!search) return true;
     const lc = search.toLowerCase();
@@ -54,7 +70,21 @@ export default function FormResponses() {
   function formatAnswer(val) {
     if (val === undefined || val === null) return '-';
     if (Array.isArray(val)) return val.join(', ');
-    if (typeof val === 'object') return val.name || JSON.stringify(val);
+    if (typeof val === 'object') {
+      // contact_block: { firstName, lastName, email, phone }
+      if (val.firstName || val.lastName || val.email) {
+        const parts = [];
+        if (val.firstName || val.lastName) parts.push([val.firstName, val.lastName].filter(Boolean).join(' '));
+        if (val.email) parts.push(val.email);
+        if (val.phone) parts.push(val.phone);
+        return parts.join(' · ');
+      }
+      if (val.name) return val.name;
+      // Other objects: show key-value pairs
+      const entries = Object.entries(val).filter(([, v]) => v !== null && v !== undefined && v !== '');
+      if (entries.length > 0) return entries.map(([k, v]) => `${k}: ${v}`).join(', ');
+      return '-';
+    }
     return String(val);
   }
 
@@ -98,8 +128,8 @@ export default function FormResponses() {
             <thead>
               <tr>
                 <th>Submitted</th>
-                {questions.map((q) => (
-                  <th key={q.id}>{q.title || q.type}</th>
+                {columns.map((col) => (
+                  <th key={col.id}>{col.label}</th>
                 ))}
                 <th>Contact</th>
                 <th></th>
@@ -109,8 +139,8 @@ export default function FormResponses() {
               {filtered.map((r) => (
                 <tr key={r.id}>
                   <td>{new Date(r.submitted_at).toLocaleString()}</td>
-                  {questions.map((q) => (
-                    <td key={q.id}>{formatAnswer(r.answers?.[q.id])}</td>
+                  {columns.map((col) => (
+                    <td key={col.id}>{col.getValue(r.answers)}</td>
                   ))}
                   <td>
                     {r.contact_id ? (

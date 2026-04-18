@@ -111,6 +111,16 @@ router.post('/api/forms/public/:slug/submit', async (req, res) => {
   for (const q of questions) {
     const val = answers[q.id];
     if (val === undefined || val === null || val === '') continue;
+
+    // contact_block is a composite object: { firstName, lastName, email, phone }
+    if (q.type === 'contact_block' && typeof val === 'object' && !Array.isArray(val)) {
+      if (val.email) mappedEmail = String(val.email).trim();
+      if (val.phone) mappedPhone = String(val.phone).trim();
+      if (val.firstName) mappedFirstName = String(val.firstName).trim();
+      if (val.lastName) mappedLastName = String(val.lastName).trim();
+      continue;
+    }
+
     const strVal = String(val).trim();
 
     // Explicit contact field types (highest priority)
@@ -324,7 +334,35 @@ router.get('/api/forms/:id/responses/csv', async (req, res) => {
     .order('submitted_at', { ascending: false });
 
   const questions = form.questions || [];
-  const headers = ['Submitted', ...questions.map((q) => q.title || q.type)];
+
+  // Build CSV columns — expand contact_block into individual fields
+  const csvColumns = [];
+  for (const q of questions) {
+    if (q.type === 'contact_block') {
+      csvColumns.push({ label: 'First Name', getValue: (ans) => ans?.[q.id]?.firstName || '' });
+      csvColumns.push({ label: 'Last Name', getValue: (ans) => ans?.[q.id]?.lastName || '' });
+      csvColumns.push({ label: 'Email', getValue: (ans) => ans?.[q.id]?.email || '' });
+      if (q.settings?.includePhone) {
+        csvColumns.push({ label: 'Phone', getValue: (ans) => ans?.[q.id]?.phone || '' });
+      }
+    } else {
+      csvColumns.push({
+        label: q.title || q.type,
+        getValue: (ans) => {
+          const val = ans?.[q.id];
+          if (Array.isArray(val)) return val.join('; ');
+          if (typeof val === 'object' && val !== null) {
+            if (val.name) return val.name;
+            const entries = Object.entries(val).filter(([, v]) => v != null && v !== '');
+            return entries.length > 0 ? entries.map(([k, v]) => `${k}: ${v}`).join('; ') : '';
+          }
+          return val ?? '';
+        },
+      });
+    }
+  }
+
+  const headers = ['Submitted', ...csvColumns.map(c => c.label)];
 
   const escapeCSV = (val) => {
     const str = String(val ?? '');
@@ -335,13 +373,7 @@ router.get('/api/forms/:id/responses/csv', async (req, res) => {
   };
 
   const rows = (responses || []).map((r) => {
-    const vals = [new Date(r.submitted_at).toISOString()];
-    for (const q of questions) {
-      const val = r.answers?.[q.id];
-      if (Array.isArray(val)) vals.push(val.join('; '));
-      else if (typeof val === 'object' && val !== null) vals.push(val.name || JSON.stringify(val));
-      else vals.push(val ?? '');
-    }
+    const vals = [new Date(r.submitted_at).toISOString(), ...csvColumns.map(c => c.getValue(r.answers))];
     return vals.map(escapeCSV).join(',');
   });
 
