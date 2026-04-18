@@ -4071,6 +4071,17 @@ export default function Content() {
               isGeneratingImage={liGeneratingImage}
               streaming={isGenerating}
               totalSlides={linkedinPreview?.totalSlides || 0}
+              onUploadImages={(files) => {
+                const newImages = files.map((file, i) => ({
+                  src: URL.createObjectURL(file),
+                  idx: (linkedinPreview?.images?.length || 0) + i,
+                }));
+                setLinkedinPreview(prev => prev ? {
+                  ...prev,
+                  images: [...(prev.images || []), ...newImages],
+                  totalSlides: newImages.length > 1 ? (prev.images?.length || 0) + newImages.length : prev.totalSlides,
+                } : prev);
+              }}
             />
           </div>
         )}

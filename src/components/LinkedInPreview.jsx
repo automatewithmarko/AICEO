@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
-import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload } from 'lucide-react';
 import './LinkedInPreview.css';
 
-export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides }) {
+export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages }) {
   const [editedText, setEditedText] = useState(null);
   const [copied, setCopied] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
+  const uploadRef = useRef(null);
   const textRef = useRef(null);
 
   const text = editedText !== null ? editedText : (content || '');
@@ -209,6 +210,25 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
         <button className="li-toolbar-btn" onClick={handleCopy} disabled={streaming}>
           {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy Text</>}
         </button>
+        {!streaming && (
+          <>
+            <input
+              ref={uploadRef}
+              type="file"
+              accept="image/*"
+              multiple
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                if (files.length > 0 && onUploadImages) onUploadImages(files);
+                e.target.value = '';
+              }}
+            />
+            <button className="li-toolbar-btn" onClick={() => uploadRef.current?.click()}>
+              <Upload size={14} /> Upload Image{isCarousel ? 's' : ''}
+            </button>
+          </>
+        )}
         {onGenerateImage && !streaming && !isCarousel && (
           <button
             className="li-toolbar-btn li-toolbar-btn--primary"
