@@ -180,11 +180,17 @@ router.post('/api/boosend/automations/:id/deactivate', async (req, res) => {
 router.get('/api/boosend/instagram-accounts', async (req, res) => {
   const userId = req.user.id;
   const apiKey = await getBoosendKey(userId);
-  if (!apiKey) return res.json({ accounts: [] }); // Not connected, return empty
+  if (!apiKey) return res.json({ accounts: [] });
 
   try {
-    const { status, data } = await boosendFetch(apiKey, userId, `/api/publishing/instagram/accounts?user_id=${userId}`);
-    if (status >= 400) return res.json({ accounts: [] });
+    // Don't pass user_id — let BooSend resolve the user from the API key
+    const url = new URL('/api/publishing/instagram/accounts', BOOSEND_API);
+    const bsRes = await fetch(url.toString(), {
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+    });
+    const data = await bsRes.json();
+    console.log('[boosend] instagram accounts response:', bsRes.status, data);
+    if (bsRes.status >= 400) return res.json({ accounts: [] });
     res.json({ accounts: data?.accounts || [] });
   } catch (err) {
     console.error('[boosend] instagram accounts error:', err.message);
