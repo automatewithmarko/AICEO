@@ -53,6 +53,9 @@ function CrmIcon({ size = 20 }) {
 function CallRecordingIcon({ size = 20 }) {
   return <ImgIcon src="/icon-call-recording.png" alt="Call Recording" size={size} />;
 }
+function ContentCalendarIcon({ size = 20 }) {
+  return <ImgIcon src="/icon-content-calendar.png" alt="Content Calendar" size={size} />;
+}
 function CreditsIcon({ size = 16 }) {
   return <ImgIcon src="/icon-credits.png" alt="Credits" size={size} />;
 }
@@ -66,6 +69,7 @@ const navItems = [
     children: [
       { to: '/content', label: 'Create Content', icon: CreateContentIcon },
       { to: '/outlier-detector', label: 'Outlier Detector', icon: OutlierDetectorIcon },
+      { to: '/content-calendar', label: 'Content Calendar', icon: ContentCalendarIcon },
     ],
   },
   { to: '/marketing', label: 'Marketing AI', icon: MarketingIcon },

@@ -11,6 +11,7 @@ import Sales from './pages/Sales';
 import Products from './pages/Products';
 import Settings from './pages/Settings';
 import OutlierDetector from './pages/OutlierDetector';
+import ContentCalendar from './pages/ContentCalendar';
 import CRM from './pages/CRM';
 import Meetings from './pages/Meetings';
 import MeetingDetail from './pages/MeetingDetail';
@@ -51,6 +52,7 @@ function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/content" element={<Content />} />
         <Route path="/outlier-detector" element={<OutlierDetector />} />
+        <Route path="/content-calendar" element={<ContentCalendar />} />
         <Route path="/marketing" element={<Marketing />} />
         <Route path="/inbox" element={<Inbox />} />
         <Route path="/sales" element={<Sales />} />
