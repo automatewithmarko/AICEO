@@ -78,8 +78,6 @@ export default function Meetings() {
         >
           <option value="">All Sources</option>
           <option value="purelypersonal">Purely Personal</option>
-          <option value="fireflies">Fireflies</option>
-          <option value="fathom">Fathom</option>
         </select>
         <select
           value={filter.platform}

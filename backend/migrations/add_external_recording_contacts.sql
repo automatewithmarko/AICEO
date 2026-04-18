@@ -1,4 +1,4 @@
--- Links external recordings (Fireflies/Fathom from integration_data) to CRM contacts
+-- Links external recordings (from integration_data) to CRM contacts
 -- Parallel to meeting_contacts which only works with the meetings table
 
 CREATE TABLE IF NOT EXISTS external_recording_contacts (

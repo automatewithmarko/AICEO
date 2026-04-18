@@ -1880,7 +1880,7 @@ export default function CRM() {
                   {recordings.map((r) => (
                     <div key={r.id} className="crm-rec-item">
                       <img
-                        src={r.provider === 'fathom' ? '/fathom-square-logo.png' : r.provider === 'fireflies' ? '/fireflies-square-logo.png' : '/our-square-logo.png'}
+                        src="/our-square-logo.png"
                         alt=""
                         className="crm-rec-logo"
                       />

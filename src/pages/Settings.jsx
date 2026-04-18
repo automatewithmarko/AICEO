@@ -10,8 +10,6 @@ import './Pages.css';
 import './Settings.css';
 
 const NOTE_TAKERS = [
-  { id: 'fireflies', name: 'Fireflies AI', logo: '/fireflies-logo.png' },
-  { id: 'fathom', name: 'Fathom', logo: '/fathom-logo.png' },
   { id: 'stripe', name: 'Stripe', logo: '/stripe-logo.png' },
   { id: 'whop', name: 'Whop', logo: '/whop-logo.svg' },
   { id: 'shopify', name: 'Shopify', logo: '/shopify-logo.png' },
@@ -38,12 +36,10 @@ export default function Settings() {
   const [integrationsLoading, setIntegrationsLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(null);
   const [apiKey, setApiKey] = useState('');
-  const [firefliesStep, setFirefliesStep] = useState(1);
   const [ghlStep, setGhlStep] = useState(1);
   const [copiedField, setCopiedField] = useState(null);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState(null);
-  const [firefliesWebhook, setFirefliesWebhook] = useState({ url: '', secret: '' });
   const [ghlWebhook, setGhlWebhook] = useState({ url: '', secret: '' });
   const [ghlLocationId, setGhlLocationId] = useState('');
   const [shopifyStoreUrl, setShopifyStoreUrl] = useState('');
@@ -248,7 +244,6 @@ export default function Settings() {
 
   const openModal = (id) => {
     setApiKey('');
-    setFirefliesStep(1);
     setGhlStep(1);
     setShopifyStep(1);
     setKajabiStep(1);
@@ -256,7 +251,6 @@ export default function Settings() {
     setCopiedField(null);
     setConnectError(null);
     setConnecting(false);
-    setFirefliesWebhook({ url: '', secret: '' });
     setShopifyWebhook({ url: '', secret: '' });
     setKajabiWebhook({ url: '', secret: '' });
     setEmailForm({ email: '', senderName: '', username: '', password: '' });
@@ -272,7 +266,6 @@ export default function Settings() {
       setIntegrations((prev) => ({ ...prev, [modalOpen]: result.integration }));
       setModalOpen(null);
       setApiKey('');
-      setFirefliesStep(1);
     } catch (err) {
       setConnectError(err.message);
     } finally {
@@ -298,25 +291,6 @@ export default function Settings() {
       });
     } catch {
       // Silently fail
-    }
-  };
-
-  const handleFirefliesNext = async () => {
-    if (!apiKey.trim()) return;
-    setConnecting(true);
-    setConnectError(null);
-    try {
-      const result = await connectIntegration('fireflies', apiKey);
-      setIntegrations((prev) => ({ ...prev, fireflies: result.integration }));
-      setFirefliesWebhook({
-        url: result.integration.webhook_url || '',
-        secret: result.integration.webhook_secret || '',
-      });
-      setFirefliesStep(2);
-    } catch (err) {
-      setConnectError(err.message);
-    } finally {
-      setConnecting(false);
     }
   };
 
@@ -1048,107 +1022,6 @@ export default function Settings() {
             <div className="modal-logo">
               <img src={currentModal.logo} alt={currentModal.name} />
             </div>
-
-            {/* Fathom: single step */}
-            {modalOpen === 'fathom' && (
-              <>
-                <p className="modal-description">
-                  Connect your Fathom AI account to automatically sync all of your call recordings to the PuerlyPersonal AI CEO.
-                </p>
-                <div className="modal-field">
-                  <label className="modal-label">Enter your Fathom API key</label>
-                  <input
-                    type="text"
-                    className="modal-input"
-                    placeholder="Paste your API key here"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                  />
-                </div>
-                {connectError && <p className="modal-error">{connectError}</p>}
-                <button
-                  className="modal-btn modal-btn--primary"
-                  disabled={!apiKey.trim() || connecting}
-                  onClick={handleConnect}
-                >
-                  {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
-                </button>
-              </>
-            )}
-
-            {/* Fireflies: step 1 */}
-            {modalOpen === 'fireflies' && firefliesStep === 1 && (
-              <>
-                <p className="modal-description">
-                  Connect your Fireflies AI account to automatically sync all of your call recordings to the PuerlyPersonal AI CEO.
-                </p>
-                <div className="modal-field">
-                  <label className="modal-label">Enter your Fireflies API key</label>
-                  <input
-                    type="text"
-                    className="modal-input"
-                    placeholder="Paste your API key here"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                  />
-                </div>
-                {connectError && <p className="modal-error">{connectError}</p>}
-                <button
-                  className="modal-btn modal-btn--primary"
-                  disabled={!apiKey.trim() || connecting}
-                  onClick={handleFirefliesNext}
-                >
-                  {connecting ? <><Loader size={14} className="settings-spinner" /> Validating...</> : 'Next'}
-                </button>
-              </>
-            )}
-
-            {/* Fireflies: step 2 */}
-            {modalOpen === 'fireflies' && firefliesStep === 2 && (
-              <>
-                <p className="modal-instruction">Copy this into your Fireflies AI settings</p>
-                <div className="modal-field">
-                  <label className="modal-label">Webhook URL</label>
-                  <div className="modal-copy-row">
-                    <input
-                      type="text"
-                      className="modal-input modal-input--readonly"
-                      value={firefliesWebhook.url}
-                      readOnly
-                    />
-                    <button
-                      className="modal-copy-btn"
-                      onClick={() => copyToClipboard(firefliesWebhook.url, 'url')}
-                    >
-                      {copiedField === 'url' ? <Check size={16} /> : <Copy size={16} />}
-                    </button>
-                  </div>
-                </div>
-                <div className="modal-field">
-                  <label className="modal-label">Webhook Secret</label>
-                  <div className="modal-copy-row">
-                    <input
-                      type="text"
-                      className="modal-input modal-input--readonly"
-                      value={firefliesWebhook.secret}
-                      readOnly
-                    />
-                    <button
-                      className="modal-copy-btn"
-                      onClick={() => copyToClipboard(firefliesWebhook.secret, 'secret')}
-                    >
-                      {copiedField === 'secret' ? <Check size={16} /> : <Copy size={16} />}
-                    </button>
-                  </div>
-                </div>
-                <button
-                  className="modal-btn modal-btn--primary"
-                  onClick={() => setModalOpen(null)}
-                >
-                  Done
-                </button>
-              </>
-            )}
 
             {/* Stripe */}
             {modalOpen === 'stripe' && (
