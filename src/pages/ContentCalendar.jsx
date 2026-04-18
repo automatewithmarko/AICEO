@@ -438,10 +438,10 @@ function ScheduledView({ post, onClose, onDelete, onPublish }) {
           Cancel schedule
         </button>
         <div className="cc-actions-right">
-          {post.platform === 'linkedin' && post.status !== 'published' && (
+          {(post.platform === 'linkedin' || post.platform === 'instagram') && post.status !== 'published' && (
             <button
               className="cc-primary-btn cc-primary-btn--lg"
-              style={{ background: '#0a66c2' }}
+              style={{ background: post.platform === 'linkedin' ? '#0a66c2' : '#E4405F' }}
               disabled={publishing}
               onClick={async () => {
                 setPublishing(true);

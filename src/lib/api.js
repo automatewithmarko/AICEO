@@ -991,6 +991,29 @@ export async function getBoosendAutomation(id) {
   return res.json();
 }
 
+// ─── Instagram Posting (via BooSend) ───
+
+export async function getInstagramAccounts() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/boosend/instagram-accounts`, { headers });
+  if (!res.ok) return { accounts: [] };
+  return res.json();
+}
+
+export async function postToInstagram({ caption, media_items, post_type, instagram_account_id }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/boosend/instagram/publish`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ caption, media_items, post_type, instagram_account_id }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to post to Instagram' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
 // ─── LinkedIn Posting ───
 
 export async function postToLinkedIn(text, imageUrl) {
