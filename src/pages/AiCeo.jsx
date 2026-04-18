@@ -124,6 +124,7 @@ export default function AiCeo() {
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
   const abortRef = useRef(null);
+  const askUserFiredRef = useRef(false);
   const pendingImagesRef = useRef([]);
   const splitRef = useRef(null);
   const isMobileRef = useRef(isMobile);
@@ -994,6 +995,7 @@ export default function AiCeo() {
         },
         onAskUser: (question, options) => {
           console.log('[AiCeo] onAskUser fired:', { question, options, isGenerating });
+          askUserFiredRef.current = true;
           setCurrentQuestion({ question, options });
           setCustomTyping(false);
           setCustomText('');
@@ -1020,48 +1022,52 @@ export default function AiCeo() {
         await Promise.allSettled(pending);
       }
       // Fallback: if the model wrote a question as plain text instead of using ask_user,
-      // detect it and convert to a popup so the user gets clickable options
-      setMessages(prev => {
-        const lastMsg = prev.find(m => m.id === assistantMsgId);
-        if (lastMsg?.content && !currentQuestion) {
-          const text = lastMsg.content.trim();
-          // Check for numbered options pattern: "1. Option\n2. Option\n3. Option"
-          const numberedMatch = text.match(/([\s\S]*?\?)\s*\n((?:\s*\d+[.)]\s*.+\n?){2,})/);
-          if (numberedMatch) {
-            const q = numberedMatch[1].trim();
-            const opts = numberedMatch[2].trim().split('\n').map(l => l.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
-            if (opts.length >= 2) {
-              console.log('[AiCeo] Fallback: converted plain-text question to popup:', q, opts);
-              setCurrentQuestion({ question: q, options: opts });
-              setCustomTyping(false);
+      // detect it and convert to a popup. Use askUserFiredRef to avoid overwriting
+      // a real ask_user popup that already arrived during the stream.
+      if (!askUserFiredRef.current) {
+        setMessages(prev => {
+          const lastMsg = prev.find(m => m.id === assistantMsgId);
+          if (lastMsg?.content) {
+            const text = lastMsg.content.trim();
+            // Check for numbered options pattern: "1. Option\n2. Option\n3. Option"
+            const numberedMatch = text.match(/([\s\S]*?\?)\s*\n((?:\s*\d+[.)]\s*.+\n?){2,})/);
+            if (numberedMatch) {
+              const q = numberedMatch[1].trim();
+              const opts = numberedMatch[2].trim().split('\n').map(l => l.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
+              if (opts.length >= 2) {
+                console.log('[AiCeo] Fallback: converted plain-text question to popup:', q, opts);
+                setCurrentQuestion({ question: q, options: opts });
+                setCustomTyping(false);
+                setCustomText('');
+                return prev;
+              }
+            }
+            // Check for bullet options: "- Option\n- Option"
+            const bulletMatch = text.match(/([\s\S]*?\?)\s*\n((?:\s*[-•]\s*.+\n?){2,})/);
+            if (bulletMatch) {
+              const q = bulletMatch[1].trim();
+              const opts = bulletMatch[2].trim().split('\n').map(l => l.replace(/^\s*[-•]\s*/, '').trim()).filter(Boolean);
+              if (opts.length >= 2) {
+                console.log('[AiCeo] Fallback: converted bullet question to popup:', q, opts);
+                setCurrentQuestion({ question: q, options: opts });
+                setCustomTyping(false);
+                setCustomText('');
+                return prev;
+              }
+            }
+            // Check for bare question (short text ending with ?)
+            if (text.endsWith('?') && text.length < 200) {
+              console.log('[AiCeo] Fallback: bare question detected, showing custom input:', text);
+              setCurrentQuestion({ question: text, options: [] });
+              setCustomTyping(true);
               setCustomText('');
               return prev;
             }
           }
-          // Check for bullet options: "- Option\n- Option"
-          const bulletMatch = text.match(/([\s\S]*?\?)\s*\n((?:\s*[-•]\s*.+\n?){2,})/);
-          if (bulletMatch) {
-            const q = bulletMatch[1].trim();
-            const opts = bulletMatch[2].trim().split('\n').map(l => l.replace(/^\s*[-•]\s*/, '').trim()).filter(Boolean);
-            if (opts.length >= 2) {
-              console.log('[AiCeo] Fallback: converted bullet question to popup:', q, opts);
-              setCurrentQuestion({ question: q, options: opts });
-              setCustomTyping(false);
-              setCustomText('');
-              return prev;
-            }
-          }
-          // Check for bare question (short text ending with ?)
-          if (text.endsWith('?') && text.length < 200) {
-            console.log('[AiCeo] Fallback: bare question detected, showing custom input:', text);
-            setCurrentQuestion({ question: text, options: [] });
-            setCustomTyping(true);
-            setCustomText('');
-            return prev;
-          }
-        }
-        return prev;
-      });
+          return prev;
+        });
+      }
+      askUserFiredRef.current = false;
       setIsGenerating(false);
     }
   }, [researchMode]);
