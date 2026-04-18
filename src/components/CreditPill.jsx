@@ -23,11 +23,12 @@ export default function CreditPill() {
   }, [open]);
 
   const isLow = credits < 50;
+  const isDepleted = credits === 0;
 
   return (
     <div className="credit-pill-wrapper" ref={ref}>
       <button
-        className={`credit-pill ${isLow ? 'credit-pill--low' : ''}`}
+        className={`credit-pill ${isLow ? 'credit-pill--low' : ''} ${isDepleted ? 'credit-pill--depleted' : ''}`}
         onClick={() => setOpen((prev) => !prev)}
       >
         <Zap size={14} />

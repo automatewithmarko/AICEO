@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
-import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2 } from 'lucide-react';
+import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts } from '../lib/api';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
+import Paywall from '../components/Paywall';
+import '../components/Paywall.css';
 import ArtifactPanel from '../components/ArtifactPanel';
 import './AiCeo.css';
 
@@ -81,6 +84,7 @@ function mergeSectionEdits(currentHtml, sections) {
 
 // ── Component ──
 export default function AiCeo() {
+  const { hasFeature } = useAuth();
   const inboxCtx = useOutletContext() || {};
   const emailAccounts = inboxCtx.accounts || [];
   const { sessionId: urlSessionId } = useParams();
@@ -109,6 +113,7 @@ export default function AiCeo() {
   const [showSessions, setShowSessions] = useState(false);
   const [renamingSessionId, setRenamingSessionId] = useState(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const [creditsDepleted, setCreditsDepleted] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   // Track sessions whose title the user manually edited so the autosave
   // doesn't keep clobbering it with the derived "first user message" title.
@@ -1011,11 +1016,17 @@ export default function AiCeo() {
       }, abort.signal);
     } catch (err) {
       if (err.name !== 'AbortError') {
-        setMessages(prev => prev.map(m =>
-          m.id === assistantMsgId
-            ? { ...m, content: 'Something went wrong. Please try again.' }
-            : m
-        ));
+        // Check for 402 credits depleted
+        if (err.message?.includes('402') || err.message?.toLowerCase().includes('credits') || err.message?.toLowerCase().includes('insufficient')) {
+          setCreditsDepleted(true);
+          setMessages(prev => prev.filter(m => m.id !== assistantMsgId));
+        } else {
+          setMessages(prev => prev.map(m =>
+            m.id === assistantMsgId
+              ? { ...m, content: 'Something went wrong. Please try again.' }
+              : m
+          ));
+        }
       }
     } finally {
       abortRef.current = null;
@@ -1124,6 +1135,29 @@ export default function AiCeo() {
     recognition.start();
     setIsListening(true);
   };
+
+  // ── Feature gate ──
+  if (!hasFeature('ai_ceo_unified')) {
+    return <Paywall feature="ai_ceo_unified" featureLabel="AI CEO" planRequired="diamond" />;
+  }
+
+  // ── Credits depleted ──
+  if (creditsDepleted) {
+    return (
+      <div className="ceo-page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="credits-depleted">
+          <div className="credits-depleted-icon"><Zap size={24} /></div>
+          <div className="credits-depleted-title">You've run out of credits</div>
+          <p className="credits-depleted-text">
+            Your credit balance has reached zero. Add more credits to continue using AI CEO.
+          </p>
+          <button className="credits-depleted-link" onClick={() => navigate('/settings')}>
+            Go to Billing & Usage
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ── Render ──
   return (

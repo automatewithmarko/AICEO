@@ -1,12 +1,13 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2 } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
+import '../components/Paywall.css';
 import './Content.css';
 
 const platforms = [
@@ -1958,6 +1959,7 @@ export default function Content() {
   const [messages, setMessages] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [editingImage, setEditingImage] = useState(null); // { msgId, imgIdx, src }
+  const [creditsDepleted, setCreditsDepleted] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [showSessions, setShowSessions] = useState(false);
@@ -2653,9 +2655,14 @@ export default function Content() {
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
-        setMessages((prev) => prev.map((m) =>
-          m.id === assistantMsgId ? { ...m, content: 'Something went wrong. Please try again.' } : m
-        ));
+        if (err.message?.includes('402') || err.message?.toLowerCase().includes('credits') || err.message?.toLowerCase().includes('insufficient')) {
+          setCreditsDepleted(true);
+          setMessages(prev => prev.filter(m => m.id !== assistantMsgId));
+        } else {
+          setMessages((prev) => prev.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: 'Something went wrong. Please try again.' } : m
+          ));
+        }
       }
     } finally {
       abortRef.current = null;
@@ -3316,6 +3323,24 @@ export default function Content() {
       </div>
     </>
   );
+
+  // Credits depleted
+  if (creditsDepleted) {
+    return (
+      <div className="content-page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="credits-depleted">
+          <div className="credits-depleted-icon"><Zap size={24} /></div>
+          <div className="credits-depleted-title">You've run out of credits</div>
+          <p className="credits-depleted-text">
+            Your credit balance has reached zero. Add more credits to continue creating content.
+          </p>
+          <button className="credits-depleted-link" onClick={() => navigate('/settings')}>
+            Go to Billing & Usage
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="content-page">

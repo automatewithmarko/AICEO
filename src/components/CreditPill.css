@@ -43,6 +43,22 @@
     background: #fef2f2;
   }
 
+  .credit-pill--depleted {
+    color: #dc2626;
+    border-color: #dc2626;
+    background: #fef2f2;
+    animation: creditPillPulse 2s ease-in-out infinite;
+  }
+
+  @keyframes creditPillPulse {
+    0%, 100% {
+      box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 8px 4px rgba(220, 38, 38, 0.25);
+    }
+  }
+
   /* Dropdown */
   .credit-pill-dropdown {
     position: absolute;
