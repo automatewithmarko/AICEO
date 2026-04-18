@@ -3,7 +3,7 @@
 
 const CLIENT_ID = process.env.LINKEDIN_CLIENT_ID;
 const CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET;
-const LINKEDIN_VERSION = '202601';
+const LINKEDIN_VERSION = '202604';
 
 /**
  * Build the LinkedIn OAuth 2.0 authorization URL.
