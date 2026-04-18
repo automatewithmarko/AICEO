@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
@@ -1986,6 +1986,7 @@ export default function Content() {
 
   const [brandDna, setBrandDna] = useState(null);
   const [integrationCtx, setIntegrationCtx] = useState('');
+  const [isLinkedInConnected, setIsLinkedInConnected] = useState(false);
   const longPressTimer = useRef(null);
   const messagesEndRef = useRef(null);
   const chatAreaRef = useRef(null);
@@ -2109,6 +2110,10 @@ export default function Content() {
     });
     getIntegrationContext().then(({ context }) => {
       if (context) setIntegrationCtx(context);
+    }).catch(() => {});
+    getIntegrations().then(({ integrations }) => {
+      const liConnected = (integrations || []).some((i) => i.provider === 'linkedin' && i.is_active);
+      setIsLinkedInConnected(liConnected);
     }).catch(() => {});
   }, []);
 
@@ -4081,6 +4086,26 @@ export default function Content() {
                   images: [...(prev.images || []), ...newImages],
                   totalSlides: newImages.length > 1 ? (prev.images?.length || 0) + newImages.length : prev.totalSlides,
                 } : prev);
+              }}
+              isLinkedInConnected={isLinkedInConnected}
+              onPostToLinkedIn={async ({ text, images, connect }) => {
+                if (connect) {
+                  navigate('/settings', { state: { scrollTo: 'integrations' } });
+                  return;
+                }
+                const imageUrl = images?.[0]?.src || null;
+                await postToLinkedIn(text, imageUrl);
+              }}
+              onSchedule={async ({ text, images, date, time, platform }) => {
+                const scheduledAt = `${date}T${time}:00`;
+                const thumbnailUrl = images?.[0]?.src || null;
+                await schedulePost({
+                  platform,
+                  caption: text,
+                  scheduledAt,
+                  thumbnailUrl,
+                  contentSessionId: sessionId || null,
+                });
               }}
             />
           </div>

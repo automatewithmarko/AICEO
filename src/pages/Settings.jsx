@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, ChevronDown, FileText, Loader, Plus, Dna } from 'lucide-react';
 import ColorWheelPicker from '../components/ColorWheelPicker';
 import FontSelector from '../components/FontSelector';
-import { uploadBrandDnaFiles, uploadContextFiles, getIntegrations, connectIntegration, disconnectIntegration, getEmailAccounts, addEmailAccount, deleteEmailAccount, syncEmailAccount } from '../lib/api';
+import { uploadBrandDnaFiles, uploadContextFiles, getIntegrations, connectIntegration, disconnectIntegration, getLinkedInAuthUrl, disconnectLinkedIn, getEmailAccounts, addEmailAccount, deleteEmailAccount, syncEmailAccount } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
 import './Settings.css';
@@ -17,6 +17,7 @@ const NOTE_TAKERS = [
   { id: 'gohighlevel', name: 'GoHighLevel', logo: '/gohighlevel-logo.png' },
   { id: 'netlify', name: 'Netlify', logo: '/icon-netlify.png' },
   { id: 'boosend', name: 'BooSend', logo: '/boosend-logo.png' },
+  { id: 'linkedin', name: 'LinkedIn', logo: '/linkedin-icon.svg' },
   { id: 'email', name: 'Email (SMTP/IMAP)', logo: '/smtp-logo.png', large: true },
 ];
 
@@ -50,6 +51,7 @@ export default function Settings() {
   const [emailForm, setEmailForm] = useState({ email: '', senderName: '', username: '', password: '', imapHost: '', imapPort: '993', smtpHost: '', smtpPort: '587' });
   const [emailAccounts, setEmailAccounts] = useState([]);
   const [removingEmailId, setRemovingEmailId] = useState(null);
+  const [linkedinConnecting, setLinkedinConnecting] = useState(false);
 
   // Auto-detect email provider settings from email address
   const EMAIL_PRESETS = {
@@ -401,6 +403,29 @@ export default function Settings() {
     }
   };
 
+  const handleLinkedInConnect = async () => {
+    setLinkedinConnecting(true);
+    try {
+      const { url } = await getLinkedInAuthUrl();
+      window.location.href = url;
+    } catch {
+      setLinkedinConnecting(false);
+    }
+  };
+
+  const handleLinkedInDisconnect = async () => {
+    try {
+      await disconnectLinkedIn();
+      setIntegrations((prev) => {
+        const next = { ...prev };
+        delete next.linkedin;
+        return next;
+      });
+    } catch {
+      // Silently fail
+    }
+  };
+
   const copyToClipboard = (text, field) => {
     navigator.clipboard.writeText(text);
     setCopiedField(field);
@@ -671,10 +696,29 @@ export default function Settings() {
                   <span className={`settings-integration-status ${integrations[nt.id]?.is_active ? 'settings-integration-status--connected' : ''}`}>
                     {nt.id === 'email' && emailAccounts.length > 0
                       ? `${emailAccounts.length} account${emailAccounts.length > 1 ? 's' : ''} connected`
-                      : integrations[nt.id]?.is_active ? 'Connected' : 'Not connected'}
+                      : nt.id === 'linkedin' && integrations.linkedin?.is_active
+                        ? `Connected${integrations.linkedin.metadata?.profile_name ? ` — ${integrations.linkedin.metadata.profile_name}` : ''}`
+                        : integrations[nt.id]?.is_active ? 'Connected' : 'Not connected'}
                   </span>
                 </div>
-                {nt.id === 'email' ? (
+                {nt.id === 'linkedin' ? (
+                  integrations.linkedin?.is_active ? (
+                    <button
+                      className="settings-btn settings-btn--danger"
+                      onClick={handleLinkedInDisconnect}
+                    >
+                      Disconnect
+                    </button>
+                  ) : (
+                    <button
+                      className="settings-btn settings-btn--primary"
+                      onClick={handleLinkedInConnect}
+                      disabled={linkedinConnecting}
+                    >
+                      {linkedinConnecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
+                    </button>
+                  )
+                ) : nt.id === 'email' ? (
                   emailAccounts.length === 0 && (
                     <button
                       className="settings-btn settings-btn--primary"

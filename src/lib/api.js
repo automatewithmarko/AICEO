@@ -581,6 +581,29 @@ export async function disconnectIntegration(provider) {
   return res.json();
 }
 
+export async function getLinkedInAuthUrl() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/integrations/linkedin/auth`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to get LinkedIn auth URL' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function disconnectLinkedIn() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/integrations/linkedin`, {
+    method: 'DELETE',
+    headers,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Disconnect failed' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
 export async function syncIntegration(provider) {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/integrations/${provider}/sync`, {
@@ -965,5 +988,37 @@ export async function getBoosendAutomation(id) {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/boosend/automations/${id}`, { headers });
   if (!res.ok) throw new Error('Failed to fetch automation');
+  return res.json();
+}
+
+// ─── LinkedIn Posting ───
+
+export async function postToLinkedIn(text, imageUrl) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/integrations/linkedin/post`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, imageUrl }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to post to LinkedIn' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+// ─── Social Post Scheduling ───
+
+export async function schedulePost({ platform, caption, scheduledAt, thumbnailUrl, contentSessionId }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/social-posts/schedule`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, caption, scheduled_at: scheduledAt, thumbnail_url: thumbnailUrl, content_session_id: contentSessionId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to schedule post' }));
+    throw new Error(err.error);
+  }
   return res.json();
 }

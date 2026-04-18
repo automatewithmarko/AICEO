@@ -1,13 +1,20 @@
 import { useState, useRef, useEffect } from 'react';
-import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload } from 'lucide-react';
+import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload, Send, CalendarClock, ExternalLink } from 'lucide-react';
 import './LinkedInPreview.css';
 
-export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages }) {
+export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected }) {
   const [editedText, setEditedText] = useState(null);
   const [copied, setCopied] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
+  const [postState, setPostState] = useState('idle'); // idle | posting | posted | error
+  const [postError, setPostError] = useState('');
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [schedDate, setSchedDate] = useState('');
+  const [schedTime, setSchedTime] = useState('09:00');
+  const [schedState, setSchedState] = useState('idle'); // idle | saving | saved
   const uploadRef = useRef(null);
   const textRef = useRef(null);
+  const schedRef = useRef(null);
 
   const text = editedText !== null ? editedText : (content || '');
 
@@ -24,10 +31,78 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
     prevCountRef.current = sortedImages.length;
   }, [sortedImages.length]);
 
+  // Close schedule popover on outside click
+  useEffect(() => {
+    if (!scheduleOpen) return;
+    const handleClick = (e) => {
+      if (schedRef.current && !schedRef.current.contains(e.target)) {
+        setScheduleOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [scheduleOpen]);
+
+  // Set default schedule date to tomorrow
+  useEffect(() => {
+    if (scheduleOpen && !schedDate) {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const yyyy = tomorrow.getFullYear();
+      const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
+      const dd = String(tomorrow.getDate()).padStart(2, '0');
+      setSchedDate(`${yyyy}-${mm}-${dd}`);
+    }
+  }, [scheduleOpen, schedDate]);
+
+  // Auto-dismiss posted state
+  useEffect(() => {
+    if (postState === 'posted') {
+      const t = setTimeout(() => setPostState('idle'), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [postState]);
+
+  // Auto-dismiss schedule saved state
+  useEffect(() => {
+    if (schedState === 'saved') {
+      const t = setTimeout(() => {
+        setSchedState('idle');
+        setScheduleOpen(false);
+      }, 1500);
+      return () => clearTimeout(t);
+    }
+  }, [schedState]);
+
   const handleCopy = async () => {
     await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handlePostToLinkedIn = async () => {
+    if (!onPostToLinkedIn || postState === 'posting') return;
+    setPostState('posting');
+    setPostError('');
+    try {
+      await onPostToLinkedIn({ text, images: sortedImages });
+      setPostState('posted');
+    } catch (err) {
+      setPostState('error');
+      setPostError(err.message || 'Failed to post');
+      setTimeout(() => setPostState('idle'), 3000);
+    }
+  };
+
+  const handleSchedule = async () => {
+    if (!onSchedule || schedState === 'saving' || !schedDate || !schedTime) return;
+    setSchedState('saving');
+    try {
+      await onSchedule({ text, images: sortedImages, date: schedDate, time: schedTime, platform: 'linkedin' });
+      setSchedState('saved');
+    } catch {
+      setSchedState('idle');
+    }
   };
 
   const handleTextInput = (e) => {
@@ -207,36 +282,117 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
 
       {/* Bottom toolbar */}
       <div className="li-preview-toolbar">
-        <button className="li-toolbar-btn" onClick={handleCopy} disabled={streaming}>
-          {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy Text</>}
-        </button>
-        {!streaming && (
-          <>
-            <input
-              ref={uploadRef}
-              type="file"
-              accept="image/*"
-              multiple
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                if (files.length > 0 && onUploadImages) onUploadImages(files);
-                e.target.value = '';
-              }}
-            />
-            <button className="li-toolbar-btn" onClick={() => uploadRef.current?.click()}>
-              <Upload size={14} /> Upload Image{isCarousel ? 's' : ''}
-            </button>
-          </>
-        )}
-        {onGenerateImage && !streaming && !isCarousel && (
-          <button
-            className="li-toolbar-btn li-toolbar-btn--primary"
-            onClick={() => onGenerateImage(text)}
-            disabled={isGeneratingImage || !text.trim()}
-          >
-            {isGeneratingImage ? <><Loader size={14} className="li-spin" /> Generating...</> : <><ImagePlus size={14} /> Generate Image</>}
+        <div className="li-toolbar-row">
+          <button className="li-toolbar-btn" onClick={handleCopy} disabled={streaming}>
+            {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy Text</>}
           </button>
+          {!streaming && (
+            <>
+              <input
+                ref={uploadRef}
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  if (files.length > 0 && onUploadImages) onUploadImages(files);
+                  e.target.value = '';
+                }}
+              />
+              <button className="li-toolbar-btn" onClick={() => uploadRef.current?.click()}>
+                <Upload size={14} /> Upload Image{isCarousel ? 's' : ''}
+              </button>
+            </>
+          )}
+          {onGenerateImage && !streaming && !isCarousel && (
+            <button
+              className="li-toolbar-btn li-toolbar-btn--primary"
+              onClick={() => onGenerateImage(text)}
+              disabled={isGeneratingImage || !text.trim()}
+            >
+              {isGeneratingImage ? <><Loader size={14} className="li-spin" /> Generating...</> : <><ImagePlus size={14} /> Generate Image</>}
+            </button>
+          )}
+        </div>
+
+        {/* Post & Schedule row */}
+        {!streaming && text.trim() && (
+          <div className="li-toolbar-row li-toolbar-row--actions">
+            {/* Schedule button with popover */}
+            <div className="li-schedule-wrap" ref={schedRef}>
+              <button
+                className="li-toolbar-btn li-toolbar-btn--outline"
+                onClick={() => setScheduleOpen(o => !o)}
+                disabled={streaming}
+              >
+                <CalendarClock size={14} /> Schedule
+              </button>
+              {scheduleOpen && (
+                <div className="li-schedule-popover">
+                  <div className="li-schedule-title">Schedule post</div>
+                  <label className="li-schedule-label">
+                    Date
+                    <input
+                      type="date"
+                      className="li-schedule-input"
+                      value={schedDate}
+                      onChange={(e) => setSchedDate(e.target.value)}
+                      min={new Date().toISOString().split('T')[0]}
+                    />
+                  </label>
+                  <label className="li-schedule-label">
+                    Time
+                    <input
+                      type="time"
+                      className="li-schedule-input"
+                      value={schedTime}
+                      onChange={(e) => setSchedTime(e.target.value)}
+                    />
+                  </label>
+                  <button
+                    className="li-toolbar-btn li-toolbar-btn--primary li-schedule-confirm"
+                    onClick={handleSchedule}
+                    disabled={schedState === 'saving' || !schedDate || !schedTime}
+                  >
+                    {schedState === 'saving' ? (
+                      <><Loader size={14} className="li-spin" /> Saving...</>
+                    ) : schedState === 'saved' ? (
+                      <><Check size={14} /> Scheduled!</>
+                    ) : (
+                      <><CalendarClock size={14} /> Confirm Schedule</>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Post to LinkedIn button */}
+            {isLinkedInConnected ? (
+              <button
+                className="li-toolbar-btn li-toolbar-btn--linkedin"
+                onClick={handlePostToLinkedIn}
+                disabled={postState === 'posting' || postState === 'posted'}
+              >
+                {postState === 'posting' ? (
+                  <><Loader size={14} className="li-spin" /> Posting...</>
+                ) : postState === 'posted' ? (
+                  <><Check size={14} /> Posted!</>
+                ) : postState === 'error' ? (
+                  <><X size={14} /> {postError || 'Failed'}</>
+                ) : (
+                  <><Send size={14} /> Post to LinkedIn</>
+                )}
+              </button>
+            ) : (
+              <button
+                className="li-toolbar-btn li-toolbar-btn--linkedin-connect"
+                onClick={() => onPostToLinkedIn?.({ connect: true })}
+              >
+                <ExternalLink size={14} /> Connect LinkedIn
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

@@ -437,10 +437,21 @@
 /* ── Bottom toolbar ── */
 .li-preview-toolbar {
   display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 12px 16px;
   background: #fff;
   border-top: 1px solid rgba(0,0,0,0.08);
+}
+.li-toolbar-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.li-toolbar-row--actions {
+  padding-top: 4px;
+  border-top: 1px solid rgba(0,0,0,0.06);
+  justify-content: flex-end;
 }
 .li-toolbar-btn {
   display: flex;
@@ -456,6 +467,7 @@
   background: #fff;
   color: rgba(0,0,0,0.7);
   transition: all 0.15s;
+  white-space: nowrap;
 }
 .li-toolbar-btn:hover {
   background: rgba(0,0,0,0.04);
@@ -470,9 +482,90 @@
   background: #004182;
   border-color: #004182;
 }
+.li-toolbar-btn--outline {
+  background: #fff;
+  border-color: rgba(0,0,0,0.25);
+  color: rgba(0,0,0,0.7);
+}
+.li-toolbar-btn--outline:hover {
+  background: rgba(0,0,0,0.04);
+  border-color: rgba(0,0,0,0.5);
+}
+.li-toolbar-btn--linkedin {
+  background: #0a66c2;
+  border-color: #0a66c2;
+  color: #fff;
+}
+.li-toolbar-btn--linkedin:hover {
+  background: #004182;
+  border-color: #004182;
+}
+.li-toolbar-btn--linkedin-connect {
+  background: #fff;
+  border: 1px solid #0a66c2;
+  color: #0a66c2;
+}
+.li-toolbar-btn--linkedin-connect:hover {
+  background: rgba(10, 102, 194, 0.06);
+}
 .li-toolbar-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ── Schedule popover ── */
+.li-schedule-wrap {
+  position: relative;
+}
+.li-schedule-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08);
+  padding: 16px;
+  min-width: 240px;
+  z-index: 20;
+  animation: li-popover-in 0.15s ease-out;
+}
+@keyframes li-popover-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.li-schedule-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #191919;
+  margin-bottom: 12px;
+}
+.li-schedule-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(0,0,0,0.6);
+  margin-bottom: 10px;
+}
+.li-schedule-input {
+  padding: 8px 10px;
+  border: 1px solid rgba(0,0,0,0.2);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #191919;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.li-schedule-input:focus {
+  border-color: #0a66c2;
+}
+.li-schedule-confirm {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
 }
 
 /* spinner */

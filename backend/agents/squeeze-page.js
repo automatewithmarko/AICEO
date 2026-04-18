@@ -65,8 +65,9 @@ COPYWRITING RULES (Daniel Paul Framework):
 
 FORM EMBEDDING FOR LEAD CAPTURE:
 When the task_description includes "EMBED FORM: slug=<slug>, title=<title>", embed the user's form instead of a plain email input:
-- Replace the opt-in form/email input with: <iframe src="FRONTEND_URL/f/SLUG" style="width:100%;min-height:500px;border:none;border-radius:12px;" title="FORM_TITLE"></iframe>
-- Replace FRONTEND_URL with the frontend origin, SLUG with the form slug, FORM_TITLE with the title
+- Replace the opt-in form/email input with: <iframe src="${process.env.FRONTEND_URL || 'https://aiceoproduction.netlify.app'}/f/SLUG" style="width:100%;min-height:500px;border:none;border-radius:12px;" title="FORM_TITLE"></iframe>
+- Replace SLUG with the form slug from the task_description, and FORM_TITLE with the title
+- The base URL above is already correct — do NOT change or guess the domain
 - Style to match the page design
 - This is BETTER than a plain email input because it captures richer data that flows into the CRM
 

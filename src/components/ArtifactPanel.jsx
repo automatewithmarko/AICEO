@@ -530,13 +530,32 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
       )}
 
       <div className="ap-body">
-        {type === 'email' && <EmailRenderer content={content} />}
-        {type === 'newsletter' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
-        {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
-        {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
-        {type === 'content_post' && <ContentPostRenderer content={content} images={images} />}
-        {type === 'code_block' && <CodeRenderer content={content} />}
-        {type === 'markdown_doc' && <MarkdownRenderer content={content} />}
+        {artifact?.loading && !content ? (
+          <div className="ap-loading-skeleton">
+            <div className="ap-loading-pulse" />
+            <div className="ap-loading-blocks">
+              <div className="ap-loading-block ap-loading-block--nav" />
+              <div className="ap-loading-block ap-loading-block--hero" />
+              <div className="ap-loading-block ap-loading-block--row">
+                <div className="ap-loading-block ap-loading-block--card" />
+                <div className="ap-loading-block ap-loading-block--card" />
+                <div className="ap-loading-block ap-loading-block--card" />
+              </div>
+              <div className="ap-loading-block ap-loading-block--section" />
+            </div>
+            <p className="ap-loading-text">Generating your page&hellip;</p>
+          </div>
+        ) : (
+          <>
+            {type === 'email' && <EmailRenderer content={content} />}
+            {type === 'newsletter' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
+            {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
+            {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
+            {type === 'content_post' && <ContentPostRenderer content={content} images={images} />}
+            {type === 'code_block' && <CodeRenderer content={content} />}
+            {type === 'markdown_doc' && <MarkdownRenderer content={content} />}
+          </>
+        )}
       </div>
 
       {/* ── Send Email Modal ── */}

@@ -8,11 +8,195 @@ import * as shopify from '../services/integrations/shopify.js';
 import * as kajabi from '../services/integrations/kajabi.js';
 import * as netlify from '../services/integrations/netlify.js';
 import * as boosend from '../services/integrations/boosend.js';
+import * as linkedinApi from '../services/linkedin-api.js';
 
 const router = Router();
 
 const services = { stripe: stripeInt, whop, gohighlevel, shopify, kajabi, netlify, boosend };
 const VALID_PROVIDERS = Object.keys(services);
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://aiceoproduction.netlify.app';
+
+function linkedinRedirectUri(req) {
+  const baseUrl = process.env.API_BASE_URL
+    || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `${req.protocol}://${req.get('host')}`);
+  return `${baseUrl}/api/integrations/linkedin/callback`;
+}
+
+// ─── LinkedIn OAuth 2.0 + Posting ───
+// These must be defined BEFORE the generic :provider routes below so Express
+// matches the literal paths first.
+
+// Return the LinkedIn authorization URL so the frontend can redirect the user
+router.get('/api/integrations/linkedin/auth', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  try {
+    const state = crypto.randomBytes(16).toString('hex');
+    const redirectUri = linkedinRedirectUri(req);
+    const url = linkedinApi.getAuthUrl(redirectUri, state);
+
+    // Persist state so we can verify it on callback
+    await supabase.from('integrations').upsert({
+      user_id: userId,
+      provider: 'linkedin_oauth_state',
+      credentials: { state },
+      is_active: false,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,provider' });
+
+    res.json({ url });
+  } catch (err) {
+    console.log('[linkedin] auth URL error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// OAuth callback — exchange code, get user info, store credentials
+router.get('/api/integrations/linkedin/callback', async (req, res) => {
+  const { code, error: oauthError, error_description } = req.query;
+
+  if (oauthError) {
+    console.log('[linkedin] OAuth error:', oauthError, error_description);
+    return res.redirect(`${FRONTEND_URL}/settings?linkedin=error&reason=${encodeURIComponent(error_description || oauthError)}`);
+  }
+
+  if (!code) {
+    return res.redirect(`${FRONTEND_URL}/settings?linkedin=error&reason=no_code`);
+  }
+
+  try {
+    const redirectUri = linkedinRedirectUri(req);
+
+    // Exchange code for access token
+    const tokenData = await linkedinApi.exchangeCode(code, redirectUri);
+    const { access_token, expires_in } = tokenData;
+
+    // Calculate expiration timestamp
+    const expires_at = new Date(Date.now() + (expires_in || 5184000) * 1000).toISOString();
+
+    // Fetch LinkedIn profile
+    const userInfo = await linkedinApi.getUserInfo(access_token);
+    const linkedinUserId = userInfo.sub;
+    const name = userInfo.name || 'LinkedIn User';
+
+    // We need the user_id. Since OAuth callback is a redirect (no Bearer token),
+    // look up the most recent pending linkedin_oauth_state to find the user.
+    const { data: stateRow } = await supabase
+      .from('integrations')
+      .select('user_id')
+      .eq('provider', 'linkedin_oauth_state')
+      .eq('is_active', false)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!stateRow) {
+      return res.redirect(`${FRONTEND_URL}/settings?linkedin=error&reason=session_expired`);
+    }
+
+    const userId = stateRow.user_id;
+
+    // Store LinkedIn credentials
+    await supabase.from('integrations').upsert({
+      user_id: userId,
+      provider: 'linkedin',
+      credentials: {
+        access_token,
+        linkedin_user_id: linkedinUserId,
+        name,
+        expires_at,
+      },
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,provider' });
+
+    // Clean up the state row
+    await supabase.from('integrations')
+      .delete()
+      .eq('user_id', userId)
+      .eq('provider', 'linkedin_oauth_state');
+
+    console.log(`[linkedin] OAuth connected for user ${userId} (${name})`);
+    res.redirect(`${FRONTEND_URL}/settings?linkedin=connected`);
+  } catch (err) {
+    console.log('[linkedin] OAuth callback error:', err.message);
+    res.redirect(`${FRONTEND_URL}/settings?linkedin=error&reason=${encodeURIComponent(err.message)}`);
+  }
+});
+
+// Post to LinkedIn — text or text+image
+router.post('/api/integrations/linkedin/post', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const { text, imageUrl } = req.body;
+  if (!text) return res.status(400).json({ error: 'text is required' });
+
+  // Fetch stored LinkedIn credentials
+  const { data: integration, error: fetchErr } = await supabase
+    .from('integrations')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('provider', 'linkedin')
+    .eq('is_active', true)
+    .single();
+
+  if (fetchErr || !integration) {
+    return res.status(400).json({ error: 'LinkedIn not connected', code: 'linkedin_not_connected' });
+  }
+
+  const { access_token, linkedin_user_id, expires_at } = integration.credentials;
+
+  // Check token expiration
+  if (expires_at && new Date(expires_at) < new Date()) {
+    return res.status(401).json({ error: 'LinkedIn token expired. Please reconnect.', code: 'linkedin_token_expired' });
+  }
+
+  try {
+    let result;
+    if (imageUrl) {
+      result = await linkedinApi.postWithImage(access_token, linkedin_user_id, text, imageUrl);
+    } else {
+      result = await linkedinApi.postText(access_token, linkedin_user_id, text);
+    }
+
+    // Record the post in social_posts table
+    await supabase.from('social_posts').insert({
+      user_id: userId,
+      platform: 'linkedin',
+      external_post_id: result.postUrn || null,
+      url: result.postUrl || null,
+      caption: text.slice(0, 5000),
+      thumbnail_url: imageUrl || null,
+      published_at: new Date().toISOString(),
+    });
+
+    console.log(`[linkedin] Post published for user ${userId}: ${result.postUrl}`);
+    res.json({ ok: true, postUrl: result.postUrl, postUrn: result.postUrn });
+  } catch (err) {
+    console.log(`[linkedin] Post failed for user ${userId}:`, err.message);
+    res.status(500).json({ error: `Post failed: ${err.message}` });
+  }
+});
+
+// Disconnect LinkedIn
+router.delete('/api/integrations/linkedin', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const { error } = await supabase
+    .from('integrations')
+    .delete()
+    .eq('user_id', userId)
+    .eq('provider', 'linkedin');
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  console.log(`[linkedin] Disconnected for user ${userId}`);
+  res.json({ ok: true });
+});
 
 // ─── List all user integrations (no keys in response) ───
 router.get('/api/integrations', async (req, res) => {
