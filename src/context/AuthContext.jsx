@@ -44,9 +44,12 @@ export function AuthProvider({ children }) {
     let billingData = null;
 
     if (billingInfo?.plan) {
-      plan = billingInfo.plan.display_name || billingInfo.plan.name;
+      plan = billingInfo.plan.display_name || billingInfo.plan.name || billingInfo.plan.id;
       creditBalance = billingInfo.credits?.balance ?? 0;
-      planFeatures = billingInfo.plan.features || [];
+      // features is a jsonb object like { crm: true, marketing_ai: true, ... }
+      // Convert to array of enabled feature names for hasFeature() checks
+      const featObj = billingInfo.plan.features || {};
+      planFeatures = Object.entries(featObj).filter(([, v]) => !!v).map(([k]) => k);
       billingData = {
         plan: billingInfo.plan,
         subscription: billingInfo.subscription,
@@ -115,7 +118,8 @@ export function AuthProvider({ children }) {
         setCredits(billingInfo.credits.balance ?? 0);
       }
       if (billingInfo?.plan?.features) {
-        setFeatures(billingInfo.plan.features);
+        const featObj = billingInfo.plan.features || {};
+        setFeatures(Object.entries(featObj).filter(([, v]) => !!v).map(([k]) => k));
       }
       if (billingInfo?.plan) {
         setPlanData({

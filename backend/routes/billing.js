@@ -13,9 +13,27 @@ router.get('/api/billing/plan', async (req, res) => {
   }
 
   try {
-    const plan = await getUserPlan(userId);
+    const planInfo = await getUserPlan(userId);
 
-    // Also fetch current credit balance
+    // Fetch full plan row for display_name
+    let planRow = null;
+    if (planInfo.plan) {
+      const { data } = await supabase
+        .from('plans')
+        .select('*')
+        .eq('id', planInfo.plan)
+        .single();
+      planRow = data;
+    }
+
+    // Fetch subscription for period dates
+    const { data: sub } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    // Fetch current credit balance
     const { data: creditRow } = await supabase
       .from('credits')
       .select('balance')
@@ -23,11 +41,24 @@ router.get('/api/billing/plan', async (req, res) => {
       .single();
 
     res.json({
-      plan: plan.plan,
-      status: plan.status,
-      features: plan.features,
-      credits_per_month: plan.credits_per_month,
-      credit_balance: creditRow?.balance ?? 0,
+      plan: planRow ? {
+        id: planRow.id,
+        name: planRow.name,
+        display_name: planRow.display_name,
+        features: planRow.features,
+        credits_per_month: planRow.credits_per_month,
+        setup_fee: planRow.setup_fee,
+        monthly_price_with_boost: planRow.monthly_price_with_boost,
+        monthly_price_without_boost: planRow.monthly_price_without_boost,
+      } : null,
+      subscription: sub ? {
+        status: sub.status,
+        current_period_start: sub.current_period_start,
+        current_period_end: sub.current_period_end,
+      } : null,
+      credits: {
+        balance: creditRow?.balance ?? 0,
+      },
     });
   } catch (err) {
     console.error('[billing/plan]', err.message);
