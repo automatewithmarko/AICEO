@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, ArrowRight, Check, Image as ImageIcon, Clock, CalendarDays, Video, Layers, Camera, Play, Send, Loader } from 'lucide-react';
-import { getCalendarPosts, createCalendarPost, updateCalendarPost, deleteCalendarPost, publishCalendarPost } from '../lib/api';
+import { getCalendarPosts, createCalendarPost, updateCalendarPost, deleteCalendarPost, publishCalendarPost, getInstagramAccounts } from '../lib/api';
 import './Pages.css';
 import './ContentCalendar.css';
 
@@ -123,15 +123,23 @@ export default function ContentCalendar() {
   const [cursor, setCursor] = useState(today);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [igAccounts, setIgAccounts] = useState([]); // { id, username, profile_picture_url, access_token }
+  const [selectedIgAccount, setSelectedIgAccount] = useState(null);
   const [modal, setModal] = useState(null);
   // modal shape: { step: 'pick' | 'compose', date: 'YYYY-MM-DD', platform?: 'instagram', editId?: 'p1' }
 
-  // Load posts from Supabase on mount
+  // Load posts and Instagram accounts on mount
   useEffect(() => {
     getCalendarPosts()
       .then(({ posts: dbPosts }) => setPosts((dbPosts || []).map(dbToLocal)))
       .catch((err) => console.error('Failed to load calendar posts:', err))
       .finally(() => setLoading(false));
+    getInstagramAccounts()
+      .then(({ accounts }) => {
+        setIgAccounts(accounts || []);
+        if (accounts?.length) setSelectedIgAccount(accounts[0]);
+      })
+      .catch(() => {});
   }, []);
 
   const grid = useMemo(() => buildMonthGrid(cursor), [cursor]);
@@ -312,6 +320,9 @@ export default function ContentCalendar() {
                 onSave={savePost}
                 onDelete={modal.editId ? deletePost : null}
                 existing={modal.editId ? posts.find((p) => p.id === modal.editId) : null}
+                igAccounts={igAccounts}
+                selectedIgAccount={selectedIgAccount}
+                onSelectIgAccount={setSelectedIgAccount}
               />
             )}
             {modal.step === 'view' && (
@@ -468,7 +479,7 @@ function ScheduledView({ post, onClose, onDelete, onPublish }) {
 
 // ─── Multi-step Composer (BooSend-style) ────────────────────────────────────
 
-function Composer({ modal, onClose, onBackToPicker, onSave, onDelete, existing }) {
+function Composer({ modal, onClose, onBackToPicker, onSave, onDelete, existing, igAccounts, selectedIgAccount, onSelectIgAccount }) {
   const platform = getPlatform(modal.platform);
 
   // All platforms use the same 4-step flow: type → media → caption → time.
@@ -624,6 +635,9 @@ function Composer({ modal, onClose, onBackToPicker, onSave, onDelete, existing }
             setSlideIdx={setSlideIdx}
             date={date}
             time={time}
+            igAccounts={igAccounts}
+            selectedIgAccount={selectedIgAccount}
+            onSelectIgAccount={onSelectIgAccount}
           />
         )}
         {currentStep === 'time' && (
@@ -798,7 +812,7 @@ function StepMedia({ platform, igType, igConfig, needsMedia, media, reachedMax, 
 
 // ─── Step: Caption with IG preview ─────────────────────────────────────────
 
-function StepCaption({ platform, igType, igConfig, caption, setCaption, overLimit, media, slideIdx, setSlideIdx, date }) {
+function StepCaption({ platform, igType, igConfig, caption, setCaption, overLimit, media, slideIdx, setSlideIdx, date, igAccounts, selectedIgAccount, onSelectIgAccount }) {
   const isIg = platform.id === 'instagram';
   const isFb = platform.id === 'facebook';
   const isLi = platform.id === 'linkedin';
@@ -870,7 +884,7 @@ function StepCaption({ platform, igType, igConfig, caption, setCaption, overLimi
         value={caption}
         onChange={setCaption}
         placeholder={placeholder}
-        prefix={isIg ? 'your_account' : null}
+        prefix={isIg ? (selectedIgAccount?.username || 'your_account') : null}
       />
       <div className={`cc-ig-inline-counter${overLimit ? ' cc-ig-inline-counter--over' : ''}`}>
         {caption.length.toLocaleString()} / {platform.limit.toLocaleString()}
@@ -886,7 +900,7 @@ function StepCaption({ platform, igType, igConfig, caption, setCaption, overLimi
       </p>
 
       <div className={`cc-ig-preview cc-ig-preview--${platform.id}`}>
-        <PreviewHeader platform={platform} prettyDate={prettyDate} />
+        <PreviewHeader platform={platform} prettyDate={prettyDate} igAccounts={igAccounts} selectedIgAccount={selectedIgAccount} onSelectIgAccount={onSelectIgAccount} />
         {captionFirst ? (
           <>
             {captionBlock}
@@ -912,9 +926,12 @@ function StepCaption({ platform, igType, igConfig, caption, setCaption, overLimi
 
 // ─── Preview header (avatar + name + date) ─────────────────────────────────
 
-function PreviewHeader({ platform, prettyDate }) {
+function PreviewHeader({ platform, prettyDate, igAccounts, selectedIgAccount, onSelectIgAccount }) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const isIg = platform.id === 'instagram';
-  const displayName = isIg ? 'your_account' : 'Your Name';
+  const displayName = isIg && selectedIgAccount ? selectedIgAccount.username : (isIg ? 'your_account' : 'Your Name');
+  const avatarUrl = isIg && selectedIgAccount?.profile_picture_url ? selectedIgAccount.profile_picture_url : null;
+  const hasMultiple = isIg && igAccounts && igAccounts.length > 1;
   const subline = platform.id === 'linkedin'
     ? 'Founder & CEO · Scheduled'
     : isIg
@@ -924,7 +941,9 @@ function PreviewHeader({ platform, prettyDate }) {
   return (
     <div className="cc-ig-preview-head">
       <span className={`cc-ig-avatar cc-ig-avatar--${platform.id}`}>
-        {isIg ? (
+        {avatarUrl ? (
+          <img src={avatarUrl} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+        ) : isIg ? (
           <span className="cc-ig-avatar-inner" />
         ) : (
           <span className="cc-ig-avatar-icon" style={{ color: '#fff' }}>
@@ -932,8 +951,34 @@ function PreviewHeader({ platform, prettyDate }) {
           </span>
         )}
       </span>
-      <div className="cc-ig-preview-meta">
-        <span className="cc-ig-username">{displayName}</span>
+      <div className="cc-ig-preview-meta" style={{ position: 'relative' }}>
+        <span
+          className="cc-ig-username"
+          style={hasMultiple ? { cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' } : undefined}
+          onClick={hasMultiple ? () => setDropdownOpen(v => !v) : undefined}
+        >
+          {displayName}
+          {hasMultiple && (
+            <ChevronRight size={12} style={{ transform: dropdownOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: '0.15s' }} />
+          )}
+        </span>
+        {hasMultiple && dropdownOpen && (
+          <div className="cc-ig-account-dropdown">
+            {igAccounts.map(acc => (
+              <button
+                key={acc.id}
+                className={`cc-ig-account-option${acc.id === selectedIgAccount?.id ? ' cc-ig-account-option--active' : ''}`}
+                onClick={() => { onSelectIgAccount(acc); setDropdownOpen(false); }}
+              >
+                {acc.profile_picture_url && (
+                  <img src={acc.profile_picture_url} alt="" className="cc-ig-account-option-pic" />
+                )}
+                <span>{acc.username}</span>
+                {acc.id === selectedIgAccount?.id && <Check size={12} />}
+              </button>
+            ))}
+          </div>
+        )}
         <span className="cc-ig-date">{subline}</span>
       </div>
     </div>

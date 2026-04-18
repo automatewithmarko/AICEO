@@ -1842,3 +1842,48 @@
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* ── Instagram account dropdown ── */
+.cc-ig-account-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  min-width: 200px;
+  z-index: 30;
+  overflow: hidden;
+  animation: cc-dropdown-in 0.12s ease-out;
+}
+@keyframes cc-dropdown-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cc-ig-account-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: #191919;
+  cursor: pointer;
+  font-family: inherit;
+}
+.cc-ig-account-option:hover {
+  background: rgba(0,0,0,0.04);
+}
+.cc-ig-account-option--active {
+  background: rgba(0,0,0,0.06);
+}
+.cc-ig-account-option-pic {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
