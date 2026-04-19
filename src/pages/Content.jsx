@@ -1293,7 +1293,7 @@ Now write the post following Variation B (Story-Flow) guidelines.`;
 const PLATFORM_GUIDANCE = {
   instagram: `Instagram content that actually performs. Study what top creators do:
 - Carousels: A carousel is a STORY told across slides, not a list of random tips. The first slide hooks with a bold claim. Every following slide builds on that hook  -  revealing, explaining, proving, and concluding. The viewer should NEED to swipe to get the payoff. Last slide = CTA. ALL slides must share the EXACT same visual style (background color, font, layout) so they look like one cohesive set.
-- Reels/Video Scripts: When the user asks for a reel, write a SCRIPT as your text output. Do NOT generate images for reels. Structure: [HOOK] (first 1-3 seconds, stop the scroll), [BRIDGE] (transition that pulls them in), [SCENE 1] and optionally [SCENE 2] (max 2 scenes, keep it tight), [CTA] only if needed. Each section gets [VISUAL] + [VOICEOVER] or [ON-SCREEN TEXT]. Suggest a trending audio direction. The script IS the deliverable.
+- Reels/Video Scripts: When the user asks for a reel, write a SCRIPT as your text output. Do NOT generate images for reels. Write it as a clean, spoken script  -  the actual words they will say on camera, line by line. No labels like [HOOK], [BRIDGE], [SCENE], [VISUAL], [VOICEOVER], or [ON-SCREEN TEXT]. No timestamps. Start with the hook line (scroll-stopper), flow into the body, end with a CTA if needed. Add a brief "Direction:" note at the end for visuals and trending audio. Keep it punchy, under 60 seconds. The script IS the deliverable.
 - Stories: Raw, authentic, behind-the-scenes. Polls/questions for engagement. Keep it casual.
 - Captions: Lead with a strong first line (it's the hook before "...more"). Write like you talk. Break into short paragraphs. No hashtags unless the user asks.
 - NEVER use generic filler, excessive emojis, or "Hey guys!" energy. Write like a real person, not a marketing bot.`,
@@ -1360,7 +1360,7 @@ ${LINKEDIN_CAROUSEL_PROMPT}
 `,
   youtube: `YouTube content built for retention. Titles: curiosity gap + clarity (not clickbait). Descriptions: front-load keywords, include timestamps. Scripts: open with the payoff/promise, deliver value fast, use pattern interrupts every 30-60s. Thumbnails: high contrast, expressive face or striking visual, 3-4 words max.`,
   x: `X/Twitter content that spreads. One idea per tweet. Strong opening line. No filler words. Threads: first tweet must stand alone and hook. Use contrarian takes, specific numbers, or "Here's what nobody tells you about X" patterns. No hashtag spam.`,
-  tiktok: `TikTok content that hooks immediately. When the user asks for a TikTok or video, write a SCRIPT as your text output. Do NOT generate images for video scripts. Structure: [HOOK] (first 1-3 seconds), [BRIDGE] (transition), [SCENE 1] and optionally [SCENE 2] (max 2 scenes), [CTA] only if needed. Each section gets [VISUAL] + [VOICEOVER] or [ON-SCREEN TEXT]. Suggest a trending sound. Keep it under 30s. Raw > polished. The script IS the deliverable.`,
+  tiktok: `TikTok content that hooks immediately. When the user asks for a TikTok or video, write a SCRIPT as your text output. Do NOT generate images for video scripts. Write it as a clean, spoken script  -  the actual words they will say on camera, line by line. No labels like [HOOK], [BRIDGE], [SCENE], [VISUAL], [VOICEOVER], or [ON-SCREEN TEXT]. No timestamps. Start with the hook line, flow into the body, end with a CTA if needed. Add a brief "Direction:" note at the end for visuals and trending sound. Keep it under 30s. Raw > polished. The script IS the deliverable.`,
 };
 
 // Parse <<OPTIONS>> blocks from AI response
@@ -1469,7 +1469,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `   - SINGLE POST: Call generate_image once for the post image.\n`;
   prompt += `   - STORY FLOW: Call generate_image for each story frame (3-4 images).\n`;
   prompt += `   - YOUTUBE: Call generate_image for the thumbnail.\n`;
-  prompt += `   - REEL / TIKTOK / VIDEO SCRIPT: Do NOT call generate_image. Write the script directly as your text output. The script is the deliverable. Structure: [HOOK] (1-3s), [BRIDGE] (transition), [SCENE 1] + optionally [SCENE 2] (max 2 scenes), [CTA] if needed. Each section: [VISUAL] + [VOICEOVER]/[ON-SCREEN TEXT]. Suggest audio.\n`;
+  prompt += `   - REEL / TIKTOK / VIDEO SCRIPT: Do NOT call generate_image. Write the script directly as your text output. The script is the deliverable. Write it as a clean, spoken script  -  the actual words to say on camera, line by line. No labels like [HOOK], [BRIDGE], [SCENE], [VISUAL], [VOICEOVER], or [ON-SCREEN TEXT]. No timestamps. Start with the hook line, flow naturally, end with CTA if needed. Add a brief "Direction:" note at the end for visuals and audio.\n`;
   prompt += `   You can make MULTIPLE generate_image calls in the same response. Each slide needs its own call.\n\n`;
 
   prompt += `=== CAROUSEL SLIDE TYPES (CRITICAL  -  each slide type has a DIFFERENT layout) ===\n`;
