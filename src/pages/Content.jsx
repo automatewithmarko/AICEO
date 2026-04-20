@@ -3215,10 +3215,14 @@ export default function Content() {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const result = await generateImage(slidePrompt, 'instagram', brandImageData, refImages);
-        if (result?.image?.data) return result;
-        // Gemini sometimes returns a 200 with no image (safety filter, etc.).
-        // Throw so the retry loop runs instead of silently counting as done.
-        throw new Error('empty image response');
+        // Tight validity check — Gemini can return a 200 with an empty string,
+        // a placeholder, or missing mimeType when its safety filter fires.
+        // Treat anything short of "usable base64 + mimetype" as a failure so
+        // the retry loop runs instead of silently counting it as done.
+        const d = result?.image?.data;
+        const m = result?.image?.mimeType;
+        if (d && m && typeof d === 'string' && d.length > 200) return result;
+        throw new Error(`empty/invalid image response (dataLen=${d?.length || 0}, mime=${m || 'none'})`);
       } catch (err) {
         lastErr = err;
         console.warn(`[carousel] slide ${slideIndex + 1} attempt ${attempt}/${maxAttempts} failed: ${err.message || err}`);
@@ -3325,16 +3329,33 @@ export default function Content() {
       });
       await Promise.allSettled(rest);
 
-      // Mark carousel generation complete.
-      setMessages(prev => prev.map(m =>
-        m.id === msgId ? {
+      // Consistency sweep: guarantee every slide index 0..N-1 is either in
+      // images OR in failedSlides. If a slide silently vanished (state race,
+      // promise dropped, etc.) it ends up in neither — sweep it into
+      // failedSlides so the user sees the retry button instead of a missing
+      // slide with no explanation.
+      setMessages(prev => prev.map(m => {
+        if (m.id !== msgId) return m;
+        const presentIdx = new Set((m.images || []).map(img => img.idx));
+        const failedSet = new Set(m.carouselPlan?.failedSlides || []);
+        const recovered = [];
+        for (let i = 0; i < slides.length; i++) {
+          if (!presentIdx.has(i) && !failedSet.has(i)) recovered.push(i);
+        }
+        const mergedFailed = [...(m.carouselPlan?.failedSlides || []), ...recovered].sort((a, b) => a - b);
+        if (recovered.length) console.warn(`[carousel] consistency sweep recovered missing slides: ${recovered.map(i => i + 1).join(', ')}`);
+        return {
           ...m,
           pendingImages: 0,
-          carouselPlan: { ...m.carouselPlan, generating: false },
+          carouselPlan: {
+            ...m.carouselPlan,
+            generating: false,
+            failedSlides: mergedFailed,
+          },
           // If Claude included a caption in the plan, surface it as the message body.
           content: m.content || plan.caption || '',
-        } : m
-      ));
+        };
+      }));
     } catch (err) {
       console.error('Carousel generation failed:', err);
       setMessages(prev => prev.map(m =>
@@ -4608,7 +4629,16 @@ export default function Content() {
                     </div>
                   );
                 }
-                if (!msg.content) {
+                // A message has something renderable if it has text, a plan
+                // card, any images, or pending images being generated. Only
+                // when NONE of those are present do we show the
+                // thinking/no-response placeholder bubble.
+                const hasRenderable =
+                  !!msg.content ||
+                  !!msg.carouselPlan ||
+                  (msg.images || []).length > 0 ||
+                  (msg.pendingImages || 0) > 0;
+                if (!hasRenderable) {
                   // Only show the animated "thinking..." bubble for the
                   // ONE message that is actively being generated right now.
                   // Older empty-content messages (from previous timeouts
@@ -4616,7 +4646,7 @@ export default function Content() {
                   // response" copy even when the user fires off a new
                   // request — otherwise they'd flip back to animated dots
                   // every time isGenerating is true globally.
-                  const stillWorking = isGenerating && msg.id === activeAssistantId && (msg.pendingImages || 0) === 0;
+                  const stillWorking = isGenerating && msg.id === activeAssistantId;
                   return (
                     <div key={msg.id} className="content-assistant-row">
                       <img src="/favicon.png" alt="" className="content-assistant-avatar" />
