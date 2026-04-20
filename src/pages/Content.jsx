@@ -3502,9 +3502,8 @@ export default function Content() {
     const { msgId, imgIdx, src } = editingImage;
     setEditingImage(null);
     setEditPrompt('');
-    setIsGenerating(true);
 
-    // Extract base64 from data URL
+    // Extract base64 from data URL once — used by both edit paths.
     const commaIdx = src.indexOf(',');
     const mimeMatch = src.match(/^data:([^;]+);/);
     const refImage = commaIdx !== -1 ? {
@@ -3512,11 +3511,91 @@ export default function Content() {
       mimeType: mimeMatch?.[1] || 'image/jpeg',
     } : null;
 
-    // Show loading state on the image
+    // ── Carousel slide edit path ──
+    // For a slide that belongs to a carousel with a locked design system,
+    // we MUST rebuild the prompt from that design system. The generic
+    // "EDIT THIS IMAGE" path would throw away the design system and the
+    // slide would drift away from the rest of the set. Preserve the
+    // locked visual DNA, reference both the current slide image and the
+    // hook slide (for palette anchoring), and layer the user's edit
+    // instruction on top as a modification.
+    const carouselMsg = messages.find(m => m.id === msgId);
+    const plan = carouselMsg?.carouselPlan;
+    const slide = plan?.slides?.[imgIdx];
+    if (plan && slide) {
+      setIsGenerating(true);
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, editingIdx: imgIdx } : m));
+      try {
+        const brandForPrompt = { name: brandDna?.brand_name || brandDna?.description?.split(/[.,]/)[0]?.trim() || '' };
+        const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
+        const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
+        const brandImageData = {
+          photoUrls: [...uploadedPhotoUrls, ...oneBrandPhoto],
+          logoUrl: null,
+          colors: brandDna?.colors || {},
+          mainFont: brandDna?.main_font || null,
+        };
+
+        // Build the slide prompt from the LOCKED design system, then
+        // prepend the user's edit instruction as an override at the top.
+        const basePrompt = buildCarouselSlidePrompt({
+          designSystem: plan.designSystem,
+          slide,
+          index: imgIdx,
+          total: plan.slides.length,
+          brand: brandForPrompt,
+        });
+        const editedPrompt = [
+          `USER EDIT INSTRUCTION (apply ONLY this change to the slide below — keep every other element identical: palette, typography, layout zones, badge, branding strip, slide counter, chapter mark, glow position, mood):`,
+          `  ${editInstruction.trim()}`,
+          ``,
+          `If the edit changes a specific piece of text, update ONLY that text in TEXT CONTENT below; all other text must render exactly as originally specified.`,
+          ``,
+          basePrompt,
+        ].join('\n');
+
+        // Reference images: the current slide (so the edit is incremental
+        // not from-scratch) and the hook (so palette locks visually).
+        const hookImg = (carouselMsg.images || []).find(i => i.idx === 0);
+        const refs = [];
+        if (refImage) refs.push(refImage);
+        if (hookImg && hookImg.idx !== imgIdx && hookImg.src?.startsWith('data:')) {
+          const hc = hookImg.src.indexOf(',');
+          const hm = hookImg.src.match(/^data:([^;]+);/);
+          if (hc !== -1) refs.push({ data: hookImg.src.slice(hc + 1), mimeType: hm?.[1] || 'image/jpeg' });
+        }
+
+        const result = await generateSlideWithRetry(imgIdx, editedPrompt, brandImageData, refs, { maxAttempts: 3 });
+        const newSrc = `data:${result.image.mimeType};base64,${result.image.data}`;
+        setMessages(prev => prev.map(m => {
+          if (m.id !== msgId) return m;
+          const newImages = [...(m.images || [])];
+          const target = newImages.findIndex(img => img.idx === imgIdx);
+          if (target !== -1) newImages[target] = { ...newImages[target], src: newSrc };
+          else newImages.push({ src: newSrc, idx: imgIdx });
+          // Clear any failed-slide entry for this index since it's now rendered.
+          const failedLeft = (m.carouselPlan?.failedSlides || []).filter(x => x !== imgIdx);
+          return {
+            ...m,
+            images: newImages,
+            editingIdx: undefined,
+            carouselPlan: { ...m.carouselPlan, failedSlides: failedLeft },
+          };
+        }));
+      } catch (err) {
+        console.error('Carousel slide edit failed:', err);
+        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, editingIdx: undefined } : m));
+      } finally {
+        setIsGenerating(false);
+      }
+      return;
+    }
+
+    // ── Generic single-image edit path (non-carousel) ──
+    setIsGenerating(true);
     setMessages(prev => prev.map(m =>
       m.id === msgId ? { ...m, editingIdx: imgIdx } : m
     ));
-
     try {
       // Send the image + edit instruction + sidebar reference photos (for likeness), but no brand DNA or logo
       const sidebarPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
@@ -3545,7 +3624,7 @@ export default function Content() {
     } finally {
       setIsGenerating(false);
     }
-  }, [editingImage, isGenerating, selectedPlatform]);
+  }, [editingImage, isGenerating, selectedPlatform, messages, photos, brandDna, generateSlideWithRetry]);
 
   const handleLinkedinGenerateImage = useCallback(async (postText) => {
     if (!linkedinPreview || liGeneratingImage) return;
