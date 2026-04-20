@@ -2138,6 +2138,36 @@
   font-size: 12px;
   color: var(--brand-red, #e63946);
 }
+.content-carousel-plan-retry-row {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(230, 57, 70, 0.25);
+  background: rgba(230, 57, 70, 0.06);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.content-carousel-plan-retry-msg {
+  font-size: 12px;
+  color: var(--brand-red, #e63946);
+  flex: 1;
+  min-width: 160px;
+}
+.content-carousel-plan-retry-btn {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid var(--brand-red, #e63946);
+  background: var(--brand-red, #e63946);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.content-carousel-plan-retry-btn:hover { opacity: 0.9; }
 
 /* ── Image Carousel ── */
 .content-image-carousel {

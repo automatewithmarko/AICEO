@@ -2278,11 +2278,13 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
 // can review the hook, slide roster, and locked design system before we
 // burn N NanoBanana calls. Click "Approve & generate slides" to kick off
 // Phase 3 (per-slide image generation with the locked design system block).
-function CarouselPlanCard({ plan, onApprove }) {
+function CarouselPlanCard({ plan, onApprove, onRetryFailed }) {
   const ds = plan.designSystem || {};
   const p = ds.palette || {};
   const slides = plan.slides || [];
   const disabled = plan.approved || plan.generating;
+  const failed = plan.failedSlides || [];
+  const hasFailed = failed.length > 0 && !plan.generating;
   return (
     <div className="content-carousel-plan">
       <div className="content-carousel-plan-header">
@@ -2336,16 +2338,36 @@ function CarouselPlanCard({ plan, onApprove }) {
           <div className="content-carousel-plan-caption">{plan.caption}</div>
         </div>
       )}
-      <button
-        type="button"
-        className={`content-carousel-plan-approve${disabled ? ' content-carousel-plan-approve--disabled' : ''}`}
-        disabled={disabled}
-        onClick={onApprove}
-      >
-        {plan.approved
-          ? (plan.generating ? 'Generating slides…' : 'Approved')
-          : 'Approve & generate slides'}
-      </button>
+      {!plan.approved && (
+        <button
+          type="button"
+          className="content-carousel-plan-approve"
+          onClick={onApprove}
+        >
+          Approve & generate slides
+        </button>
+      )}
+      {plan.approved && plan.generating && (
+        <div className="content-carousel-plan-approve content-carousel-plan-approve--disabled">
+          Generating slides…
+        </div>
+      )}
+      {hasFailed && (
+        <div className="content-carousel-plan-retry-row">
+          <div className="content-carousel-plan-retry-msg">
+            {failed.length === 1
+              ? `Slide ${failed[0] + 1} failed to render.`
+              : `${failed.length} slides failed to render: ${failed.map(i => i + 1).join(', ')}.`}
+          </div>
+          <button
+            type="button"
+            className="content-carousel-plan-retry-btn"
+            onClick={onRetryFailed}
+          >
+            Retry {failed.length === 1 ? 'failed slide' : `${failed.length} slides`}
+          </button>
+        </div>
+      )}
       {plan.error && <div className="content-carousel-plan-error">{plan.error}</div>}
     </div>
   );
@@ -2420,6 +2442,12 @@ export default function Content() {
   const ensureSessionPromiseRef = useRef(null);
   const [editPrompt, setEditPrompt] = useState('');
   const [linkedinPreview, setLinkedinPreview] = useState(null); // { content, images, msgId }
+  // Mirror so `sendToAI`'s finally block can read the latest preview
+  // without capturing a stale closure. Needed to prevent the
+  // "AI didn't produce a response" overwrite from firing on valid
+  // tool-call-only responses that land in the preview panel.
+  const linkedinPreviewRef = useRef(null);
+  useEffect(() => { linkedinPreviewRef.current = linkedinPreview; }, [linkedinPreview]);
   const [liGeneratingImage, setLiGeneratingImage] = useState(false);
 
   // Keep LinkedIn preview images in sync with the message's images
@@ -3149,15 +3177,25 @@ export default function Content() {
       setIsGenerating(false);
       setActiveAssistantId(null);
       // Safety net: if we got here without populating the assistant message
-      // AND no images are pending, surface an explicit message so the user
-      // isn't left staring at an empty bubble. Covers cases like the stream
-      // closing cleanly with zero text, tool-call-only responses that failed,
-      // and silent early termination.
+      // AND no images/plan/preview landed for this message, surface an
+      // explicit message so the user isn't left staring at an empty bubble.
+      // Covers cases like the stream closing cleanly with zero text,
+      // tool-call-only responses that failed, and silent early termination.
+      //
+      // IMPORTANT: tool-call-only valid responses also reach this finally
+      // with empty `content`. Recognize those and DON'T clobber them:
+      //   - carouselPlan present → Instagram plan-first flow succeeded, the
+      //     plan card IS the response.
+      //   - linkedinPreview holds this msg's content/images/slides → the
+      //     LinkedIn text-post / carousel preview panel IS the response.
       setMessages((prev) => prev.map((m) => {
         if (m.id !== assistantMsgId) return m;
         if (m.content) return m;
         if ((m.pendingImages || 0) > 0) return m;
         if ((m.images || []).length > 0) return m;
+        if (m.carouselPlan) return m;
+        const lp = linkedinPreviewRef.current;
+        if (lp && lp.msgId === assistantMsgId && (lp.content || (lp.images?.length > 0) || (lp.totalSlides > 0))) return m;
         return { ...m, content: "The AI didn't produce a response. Please try again." };
       }));
     }
@@ -3165,6 +3203,31 @@ export default function Content() {
 
   const stopGenerating = useCallback(() => {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; setIsGenerating(false); setActiveAssistantId(null); }
+  }, []);
+
+  // Render a single carousel slide via NanoBanana with automatic retries.
+  // Transient failures (Gemini overload, network blips, 500s, empty-image
+  // responses) drop otherwise-good carousels to 5-of-7 territory — not
+  // acceptable UX. Retry up to 3× per slide with escalating backoff before
+  // giving up. Returns the result on success, or throws the last error.
+  const generateSlideWithRetry = useCallback(async (slideIndex, slidePrompt, brandImageData, refImages, { maxAttempts = 3 } = {}) => {
+    let lastErr;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const result = await generateImage(slidePrompt, 'instagram', brandImageData, refImages);
+        if (result?.image?.data) return result;
+        // Gemini sometimes returns a 200 with no image (safety filter, etc.).
+        // Throw so the retry loop runs instead of silently counting as done.
+        throw new Error('empty image response');
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[carousel] slide ${slideIndex + 1} attempt ${attempt}/${maxAttempts} failed: ${err.message || err}`);
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, 1500 * attempt));
+        }
+      }
+    }
+    throw lastErr || new Error('generation failed');
   }, []);
 
   // Approve an Instagram carousel plan and render the slides.
@@ -3180,7 +3243,7 @@ export default function Content() {
 
     // Mark approved + kick off loading state so skeletons render.
     setMessages(prev => prev.map(m =>
-      m.id === msgId ? { ...m, carouselPlan: { ...m.carouselPlan, approved: true, generating: true }, pendingImages: slides.length, images: m.images || [] } : m
+      m.id === msgId ? { ...m, carouselPlan: { ...m.carouselPlan, approved: true, generating: true, failedSlides: [] }, pendingImages: slides.length, images: m.images || [] } : m
     ));
     setIsGenerating(true);
     setActiveAssistantId(msgId);
@@ -3206,8 +3269,21 @@ export default function Content() {
       ));
     };
 
+    const markSlideFailed = (idx) => {
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? {
+          ...m,
+          pendingImages: Math.max(0, (m.pendingImages || 0) - 1),
+          carouselPlan: {
+            ...m.carouselPlan,
+            failedSlides: [...(m.carouselPlan?.failedSlides || []).filter(x => x !== idx), idx].sort((a, b) => a - b),
+          },
+        } : m
+      ));
+    };
+
     try {
-      // Phase 3a: render slide 1 alone.
+      // Phase 3a: render slide 1 alone so its bytes can anchor the rest.
       const slide1Prompt = buildCarouselSlidePrompt({
         designSystem: plan.designSystem,
         slide: slides[0],
@@ -3215,17 +3291,16 @@ export default function Content() {
         total: slides.length,
         brand: brandForPrompt,
       });
-      const slide1 = await generateImage(slide1Prompt, 'instagram', brandImageData, null);
       let hookRef = null;
-      if (slide1?.image) {
+      try {
+        const slide1 = await generateSlideWithRetry(0, slide1Prompt, brandImageData, null);
         const src = `data:${slide1.image.mimeType};base64,${slide1.image.data}`;
         appendImage(src, 0);
         hookRef = { data: slide1.image.data, mimeType: slide1.image.mimeType };
-      } else {
-        // Still drop the pending counter so the skeleton clears.
-        setMessages(prev => prev.map(m =>
-          m.id === msgId ? { ...m, pendingImages: Math.max(0, (m.pendingImages || 0) - 1) } : m
-        ));
+      } catch (slide1Err) {
+        console.error('[carousel] slide 1 failed after retries:', slide1Err);
+        markSlideFailed(0);
+        // Keep going — slides 2..N can still render without a hook reference.
       }
 
       // Phase 3b: render slides 2..N in parallel, each referencing slide 1
@@ -3239,16 +3314,14 @@ export default function Content() {
           total: slides.length,
           brand: brandForPrompt,
         });
-        const result = await generateImage(slidePrompt, 'instagram', brandImageData, hookRef ? [hookRef] : null);
-        if (result?.image) {
+        try {
+          const result = await generateSlideWithRetry(idx, slidePrompt, brandImageData, hookRef ? [hookRef] : null);
           const src = `data:${result.image.mimeType};base64,${result.image.data}`;
           appendImage(src, idx);
-        } else {
-          setMessages(prev => prev.map(m =>
-            m.id === msgId ? { ...m, pendingImages: Math.max(0, (m.pendingImages || 0) - 1) } : m
-          ));
+        } catch (slideErr) {
+          console.error(`[carousel] slide ${idx + 1} failed after retries:`, slideErr);
+          markSlideFailed(idx);
         }
-        return result;
       });
       await Promise.allSettled(rest);
 
@@ -3271,7 +3344,103 @@ export default function Content() {
       setIsGenerating(false);
       setActiveAssistantId(null);
     }
-  }, [messages, photos, brandDna]);
+  }, [messages, photos, brandDna, generateSlideWithRetry]);
+
+  // Manual retry for slides that exhausted automatic retries. User clicks
+  // "Retry failed slide(s)" on the plan card and we re-fire only the
+  // failed indices, keeping successful slides untouched.
+  const handleRetryFailedSlides = useCallback(async (msgId) => {
+    const msg = messages.find(m => m.id === msgId);
+    if (!msg?.carouselPlan) return;
+    const plan = msg.carouselPlan;
+    const failed = plan.failedSlides || [];
+    if (!failed.length) return;
+
+    const slides = plan.slides || [];
+    const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
+    const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
+    const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
+    const brandImageData = {
+      photoUrls: allPhotoUrls,
+      logoUrl: null,
+      colors: brandDna?.colors || {},
+      mainFont: brandDna?.main_font || null,
+    };
+    const brandForPrompt = { name: brandDna?.brand_name || brandDna?.description?.split(/[.,]/)[0]?.trim() || '' };
+
+    // Use an existing successful slide (prefer slide 1) as the palette
+    // reference if available. If slide 1 itself failed, any successful
+    // slide works as an anchor.
+    const existingImage = (msg.images || []).find(img => img.idx === 0) || (msg.images || [])[0];
+    let hookRef = null;
+    if (existingImage?.src?.startsWith('data:')) {
+      const commaIdx = existingImage.src.indexOf(',');
+      if (commaIdx !== -1) {
+        const mimeMatch = existingImage.src.match(/^data:([^;]+);/);
+        hookRef = {
+          data: existingImage.src.slice(commaIdx + 1),
+          mimeType: mimeMatch?.[1] || 'image/jpeg',
+        };
+      }
+    }
+
+    setIsGenerating(true);
+    setActiveAssistantId(msgId);
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? {
+        ...m,
+        carouselPlan: { ...m.carouselPlan, generating: true },
+        pendingImages: (m.pendingImages || 0) + failed.length,
+      } : m
+    ));
+
+    const retryPromises = failed.map(async (idx) => {
+      const slide = slides[idx];
+      if (!slide) return;
+      const slidePrompt = buildCarouselSlidePrompt({
+        designSystem: plan.designSystem,
+        slide,
+        index: idx,
+        total: slides.length,
+        brand: brandForPrompt,
+      });
+      try {
+        const result = await generateSlideWithRetry(idx, slidePrompt, brandImageData, hookRef ? [hookRef] : null);
+        const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+        setMessages(prev => prev.map(m => {
+          if (m.id !== msgId) return m;
+          // Replace any existing entry for this idx (defensive) and
+          // remove this idx from the failed list.
+          const images = (m.images || []).filter(img => img.idx !== idx).concat({ src, idx });
+          const failedLeft = (m.carouselPlan?.failedSlides || []).filter(x => x !== idx);
+          return {
+            ...m,
+            images,
+            pendingImages: Math.max(0, (m.pendingImages || 0) - 1),
+            carouselPlan: { ...m.carouselPlan, failedSlides: failedLeft },
+          };
+        }));
+      } catch (err) {
+        console.error(`[carousel] retry for slide ${idx + 1} failed:`, err);
+        // Keep it in failedSlides, drop pending.
+        setMessages(prev => prev.map(m =>
+          m.id === msgId ? { ...m, pendingImages: Math.max(0, (m.pendingImages || 0) - 1) } : m
+        ));
+      }
+    });
+
+    await Promise.allSettled(retryPromises);
+
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? {
+        ...m,
+        pendingImages: 0,
+        carouselPlan: { ...m.carouselPlan, generating: false },
+      } : m
+    ));
+    setIsGenerating(false);
+    setActiveAssistantId(null);
+  }, [messages, photos, brandDna, generateSlideWithRetry]);
 
   // Block sending while any attachment is still uploading/extracting  -  otherwise the
   // AI receives a prompt without the context the user just attached.
@@ -4491,6 +4660,7 @@ export default function Content() {
                         <CarouselPlanCard
                           plan={msg.carouselPlan}
                           onApprove={() => handleCarouselApprove(msg.id)}
+                          onRetryFailed={() => handleRetryFailedSlides(msg.id)}
                         />
                       )}
                       {/* Image carousel  -  below text */}
