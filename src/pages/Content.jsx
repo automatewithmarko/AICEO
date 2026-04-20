@@ -1418,7 +1418,7 @@ function parsePlainTextQuestion(content, hadImages) {
   return null;
 }
 
-function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext) {
+function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext, carouselTemplates = []) {
   let prompt = `You are a senior content strategist who creates content that actually performs on social media. You study what top creators and brands do  -  you understand hooks, retention, visual hierarchy, and what makes people stop scrolling.\n\n`;
   prompt += `You do NOT produce generic AI slop. No excessive emojis. No "Hey guys!" energy. No corporate marketing speak. No cartoonish or clip-art style visuals. You write like a real human who understands the platform.\n\n`;
   prompt += `=== ABSOLUTE OUTPUT RULES (NON-NEGOTIABLE) ===\n`;
@@ -1463,6 +1463,18 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     prompt += `   - angle: strategic POV in one sentence.\n`;
     prompt += `   - caption: the IG caption the user will paste with the post.\n`;
     prompt += `   - slides: 5-9 slides with {type, badge, headline, body, visualElement, doNot}. Slide 1 is always hook, last slide is cta.\n`;
+    if (carouselTemplates && carouselTemplates.length > 0) {
+      const t = carouselTemplates[0];
+      const ds = t.design_system || {};
+      const p = ds.palette || {};
+      prompt += `   - SAVED TEMPLATE SELECTED BY USER — "${t.name}":\n`;
+      prompt += `     Use this design system as the starting point for the new carousel. Inherit the locked visual DNA so the new post reads as part of the same series. You MAY tweak values only if the new topic genuinely demands it (e.g. different accent for a very different emotional tone), but default is: keep the template as-is.\n`;
+      prompt += `     Palette: bg=${p.background || ''}, accentPrimary=${p.accentPrimary || ''}, accentSecondary=${p.accentSecondary || ''}, gradientStart=${p.gradientStart || ''}, gradientEnd=${p.gradientEnd || ''}, textPrimary=${p.textPrimary || ''}, textMuted=${p.textMuted || ''}, glow=${p.glow || ''}.\n`;
+      prompt += `     Mode: ${ds.mode || 'dark'}. Font family: ${ds.typography?.family || 'Inter'}. Card style: ${ds.card?.style || 'glass'}. Accent treatment: ${ds.accentTreatment || 'gradient'}. Mood: ${ds.mood || ''}.\n`;
+      if (carouselTemplates.length > 1) {
+        prompt += `     (${carouselTemplates.length - 1} additional template${carouselTemplates.length > 2 ? 's' : ''} also selected — prefer the first but harmonize with the others if it helps.)\n`;
+      }
+    }
     prompt += `   - SLIDE VISUAL BUDGET: Slide 1 (hook) and last slide (CTA) get RICH visuals — card stacks, founder photo with floating proof chip, full stat blocks, chat UIs, diagrams, etc. MIDDLE slides (2..N-1) are TEXT-FORWARD — headline + body are the hero. Their visualElement must be MINIMAL: pick one of {"minimal-icon", "stat-chip", "divider-line", "numeric-marker"} for visualElement.kind and describe it as a tiny supporting accent (single outlined icon, one short stat, subtle divider, faint slide-number marker). Do NOT propose card-stack, node-diagram, chat-ui, ui-mockup, or founder-photo for middle slides — save those for the hook and CTA.\n`;
     prompt += `   - designSystem: locked visual spec every slide inherits. Honor Brand DNA primary color as the anchor accent — pick secondary/gradient/glow to harmonize with it, not replace it. Rotate glow corner each slide for swipe momentum. No purple/pink defaults unless Brand DNA demands.\n`;
     prompt += `   HEADLINE ACCENT: mark the hero word(s) of each headline with {{accent}}word{{/accent}} so the client can apply the gradient accent. Every headline must have exactly one accent span.\n`;
@@ -2590,8 +2602,10 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
 // edit any slide. Dismisses on click, localStorage flag so it doesn't
 // re-show on every carousel.
 // Full-screen slide viewer modal. ESC closes (falls back to chat),
-// arrow keys navigate between slides.
-function SlideViewerModal({ image, position, total, onClose, onPrev, onNext }) {
+// arrow keys navigate between slides. Pencil/refresh icons route back
+// into the parent handlers (they close the viewer first so the user
+// sees the slide's inline state update in context).
+function SlideViewerModal({ image, position, total, onClose, onPrev, onNext, onEdit, onRegenerate, isGenerating }) {
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') { e.preventDefault(); onClose(); }
@@ -2611,6 +2625,18 @@ function SlideViewerModal({ image, position, total, onClose, onPrev, onNext }) {
   const atEnd = position >= total - 1;
   return (
     <div className="content-slide-viewer" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="content-slide-viewer-toolbar" onClick={(e) => e.stopPropagation()}>
+        {onEdit && (
+          <button className="content-slide-viewer-tool" onClick={onEdit} title="Edit this slide (keeps design locked)" disabled={isGenerating}>
+            <Pencil size={16} />
+          </button>
+        )}
+        {onRegenerate && (
+          <button className="content-slide-viewer-tool" onClick={onRegenerate} title="Re-roll this slide (same spec, new render)" disabled={isGenerating}>
+            <RefreshCw size={16} />
+          </button>
+        )}
+      </div>
       <button className="content-slide-viewer-close" onClick={(e) => { e.stopPropagation(); onClose(); }} aria-label="Close">
         <X size={22} />
       </button>
@@ -2800,6 +2826,9 @@ function CarouselActionsBar({ msgId, plan, images }) {
         preview_url: previewUrl,
       });
       setTemplateSaved(true);
+      // Notify the sidebar card to refetch so the new template appears
+      // immediately without a page reload.
+      try { window.dispatchEvent(new CustomEvent('carousel-templates-changed')); } catch {}
       setTimeout(() => setTemplateSaved(false), 4000);
     } catch (err) {
       console.error('Template save failed:', err);
@@ -2956,6 +2985,8 @@ export default function Content() {
   }, [messages, linkedinPreview?.msgId, linkedinPreview?.totalSlides]);
 
   const [brandDna, setBrandDna] = useState(null);
+  const [savedTemplates, setSavedTemplates] = useState([]); // user's carousel design-system templates
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState(new Set()); // which templates to inject as context
   const [integrationCtx, setIntegrationCtx] = useState('');
   const [isLinkedInConnected, setIsLinkedInConnected] = useState(false);
   const longPressTimer = useRef(null);
@@ -3086,7 +3117,41 @@ export default function Content() {
       const liConnected = (integrations || []).some((i) => i.provider === 'linkedin' && i.is_active);
       setIsLinkedInConnected(liConnected);
     }).catch(() => {});
+    // Load saved carousel templates so the sidebar card can show them.
+    const loadTpls = () => getCarouselTemplates().then(({ templates }) => {
+      if (templates) setSavedTemplates(templates);
+    }).catch(() => {});
+    loadTpls();
+    // Refetch whenever a template is saved elsewhere in the page.
+    const onChange = () => loadTpls();
+    window.addEventListener('carousel-templates-changed', onChange);
+    return () => window.removeEventListener('carousel-templates-changed', onChange);
   }, []);
+
+  const toggleSavedTemplate = useCallback((id) => {
+    setSelectedTemplateIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const removeSavedTemplate = useCallback(async (id) => {
+    try {
+      await deleteCarouselTemplate(id);
+      setSavedTemplates(prev => prev.filter(t => t.id !== id));
+      setSelectedTemplateIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+    } catch (err) {
+      alert(err.message || 'Failed to delete template');
+    }
+  }, []);
+
+  // The selected templates' design systems — injected into plan_carousel
+  // system prompt so Claude anchors the new carousel to them.
+  const selectedTemplatesData = useMemo(
+    () => savedTemplates.filter(t => selectedTemplateIds.has(t.id)),
+    [savedTemplates, selectedTemplateIds]
+  );
 
   // ── Session persistence ──
   // Load sessions list on mount
@@ -3321,7 +3386,7 @@ export default function Content() {
       const abort = new AbortController();
       abortRef.current = abort;
       const apiMessages = chatHistory.map((m) => ({ role: m.role, content: m.content }));
-      const systemPrompt = buildSystemPrompt(activePlatform, photos, documents, socialUrls, brandDna, integrationCtx);
+      const systemPrompt = buildSystemPrompt(activePlatform, photos, documents, socialUrls, brandDna, integrationCtx, selectedTemplatesData);
 
       console.group('📋 Content AI  -  Context being sent');
       console.log('Platform:', activePlatform.name);
@@ -4984,6 +5049,41 @@ export default function Content() {
               </button>
             </form>
           </div>
+          {/* Saved carousel templates  -  toggle to add as context for the new plan */}
+          {sidebarOpen && savedTemplates.length > 0 && (
+            <div className="cs-templates-card">
+              <div className="cs-templates-head">
+                <Zap size={12} />
+                <span>Saved carousel samples</span>
+                <span className="cs-templates-count">{selectedTemplateIds.size > 0 ? `${selectedTemplateIds.size} on` : `${savedTemplates.length} saved`}</span>
+              </div>
+              <div className="cs-templates-list">
+                {savedTemplates.map(t => {
+                  const on = selectedTemplateIds.has(t.id);
+                  const p = t.design_system?.palette || {};
+                  return (
+                    <div key={t.id} className={`cs-template-item${on ? ' cs-template-item--on' : ''}`}>
+                      <button type="button" className="cs-template-toggle" onClick={() => toggleSavedTemplate(t.id)} title={on ? 'Remove from chat context' : 'Add to chat context'}>
+                        {t.preview_url && <img src={t.preview_url} alt="" className="cs-template-thumb" />}
+                        <div className="cs-template-info">
+                          <div className="cs-template-name">{t.name}</div>
+                          <div className="cs-template-swatches">
+                            {[p.background, p.accentPrimary, p.gradientStart, p.gradientEnd].filter(Boolean).map((hex, i) => (
+                              <span key={i} className="cs-template-swatch" style={{ background: hex }} />
+                            ))}
+                          </div>
+                        </div>
+                        {on && <span className="cs-template-dot" />}
+                      </button>
+                      <button type="button" className="cs-template-delete" onClick={() => removeSavedTemplate(t.id)} title="Delete template">
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {socialUrls.length > 0 && (
             <div className="cs-social-cards">
               {socialUrls.map((item, i) => (
@@ -5488,6 +5588,7 @@ export default function Content() {
                     image={vCurrent}
                     position={vPos}
                     total={vImages.length}
+                    isGenerating={isGenerating}
                     onClose={() => setSlideViewer(null)}
                     onPrev={() => {
                       const prevImg = vImages[vPos - 1];
@@ -5497,6 +5598,20 @@ export default function Content() {
                       const nextImg = vImages[vPos + 1];
                       if (nextImg) setSlideViewer({ msgId: slideViewer.msgId, idx: nextImg.idx });
                     }}
+                    onEdit={vMsg?.carouselPlan ? () => {
+                      const msgId = slideViewer.msgId;
+                      const idx = vCurrent.idx;
+                      const src = vCurrent.src;
+                      setSlideViewer(null);
+                      setEditingImage({ msgId, imgIdx: idx, src });
+                      setEditPrompt('');
+                    } : null}
+                    onRegenerate={vMsg?.carouselPlan?.slides?.[vCurrent.idx] ? () => {
+                      const msgId = slideViewer.msgId;
+                      const idx = vCurrent.idx;
+                      setSlideViewer(null);
+                      handleCarouselSlideRegenerate(msgId, idx);
+                    } : null}
                   />
                 );
               })()}
