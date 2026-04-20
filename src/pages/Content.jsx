@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Heart, MessageCircle, Bookmark, Maximize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate } from '../lib/api';
@@ -2601,6 +2601,146 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
 // one-time "pencil discovery" tooltip so first-time users know they can
 // edit any slide. Dismisses on click, localStorage flag so it doesn't
 // re-show on every carousel.
+// Instagram-feed-style side preview panel. Shows the carousel as it
+// would actually appear in the IG app — profile header, square media
+// with swipe nav + dots, like/comment/share/save row, and the caption
+// with IG's 125-char fold + "more" toggle. Reads straight from the
+// message (no data copy) so edits/regenerates made elsewhere reflect
+// here immediately. ESC + arrow keys wired.
+function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate, onFullscreen, isGenerating }) {
+  const images = useMemo(() => [...(msg?.images || [])].sort((a, b) => a.idx - b.idx), [msg]);
+  const [idx, setIdx] = useState(0);
+  const [captionExpanded, setCaptionExpanded] = useState(false);
+
+  // Clamp idx if images list shrinks (e.g. a regenerate happens mid-view).
+  useEffect(() => {
+    if (idx > images.length - 1) setIdx(Math.max(0, images.length - 1));
+  }, [images.length, idx]);
+
+  // Keyboard nav + ESC. Scoped to when the panel is open.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); setIdx(i => Math.max(0, i - 1)); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); setIdx(i => Math.min(images.length - 1, i + 1)); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [images.length, onClose]);
+
+  if (!msg || images.length === 0) return null;
+  const current = images[idx];
+  if (!current) return null;
+
+  const plan = msg.carouselPlan || {};
+  const caption = plan.caption || msg.content || '';
+  const CAPTION_FOLD = 125;
+  const captionIsLong = caption.length > CAPTION_FOLD;
+  const captionDisplay = captionIsLong && !captionExpanded ? caption.slice(0, CAPTION_FOLD).trimEnd() + '…' : caption;
+
+  const username = (brandDna?.brand_name || user?.name || 'your_brand').toLowerCase().replace(/\s+/g, '_').slice(0, 30);
+  const avatarUrl = brandDna?.logos?.find(l => l.isDefault)?.url || brandDna?.logos?.[0]?.url || brandDna?.logo_url || brandDna?.photo_urls?.[0];
+
+  const atStart = idx === 0;
+  const atEnd = idx === images.length - 1;
+
+  return (
+    <div className="content-ig-preview" role="dialog" aria-label="Instagram preview">
+      <div className="content-ig-preview-header">
+        <span className="content-ig-preview-title">Instagram preview</span>
+        <button className="content-ig-preview-close" onClick={onClose} title="Close side preview (ESC)">
+          <X size={16} />
+        </button>
+      </div>
+      <div className="content-ig-feed">
+        <div className="content-ig-post">
+          {/* Post header */}
+          <div className="content-ig-post-header">
+            <div className="content-ig-avatar-ring">
+              {avatarUrl
+                ? <img src={avatarUrl} alt="" className="content-ig-avatar" onError={(e) => { e.target.style.display = 'none'; }} />
+                : <div className="content-ig-avatar content-ig-avatar--fallback">{username.charAt(0).toUpperCase()}</div>
+              }
+            </div>
+            <span className="content-ig-username">{username}</span>
+            <span className="content-ig-dot-sep">·</span>
+            <span className="content-ig-follow">Following</span>
+            <span className="content-ig-more-menu">⋯</span>
+          </div>
+
+          {/* Media (square) */}
+          <div className="content-ig-media">
+            <img src={current.src} alt={`Slide ${idx + 1}`} className="content-ig-slide" />
+            <div className="content-ig-counter">{idx + 1}/{images.length}</div>
+            {!atStart && (
+              <button className="content-ig-nav content-ig-nav--prev" onClick={() => setIdx(i => i - 1)} aria-label="Previous slide">
+                <ChevronLeft size={20} />
+              </button>
+            )}
+            {!atEnd && (
+              <button className="content-ig-nav content-ig-nav--next" onClick={() => setIdx(i => i + 1)} aria-label="Next slide">
+                <ChevronRight size={20} />
+              </button>
+            )}
+            {/* Hover tools — only for this slide. Live actions, not fake icons. */}
+            <div className="content-ig-tools">
+              <button className="content-ig-tool" onClick={() => onFullscreen(current.idx)} title="Full screen" disabled={isGenerating}>
+                <Maximize2 size={14} />
+              </button>
+              {onEdit && (
+                <button className="content-ig-tool" onClick={() => onEdit(current.idx, current.src)} title="Edit slide (keeps design)" disabled={isGenerating}>
+                  <Pencil size={14} />
+                </button>
+              )}
+              {onRegenerate && (
+                <button className="content-ig-tool" onClick={() => onRegenerate(current.idx)} title="Re-roll slide (same spec)" disabled={isGenerating}>
+                  <RefreshCw size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* IG action row — visual only, not functional */}
+          <div className="content-ig-actions">
+            <Heart size={26} strokeWidth={1.8} />
+            <MessageCircle size={26} strokeWidth={1.8} />
+            <Send size={26} strokeWidth={1.8} />
+            <Bookmark size={26} strokeWidth={1.8} className="content-ig-action-save" />
+          </div>
+
+          {/* Dots indicator */}
+          {images.length > 1 && (
+            <div className="content-ig-indicator">
+              {images.map((_, i) => (
+                <span key={i} className={`content-ig-indicator-dot${i === idx ? ' content-ig-indicator-dot--active' : ''}`} />
+              ))}
+            </div>
+          )}
+
+          {/* Likes count — placeholder */}
+          <div className="content-ig-likes">{(Math.floor(Math.random() * 800) + 200).toLocaleString()} likes</div>
+
+          {/* Caption with IG's 125-char fold */}
+          <div className="content-ig-caption">
+            <span className="content-ig-caption-username">{username}</span>
+            <span className="content-ig-caption-body">
+              {captionDisplay}
+              {captionIsLong && !captionExpanded && (
+                <button className="content-ig-more-link" onClick={() => setCaptionExpanded(true)}>more</button>
+              )}
+            </span>
+          </div>
+
+          <div className="content-ig-meta">
+            <span>View all comments</span>
+            <span className="content-ig-meta-time">Just now</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Full-screen slide viewer modal. ESC closes (falls back to chat),
 // arrow keys navigate between slides. Pencil/refresh icons route back
 // into the parent handlers (they close the viewer first so the user
@@ -2657,7 +2797,7 @@ function SlideViewerModal({ image, position, total, onClose, onPrev, onNext, onE
   );
 }
 
-function CarouselActionsBar({ msgId, plan, images }) {
+function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview }) {
   const [downloading, setDownloading] = useState(false);
   const [showTip, setShowTip] = useState(() => {
     try { return localStorage.getItem('aiceo.carouselEditTipDismissed') !== '1'; } catch { return true; }
@@ -2840,6 +2980,11 @@ function CarouselActionsBar({ msgId, plan, images }) {
 
   return (
     <div className="content-carousel-actions">
+      {onOpenSidePreview && (
+        <button type="button" className="content-carousel-action-btn" onClick={onOpenSidePreview} title="Preview as it would appear on Instagram">
+          <Maximize2 size={14} /> Preview on Instagram
+        </button>
+      )}
       <button type="button" className="content-carousel-action-btn" onClick={downloadZip} disabled={downloading}>
         <Download size={14} /> {downloading ? 'Packing…' : `Download all (${images.length} slides + caption)`}
       </button>
@@ -2951,6 +3096,7 @@ export default function Content() {
   const [activeAssistantId, setActiveAssistantId] = useState(null);
   const [editingImage, setEditingImage] = useState(null); // { msgId, imgIdx, src }
   const [slideViewer, setSlideViewer] = useState(null); // { msgId, idx } — full-screen slide viewer
+  const [carouselSideView, setCarouselSideView] = useState(null); // { msgId } — IG-feed-style side panel preview
   const [creditsDepleted, setCreditsDepleted] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -5218,7 +5364,7 @@ export default function Content() {
       </div>
 
       {/* Main content area */}
-      <div className={`content-main${linkedinPreview ? ' content-main--split' : ''}`}>
+      <div className={`content-main${linkedinPreview || carouselSideView ? ' content-main--split' : ''}`}>
         <div className="content-main-chat">
         {/* Platform Pill Selector */}
         <div className="content-top-bar">
@@ -5585,6 +5731,12 @@ export default function Content() {
                           msgId={msg.id}
                           plan={msg.carouselPlan}
                           images={sortedImages}
+                          onOpenSidePreview={() => {
+                            // Opening the IG preview closes any open LinkedIn
+                            // preview so the split layout only has one tenant.
+                            setLinkedinPreview(null);
+                            setCarouselSideView({ msgId: msg.id });
+                          }}
                         />
                       )}
                     </div>
@@ -5830,6 +5982,29 @@ export default function Content() {
             />
           </div>
         )}
+        {carouselSideView && (() => {
+          const panelMsg = messages.find(m => m.id === carouselSideView.msgId);
+          if (!panelMsg) return null;
+          return (
+            <div className="content-main-preview">
+              <CarouselSidePanel
+                msg={panelMsg}
+                brandDna={brandDna}
+                user={user}
+                isGenerating={isGenerating}
+                onClose={() => setCarouselSideView(null)}
+                onFullscreen={(idx) => setSlideViewer({ msgId: panelMsg.id, idx })}
+                onEdit={panelMsg.carouselPlan ? (idx, src) => {
+                  setEditingImage({ msgId: panelMsg.id, imgIdx: idx, src });
+                  setEditPrompt('');
+                } : null}
+                onRegenerate={panelMsg.carouselPlan?.slides ? (idx) => {
+                  handleCarouselSlideRegenerate(panelMsg.id, idx);
+                } : null}
+              />
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
