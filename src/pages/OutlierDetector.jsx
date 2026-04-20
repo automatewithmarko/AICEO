@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, UserPlus, Play, User, Loader, RefreshCw, ExternalLink, PlusCircle, Check } from 'lucide-react';
-import { getOutlierCreators, addOutlierCreator, deleteOutlierCreator, getOutlierVideos, addOutlierToContext, getOutlierThumbnailUrl } from '../lib/api';
+import { getOutlierCreators, addOutlierCreator, deleteOutlierCreator, getOutlierVideos, addOutlierToContext, getOutlierThumbnailUrl, getContentItems } from '../lib/api';
 import './Pages.css';
 import './OutlierDetector.css';
 
@@ -103,6 +103,10 @@ export default function OutlierDetector() {
   const [activeCreatorFilter, setActiveCreatorFilter] = useState(null);
   const [activePlatformFilter, setActivePlatformFilter] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  // URLs of videos already added to the content-context pool. Seeded from
+  // content_items on mount so the green "Added" badge persists across
+  // navigation — using URLs (not video IDs) because that's the column that
+  // survives outside this page's local state.
   const [addedToContext, setAddedToContext] = useState(new Set());
   const [addingToContext, setAddingToContext] = useState(null);
   const [hasMore, setHasMore] = useState(true);
@@ -134,6 +138,24 @@ export default function OutlierDetector() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, []);
+
+  // Seed addedToContext from existing content_items so the "Added" badge
+  // persists across navigation. Matches on URL since that's what the
+  // /api/content-items/from-outlier endpoint stores.
+  useEffect(() => {
+    getContentItems().then(({ items }) => {
+      const savedUrls = (items || [])
+        .filter((item) => item.type === 'social' && item.metadata?.source === 'outlier-detector' && item.url)
+        .map((item) => item.url);
+      if (savedUrls.length) {
+        setAddedToContext((prev) => {
+          const next = new Set(prev);
+          for (const u of savedUrls) next.add(u);
+          return next;
+        });
+      }
+    }).catch(() => {});
   }, []);
 
   // Refetch whenever sort / creator / platform filters change so results
@@ -215,7 +237,7 @@ export default function OutlierDetector() {
         video_id: video.video_id,
         creator_name: creator.display_name || creator.username || '',
       });
-      setAddedToContext((prev) => new Set([...prev, video.id]));
+      setAddedToContext((prev) => new Set([...prev, video.url]));
     } catch (err) {
       console.error('Failed to add to context:', err);
     } finally {
@@ -536,7 +558,7 @@ export default function OutlierDetector() {
                     {creator.display_name || creator.username}
                   </div>
                 </div>
-                {addedToContext.has(video.id) ? (
+                {addedToContext.has(video.url) ? (
                   <button className="od-add-context-btn od-add-context-btn--added" disabled>
                     <Check size={14} /> Added
                   </button>

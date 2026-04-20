@@ -3894,14 +3894,39 @@ export default function Content() {
                               >
                                 <Pencil size={14} />
                               </button>
-                              <a
+                              <button
+                                type="button"
                                 className="content-carousel-download"
-                                href={img.src}
-                                download={`slide-${i + 1}.png`}
-                                onClick={(e) => e.stopPropagation()}
+                                title="Download image"
+                                onClick={async (e) => {
+                                  // <a download> is ignored for cross-origin
+                                  // URLs (Supabase storage) — browsers navigate
+                                  // to the image instead of downloading, which
+                                  // strands the user (no ESC, only Back). Fetch
+                                  // as a blob and trigger download manually.
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  try {
+                                    const res = await fetch(img.src, { mode: 'cors' });
+                                    const blob = await res.blob();
+                                    const ext = (blob.type.split('/')[1] || 'png').split('+')[0];
+                                    const objectUrl = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = objectUrl;
+                                    a.download = `slide-${i + 1}.${ext}`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    a.remove();
+                                    setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+                                  } catch (err) {
+                                    console.error('Image download failed:', err);
+                                    // Last resort: open in new tab so the user at least sees the image
+                                    window.open(img.src, '_blank', 'noopener');
+                                  }
+                                }}
                               >
                                 <Download size={16} />
-                              </a>
+                              </button>
                               {editingImage?.msgId === msg.id && editingImage?.imgIdx === img.idx && (
                                 <div className="content-image-edit-input" onClick={(e) => e.stopPropagation()}>
                                   <input
