@@ -1832,57 +1832,91 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
     `MOOD: ${ds.mood}`,
   ].join('\n');
 
-  // Layout choice: hook (slide 1) and CTA (last slide) are visually RICH —
-  // they carry the emotional weight of the carousel and earn the full
-  // visual treatment. Middle content slides (2..N-1) are TEXT-FORWARD —
-  // headline + body dominate the canvas, and the "visual element" is
-  // degraded to a small supporting accent (single icon, tiny stat chip,
-  // subtle divider). This mirrors how good informational carousels
-  // actually read: the first slide grabs, the middle reads like a clean
-  // thread, the last closes. It also keeps cognitive load low while the
-  // reader swipes.
+  // The carousel reads like a beautifully-designed hardcover book:
+  //   Slide 1 = the cover (dramatic, hero visual, announces the topic).
+  //   Slides 2..N-1 = the chapter pages (editorial magazine spread —
+  //     the TYPOGRAPHY is the design, not a downgraded hero graphic).
+  //   Slide N = the closing spread (one confident action, room to breathe).
+  //
+  // The visual DNA that carries through every slide — glow corner rotation,
+  // texture, branding strip, slide counter, accent gradient, badge pill —
+  // is the thing that makes rich slides and editorial slides feel like
+  // pages from the same book. We lean on that consistency instead of
+  // forcing graphics onto the text slides.
   const isMiddle = !isHook && !isFinal;
-
-  // PER-SLIDE BLOCK — only thing that changes between slides.
   const headlineRaw = String(slide.headline || '').replace(/\{\{accent\}\}([\s\S]*?)\{\{\/accent\}\}/, (_, w) => `[ACCENT]${w}[/ACCENT]`);
-  const perSlide = [
-    `SLIDE ${slideNum} OF ${totalNum} — TYPE: ${String(slide.type || '').toUpperCase()} — LAYOUT: ${isHook ? 'RICH-HOOK' : isFinal ? 'RICH-CTA' : 'TEXT-FORWARD'}`,
-    `BADGE LABEL: "${(slide.badge || '').toUpperCase()}" — positioned 96px from the top-left, just below the branding strip.`,
-    isMiddle
-      ? `HEADLINE (this is the hero of the slide — give it 55–65% of the vertical space): large ${p.textPrimary}, weight ${typo.headlineWeight || 700}, 72–88px, left-aligned, tight leading (1.05), preserve line breaks, apply accent treatment ONLY to text inside [ACCENT]...[/ACCENT]:\n${headlineRaw}`
-      : `HEADLINE (render with line breaks preserved, apply accent treatment ONLY to text inside [ACCENT]...[/ACCENT]):\n${headlineRaw}`,
-    isMiddle
-      ? `BODY COPY (directly below headline, ${p.textMuted}, left-aligned, 22px, weight ${typo.bodyWeight || 400}, leading 1.45, max 4 lines):\n${slide.body || ''}`
-      : `BODY COPY (below headline, ${p.textMuted}, left-aligned, 20px, weight ${typo.bodyWeight || 400}, max 4 lines):\n${slide.body || ''}`,
-    isMiddle
-      ? `MINIMAL ACCENT (this slide is TEXT-FORWARD — do NOT render a full card, diagram, chat UI, stat stack, or hero visual). Render ONLY one small supporting accent element in the lower portion of the canvas, max 15% of canvas area, sized smaller than the headline. Options (pick ONE that fits the slide's point): a single outlined line icon in ${p.accentPrimary} stroke at ~56px; OR a slim horizontal divider line in ${p.accentPrimary} at 30% opacity spanning 120px; OR a tiny stat chip (${card.style || 'glass'} pill, one short number + one-word label); OR a numeric marker ("${String(index + 1).padStart(2, '0')}") in ${p.accentPrimary} at 160px, weight 800, placed behind the badge area at 8% opacity. Whatever you choose, it must be SUBTLE — text is the hero on this slide. Supporting hint from the planner (use as inspiration, but keep the scale minimal regardless of what is described): "${slide.visualElement?.description || ''}"`
-      : `VISUAL ELEMENT (${slide.visualElement?.kind || 'card'} — the hero of this ${isHook ? 'HOOK' : 'CTA'} slide, full visual treatment): ${slide.visualElement?.description || ''}`,
-    isFinal
-      ? `CTA (bottom): "${slide.cta || 'Follow for more'}" in a solid pill button, fill ${p.accentPrimary}, text color ${p.background}, 14px, weight 600, centered horizontally, 120px from bottom edge.`
-      : `CTA HINT (bottom-right): "Keep swiping →" in a small ${card.style || 'glass'} pill, ${p.textMuted} at 70% opacity, 12px.`,
-    `DO NOT include: ${[
-      ...(slide.doNot && slide.doNot.length ? slide.doNot : ['stock photography','clipart','cartoon illustration','gradient-rainbow color bars','extra text outside what is specified','Instagram UI chrome']),
-      ...(isMiddle ? [
-        'no large hero visual or full-canvas graphic',
-        'no card stack, chat UI, node diagram, or multi-element composition',
-        'no mockups or UI screenshots on this slide',
-        'no illustration taking more than 15% of the canvas',
-      ] : []),
-    ].map(s => s.startsWith('no ') ? s : `no ${s}`).join('; ')}.`,
-  ].join('\n');
+
+  // LAYOUT ARCHETYPES — each has its own composition, not "rich minus stuff".
+  let perSlide;
+  if (isHook) {
+    perSlide = [
+      `SLIDE 01 OF ${totalNum} — LAYOUT: OPENING SPREAD (the cover of the book)`,
+      `COMPOSITION: This is the most visually rich slide. It announces the topic and earns the swipe. Use a full-canvas composition where the hero visual and the headline are designed TOGETHER as one intentional image — not headline stacked above a card.`,
+      `BADGE: "${(slide.badge || '').toUpperCase()}" — small pill, top-left at 96px inset, just below the branding strip. Uses the locked BADGE STYLE.`,
+      `HEADLINE (the statement — sized to dominate, paired with the visual): ${p.textPrimary}, weight ${typo.headlineWeight || 700}, 88–110px display size, tight leading (1.0–1.05), preserve line breaks, apply the gradient accent treatment ONLY to the [ACCENT]...[/ACCENT] span:\n${headlineRaw}`,
+      slide.body ? `SUPPORTING LINE (optional, smaller and quieter, directly under the headline): ${p.textMuted}, 22px, weight ${typo.bodyWeight || 400}, max 2 lines:\n${slide.body}` : `NO BODY COPY on this slide — the headline carries it.`,
+      `HERO VISUAL (${slide.visualElement?.kind || 'composition'}): This is full-canvas compositional work. Options appropriate for a hook: founder photo with a floating proof chip overlaid; layered glass card stack angled 6–10°; oversized product mockup with subtle drop shadow; editorial portrait treatment with a colored duotone; a dramatic diagonal composition. Describe the exact composition from the planner:\n${slide.visualElement?.description || ''}`,
+      `CTA HINT (bottom-right, subtle): "Keep swiping →" in a small ${card.style || 'glass'} pill, ${p.textMuted} at 70% opacity, 12px.`,
+    ].join('\n');
+  } else if (isFinal) {
+    perSlide = [
+      `SLIDE ${slideNum} OF ${totalNum} — LAYOUT: CLOSING SPREAD (the final page)`,
+      `COMPOSITION: Minimal and confident. One clear action, generous breathing room, no clutter. Rich because of restraint — this slide should feel quieter than the hook but just as intentional.`,
+      `BADGE: "${(slide.badge || 'ONE LAST THING').toUpperCase()}" — small pill, centered horizontally near the vertical optical center (~42% from top). Uses the locked BADGE STYLE.`,
+      `CTA HEADLINE (centered horizontally, below the badge, sits at the visual center of the canvas): ${p.textPrimary}, weight ${typo.headlineWeight || 700}, 64–80px, leading 1.05, max 3 lines. Apply the gradient accent treatment ONLY to the [ACCENT]...[/ACCENT] span:\n${headlineRaw}`,
+      slide.body ? `SUPPORTING LINE (one short line beneath the headline): ${p.textMuted}, 20px, centered, max 2 lines:\n${slide.body}` : '',
+      `CTA BUTTON: "${slide.cta || 'Follow for more'}" — solid pill, fill ${p.accentPrimary}, text color ${p.background}, 16px, weight 700, horizontal padding 28px, vertical 14px, centered 140px below the supporting line. Add a subtle soft shadow in ${p.accentPrimary} at 20% opacity, 24px blur.`,
+      slide.visualElement?.description ? `OPTIONAL PROOF CHIP (small ${card.style || 'glass'} pill floated above or beside the CTA button, ~44px high — use only if it reinforces the action): ${slide.visualElement.description}` : '',
+      `FOOTER: small "@handle / save for later" line in ${p.textMuted} at 50% opacity, 11px, bottom-center 48px from edge.`,
+      `NEGATIVE SPACE: leave the top ~35% of the canvas largely empty except for the branding strip and slide counter. The breathing room IS the design.`,
+    ].filter(Boolean).join('\n');
+  } else {
+    // EDITORIAL CHAPTER layout — the typography IS the visual.
+    // This is NOT "rich minus graphics". It is a deliberate magazine-style
+    // composition: huge display headline, refined body column, one tiny
+    // editorial mark, and a lot of breathing room. Every chapter page
+    // uses the SAME typographic system so the series reads like numbered
+    // chapters in one book.
+    const chapterNum = `CH ${String(index).padStart(2, '0')}`; // CH 01 for slide 2, etc.
+    perSlide = [
+      `SLIDE ${slideNum} OF ${totalNum} — LAYOUT: EDITORIAL CHAPTER PAGE (magazine spread — typography is the design)`,
+      `COMPOSITION MODEL: Three-zone editorial layout with generous whitespace. Think of a hardcover book chapter opening — not a poster, not a card stack.`,
+      `  • TOP ZONE (top ~22% of canvas): branding strip + slide counter (already specified in DESIGN SYSTEM). Below that, a small chapter mark: "${chapterNum}" in monospaced font, ${p.accentPrimary}, 14px, weight 500, letter-spacing 0.14em, followed by a thin 56px horizontal rule in ${p.accentPrimary} at 50% opacity. Left-aligned at 96px inset. This mark repeats on every chapter page and creates the book-like rhythm.`,
+      `  • MIDDLE ZONE (from ~26% to ~78% of canvas, left-aligned with 96px left / 120px right margin): the DISPLAY HEADLINE. Sized ENORMOUS — 92–108px — ${p.textPrimary}, weight ${typo.headlineWeight || 700}, leading 1.02, letter-spacing -0.02em (tight display tracking). Preserve the provided line breaks. Apply the gradient accent treatment ONLY to the [ACCENT]...[/ACCENT] span. The headline is the hero of this slide — it should fill the eye.\n    Text: ${headlineRaw}`,
+      `  • BOTTOM ZONE (from ~82% to ~92% of canvas, aligned with the headline's left edge): a thin 40px rule in ${p.textMuted} at 30% opacity, then the BODY COPY directly below: ${p.textMuted}, 22–24px, weight ${typo.bodyWeight || 400}, leading 1.5, max 3 lines, column width capped at 720px (do NOT let body span the full canvas width). Body reads like a refined pull-quote, not a paragraph block.\n    Text: ${slide.body || ''}`,
+      `BADGE: "${(slide.badge || '').toUpperCase()}" — small pill in the TOP ZONE, sitting immediately to the right of the chapter mark rule, using the locked BADGE STYLE.`,
+      `EDITORIAL MARK (the ONE supporting typographic detail — no illustration): a large ghosted slide-index numeral "${String(index + 1).padStart(2, '0')}" in ${p.accentPrimary} at 6–8% opacity, weight 900, size 520px, positioned in the top-right corner of the canvas so it bleeds partially off the right edge. This is a typographic flourish, NOT a graphic element — it lives behind the other text as a composition anchor. It repeats on every chapter page, creating visual rhythm across the set.`,
+      `CTA HINT (bottom-right, 48px inset): "Keep swiping →" in a small ${card.style || 'glass'} pill, ${p.textMuted} at 70% opacity, 12px.`,
+      `CRAFT NOTES: Generous negative space is non-negotiable — this slide should feel like a Kinfolk or Offscreen magazine spread, not a crowded infographic. No icons, no cards, no diagrams, no illustrations. The consistency with the hook comes from the locked palette + glow + texture + branding strip + accent gradient, NOT from forcing a graphic. Planner hint (use ONLY if it shapes the chapter-mark wording or the body's phrasing — ignore any visual suggestions): "${slide.visualElement?.description || ''}"`,
+    ].join('\n');
+  }
+
+  const doNotBase = slide.doNot && slide.doNot.length
+    ? slide.doNot
+    : ['stock photography', 'clipart', 'cartoon illustration', 'gradient-rainbow color bars', 'extra text outside what is specified', 'Instagram UI chrome'];
+  const doNotExtra = isMiddle
+    ? [
+        'no card stack, chat UI, node diagram, UI mockup, or any compositional card',
+        'no icon set, sticker, or emoji',
+        'no illustration or graphic filling more than 10% of the canvas',
+        'no small cramped copy — if it does not breathe, the layout is wrong',
+        'no centered alignment — editorial pages are left-aligned with a defined column',
+      ]
+    : [];
+  const perSlideWithDoNot = perSlide + '\n' + `DO NOT include: ${[...doNotBase, ...doNotExtra].map(s => s.startsWith('no ') ? s : `no ${s}`).join('; ')}.`;
 
   return [
     `You are rendering slide ${slideNum} of a ${totalNum}-slide Instagram carousel.`,
-    `The DESIGN SYSTEM below is LOCKED and identical across every slide. Follow it exactly. Only the PER-SLIDE block changes between slides.`,
-    `LAYOUT MODEL: This carousel uses a rich-hook + minimal-body + rich-CTA model. Slide 1 and slide ${totalNum} are visually rich; slides 02–${String(total - 1).padStart(2, '0')} are TEXT-FORWARD with only a small supporting accent. Render accordingly.`,
+    `Think of the carousel as a designed book: slide 01 is the cover (opening spread), slides 02–${String(total - 1).padStart(2, '0')} are the chapter pages (editorial spreads where typography is the design), slide ${totalNum} is the closing spread (one confident CTA with room to breathe).`,
+    `The DESIGN SYSTEM below is LOCKED and identical across every slide — that consistency is what makes the series feel cohesive even when the compositions differ.`,
     ``,
     `=== DESIGN SYSTEM (LOCKED — identical on every slide) ===`,
     designBlock,
     ``,
     `=== PER-SLIDE ===`,
-    perSlide,
+    perSlideWithDoNot,
     ``,
-    `HARD RULES: Render ONLY the content listed above. Do not add decorative elements, extra UI, watermarks, or Instagram chrome. Text must be rendered exactly as quoted (correct spelling, exact punctuation). This is slide ${slideNum}${isHook ? ' (the HOOK — most visually rich slide)' : isFinal ? ' (the CTA — minimal, confident, single clear action)' : ''}.`,
+    `HARD RULES: Render ONLY the content specified above — no decorative extras, no invented icons, no Instagram chrome, no watermarks. Every piece of text must be rendered exactly as quoted (correct spelling, exact punctuation, preserved line breaks). This is slide ${slideNum}${isHook ? ' — the opening spread, designed to stop the scroll' : isFinal ? ' — the closing spread, minimal and confident' : ' — an editorial chapter page, typography-led'}.`,
   ].join('\n');
 }
 
