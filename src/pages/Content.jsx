@@ -2987,6 +2987,7 @@ export default function Content() {
   const [brandDna, setBrandDna] = useState(null);
   const [savedTemplates, setSavedTemplates] = useState([]); // user's carousel design-system templates
   const [selectedTemplateIds, setSelectedTemplateIds] = useState(new Set()); // which templates to inject as context
+  const [templatesSidebarOpen, setTemplatesSidebarOpen] = useState(false); // dropdown toggle for sidebar templates card
   const [integrationCtx, setIntegrationCtx] = useState('');
   const [isLinkedInConnected, setIsLinkedInConnected] = useState(false);
   const longPressTimer = useRef(null);
@@ -5049,41 +5050,6 @@ export default function Content() {
               </button>
             </form>
           </div>
-          {/* Saved carousel templates  -  toggle to add as context for the new plan */}
-          {sidebarOpen && savedTemplates.length > 0 && (
-            <div className="cs-templates-card">
-              <div className="cs-templates-head">
-                <Zap size={12} />
-                <span>Saved carousel samples</span>
-                <span className="cs-templates-count">{selectedTemplateIds.size > 0 ? `${selectedTemplateIds.size} on` : `${savedTemplates.length} saved`}</span>
-              </div>
-              <div className="cs-templates-list">
-                {savedTemplates.map(t => {
-                  const on = selectedTemplateIds.has(t.id);
-                  const p = t.design_system?.palette || {};
-                  return (
-                    <div key={t.id} className={`cs-template-item${on ? ' cs-template-item--on' : ''}`}>
-                      <button type="button" className="cs-template-toggle" onClick={() => toggleSavedTemplate(t.id)} title={on ? 'Remove from chat context' : 'Add to chat context'}>
-                        {t.preview_url && <img src={t.preview_url} alt="" className="cs-template-thumb" />}
-                        <div className="cs-template-info">
-                          <div className="cs-template-name">{t.name}</div>
-                          <div className="cs-template-swatches">
-                            {[p.background, p.accentPrimary, p.gradientStart, p.gradientEnd].filter(Boolean).map((hex, i) => (
-                              <span key={i} className="cs-template-swatch" style={{ background: hex }} />
-                            ))}
-                          </div>
-                        </div>
-                        {on && <span className="cs-template-dot" />}
-                      </button>
-                      <button type="button" className="cs-template-delete" onClick={() => removeSavedTemplate(t.id)} title="Delete template">
-                        <Trash2 size={11} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
           {socialUrls.length > 0 && (
             <div className="cs-social-cards">
               {socialUrls.map((item, i) => (
@@ -5112,6 +5078,55 @@ export default function Content() {
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Saved carousel templates  -  dropdown; sits between the attached
+              links and Brand DNA so users see the workflow: (link) → (template
+              context) → (brand). Collapsed by default so it stays out of the
+              way when you're not picking a template. */}
+          {sidebarOpen && savedTemplates.length > 0 && (
+            <div className={`cs-templates-card${templatesSidebarOpen ? ' cs-templates-card--open' : ''}`}>
+              <button
+                type="button"
+                className="cs-templates-toggle"
+                onClick={() => setTemplatesSidebarOpen(v => !v)}
+                title={templatesSidebarOpen ? 'Close saved samples' : 'Open saved samples'}
+              >
+                <Zap size={12} />
+                <span className="cs-templates-toggle-label">Saved carousel samples</span>
+                <span className="cs-templates-count">
+                  {selectedTemplateIds.size > 0 ? `${selectedTemplateIds.size} on` : `${savedTemplates.length}`}
+                </span>
+                <ChevronRight size={14} className={`cs-templates-chevron${templatesSidebarOpen ? ' cs-templates-chevron--open' : ''}`} />
+              </button>
+              {templatesSidebarOpen && (
+                <div className="cs-templates-list">
+                  {savedTemplates.map(t => {
+                    const on = selectedTemplateIds.has(t.id);
+                    const p = t.design_system?.palette || {};
+                    return (
+                      <div key={t.id} className={`cs-template-item${on ? ' cs-template-item--on' : ''}`}>
+                        <button type="button" className="cs-template-toggle" onClick={() => toggleSavedTemplate(t.id)} title={on ? 'Remove from chat context' : 'Add to chat context'}>
+                          {t.preview_url && <img src={t.preview_url} alt="" className="cs-template-thumb" />}
+                          <div className="cs-template-info">
+                            <div className="cs-template-name">{t.name}</div>
+                            <div className="cs-template-swatches">
+                              {[p.background, p.accentPrimary, p.gradientStart, p.gradientEnd].filter(Boolean).map((hex, i) => (
+                                <span key={i} className="cs-template-swatch" style={{ background: hex }} />
+                              ))}
+                            </div>
+                          </div>
+                          {on && <span className="cs-template-dot" />}
+                        </button>
+                        <button type="button" className="cs-template-delete" onClick={() => removeSavedTemplate(t.id)} title="Delete template">
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
