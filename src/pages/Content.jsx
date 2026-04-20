@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
@@ -2569,21 +2569,39 @@ function CarouselActionsBar({ msgId, plan, images }) {
     try {
       const { default: JSZip } = await import('jszip');
       const zip = new JSZip();
+      // Images may be either data: URLs (fresh generation) OR remote
+      // Supabase storage URLs (after the debounced auto-save swaps them).
+      // Handle both — the previous build assumed data: only and skipped
+      // everything else, which is why the zip contained only text files.
+      let added = 0;
       for (const img of images) {
-        if (!img.src?.startsWith('data:')) continue;
-        const commaIdx = img.src.indexOf(',');
-        if (commaIdx === -1) continue;
-        const b64 = img.src.slice(commaIdx + 1);
-        const mime = (img.src.match(/^data:([^;]+);/) || [])[1] || 'image/png';
-        const ext = (mime.split('/')[1] || 'png').split('+')[0];
-        zip.file(`slide-${String(img.idx + 1).padStart(2, '0')}.${ext}`, b64, { base64: true });
+        if (!img.src) continue;
+        const slideLabel = String(img.idx + 1).padStart(2, '0');
+        try {
+          if (img.src.startsWith('data:')) {
+            const commaIdx = img.src.indexOf(',');
+            if (commaIdx === -1) continue;
+            const b64 = img.src.slice(commaIdx + 1);
+            const mime = (img.src.match(/^data:([^;]+);/) || [])[1] || 'image/png';
+            const ext = (mime.split('/')[1] || 'png').split('+')[0];
+            zip.file(`slide-${slideLabel}.${ext}`, b64, { base64: true });
+            added++;
+          } else {
+            // Remote URL — fetch as blob so jszip can add it directly.
+            const res = await fetch(img.src, { mode: 'cors' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const ext = ((blob.type || 'image/png').split('/')[1] || 'png').split('+')[0];
+            zip.file(`slide-${slideLabel}.${ext}`, blob);
+            added++;
+          }
+        } catch (imgErr) {
+          console.warn(`[zip] slide ${img.idx + 1} failed:`, imgErr);
+        }
       }
-      if (plan?.caption) {
-        zip.file('caption.txt', plan.caption);
-      }
-      if (plan?.hook) {
-        zip.file('hook.txt', plan.hook);
-      }
+      if (plan?.caption) zip.file('caption.txt', plan.caption);
+      if (plan?.hook) zip.file('hook.txt', plan.hook);
+      if (added === 0) throw new Error('No slides could be added — check your connection and try again.');
       const blob = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -2596,9 +2614,62 @@ function CarouselActionsBar({ msgId, plan, images }) {
       setTimeout(() => URL.revokeObjectURL(url), 2000);
     } catch (err) {
       console.error('ZIP download failed:', err);
-      alert('Download failed. Try again or download slides individually.');
+      alert(err.message || 'Download failed. Try again or download slides individually.');
     } finally {
       setDownloading(false);
+    }
+  };
+
+  // ── Schedule to Content Calendar ──
+  // Creates a social_posts row (shared with ContentCalendar page). If any
+  // image is still a data: URL (auto-save hasn't uploaded it yet) we
+  // upload on the fly so the calendar entry holds real URLs, not huge
+  // base64 blobs that would blow up the table.
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleWhen, setScheduleWhen] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(10, 0, 0, 0);
+    return d.toISOString().slice(0, 16);
+  });
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduleStatus, setScheduleStatus] = useState(null); // 'saved' | null
+
+  const saveToCalendar = async (mode /* 'scheduled' | 'draft' */) => {
+    if (scheduling) return;
+    setScheduling(true);
+    try {
+      const media = [];
+      for (const img of images) {
+        if (!img.src) continue;
+        let url = img.src;
+        if (url.startsWith('data:')) {
+          const commaIdx = url.indexOf(',');
+          const mimeMatch = url.match(/^data:([^;]+);/);
+          const base64 = url.slice(commaIdx + 1);
+          const mimeType = mimeMatch?.[1] || 'image/png';
+          const uploaded = await uploadImageToStorage(base64, mimeType);
+          url = uploaded.url || uploaded.publicUrl || url;
+        }
+        media.push({ type: 'image', url });
+      }
+      if (!media.length) throw new Error('No images to schedule');
+      await createCalendarPost({
+        platform: 'instagram',
+        caption: plan.caption || '',
+        content_type: 'carousel',
+        scheduled_at: mode === 'scheduled' ? new Date(scheduleWhen).toISOString() : null,
+        media,
+        status: mode === 'scheduled' ? 'scheduled' : 'draft',
+      });
+      setScheduleStatus('saved');
+      setScheduleOpen(false);
+      setTimeout(() => setScheduleStatus(null), 4000);
+    } catch (err) {
+      console.error('Calendar save failed:', err);
+      alert(err.message || 'Failed to save to calendar');
+    } finally {
+      setScheduling(false);
     }
   };
 
@@ -2607,10 +2678,38 @@ function CarouselActionsBar({ msgId, plan, images }) {
       <button type="button" className="content-carousel-action-btn" onClick={downloadZip} disabled={downloading}>
         <Download size={14} /> {downloading ? 'Packing…' : `Download all (${images.length} slides + caption)`}
       </button>
+      <div className="content-carousel-schedule-wrap">
+        <button type="button" className="content-carousel-action-btn" onClick={() => setScheduleOpen(v => !v)} disabled={scheduling}>
+          <CalendarDays size={14} />
+          {scheduleStatus === 'saved' ? 'Saved to calendar' : (scheduling ? 'Saving…' : 'Send to calendar')}
+        </button>
+        {scheduleOpen && (
+          <div className="content-carousel-schedule-pop" onClick={(e) => e.stopPropagation()}>
+            <label className="content-carousel-schedule-label">Schedule date/time</label>
+            <input
+              type="datetime-local"
+              className="content-carousel-schedule-input"
+              value={scheduleWhen}
+              onChange={(e) => setScheduleWhen(e.target.value)}
+            />
+            <div className="content-carousel-schedule-actions">
+              <button type="button" className="content-carousel-schedule-secondary" onClick={() => saveToCalendar('draft')} disabled={scheduling}>
+                Save as draft
+              </button>
+              <button type="button" className="content-carousel-schedule-primary" onClick={() => saveToCalendar('scheduled')} disabled={scheduling}>
+                Schedule
+              </button>
+            </div>
+            <div className="content-carousel-schedule-hint">
+              Reschedule or publish later from the Content Calendar tab.
+            </div>
+          </div>
+        )}
+      </div>
       {showTip && (
         <div className="content-carousel-edit-tip" onClick={dismissTip} role="button" title="Dismiss">
           <Pencil size={12} />
-          <span>Click the pencil on any slide to edit it — the design system stays locked so consistency is preserved.</span>
+          <span>Click the pencil on any slide to edit it, design is preserved.</span>
           <X size={12} className="content-carousel-edit-tip-close" />
         </div>
       )}
@@ -3479,6 +3578,83 @@ export default function Content() {
     }
     throw lastErr || new Error('generation failed');
   }, []);
+
+  // Regenerate one carousel slide with the same locked spec (no edit text).
+  // Useful when the content is right but NanoBanana's render has a bad
+  // layout — re-roll without having to type a fake edit instruction.
+  const handleCarouselSlideRegenerate = useCallback(async (msgId, slideIdx) => {
+    if (isGenerating) return;
+    const msg = messages.find(m => m.id === msgId);
+    const plan = msg?.carouselPlan;
+    const slide = plan?.slides?.[slideIdx];
+    if (!slide) return;
+
+    setIsGenerating(true);
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, editingIdx: slideIdx } : m));
+
+    try {
+      const brandForPrompt = { name: brandDna?.brand_name || brandDna?.description?.split(/[.,]/)[0]?.trim() || '' };
+      const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
+      const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
+      const brandImageData = {
+        photoUrls: [...uploadedPhotoUrls, ...oneBrandPhoto],
+        logoUrl: null,
+        colors: brandDna?.colors || {},
+        mainFont: brandDna?.main_font || null,
+      };
+
+      const slidePrompt = buildCarouselSlidePrompt({
+        designSystem: plan.designSystem,
+        slide,
+        index: slideIdx,
+        total: plan.slides.length,
+        brand: brandForPrompt,
+      });
+
+      // Reference the hook image for palette anchoring (not the slide itself
+      // — we want a fresh take, not an edit of the current render).
+      const hookImg = (msg.images || []).find(i => i.idx === 0);
+      let refs = null;
+      if (hookImg?.src) {
+        if (hookImg.src.startsWith('data:')) {
+          const c = hookImg.src.indexOf(',');
+          const mm = hookImg.src.match(/^data:([^;]+);/);
+          if (c !== -1) refs = [{ data: hookImg.src.slice(c + 1), mimeType: mm?.[1] || 'image/jpeg' }];
+        } else {
+          // Remote URL — fetch to base64 for the image model.
+          try {
+            const r = await fetch(hookImg.src, { mode: 'cors' });
+            const b = await r.blob();
+            const buf = await b.arrayBuffer();
+            const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+            refs = [{ data: base64, mimeType: b.type || 'image/jpeg' }];
+          } catch {}
+        }
+      }
+
+      const result = await generateSlideWithRetry(slideIdx, slidePrompt, brandImageData, refs, { maxAttempts: 3 });
+      const newSrc = `data:${result.image.mimeType};base64,${result.image.data}`;
+      setMessages(prev => prev.map(m => {
+        if (m.id !== msgId) return m;
+        const newImages = [...(m.images || [])];
+        const target = newImages.findIndex(img => img.idx === slideIdx);
+        if (target !== -1) newImages[target] = { ...newImages[target], src: newSrc };
+        else newImages.push({ src: newSrc, idx: slideIdx });
+        const failedLeft = (m.carouselPlan?.failedSlides || []).filter(x => x !== slideIdx);
+        return {
+          ...m,
+          images: newImages,
+          editingIdx: undefined,
+          carouselPlan: { ...m.carouselPlan, failedSlides: failedLeft },
+        };
+      }));
+    } catch (err) {
+      console.error('Slide regenerate failed:', err);
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, editingIdx: undefined } : m));
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [messages, isGenerating, photos, brandDna, generateSlideWithRetry]);
 
   // Update a carousel plan in place — used while the user edits slides,
   // caption, hook, etc. on the plan card BEFORE they click Approve. Blocked
@@ -5045,10 +5221,21 @@ export default function Content() {
                               <button
                                 className="content-carousel-edit"
                                 onClick={(e) => { e.stopPropagation(); setEditingImage({ msgId: msg.id, imgIdx: img.idx, src: img.src }); setEditPrompt(''); }}
-                                title="Edit this image"
+                                title="Edit this slide with an instruction (keeps design locked)"
                               >
                                 <Pencil size={14} />
                               </button>
+                              {msg.carouselPlan?.slides?.[img.idx] && (
+                                <button
+                                  type="button"
+                                  className="content-carousel-regen"
+                                  title="Re-roll this slide (same spec, new render)"
+                                  disabled={isGenerating}
+                                  onClick={(e) => { e.stopPropagation(); handleCarouselSlideRegenerate(msg.id, img.idx); }}
+                                >
+                                  <RefreshCw size={14} />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 className="content-carousel-download"
