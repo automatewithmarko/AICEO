@@ -3126,7 +3126,25 @@ export default function Content() {
           }
           return { idx: img.idx, src: img.src };
         }));
-        return { id: m.id, role: m.role, content: m.content, images: uploadedImages };
+        // Persist the carousel plan alongside content/images. Without this,
+        // the plan (with locked design system + slide specs) is lost on
+        // refresh, which means: no actions bar, no pencil-edit design
+        // preservation, no regenerate button, no "Load template" context.
+        // Strip transient fields (generating/failedSlides) — only the
+        // static shape of the plan is useful to persist.
+        const persistedPlan = m.carouselPlan
+          ? {
+              hook: m.carouselPlan.hook,
+              angle: m.carouselPlan.angle,
+              caption: m.carouselPlan.caption,
+              slides: m.carouselPlan.slides,
+              designSystem: m.carouselPlan.designSystem,
+              approved: m.carouselPlan.approved,
+            }
+          : undefined;
+        const persisted = { id: m.id, role: m.role, content: m.content, images: uploadedImages };
+        if (persistedPlan) persisted.carouselPlan = persistedPlan;
+        return persisted;
       }));
       // Also update local state with uploaded URLs so future saves don't re-upload
       setMessages((prev) => prev.map((m, i) => stripped[i]?.images?.length ? { ...m, images: stripped[i].images } : m));
