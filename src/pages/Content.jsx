@@ -2694,6 +2694,18 @@ export default function Content() {
     } finally {
       abortRef.current = null;
       setIsGenerating(false);
+      // Safety net: if we got here without populating the assistant message
+      // AND no images are pending, surface an explicit message so the user
+      // isn't left staring at an empty bubble. Covers cases like the stream
+      // closing cleanly with zero text, tool-call-only responses that failed,
+      // and silent early termination.
+      setMessages((prev) => prev.map((m) => {
+        if (m.id !== assistantMsgId) return m;
+        if (m.content) return m;
+        if ((m.pendingImages || 0) > 0) return m;
+        if ((m.images || []).length > 0) return m;
+        return { ...m, content: "The AI didn't produce a response. Please try again." };
+      }));
     }
   }, [activePlatform, photos, documents, socialUrls, brandDna, integrationCtx]);
 
@@ -3868,17 +3880,28 @@ export default function Content() {
                   );
                 }
                 if (!msg.content) {
+                  // Only show the animated "thinking..." bubble while a
+                  // response is actively being generated. If generation
+                  // finished without text/images (stream closed empty,
+                  // parse error, etc.) we still show a bubble but with a
+                  // static "no response" message so the user isn't stuck
+                  // staring at dots forever.
+                  const stillWorking = isGenerating && (msg.pendingImages || 0) === 0;
                   return (
                     <div key={msg.id} className="content-assistant-row">
                       <img src="/favicon.png" alt="" className="content-assistant-avatar" />
                       <div className="content-thinking">
                         <span className="content-thinking-text">
-                          {searchStatus === 'searching' ? (
-                            <><Search size={14} /> Searching the web<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
-                          ) : searchStatus === 'writing' ? (
-                            <><PenLine size={14} /> Writing response<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
+                          {stillWorking ? (
+                            searchStatus === 'searching' ? (
+                              <><Search size={14} /> Searching the web<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
+                            ) : searchStatus === 'writing' ? (
+                              <><PenLine size={14} /> Writing response<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
+                            ) : (
+                              <>thinking<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
+                            )
                           ) : (
-                            <>thinking<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
+                            <>No response received. Please try again.</>
                           )}
                         </span>
                       </div>
