@@ -1681,6 +1681,27 @@ function extractImagePromptFromText(text) {
 }
 
 // Stream Grok response with tool calling support
+// Watchdog: if no chunk arrives within idleMs, cancel the reader and throw.
+// The caller's catch branch handles the surfaced "STREAM_TIMEOUT" error so
+// we don't hang the UI on a stalled upstream LLM forever.
+const STREAM_IDLE_MS = 60_000;
+async function readWithIdle(reader, idleMs = STREAM_IDLE_MS) {
+  let timer;
+  const idle = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      try { reader.cancel(); } catch { /* noop */ }
+      const err = new Error('STREAM_TIMEOUT');
+      err.code = 'STREAM_TIMEOUT';
+      reject(err);
+    }, idleMs);
+  });
+  try {
+    return await Promise.race([reader.read(), idle]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function streamContentResponse(messages, systemPrompt, onTextChunk, onToolCall, abortSignal, { searchMode = false, onSearchStatus } = {}) {
   // Responses API mode: web_search + generate_image function tool
   if (searchMode) {
@@ -1729,7 +1750,7 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
     let functionCalls = {};
 
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithIdle(reader);
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
@@ -1851,7 +1872,7 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
   let toolCalls = {};
 
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithIdle(reader);
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
@@ -2655,7 +2676,13 @@ export default function Content() {
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
-        if (err.message?.includes('402') || err.message?.toLowerCase().includes('credits') || err.message?.toLowerCase().includes('insufficient')) {
+        if (err.code === 'STREAM_TIMEOUT' || err.message === 'STREAM_TIMEOUT') {
+          setMessages((prev) => prev.map((m) =>
+            m.id === assistantMsgId
+              ? { ...m, content: "The AI didn't respond within 60 seconds. This usually means the model is overloaded — please try again in a moment." }
+              : m
+          ));
+        } else if (err.message?.includes('402') || err.message?.toLowerCase().includes('credits') || err.message?.toLowerCase().includes('insufficient')) {
           setCreditsDepleted(true);
           setMessages(prev => prev.filter(m => m.id !== assistantMsgId));
         } else {
