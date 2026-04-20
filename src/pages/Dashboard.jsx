@@ -316,7 +316,7 @@ export default function Dashboard() {
 
   const handlePhotoUpload = async (e) => {
     const files = Array.from(e.target.files);
-    const remaining = 6 - photos.length;
+    const remaining = 20 - photos.length;
     const toAdd = files.slice(0, remaining);
     if (!toAdd.length) return;
     e.target.value = '';
@@ -1041,11 +1041,11 @@ export default function Dashboard() {
           <div className="modal modal--brand-dna" onClick={(e) => e.stopPropagation()}>
             <button className="modal-close" onClick={() => setBrandDnaModal(null)}><X size={18} /></button>
             <h3 className="modal-title">Upload Your Photos</h3>
-            <p className="modal-description">Upload up to 6 photos of yourself for your brand identity.</p>
+            <p className="modal-description">Upload up to 20 photos of yourself for your brand identity.</p>
 
             <div
               className={`dash-upload-box ${photos.length > 0 ? 'dash-upload-box--has-items' : ''}`}
-              onClick={() => photos.length < 6 && fileInputRef.current?.click()}
+              onClick={() => photos.length < 20 && fileInputRef.current?.click()}
             >
               <input ref={fileInputRef} type="file" multiple accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} />
               {photos.length > 0 ? (
@@ -1061,7 +1061,7 @@ export default function Dashboard() {
                       </button>
                     </div>
                   ))}
-                  {photos.length < 6 && (
+                  {photos.length < 20 && (
                     <div className="dash-photo-add"><Upload size={20} /></div>
                   )}
                 </div>

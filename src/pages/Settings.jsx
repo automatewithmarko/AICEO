@@ -434,7 +434,7 @@ export default function Settings() {
 
   const handlePhotoUpload = async (e) => {
     const files = Array.from(e.target.files);
-    const remaining = 6 - photos.length;
+    const remaining = 20 - photos.length;
     const toAdd = files.slice(0, remaining);
     if (!toAdd.length) return;
     e.target.value = '';
@@ -900,12 +900,12 @@ export default function Settings() {
             <div className="settings-card">
               <div className="settings-brand-dna-header">
                 <h3 className="settings-brand-dna-title">Your Photos</h3>
-                <span className="settings-brand-dna-count">{photos.length}/6 photos</span>
+                <span className="settings-brand-dna-count">{photos.length}/20 photos</span>
               </div>
 
               <div
                 className={`settings-upload-box ${photos.length > 0 ? 'settings-upload-box--has-photos' : ''}`}
-                onClick={() => photos.length < 6 && fileInputRef.current?.click()}
+                onClick={() => photos.length < 20 && fileInputRef.current?.click()}
               >
                 <input
                   ref={fileInputRef}
@@ -938,13 +938,13 @@ export default function Settings() {
                           </button>
                         </div>
                       ))}
-                      {photos.length < 6 && (
+                      {photos.length < 20 && (
                         <div className="settings-photo-add">
                           <Upload size={18} />
                         </div>
                       )}
                     </div>
-                    <span className="settings-upload-hint">{photos.length}/6 photos — click to add more</span>
+                    <span className="settings-upload-hint">{photos.length}/20 photos — click to add more</span>
                   </>
                 ) : (
                   <>
