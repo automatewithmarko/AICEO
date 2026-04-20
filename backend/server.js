@@ -85,7 +85,14 @@ app.get('/api/content-items', requireAuth, async (req, res) => {
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
-  if (session_id) query = query.eq('session_id', session_id);
+  // When a session is specified, return items for THIS session PLUS globally-
+  // saved items (session_id IS NULL). Outlier Detector's "Add to Context"
+  // saves with no session_id — so those items form a global pool that every
+  // Content chat session can pull from. Without this, outlier videos never
+  // reach the chatbot's context.
+  if (session_id) {
+    query = query.or(`session_id.eq.${session_id},session_id.is.null`);
+  }
 
   const { data, error } = await query;
 
