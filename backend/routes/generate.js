@@ -22,6 +22,7 @@ const PLATFORM_CONFIG = {
   tiktok:           { model: GEMINI_MODEL_PRO,  aspectRatio: '9:16', imageSize: '2K' },
   x:                { model: GEMINI_MODEL_FAST, aspectRatio: '16:9', imageSize: '1K' },
   linkedin:         { model: GEMINI_MODEL_FAST, aspectRatio: '4:3',  imageSize: '1K' },
+  linkedin_carousel:{ model: GEMINI_MODEL_FAST, aspectRatio: '3:4',  imageSize: '1K' },
   facebook:         { model: GEMINI_MODEL_FAST, aspectRatio: '1:1',  imageSize: '1K' },
 };
 
@@ -189,20 +190,41 @@ TEXT OVERLAY is handled separately by the system — focus ONLY on generating th
 - Clean, minimal design with bold statement text
 - High contrast, professional look`,
 
-  linkedin: `LINKEDIN IMAGE RULES:
-- Aspect ratio: LANDSCAPE 4:3 — this is critical, the image MUST be 4:3 landscape format
-- Professional, clean design with authority
-- Bold headline text as the main element, minimal layout, corporate-friendly colors
+  linkedin: `LINKEDIN SLIDE/IMAGE RULES:
+- Aspect ratio depends on content:
+  • Carousel slide: 4:5 PORTRAIT (1080x1350) — LinkedIn document carousels use portrait format
+  • Single text-post image: 4:3 LANDSCAPE or 1.91:1 landscape
+
+DESIGN SYSTEM TAKES PRIORITY:
+- If the incoming prompt contains a "=== DESIGN SYSTEM (LOCKED — identical on every slide) ===" block, FOLLOW THAT BLOCK VERBATIM. Every color, font, layout, badge, glow position, and accent treatment listed there is a hard requirement, not a suggestion.
+- The DESIGN SYSTEM block is byte-for-byte identical across every slide in the set — that is the ONLY way the carousel renders cohesively. Do NOT substitute your own color palette, do NOT change the background, do NOT invent a new layout, do NOT swap the card style.
+- The PER-SLIDE block that follows the DESIGN SYSTEM block is the only thing that changes between slides.
+- Render every piece of text EXACTLY as quoted in the prompt (correct spelling, exact punctuation, preserved line breaks). The [ACCENT]...[/ACCENT] span in the headline gets the gradient treatment described in the ACCENT WORD TREATMENT line — no other text gets it.
+- Respect the DO NOT list at the bottom of each per-slide block.
+
+FALLBACK (only when NO DESIGN SYSTEM block is present — single text-post image, not a planned carousel):
+- Professional, clean design with authority. Bold headline text as the main element, minimal layout, corporate-friendly colors.
 - If reference photos of the founder/user are attached, FEATURE THEM prominently — LinkedIn posts with a real person get 2-3x more engagement. Show their face, natural expression, professional but approachable.
 - Composition: person on one side, bold text on the other. Or person as background with text overlay.
-- Think thought-leader post graphics — the kind of image that makes someone stop scrolling on their LinkedIn feed
-- Logo: small, subtle, corner watermark only — NOT the main element`,
+- Think thought-leader post graphics — the kind of image that makes someone stop scrolling on their LinkedIn feed.
+- Logo: small, subtle, corner watermark only — NOT the main element.
+- NO trendy/editorial design language. NO emoji. NO stock photography, clipart, or cartoon illustrations.`,
 
   facebook: `FACEBOOK IMAGE RULES:
 - Aspect ratio: SQUARE 1:1 or LANDSCAPE 16:9
 - Eye-catching, shareable visual
 - Clear text overlay if needed, high contrast`,
 };
+
+// LinkedIn carousel slides share the same rendering rules as LinkedIn
+// (including the DESIGN SYSTEM deference block), but map to a 3:4
+// portrait aspect ratio in PLATFORM_CONFIG above. Alias so a single
+// source of truth lives on the `linkedin` key.
+platformRules.linkedin_carousel = platformRules.linkedin;
+
+// Also treat isCarousel as true for LinkedIn carousel slides, so
+// the design-quality guardrails (no stock photos, typography-first)
+// apply — the helper isCarousel() is defined at the call site below.
 
 // Fetch an image URL and return as base64 inline data for Gemini (with cache)
 async function fetchImageAsBase64(url) {
@@ -324,7 +346,7 @@ BRAND ASSETS (attached as reference):
 
     // Platform-specific quality framing — stories/social photos need iPhone-natural look, not studio
     const isPhotoFirst = platform === 'instagram_story' || platform === 'tiktok';
-    const isCarousel = platform === 'instagram';
+    const isCarousel = platform === 'instagram' || platform === 'linkedin_carousel';
     const qualityRules = isPhotoFirst
       ? `PHOTO STYLE — CRITICAL:
 - iPhone camera quality. Natural mobile photography — the kind of photo a real person takes on their phone.

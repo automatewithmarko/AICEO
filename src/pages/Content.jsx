@@ -1319,14 +1319,14 @@ Your job is to:
    - The hook angle or main theme
    - Why you chose this approach
    - The post style: VARIATION_A (framework/list posts with numbered points) or VARIATION_B (story/narrative posts)
-4. End your summary with EXACTLY one of these markers:
+4. End your summary with EXACTLY one of these markers (text posts only):
 
 FOR TEXT POSTS:
    - <<READY_A>> if using Variation A (framework-heavy, numbered lists, tactical playbook)
    - <<READY_B>> if using Variation B (story-flow, personal narrative, emotional connection)
 
 FOR CAROUSELS:
-   - <<READY_CAROUSEL>> always for carousel content
+   - Do NOT emit any marker. Call the plan_carousel tool directly once you have enough context. The client will render an approval card; images are generated after the user approves. See "WHEN CREATING CONTENT" in your upstream instructions for the plan_carousel schema and field requirements.
 
 WHEN TO USE EACH (TEXT POSTS):
 - VARIATION A: Educating, engagement, hard selling. Posts with numbered steps, frameworks, action lists.
@@ -1337,12 +1337,14 @@ CORRECT example responses:
 
 "I'll create a soft-selling story post about a client's transformation. Using the two-choices framework. <<READY_B>>"
 
-"I'll create an 8-slide carousel breaking down how BooSend.ai outperforms ManyChat, with a problem-solution framework and a comment CTA. <<READY_CAROUSEL>>"
+For carousels: call plan_carousel directly instead of emitting a marker. Example narrative prefix text that can accompany the tool call:
+"Here's an 8-slide carousel breaking down how BooSend.ai outperforms ManyChat, with a problem-solution framework and a comment CTA — approve to generate."
 
 WRONG (NEVER do these):
-- Writing the actual post copy or slide content in your message
-- Skipping the marker
-- Using just <<READY>> without A, B, or CAROUSEL
+- Writing the actual post copy in your message for text posts
+- Emitting <<READY_CAROUSEL>> — that marker is deprecated. Use plan_carousel.
+- Skipping the marker on text posts
+- Using just <<READY>> without A or B
 - Adding the marker before you've gathered enough context
 
 === WEB RESEARCH ===
@@ -1457,12 +1459,26 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `Question format (when you do ask): {"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}  -  4 options, 2-5 words each, ONE question per message.\n\n`;
   prompt += `=== WHEN CREATING CONTENT ===\n`;
   prompt += `1. Detect the content type (carousel, reel, story, post, script, etc.).\n`;
-  if (platform.id === 'instagram') {
-    prompt += `2. INSTAGRAM CAROUSELS use a PLAN-FIRST flow. Do NOT call generate_image. Instead call plan_carousel ONCE with:\n`;
-    prompt += `   - hook: scroll-stopping headline (confession / contrarian / specificity / curiosity-gap format).\n`;
+  const usesPlanCarousel = platform.id === 'instagram' || platform.id === 'linkedin';
+  if (usesPlanCarousel) {
+    const isLinkedin = platform.id === 'linkedin';
+    const platformUpper = isLinkedin ? 'LINKEDIN' : 'INSTAGRAM';
+    const slideCountLabel = isLinkedin ? '7-12 slides (LinkedIn carousels perform best with 8-10 slides of real depth)' : '5-9 slides';
+    const toneGuidance = isLinkedin
+      ? 'Tone: professional thought-leadership — substance and specificity win on LinkedIn. Hook formats: specificity ("I cut churn 62% in 90 days — here\'s exactly how"), contrarian ("Most SaaS founders are wrong about onboarding"), credibility-driven ("What I learned after 100 customer calls"). Avoid trendy/editorial language and emoji. Use LinkedIn\'s intent framework: educating (frameworks), nurturing (stories), soft-sell (client results), hard-sell (direct offer), engagement (contrarian).'
+      : 'Tone: editorial/trend-aware. Hook formats: confession ("I did [unexpected thing]"), contrarian ("[belief] is a lie"), specificity ("[number] in [timeframe]"), curiosity gap. NEVER "Are you making these mistakes?" or "X tips for Y".';
+    const captionGuidance = isLinkedin
+      ? 'caption: the LinkedIn caption, 2-4 sentences, professional voice, no hashtags unless asked, no em dashes.'
+      : 'caption: the IG caption the user will paste with the post.';
+    const ctaGuidance = isLinkedin
+      ? 'CTA slide ("Comment [keyword]" outperforms "link in bio" on LinkedIn — prefer comment CTAs)'
+      : 'last slide is cta';
+    prompt += `2. ${platformUpper} CAROUSELS use a PLAN-FIRST flow. Do NOT call generate_image. Instead call plan_carousel ONCE with:\n`;
+    prompt += `   - hook: scroll-stopping headline. ${toneGuidance.split('Hook formats:')[1]?.trim() || ''}\n`;
     prompt += `   - angle: strategic POV in one sentence.\n`;
-    prompt += `   - caption: the IG caption the user will paste with the post.\n`;
-    prompt += `   - slides: 5-9 slides with {type, badge, headline, body, visualElement, doNot}. Slide 1 is always hook, last slide is cta.\n`;
+    prompt += `   - ${captionGuidance}\n`;
+    prompt += `   - slides: ${slideCountLabel} with {type, badge, headline, body, visualElement, doNot}. Slide 1 is always hook, ${ctaGuidance}.\n`;
+    prompt += `   - VOICE: ${toneGuidance.split('Hook formats:')[0]?.trim() || ''}\n`;
     if (carouselTemplates && carouselTemplates.length > 0) {
       const t = carouselTemplates[0];
       const ds = t.design_system || {};
@@ -1476,11 +1492,11 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       }
     }
     prompt += `   - SLIDE VISUAL BUDGET: Slide 1 (hook) and last slide (CTA) get RICH visuals — card stacks, founder photo with floating proof chip, full stat blocks, chat UIs, diagrams, etc. MIDDLE slides (2..N-1) are TEXT-FORWARD — headline + body are the hero. Their visualElement must be MINIMAL: pick one of {"minimal-icon", "stat-chip", "divider-line", "numeric-marker"} for visualElement.kind and describe it as a tiny supporting accent (single outlined icon, one short stat, subtle divider, faint slide-number marker). Do NOT propose card-stack, node-diagram, chat-ui, ui-mockup, or founder-photo for middle slides — save those for the hook and CTA.\n`;
-    prompt += `   - designSystem: locked visual spec every slide inherits. Honor Brand DNA primary color as the anchor accent — pick secondary/gradient/glow to harmonize with it, not replace it. Rotate glow corner each slide for swipe momentum. No purple/pink defaults unless Brand DNA demands.\n`;
+    prompt += `   - designSystem: locked visual spec every slide inherits. Honor Brand DNA primary color as the anchor accent — pick secondary/gradient/glow to harmonize with it, not replace it.${isLinkedin ? ' Default to a lighter/cleaner mode (light background with strong accent) for LinkedIn unless Brand DNA says otherwise — LI audiences prefer a professional document look over a dark editorial look.' : ''} Rotate glow corner each slide for swipe momentum. No purple/pink defaults unless Brand DNA demands.\n`;
     prompt += `   HEADLINE ACCENT: mark the hero word(s) of each headline with {{accent}}word{{/accent}} so the client can apply the gradient accent. Every headline must have exactly one accent span.\n`;
     prompt += `   After calling plan_carousel the client will render an approval card and the user decides when to generate images. Your job ends with the plan.\n`;
-    prompt += `   Your text output next to the tool call: ONE short line (e.g. "Here's the plan — approve to generate."). Do NOT describe the slides in prose.\n`;
-    prompt += `   For non-carousel Instagram content (single post, story): call generate_image as normal.\n`;
+    prompt += `   Your text output next to the tool call: ONE short line (e.g. "Here's the plan — approve to generate."). Do NOT describe the slides in prose. Do NOT emit the old <<READY_CAROUSEL>> marker — use plan_carousel instead.\n`;
+    prompt += `   For non-carousel ${isLinkedin ? 'LinkedIn' : 'Instagram'} content (${isLinkedin ? 'text post' : 'single post, story'}): ${isLinkedin ? 'use the existing <<READY_A>> / <<READY_B>> flow described in platform guidance' : 'call generate_image as normal'}.\n`;
   } else {
     prompt += `2. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
     prompt += `   - CAROUSEL: You MUST plan the FULL carousel as a STORYLINE before generating any slides. Follow this structure:\n`;
@@ -1489,7 +1505,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     prompt += `     c) Think of it like a mini-presentation: the viewer should NEED to swipe to get the full value\n`;
     prompt += `     d) Call generate_image SEPARATELY for EACH slide (5-7 slides)\n`;
   }
-  if (platform.id !== 'instagram') {
+  if (!usesPlanCarousel) {
     prompt += `   - CAROUSEL QUESTIONS: One of your questions MUST ask about the carousel layout style. Offer these options:\n`;
     prompt += `     {"type":"question","text":"What layout style for the content slides?","options":["Tweet-style (profile pic + username header on each slide)","Clean minimal (just text on dark background)","Bold graphic (large text + icons)","Educational (numbered points + body text)"]}\n`;
     prompt += `     If the user picks "Tweet-style", include profile pic + username + @handle at the top of each content slide. Otherwise, do NOT include profile/username elements.\n`;
@@ -1503,7 +1519,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   // Legacy Instagram carousel layout rules are now owned by plan_carousel +
   // buildCarouselSlidePrompt (design-system driven). Only emit these for
   // other platforms that still use the per-slide generate_image flow.
-  if (platform.id !== 'instagram') {
+  if (!usesPlanCarousel) {
   prompt += `=== CAROUSEL SLIDE TYPES (CRITICAL  -  each slide type has a DIFFERENT layout) ===\n`;
   prompt += `Instagram carousels are NOT posters  -  they are informational content. Think tweet screenshots, not billboard ads.\n`;
   prompt += `There are 3 distinct slide types with different visual layouts:\n\n`;
@@ -1572,7 +1588,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   } else if (platform.id === 'tiktok') {
     prompt += `- TIKTOK: Image MUST be PORTRAIT (9:16). Bold centered text overlay, eye-catching at small size.\n`;
   } else if (platform.id === 'linkedin') {
-    prompt += `- LINKEDIN: Image MUST be 4:3 LANDSCAPE ratio. Professional, clean design with authority. Bold headline text, minimal layout.\n`;
+    prompt += `- LINKEDIN (single text-post image): Image MUST be 4:3 LANDSCAPE ratio. Professional, clean design with authority. Bold headline text, minimal layout. For carousels, do NOT call generate_image — use plan_carousel instead (the client builds the per-slide prompts from your locked design system).\n`;
   }
   prompt += `- Always specify exact colors (e.g. "black background with white text and red accent")\n`;
   prompt += `- The text on the image should be the HOOK or KEY MESSAGE  -  not decorative\n\n`;
@@ -1700,7 +1716,7 @@ const PLAN_CAROUSEL_TOOL = {
   type: 'function',
   function: {
     name: 'plan_carousel',
-    description: 'Plan an Instagram carousel. Call this FIRST for every Instagram carousel request. Do NOT call generate_image — the client will fire per-slide image generation after the user approves the plan. Produces a hook, slide roster (5-9 slides), locked design system, and a caption.',
+    description: 'Plan a carousel (Instagram or LinkedIn). Call this FIRST for every carousel request on those platforms. Do NOT call generate_image — the client will fire per-slide image generation after the user approves the plan. Produces a hook, slide roster (5-9 for IG, 7-12 for LinkedIn), locked design system, and a caption. Tone + visual language should match the target platform (IG: editorial-trendy / LinkedIn: professional thought-leadership).',
     parameters: {
       type: 'object',
       properties: {
@@ -1847,6 +1863,47 @@ function sanitizeStyleText(s) {
     .trim();
 }
 
+// Per-platform layout config used by buildCarouselSlidePrompt. Each
+// field is a rendering parameter that the image model honors. Keeping
+// this in one place lets us port to new platforms by adding a config
+// object, not by forking the whole prompt builder.
+const CAROUSEL_PLATFORM_CONFIG = {
+  instagram: {
+    canvas: '1080 x 1080 pixels (square, 1:1 aspect ratio)',
+    canvasShort: '1080x1080 square',
+    aspectLabel: 'square',
+    headlineHookPx: '88-110',
+    headlineMiddlePx: '92-108',
+    headlineFinalPx: '64-80',
+    bodyPx: '22-24',
+    bodyPxHook: 22,
+    leftMarginPx: 96,
+    rightMarginPx: 120,
+    moodReferences: 'an editorial Instagram spread — think Offscreen, Kinfolk, or It\'s Nice That: premium, visually expressive, trend-aware',
+    ghostNumeralPx: 520,
+    defaultSlideCountLabel: '5-9',
+    slideCountGuidance: '5-9 slides is standard for Instagram — 7 is the sweet spot for depth without swipe fatigue',
+    toneNote: 'IG audiences reward visually rich design and confident editorial energy',
+  },
+  linkedin: {
+    canvas: '1080 x 1440 pixels (portrait, 3:4 aspect ratio — LinkedIn document carousel standard)',
+    canvasShort: '1080x1440 portrait',
+    aspectLabel: '3:4 portrait',
+    headlineHookPx: '76-96',
+    headlineMiddlePx: '80-100',
+    headlineFinalPx: '60-76',
+    bodyPx: '24-28',
+    bodyPxHook: 24,
+    leftMarginPx: 80,
+    rightMarginPx: 100,
+    moodReferences: 'a professional thought-leadership document — think Harvard Business Review cover, a Stripe engineering blog hero, or a Basecamp article header: confident, data-forward, restrained',
+    ghostNumeralPx: 480,
+    defaultSlideCountLabel: '7-12',
+    slideCountGuidance: '7-12 slides is standard for LinkedIn — longer carousels perform because LI audiences expect depth and substance',
+    toneNote: 'LinkedIn readers reward substance, specificity, and a professional tone — no trendy-design language, no emoji',
+  },
+};
+
 // Deterministic per-slide prompt builder.
 //
 // IMPORTANT: image models (NanoBanana/Gemini) will literally render any
@@ -1859,7 +1916,8 @@ function sanitizeStyleText(s) {
 //                    of text content.
 //   DO NOT RENDER  — a hard list of tokens that must never appear as
 //                    literal text on the canvas.
-function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand }) {
+function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand, platform = 'instagram' }) {
+  const cfg = CAROUSEL_PLATFORM_CONFIG[platform] || CAROUSEL_PLATFORM_CONFIG.instagram;
   const p = ds.palette || {};
   const card = ds.card || {};
   const badge = ds.badge || {};
@@ -1887,7 +1945,7 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
 
   // ── VISUAL STYLE block (shared — describes HOW to render, never WHAT text to render) ──
   const visualStyle = [
-    `Canvas: 1080 x 1080 square, high resolution.`,
+    `Canvas: ${cfg.canvas}, high resolution.`,
     `Background: solid ${p.background || '#0f1115'} across the entire canvas, with a soft radial gradient glow of ${p.glow || p.accentPrimary || '#e5a82c'} anchored in the ${cornerLabel} corner and fading to transparent. Overlay a very subtle ${sanitizeStyleText(ds.texture) || 'fine grain noise at about 4 percent opacity'}.`,
     `Typography: modern clean sans-serif in the ${typo.family || 'Inter'} family (or a close neutral sans-serif fallback). Never serif. Never decorative script.`,
     `Headline color: ${p.textPrimary || '#ffffff'} (primary text). Body color: ${p.textMuted || '#b5b9c4'} (muted text).`,
@@ -1904,14 +1962,14 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
   let layoutNotes;
 
   if (isHook) {
-    layoutNotes = `LAYOUT — OPENING SPREAD (the cover of the book): this is the richest, most compositional slide. Design the hero visual and the headline together as ONE intentional image, not headline stacked above a card. Full-canvas composition. Hero visual options (pick one, driven by the planner hint below): a founder portrait with a small floating proof chip, a layered glass card stack angled 6–10°, an oversized product mockup with a soft drop shadow, or a dramatic editorial duotone treatment. Place the headline to the left or across the lower third, visual on the right or filling the right-half / background. The composition should feel like the cover of a premium magazine.`;
+    layoutNotes = `LAYOUT — OPENING SPREAD (the cover of the book): this is the richest, most compositional slide. Design the hero visual and the headline together as ONE intentional image, not headline stacked above a card. Full-canvas composition. Hero visual options (pick one, driven by the planner hint below): a founder portrait with a small floating proof chip, a layered glass card stack angled 6–10°, an oversized product mockup with a soft drop shadow, or a dramatic editorial duotone treatment. Place the headline to the left or across the lower third, visual on the right or filling the right-half / background. The composition should feel like the cover of ${cfg.moodReferences}.`;
     textContent = [
       brandName ? `  • Top-left wordmark: "${brandName}"` : `  • Top-left: nothing`,
       `  • Top-right slide counter: "${slideNum} / ${totalNum}"`,
-      badgeText ? `  • Badge pill (upper area, top-left at 96px inset): "${badgeText}"` : '',
-      `  • Headline (display size, 88–110px, weight 700, tight leading 1.0): "${headlineClean}"`,
+      badgeText ? `  • Badge pill (upper area, top-left at ${cfg.leftMarginPx}px inset): "${badgeText}"` : '',
+      `  • Headline (display size, ${cfg.headlineHookPx}px, weight 700, tight leading 1.0): "${headlineClean}"`,
       `    ${accentPhrase}`,
-      bodyClean ? `  • Supporting line directly below the headline (22px, muted color, max 2 lines): "${bodyClean}"` : `  • No body copy on this slide — the headline carries it.`,
+      bodyClean ? `  • Supporting line directly below the headline (${cfg.bodyPxHook}px, muted color, max 2 lines): "${bodyClean}"` : `  • No body copy on this slide — the headline carries it.`,
       `  • Bottom-right hint pill: "Keep swiping →"`,
       ``,
       `HERO VISUAL DIRECTION (planner brief — use as the creative direction for the composition, not as literal text):`,
@@ -1923,7 +1981,7 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
       brandName ? `  • Top-left wordmark: "${brandName}"` : `  • Top-left: nothing`,
       `  • Top-right slide counter: "${slideNum} / ${totalNum}"`,
       `  • Badge pill (centered near 42% vertical): "${(badgeText || 'ONE LAST THING')}"`,
-      `  • CTA headline (centered, 64–80px, weight 700, max 3 lines, vertical center of canvas): "${headlineClean}"`,
+      `  • CTA headline (centered, ${cfg.headlineFinalPx}px, weight 700, max 3 lines, vertical center of canvas): "${headlineClean}"`,
       `    ${accentPhrase}`,
       bodyClean ? `  • Supporting line (centered, 20px, muted, max 2 lines): "${bodyClean}"` : '',
       ctaText ? `  • CTA button (solid filled pill, accent color fill, dark text, weight 700, 16px, centered ~140px below the supporting line, subtle soft shadow in the accent color): "${ctaText}"` : '',
@@ -1932,20 +1990,20 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
     ].filter(Boolean).join('\n');
   } else {
     // EDITORIAL CHAPTER page.
-    layoutNotes = `LAYOUT — EDITORIAL CHAPTER PAGE (middle slides): three-zone magazine spread where TYPOGRAPHY is the design. NOT a poster, NOT a card. Generous negative space. Left-aligned with a 96px left margin and a 120px right margin. Three zones: top zone (~22% of canvas height) holds the branding strip, slide counter, chapter mark, and badge. Middle zone (from ~26% down to ~78%) holds an enormous display headline. Bottom zone (from ~82% to ~92%) holds a thin hairline rule and the body copy in a column capped at roughly 720 pixels wide. Behind the text, a large ghosted slide-index numeral bleeds off the top-right edge as a typographic anchor — it is the only non-text element on the slide.`;
+    layoutNotes = `LAYOUT — EDITORIAL CHAPTER PAGE (middle slides): three-zone ${platform === 'linkedin' ? 'document-style' : 'magazine'} spread where TYPOGRAPHY is the design. NOT a poster, NOT a card. Generous negative space. Left-aligned with a ${cfg.leftMarginPx}px left margin and a ${cfg.rightMarginPx}px right margin. Three zones: top zone (~22% of canvas height) holds the branding strip, slide counter, chapter mark, and badge. Middle zone (from ~26% down to ~78%) holds an enormous display headline. Bottom zone (from ~82% to ~92%) holds a thin hairline rule and the body copy in a readable column width. Behind the text, a large ghosted slide-index numeral bleeds off the top-right edge as a typographic anchor — it is the only non-text element on the slide.`;
     textContent = [
       brandName ? `  • Top-left wordmark: "${brandName}"` : `  • Top-left: nothing`,
       `  • Top-right slide counter: "${slideNum} / ${totalNum}"`,
-      `  • Chapter mark (left-aligned at 96px inset, just below the wordmark, small accent-color monospaced text with a thin 56px horizontal rule to its right): "${chapterNum}"`,
+      `  • Chapter mark (left-aligned at ${cfg.leftMarginPx}px inset, just below the wordmark, small accent-color monospaced text with a thin 56px horizontal rule to its right): "${chapterNum}"`,
       badgeText ? `  • Badge pill (placed immediately to the right of the chapter mark rule): "${badgeText}"` : '',
-      `  • Display headline (middle zone, 92–108px, weight 700, tight leading 1.02, left-aligned, preserve line breaks): "${headlineClean}"`,
+      `  • Display headline (middle zone, ${cfg.headlineMiddlePx}px, weight 700, tight leading 1.02, left-aligned, preserve line breaks): "${headlineClean}"`,
       `    ${accentPhrase}`,
-      bodyClean ? `  • Hairline rule (thin 40px line in muted color at ~30% opacity, aligned with the headline left edge) then directly below it the body copy (22–24px, muted color, weight 400, leading 1.5, left-aligned, column width capped at ~720px, max 3 lines): "${bodyClean}"` : '',
+      bodyClean ? `  • Hairline rule (thin 40px line in muted color at ~30% opacity, aligned with the headline left edge) then directly below it the body copy (${cfg.bodyPx}px, muted color, weight 400, leading 1.5, left-aligned, readable column width, max 3 lines): "${bodyClean}"` : '',
       `  • Bottom-right hint pill: "Keep swiping →"`,
       ``,
-      `EDITORIAL ANCHOR (only non-text element): a single ghosted slide-index numeral "${ghostNumeral}" rendered VERY large (around 520px tall), heavy weight, in the accent color at only 6–8 percent opacity, positioned in the top-right area so it bleeds partially off the right edge of the canvas. It lives BEHIND the main text as a typographic flourish — no outline, no shadow, no other decoration. This exact motif repeats on every chapter page to create rhythm across the set.`,
+      `EDITORIAL ANCHOR (only non-text element): a single ghosted slide-index numeral "${ghostNumeral}" rendered VERY large (around ${cfg.ghostNumeralPx}px tall), heavy weight, in the accent color at only 6–8 percent opacity, positioned in the top-right area so it bleeds partially off the right edge of the canvas. It lives BEHIND the main text as a typographic flourish — no outline, no shadow, no other decoration. This exact motif repeats on every chapter page to create rhythm across the set.`,
       ``,
-      `CRAFT NOTES: breathe. This slide should feel like a magazine spread (think Offscreen, Kinfolk, It's Nice That), not an infographic. No icons, no illustrations, no cards, no diagrams, no emoji. The visual unity with the hook comes from the locked palette, glow corner, texture, branding strip, and accent gradient — not from forcing a graphic.`,
+      `CRAFT NOTES: breathe. This slide should feel like ${cfg.moodReferences}, not an infographic. No icons, no illustrations, no cards, no diagrams, no emoji. ${cfg.toneNote}. The visual unity with the hook comes from the locked palette, glow corner, texture, branding strip, and accent gradient — not from forcing a graphic.`,
       (slide.visualElement?.description ? `(Planner hint — use ONLY to influence the body phrasing if useful, ignore any visual suggestion: ${sanitizeStyleText(slide.visualElement.description)})` : ''),
     ].filter(Boolean).join('\n');
   }
@@ -1978,9 +2036,10 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
       ]
     : [];
 
+  const platformLabel = platform === 'linkedin' ? 'LinkedIn' : 'Instagram';
   return [
-    `You are rendering slide ${slideNum} of a ${totalNum}-slide Instagram carousel.`,
-    `Think of the carousel as a designed book: slide 01 is the cover, slides 02–${String(total - 1).padStart(2, '0')} are editorial chapter pages (typography is the design), slide ${totalNum} is the closing spread.`,
+    `You are rendering slide ${slideNum} of a ${totalNum}-slide ${platformLabel} carousel (${cfg.canvasShort}).`,
+    `Think of the carousel as a designed ${platform === 'linkedin' ? 'document' : 'book'}: slide 01 is the cover, slides 02–${String(total - 1).padStart(2, '0')} are editorial chapter pages (typography is the design), slide ${totalNum} is the closing spread.`,
     ``,
     `=== TEXT CONTENT (render EXACTLY these strings and no other text on the image) ===`,
     textContent,
@@ -2634,20 +2693,26 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
 
   const plan = msg.carouselPlan || {};
   const caption = plan.caption || msg.content || '';
-  const CAPTION_FOLD = 125;
+  // LinkedIn captions usually aren't truncated aggressively on feed; IG
+  // folds at ~125 chars. Different fold per platform keeps the preview honest.
+  const isLinkedin = msg.platform === 'linkedin';
+  const CAPTION_FOLD = isLinkedin ? 210 : 125;
   const captionIsLong = caption.length > CAPTION_FOLD;
   const captionDisplay = captionIsLong && !captionExpanded ? caption.slice(0, CAPTION_FOLD).trimEnd() + '…' : caption;
 
   const username = (brandDna?.brand_name || user?.name || 'your_brand').toLowerCase().replace(/\s+/g, '_').slice(0, 30);
+  const displayName = brandDna?.brand_name || user?.name || 'Your Brand';
   const avatarUrl = brandDna?.logos?.find(l => l.isDefault)?.url || brandDna?.logos?.[0]?.url || brandDna?.logo_url || brandDna?.photo_urls?.[0];
 
   const atStart = idx === 0;
   const atEnd = idx === images.length - 1;
+  const panelClass = `content-ig-preview${isLinkedin ? ' content-ig-preview--linkedin' : ''}`;
+  const previewLabel = isLinkedin ? 'LinkedIn preview' : 'Instagram preview';
 
   return (
-    <div className="content-ig-preview" role="dialog" aria-label="Instagram preview">
+    <div className={panelClass} role="dialog" aria-label={previewLabel}>
       <div className="content-ig-preview-header">
-        <span className="content-ig-preview-title">Instagram preview</span>
+        <span className="content-ig-preview-title">{previewLabel}</span>
         <button className="content-ig-preview-close" onClick={onClose} title="Close side preview (ESC)">
           <X size={16} />
         </button>
@@ -2656,19 +2721,35 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
         <div className="content-ig-post">
           {/* Post header */}
           <div className="content-ig-post-header">
-            <div className="content-ig-avatar-ring">
-              {avatarUrl
-                ? <img src={avatarUrl} alt="" className="content-ig-avatar" onError={(e) => { e.target.style.display = 'none'; }} />
-                : <div className="content-ig-avatar content-ig-avatar--fallback">{username.charAt(0).toUpperCase()}</div>
-              }
-            </div>
-            <span className="content-ig-username">{username}</span>
-            <span className="content-ig-dot-sep">·</span>
-            <span className="content-ig-follow">Following</span>
-            <span className="content-ig-more-menu">⋯</span>
+            {isLinkedin ? (
+              <>
+                {avatarUrl
+                  ? <img src={avatarUrl} alt="" className="content-ig-avatar-li" onError={(e) => { e.target.style.display = 'none'; }} />
+                  : <div className="content-ig-avatar-li content-ig-avatar--fallback">{displayName.charAt(0).toUpperCase()}</div>
+                }
+                <div className="content-ig-li-names">
+                  <div className="content-ig-li-name">{displayName}</div>
+                  <div className="content-ig-li-sub">Author · Just now</div>
+                </div>
+                <span className="content-ig-more-menu">⋯</span>
+              </>
+            ) : (
+              <>
+                <div className="content-ig-avatar-ring">
+                  {avatarUrl
+                    ? <img src={avatarUrl} alt="" className="content-ig-avatar" onError={(e) => { e.target.style.display = 'none'; }} />
+                    : <div className="content-ig-avatar content-ig-avatar--fallback">{username.charAt(0).toUpperCase()}</div>
+                  }
+                </div>
+                <span className="content-ig-username">{username}</span>
+                <span className="content-ig-dot-sep">·</span>
+                <span className="content-ig-follow">Following</span>
+                <span className="content-ig-more-menu">⋯</span>
+              </>
+            )}
           </div>
 
-          {/* Media (square) */}
+          {/* Media — aspect swaps per platform */}
           <div className="content-ig-media">
             <img src={current.src} alt={`Slide ${idx + 1}`} className="content-ig-slide" />
             <div className="content-ig-counter">{idx + 1}/{images.length}</div>
@@ -2700,15 +2781,7 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
             </div>
           </div>
 
-          {/* IG action row — visual only, not functional */}
-          <div className="content-ig-actions">
-            <Heart size={26} strokeWidth={1.8} />
-            <MessageCircle size={26} strokeWidth={1.8} />
-            <Send size={26} strokeWidth={1.8} />
-            <Bookmark size={26} strokeWidth={1.8} className="content-ig-action-save" />
-          </div>
-
-          {/* Dots indicator */}
+          {/* Dots indicator — both platforms */}
           {images.length > 1 && (
             <div className="content-ig-indicator">
               {images.map((_, i) => (
@@ -2717,24 +2790,60 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
             </div>
           )}
 
-          {/* Likes count — placeholder */}
-          <div className="content-ig-likes">{(Math.floor(Math.random() * 800) + 200).toLocaleString()} likes</div>
-
-          {/* Caption with IG's 125-char fold */}
-          <div className="content-ig-caption">
-            <span className="content-ig-caption-username">{username}</span>
-            <span className="content-ig-caption-body">
-              {captionDisplay}
-              {captionIsLong && !captionExpanded && (
-                <button className="content-ig-more-link" onClick={() => setCaptionExpanded(true)}>more</button>
-              )}
-            </span>
-          </div>
-
-          <div className="content-ig-meta">
-            <span>View all comments</span>
-            <span className="content-ig-meta-time">Just now</span>
-          </div>
+          {/* Platform-specific caption + action row */}
+          {isLinkedin ? (
+            <>
+              <div className="content-ig-caption">
+                <span className="content-ig-caption-body">
+                  {captionDisplay}
+                  {captionIsLong && !captionExpanded && (
+                    <button className="content-ig-more-link" onClick={() => setCaptionExpanded(true)}> …see more</button>
+                  )}
+                </span>
+              </div>
+              <div className="content-ig-li-reactions">
+                <span className="content-ig-li-reaction-dots">
+                  <span className="content-ig-li-reaction-dot content-ig-li-reaction-dot--like" />
+                  <span className="content-ig-li-reaction-dot content-ig-li-reaction-dot--celebrate" />
+                  <span className="content-ig-li-reaction-dot content-ig-li-reaction-dot--insightful" />
+                </span>
+                <span className="content-ig-li-reaction-count">{(Math.floor(Math.random() * 400) + 60).toLocaleString()}</span>
+                <span className="content-ig-li-reaction-sep">·</span>
+                <span>{(Math.floor(Math.random() * 30) + 4)} comments</span>
+              </div>
+              <div className="content-ig-li-actions">
+                <span><Heart size={18} strokeWidth={1.6} /> Like</span>
+                <span><MessageCircle size={18} strokeWidth={1.6} /> Comment</span>
+                <span><Send size={18} strokeWidth={1.6} /> Share</span>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* IG action row — visual only, not functional */}
+              <div className="content-ig-actions">
+                <Heart size={26} strokeWidth={1.8} />
+                <MessageCircle size={26} strokeWidth={1.8} />
+                <Send size={26} strokeWidth={1.8} />
+                <Bookmark size={26} strokeWidth={1.8} className="content-ig-action-save" />
+              </div>
+              {/* Likes count — placeholder */}
+              <div className="content-ig-likes">{(Math.floor(Math.random() * 800) + 200).toLocaleString()} likes</div>
+              {/* Caption with IG's 125-char fold */}
+              <div className="content-ig-caption">
+                <span className="content-ig-caption-username">{username}</span>
+                <span className="content-ig-caption-body">
+                  {captionDisplay}
+                  {captionIsLong && !captionExpanded && (
+                    <button className="content-ig-more-link" onClick={() => setCaptionExpanded(true)}>more</button>
+                  )}
+                </span>
+              </div>
+              <div className="content-ig-meta">
+                <span>View all comments</span>
+                <span className="content-ig-meta-time">Just now</span>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -2797,7 +2906,7 @@ function SlideViewerModal({ image, position, total, onClose, onPrev, onNext, onE
   );
 }
 
-function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview }) {
+function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform = 'instagram' }) {
   const [downloading, setDownloading] = useState(false);
   const [showTip, setShowTip] = useState(() => {
     try { return localStorage.getItem('aiceo.carouselEditTipDismissed') !== '1'; } catch { return true; }
@@ -2913,7 +3022,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview }) {
       const media = await collectMedia();
       if (!media.length) throw new Error('No images to schedule');
       const { post } = await createCalendarPost({
-        platform: 'instagram',
+        platform,
         caption: plan.caption || '',
         content_type: 'carousel',
         scheduled_at: mode === 'scheduled' ? new Date(scheduleWhen).toISOString() : null,
@@ -2981,8 +3090,8 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview }) {
   return (
     <div className="content-carousel-actions">
       {onOpenSidePreview && (
-        <button type="button" className="content-carousel-action-btn" onClick={onOpenSidePreview} title="Preview as it would appear on Instagram">
-          <Maximize2 size={14} /> Preview on Instagram
+        <button type="button" className="content-carousel-action-btn" onClick={onOpenSidePreview} title={`Preview as it would appear on ${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'}`}>
+          <Maximize2 size={14} /> Preview on {platform === 'linkedin' ? 'LinkedIn' : 'Instagram'}
         </button>
       )}
       <button type="button" className="content-carousel-action-btn" onClick={downloadZip} disabled={downloading}>
@@ -2991,7 +3100,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview }) {
       <div className="content-carousel-schedule-wrap">
         <button type="button" className="content-carousel-action-btn" onClick={() => setScheduleOpen(v => !v)} disabled={scheduling}>
           <CalendarDays size={14} />
-          {scheduleStatus === 'published' ? 'Published to Instagram' : scheduleStatus === 'saved' ? 'Saved to calendar' : (scheduling ? 'Saving…' : 'Send to calendar')}
+          {scheduleStatus === 'published' ? `Published to ${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'}` : scheduleStatus === 'saved' ? 'Saved to calendar' : (scheduling ? 'Saving…' : 'Send to calendar')}
         </button>
         {scheduleOpen && (
           <div className="content-carousel-schedule-pop" onClick={(e) => e.stopPropagation()}>
@@ -3014,7 +3123,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview }) {
               </button>
             </div>
             <div className="content-carousel-schedule-hint">
-              "Publish now" uses the Instagram account connected under Settings. If not connected, save as draft and publish from the Content Calendar later.
+              "Publish now" uses the {platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} account connected under Settings. If not connected, save as draft and publish from the Content Calendar later.
             </div>
           </div>
         )}
@@ -3356,6 +3465,7 @@ export default function Content() {
           : undefined;
         const persisted = { id: m.id, role: m.role, content: m.content, images: uploadedImages };
         if (persistedPlan) persisted.carouselPlan = persistedPlan;
+        if (m.platform) persisted.platform = m.platform;
         return persisted;
       }));
       // Also update local state with uploaded URLs so future saves don't re-upload
@@ -3581,9 +3691,9 @@ export default function Content() {
           if (planCalls.length > 0) {
             // Only take the first plan — Claude should only produce one.
             const plan = planCalls[0].plan;
-            console.log(`📋 Carousel plan received: ${plan.slides?.length} slides`);
+            console.log(`📋 Carousel plan received: ${plan.slides?.length} slides (${activePlatform.id})`);
             setMessages((prev) => prev.map((m) =>
-              m.id === assistantMsgId ? { ...m, carouselPlan: { ...plan, approved: false, generating: false } } : m
+              m.id === assistantMsgId ? { ...m, carouselPlan: { ...plan, approved: false, generating: false }, platform: activePlatform.id } : m
             ));
             // Do NOT fire generate_image — wait for approval click.
             return;
@@ -3933,11 +4043,14 @@ export default function Content() {
   // responses) drop otherwise-good carousels to 5-of-7 territory — not
   // acceptable UX. Retry up to 3× per slide with escalating backoff before
   // giving up. Returns the result on success, or throws the last error.
-  const generateSlideWithRetry = useCallback(async (slideIndex, slidePrompt, brandImageData, refImages, { maxAttempts = 3 } = {}) => {
+  const generateSlideWithRetry = useCallback(async (slideIndex, slidePrompt, brandImageData, refImages, { maxAttempts = 3, platform = 'instagram' } = {}) => {
+    // Backend routes LinkedIn carousels to a separate config (3:4 portrait)
+    // without disturbing single LinkedIn text-post images (4:3 landscape).
+    const backendPlatform = platform === 'linkedin' ? 'linkedin_carousel' : platform;
     let lastErr;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const result = await generateImage(slidePrompt, 'instagram', brandImageData, refImages);
+        const result = await generateImage(slidePrompt, backendPlatform, brandImageData, refImages);
         // Tight validity check — Gemini can return a 200 with an empty string,
         // a placeholder, or missing mimeType when its safety filter fires.
         // Treat anything short of "usable base64 + mimetype" as a failure so
@@ -3966,6 +4079,7 @@ export default function Content() {
     const plan = msg?.carouselPlan;
     const slide = plan?.slides?.[slideIdx];
     if (!slide) return;
+    const platformId = msg.platform || 'instagram';
 
     setIsGenerating(true);
     setMessages(prev => prev.map(m => m.id === msgId ? { ...m, editingIdx: slideIdx } : m));
@@ -3987,6 +4101,7 @@ export default function Content() {
         index: slideIdx,
         total: plan.slides.length,
         brand: brandForPrompt,
+        platform: platformId,
       });
 
       // Reference the hook image for palette anchoring (not the slide itself
@@ -4010,7 +4125,7 @@ export default function Content() {
         }
       }
 
-      const result = await generateSlideWithRetry(slideIdx, slidePrompt, brandImageData, refs, { maxAttempts: 3 });
+      const result = await generateSlideWithRetry(slideIdx, slidePrompt, brandImageData, refs, { maxAttempts: 3, platform: platformId });
       const newSrc = `data:${result.image.mimeType};base64,${result.image.data}`;
       setMessages(prev => prev.map(m => {
         if (m.id !== msgId) return m;
@@ -4055,6 +4170,7 @@ export default function Content() {
     const plan = msg.carouselPlan;
     const slides = plan.slides || [];
     if (!slides.length) return;
+    const platformId = msg.platform || 'instagram';
 
     // Mark approved + kick off loading state so skeletons render.
     setMessages(prev => prev.map(m =>
@@ -4105,10 +4221,11 @@ export default function Content() {
         index: 0,
         total: slides.length,
         brand: brandForPrompt,
+        platform: platformId,
       });
       let hookRef = null;
       try {
-        const slide1 = await generateSlideWithRetry(0, slide1Prompt, brandImageData, null);
+        const slide1 = await generateSlideWithRetry(0, slide1Prompt, brandImageData, null, { platform: platformId });
         const src = `data:${slide1.image.mimeType};base64,${slide1.image.data}`;
         appendImage(src, 0);
         hookRef = { data: slide1.image.data, mimeType: slide1.image.mimeType };
@@ -4128,9 +4245,10 @@ export default function Content() {
           index: idx,
           total: slides.length,
           brand: brandForPrompt,
+          platform: platformId,
         });
         try {
-          const result = await generateSlideWithRetry(idx, slidePrompt, brandImageData, hookRef ? [hookRef] : null);
+          const result = await generateSlideWithRetry(idx, slidePrompt, brandImageData, hookRef ? [hookRef] : null, { platform: platformId });
           const src = `data:${result.image.mimeType};base64,${result.image.data}`;
           appendImage(src, idx);
         } catch (slideErr) {
@@ -4187,6 +4305,7 @@ export default function Content() {
     const plan = msg.carouselPlan;
     const failed = plan.failedSlides || [];
     if (!failed.length) return;
+    const platformId = msg.platform || 'instagram';
 
     const slides = plan.slides || [];
     const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
@@ -4235,9 +4354,10 @@ export default function Content() {
         index: idx,
         total: slides.length,
         brand: brandForPrompt,
+        platform: platformId,
       });
       try {
-        const result = await generateSlideWithRetry(idx, slidePrompt, brandImageData, hookRef ? [hookRef] : null);
+        const result = await generateSlideWithRetry(idx, slidePrompt, brandImageData, hookRef ? [hookRef] : null, { platform: platformId });
         const src = `data:${result.image.mimeType};base64,${result.image.data}`;
         setMessages(prev => prev.map(m => {
           if (m.id !== msgId) return m;
@@ -4334,6 +4454,7 @@ export default function Content() {
     const plan = carouselMsg?.carouselPlan;
     const slide = plan?.slides?.[imgIdx];
     if (plan && slide) {
+      const platformId = carouselMsg.platform || 'instagram';
       setIsGenerating(true);
       setMessages(prev => prev.map(m => m.id === msgId ? { ...m, editingIdx: imgIdx } : m));
       try {
@@ -4355,6 +4476,7 @@ export default function Content() {
           index: imgIdx,
           total: plan.slides.length,
           brand: brandForPrompt,
+          platform: platformId,
         });
         const editedPrompt = [
           `USER EDIT INSTRUCTION (apply ONLY this change to the slide below — keep every other element identical: palette, typography, layout zones, badge, branding strip, slide counter, chapter mark, glow position, mood):`,
@@ -4376,7 +4498,7 @@ export default function Content() {
           if (hc !== -1) refs.push({ data: hookImg.src.slice(hc + 1), mimeType: hm?.[1] || 'image/jpeg' });
         }
 
-        const result = await generateSlideWithRetry(imgIdx, editedPrompt, brandImageData, refs, { maxAttempts: 3 });
+        const result = await generateSlideWithRetry(imgIdx, editedPrompt, brandImageData, refs, { maxAttempts: 3, platform: platformId });
         const newSrc = `data:${result.image.mimeType};base64,${result.image.data}`;
         setMessages(prev => prev.map(m => {
           if (m.id !== msgId) return m;
@@ -5731,9 +5853,11 @@ export default function Content() {
                           msgId={msg.id}
                           plan={msg.carouselPlan}
                           images={sortedImages}
+                          platform={msg.platform || 'instagram'}
                           onOpenSidePreview={() => {
-                            // Opening the IG preview closes any open LinkedIn
-                            // preview so the split layout only has one tenant.
+                            // Opening the IG/LI side preview closes any open
+                            // LinkedIn textpost preview so the split layout
+                            // only has one tenant.
                             setLinkedinPreview(null);
                             setCarouselSideView({ msgId: msg.id });
                           }}
