@@ -1979,6 +1979,12 @@ export default function Content() {
   const [showPasteBtn, setShowPasteBtn] = useState(false);
   const [messages, setMessages] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  // Tracks the id of the assistant message currently being generated.
+  // The animated "thinking..." dots only show for THIS message — older
+  // empty-content messages (from previous timeouts) render a static
+  // "No response received" instead of flipping back to dots whenever
+  // the user fires off a new request.
+  const [activeAssistantId, setActiveAssistantId] = useState(null);
   const [editingImage, setEditingImage] = useState(null); // { msgId, imgIdx, src }
   const [creditsDepleted, setCreditsDepleted] = useState(false);
   const [sessionId, setSessionId] = useState(null);
@@ -2348,6 +2354,7 @@ export default function Content() {
   const sendToAI = useCallback(async (chatHistory) => {
     setIsGenerating(true);
     const assistantMsgId = `msg-${Date.now()}-ai`;
+    setActiveAssistantId(assistantMsgId);
     setMessages((prev) => [...prev, { id: assistantMsgId, role: 'assistant', content: '', images: [], pendingImages: 0 }]);
 
     try {
@@ -2694,6 +2701,7 @@ export default function Content() {
     } finally {
       abortRef.current = null;
       setIsGenerating(false);
+      setActiveAssistantId(null);
       // Safety net: if we got here without populating the assistant message
       // AND no images are pending, surface an explicit message so the user
       // isn't left staring at an empty bubble. Covers cases like the stream
@@ -2710,7 +2718,7 @@ export default function Content() {
   }, [activePlatform, photos, documents, socialUrls, brandDna, integrationCtx]);
 
   const stopGenerating = useCallback(() => {
-    if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; setIsGenerating(false); }
+    if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; setIsGenerating(false); setActiveAssistantId(null); }
   }, []);
 
   // Block sending while any attachment is still uploading/extracting  -  otherwise the
@@ -3880,13 +3888,14 @@ export default function Content() {
                   );
                 }
                 if (!msg.content) {
-                  // Only show the animated "thinking..." bubble while a
-                  // response is actively being generated. If generation
-                  // finished without text/images (stream closed empty,
-                  // parse error, etc.) we still show a bubble but with a
-                  // static "no response" message so the user isn't stuck
-                  // staring at dots forever.
-                  const stillWorking = isGenerating && (msg.pendingImages || 0) === 0;
+                  // Only show the animated "thinking..." bubble for the
+                  // ONE message that is actively being generated right now.
+                  // Older empty-content messages (from previous timeouts
+                  // or silent failures) must stay on the static "no
+                  // response" copy even when the user fires off a new
+                  // request — otherwise they'd flip back to animated dots
+                  // every time isGenerating is true globally.
+                  const stillWorking = isGenerating && msg.id === activeAssistantId && (msg.pendingImages || 0) === 0;
                   return (
                     <div key={msg.id} className="content-assistant-row">
                       <img src="/favicon.png" alt="" className="content-assistant-avatar" />
