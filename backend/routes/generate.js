@@ -104,50 +104,21 @@ COMPOSITION & STYLE:
 - Premium, polished feel — like a designer made it in Figma
 - The image should make someone STOP scrolling in their inbox`,
 
-  instagram: `INSTAGRAM CAROUSEL SLIDE RULES:
-- Aspect ratio: SQUARE (1:1) — this is critical
-- This slide is part of a CAROUSEL SET — a series of informational slides, like a thread or mini-article
+  instagram: `INSTAGRAM SLIDE RULES:
+- Aspect ratio: SQUARE (1:1) — non-negotiable.
 
-THERE ARE 3 TYPES OF CAROUSEL SLIDES — follow the prompt to determine which type this is:
+DESIGN SYSTEM TAKES PRIORITY:
+- If the incoming prompt contains a "=== DESIGN SYSTEM (LOCKED — identical on every slide) ===" block, FOLLOW THAT BLOCK VERBATIM. Every color, font, layout, badge, glow position, and accent treatment listed there is a hard requirement, not a suggestion.
+- The DESIGN SYSTEM block is byte-for-byte identical across every slide in the set — that is the ONLY way the carousel renders cohesively. Do NOT substitute your own color palette, do NOT change the background, do NOT invent a new layout, do NOT swap the card style.
+- The PER-SLIDE block that follows the DESIGN SYSTEM block is the only thing that changes between slides. Render exactly what it specifies for this slide's headline, body, badge, visual element, glow corner, slide counter, and CTA hint.
+- Render every piece of text EXACTLY as quoted in the prompt (correct spelling, exact punctuation, preserved line breaks). The [ACCENT]...[/ACCENT] span in the headline gets the gradient treatment described in the ACCENT WORD TREATMENT line — no other text gets it.
+- Respect the DO NOT list at the bottom of each per-slide block.
 
-TYPE 1 — HOOK SLIDE (slide 1):
-- This is the ONLY slide that can be photographic/visual
-- Bold hook text (large, 2-3 lines) + founder photo if reference images are attached
-- Eye-catching background: can use photography, gradient, or bold color
-- The text should create curiosity and make people swipe
-- If the founder is included, show them naturally — like a real Instagram photo
-
-TYPE 2 — CONTENT SLIDE (slides 2 through N-1) — THE MOST COMMON TYPE:
-- Solid black (#000000) background. ALWAYS black for content slides.
-- Default layout (unless the prompt specifies "tweet-style"):
-  • Numbered point title in large white bold text (e.g. "1. Skill-creator" or "2. Content-ideas")
-  • Below title: 2-3 SHORT PARAGRAPHS of body text in light gray (#b0b0b0 or #cccccc), normal weight (NOT bold), left-aligned, readable (~18-20px feel)
-  • Bottom center: optional small relevant icon or illustration (a folder icon, a gear, a chart — simple, clean)
-- If the prompt says "tweet-style": ALSO add a small circular profile picture + bold white name + gray @handle at the top, and small gray "@username" bottom-left + "save for later" bottom-right
-- This is INFORMATIONAL content — the reader is LEARNING something. Include real substance in the body text.
-- Text is LEFT-ALIGNED. Reads like a social media post, NOT a centered headline.
-- DO NOT just put a big headline. Include actual explanation text that teaches something.
-
-TYPE 3 — CTA SLIDE (last slide):
-- Same dark/black background as content slides
-- Founder photo (if reference images attached) + product screenshot or visual
-- Clear CTA: "Comment [KEYWORD] for an invite" or "Follow @handle for more"
-- Hand-drawn style arrow pointing to the CTA
-- Bottom: "@username" + "save for later"
-
-VISUAL CONSISTENCY:
-- Content slides (type 2) MUST all use identical layout: same black bg, same profile section, same text styling
-- Follow the EXACT style described in the prompt. Do NOT improvise a different background or layout.
-- The ONLY thing that changes between content slides is the numbered point and body text.
-
-WHAT TO AVOID:
-- NO making every slide look like a poster with just a big headline — content slides need body text
-- NO switching visual styles between content slides
-- NO photograph backgrounds on content slides (only hook slide)
-- NO centered text on content slides — left-align like a tweet
-- NO tiny unreadable text
-- NO cluttered layouts
-- NO generic stock imagery`,
+FALLBACK (only when NO DESIGN SYSTEM block is present — single post, not a planned carousel):
+- Clean modern graphic design. Bold sans-serif typography. Left-aligned body text. Readable at mobile size.
+- Use the brand colors and fonts as specified.
+- NO stock photography, NO clipart, NO cartoon illustrations, NO generic AI-looking imagery.
+- NO Instagram UI chrome (no progress bars, no profile headers unless the prompt asks for them, no like/comment icons).`,
 
   youtube: `YOUTUBE THUMBNAIL RULES:
 - Aspect ratio: LANDSCAPE 16:9 — wide format, this is critical
@@ -366,11 +337,10 @@ BRAND ASSETS (attached as reference):
 - NO cartoons, NO illustrations, NO vector art, NO AI-looking generic imagery.`
       : isCarousel
       ? `DESIGN QUALITY RULES:
-- Clean, modern graphic design for carousel slides — bold text, minimal layout.
-- NOT a photograph for text-heavy slides — use solid/gradient backgrounds with typography.
-- Photorealistic ONLY when showing a person (hook slide). All other slides = designed graphics.
+- If the prompt contains a DESIGN SYSTEM block, the block is authoritative. Do not override its colors, layout, or typography. Your only job is to render it faithfully.
+- Clean, modern graphic design. Glass-morphism cards / floating UI mockups / diagrams / stat blocks / editorial treatments are preferred over flat posters.
 - NO cartoons, NO pixel art, NO clip-art, NO AI-looking generic imagery.
-- Text must be spelled correctly, large, and perfectly readable.
+- Text must be spelled correctly, rendered at the exact size/weight specified, and perfectly readable.
 - Use brand colors and fonts as specified — they are requirements, not suggestions.`
       : `GENERAL QUALITY RULES:
 - Photorealistic or modern graphic design — NO cartoons, NO pixel art, NO illustrations, NO clip-art, NO AI-looking generic imagery.

@@ -1457,21 +1457,40 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `Question format (when you do ask): {"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}  -  4 options, 2-5 words each, ONE question per message.\n\n`;
   prompt += `=== WHEN CREATING CONTENT ===\n`;
   prompt += `1. Detect the content type (carousel, reel, story, post, script, etc.).\n`;
-  prompt += `2. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
-  prompt += `   - CAROUSEL: You MUST plan the FULL carousel as a STORYLINE before generating any slides. Follow this structure:\n`;
-  prompt += `     a) First, decide the narrative arc: Hook → Context/Problem → Key Points (2-3 slides) → Proof/Example → CTA\n`;
-  prompt += `     b) Each slide MUST advance the story  -  slide 2 builds on slide 1, slide 3 builds on slide 2, etc.\n`;
-  prompt += `     c) Think of it like a mini-presentation: the viewer should NEED to swipe to get the full value\n`;
-  prompt += `     d) Call generate_image SEPARATELY for EACH slide (5-7 slides)\n`;
-  prompt += `   - CAROUSEL QUESTIONS: One of your questions MUST ask about the carousel layout style. Offer these options:\n`;
-  prompt += `     {"type":"question","text":"What layout style for the content slides?","options":["Tweet-style (profile pic + username header on each slide)","Clean minimal (just text on dark background)","Bold graphic (large text + icons)","Educational (numbered points + body text)"]}\n`;
-  prompt += `     If the user picks "Tweet-style", include profile pic + username + @handle at the top of each content slide. Otherwise, do NOT include profile/username elements.\n`;
+  if (platform.id === 'instagram') {
+    prompt += `2. INSTAGRAM CAROUSELS use a PLAN-FIRST flow. Do NOT call generate_image. Instead call plan_carousel ONCE with:\n`;
+    prompt += `   - hook: scroll-stopping headline (confession / contrarian / specificity / curiosity-gap format).\n`;
+    prompt += `   - angle: strategic POV in one sentence.\n`;
+    prompt += `   - caption: the IG caption the user will paste with the post.\n`;
+    prompt += `   - slides: 5-9 slides with {type, badge, headline, body, visualElement, doNot}. Slide 1 is always hook, last slide is cta.\n`;
+    prompt += `   - designSystem: locked visual spec every slide inherits. Honor Brand DNA primary color as the anchor accent — pick secondary/gradient/glow to harmonize with it, not replace it. Rotate glow corner each slide for swipe momentum. No purple/pink defaults unless Brand DNA demands.\n`;
+    prompt += `   HEADLINE ACCENT: mark the hero word(s) of each headline with {{accent}}word{{/accent}} so the client can apply the gradient accent. Every headline must have exactly one accent span.\n`;
+    prompt += `   After calling plan_carousel the client will render an approval card and the user decides when to generate images. Your job ends with the plan.\n`;
+    prompt += `   Your text output next to the tool call: ONE short line (e.g. "Here's the plan — approve to generate."). Do NOT describe the slides in prose.\n`;
+    prompt += `   For non-carousel Instagram content (single post, story): call generate_image as normal.\n`;
+  } else {
+    prompt += `2. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
+    prompt += `   - CAROUSEL: You MUST plan the FULL carousel as a STORYLINE before generating any slides. Follow this structure:\n`;
+    prompt += `     a) First, decide the narrative arc: Hook → Context/Problem → Key Points (2-3 slides) → Proof/Example → CTA\n`;
+    prompt += `     b) Each slide MUST advance the story  -  slide 2 builds on slide 1, slide 3 builds on slide 2, etc.\n`;
+    prompt += `     c) Think of it like a mini-presentation: the viewer should NEED to swipe to get the full value\n`;
+    prompt += `     d) Call generate_image SEPARATELY for EACH slide (5-7 slides)\n`;
+  }
+  if (platform.id !== 'instagram') {
+    prompt += `   - CAROUSEL QUESTIONS: One of your questions MUST ask about the carousel layout style. Offer these options:\n`;
+    prompt += `     {"type":"question","text":"What layout style for the content slides?","options":["Tweet-style (profile pic + username header on each slide)","Clean minimal (just text on dark background)","Bold graphic (large text + icons)","Educational (numbered points + body text)"]}\n`;
+    prompt += `     If the user picks "Tweet-style", include profile pic + username + @handle at the top of each content slide. Otherwise, do NOT include profile/username elements.\n`;
+  }
   prompt += `   - SINGLE POST: Call generate_image once for the post image.\n`;
   prompt += `   - STORY FLOW: Call generate_image for each story frame (3-4 images).\n`;
   prompt += `   - YOUTUBE: Call generate_image for the thumbnail.\n`;
   prompt += `   - REEL / TIKTOK / VIDEO SCRIPT: Do NOT call generate_image. Write the script directly as your text output. The script is the deliverable. Write it as a clean, spoken script  -  the actual words to say on camera, line by line. No labels like [HOOK], [BRIDGE], [SCENE], [VISUAL], [VOICEOVER], or [ON-SCREEN TEXT]. No timestamps. Start with the hook line, flow naturally, end with CTA if needed. Add a brief "Direction:" note at the end for visuals and audio.\n`;
   prompt += `   You can make MULTIPLE generate_image calls in the same response. Each slide needs its own call.\n\n`;
 
+  // Legacy Instagram carousel layout rules are now owned by plan_carousel +
+  // buildCarouselSlidePrompt (design-system driven). Only emit these for
+  // other platforms that still use the per-slide generate_image flow.
+  if (platform.id !== 'instagram') {
   prompt += `=== CAROUSEL SLIDE TYPES (CRITICAL  -  each slide type has a DIFFERENT layout) ===\n`;
   prompt += `Instagram carousels are NOT posters  -  they are informational content. Think tweet screenshots, not billboard ads.\n`;
   prompt += `There are 3 distinct slide types with different visual layouts:\n\n`;
@@ -1509,6 +1528,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- Slides 2-6 (CONTENT): Each slide = ONE numbered point with real explanation text. Like reading a thread.\n`;
   prompt += `- Last slide (CTA): Founder photo + call to action ("Comment X", "Follow for more", "Link in bio")\n`;
   prompt += `The viewer should feel like they're reading an informative thread, not looking at posters.\n\n`;
+  } // end: legacy carousel rules for non-instagram platforms
   prompt += `QUESTION RULES (only apply IF you decided a question is genuinely needed):\n`;
   prompt += `- Only ask about things that meaningfully change the output (angle, tone, hook, CTA target). Not obvious stuff.\n`;
   prompt += `- 4 options per question, concise (2-5 words)\n`;
@@ -1533,13 +1553,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- Specify typography: "bold sans-serif text", "clean modern font", "large white text on dark background"\n`;
   prompt += `- NO cartoons, NO pixel art, NO clip-art, NO illustrations, NO stock photos\n`;
   if (platform.id === 'instagram') {
-    prompt += `- INSTAGRAM: Image MUST be SQUARE (1:1).\n`;
-    prompt += `- INSTAGRAM CAROUSEL  -  SLIDE-TYPE-SPECIFIC PROMPTS:\n`;
-    prompt += `  HOOK SLIDE (slide 1): Include founder photo (if available), bold hook text, eye-catching background. This slide CAN be photographic/visual.\n`;
-    prompt += `  CONTENT SLIDES (slides 2 to N-1): MUST use this exact layout:\n`;
-    prompt += `    "STYLE: Solid black (#000000) background. Top-left: small circular profile picture + bold white name + gray @handle. Below: numbered title in large white bold text (e.g. '2. Content-Ideas'). Below title: 2-3 paragraphs of body text in light gray (#b0b0b0), normal weight, left-aligned, readable size. Bottom-center: optional small relevant icon or illustration. Bottom-left: small gray '@username'. Bottom-right: small gray 'save for later'. SLIDE CONTENT: [the actual numbered point + explanation text]"\n`;
-    prompt += `    EVERY content slide MUST use this IDENTICAL style prefix. Only change the SLIDE CONTENT.\n`;
-    prompt += `  CTA SLIDE (last slide): Dark background, founder photo, CTA text ("Comment X for invite"), arrow pointing to CTA.\n`;
+    prompt += `- INSTAGRAM (single post / story): Image MUST be SQUARE (1:1). For carousels, do NOT call generate_image — use plan_carousel instead (the client builds the per-slide prompts from your locked design system).\n`;
   } else if (platform.id === 'youtube') {
     prompt += `- YOUTUBE: Image MUST be LANDSCAPE (16:9). Thumbnail style  -  dramatic, high contrast, 3-4 words max in huge bold text.\n`;
   } else if (platform.id === 'tiktok') {
@@ -1665,6 +1679,186 @@ const IMAGE_TOOL = {
   },
 };
 
+// Instagram-only: plan the full carousel first. The user approves the plan
+// and the client then fires generate_image calls per slide with a byte-identical
+// DESIGN SYSTEM block embedded in every prompt — that is what forces NanoBanana
+// to render a visually cohesive set instead of drifting slide-to-slide.
+const PLAN_CAROUSEL_TOOL = {
+  type: 'function',
+  function: {
+    name: 'plan_carousel',
+    description: 'Plan an Instagram carousel. Call this FIRST for every Instagram carousel request. Do NOT call generate_image — the client will fire per-slide image generation after the user approves the plan. Produces a hook, slide roster (5-9 slides), locked design system, and a caption.',
+    parameters: {
+      type: 'object',
+      properties: {
+        hook: {
+          type: 'string',
+          description: 'Scroll-stopping headline for slide 1. Use one of: confession ("I [did unexpected thing]. Here\'s what happened."), contrarian ("[Belief] is a lie."), specificity ("[Number] in [timeframe]."), curiosity gap. NEVER "Are you making these mistakes?" or "X tips for Y".',
+        },
+        angle: { type: 'string', description: 'Strategic POV — why this framing, why now (one sentence).' },
+        caption: { type: 'string', description: 'The Instagram caption the user will paste with the post (2-5 sentences, no hashtags unless asked, no em dashes).' },
+        slides: {
+          type: 'array',
+          description: 'The full slide roster, 5-9 items. Slide 1 is always the hook. Final slide is always the CTA.',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', description: 'One of: hook, problem, reframe, explanation, proof, demo, comparison, objection, cta' },
+              badge: { type: 'string', description: 'All-caps pill label, 2-3 words (e.g., THE PROBLEM, REAL NUMBERS, HOW IT WORKS)' },
+              headline: { type: 'string', description: 'Slide headline. Max 8 words per line, max 3 lines. Use \\n for line breaks. Mark the accent word with {{accent}}...{{/accent}}.' },
+              body: { type: 'string', description: '2-4 lines of body copy. One idea only. Conversational, direct, founder-voice.' },
+              visualElement: {
+                type: 'object',
+                description: 'The hero visual for this slide. Never stock photo. Glass-morphism cards, floating UI mockups, diagrams, stat blocks, chat UIs, node flows, editorial photo treatments.',
+                properties: {
+                  kind: { type: 'string', description: 'card-stack | stat-cards | node-diagram | chat-ui | ui-mockup | founder-photo-with-floating-proof | comparison-split | icon-grid | data-chart | minimal-cta' },
+                  description: { type: 'string', description: 'Full visual description with exact text/content inside each sub-element (labels, numbers, chat messages, etc.).' },
+                },
+                required: ['kind', 'description'],
+              },
+              doNot: {
+                type: 'array',
+                items: { type: 'string' },
+                description: '4-6 things NanoBanana must avoid for this specific slide (generation pitfalls: extra text, wrong layout, clipart, etc.)',
+              },
+              cta: { type: 'string', description: 'ONLY for final (cta) slide: the real CTA (e.g., "Comment GUIDE for the free playbook"). Other slides leave blank.' },
+            },
+            required: ['type', 'badge', 'headline', 'body', 'visualElement'],
+          },
+        },
+        designSystem: {
+          type: 'object',
+          description: 'Locked design system inherited by every slide. Must honor the Brand DNA primary color as the anchor accent — pick secondary/gradient/glow to harmonize with it, not replace it.',
+          properties: {
+            mode: { type: 'string', description: 'dark | light | mixed' },
+            palette: {
+              type: 'object',
+              properties: {
+                background: { type: 'string', description: 'Hex, e.g. #0a0a0a' },
+                accentPrimary: { type: 'string', description: 'Hex — anchored to Brand DNA primary if provided' },
+                accentSecondary: { type: 'string', description: 'Hex — harmonizes with primary' },
+                gradientStart: { type: 'string', description: 'Hex for accent word gradient' },
+                gradientEnd: { type: 'string', description: 'Hex for accent word gradient' },
+                textPrimary: { type: 'string', description: 'Hex for headlines' },
+                textMuted: { type: 'string', description: 'Hex for body copy' },
+                glow: { type: 'string', description: 'Hex for the radial glow behind visuals' },
+              },
+              required: ['background', 'accentPrimary', 'gradientStart', 'gradientEnd', 'textPrimary', 'textMuted', 'glow'],
+            },
+            texture: { type: 'string', description: 'Subtle background texture at low opacity. e.g. "fine grain noise at 4% opacity" or "halftone dots at 6%"' },
+            card: {
+              type: 'object',
+              description: 'Card style applied to every visual element',
+              properties: {
+                style: { type: 'string', description: 'glass | solid | outlined' },
+                borderOpacity: { type: 'number' },
+                blurPx: { type: 'number' },
+                radiusPx: { type: 'number' },
+              },
+            },
+            badge: {
+              type: 'object',
+              properties: {
+                shape: { type: 'string', description: 'pill' },
+                fill: { type: 'string' },
+                border: { type: 'string' },
+                textColor: { type: 'string' },
+                letterSpacing: { type: 'string', description: 'e.g. 0.08em' },
+              },
+            },
+            typography: {
+              type: 'object',
+              properties: {
+                family: { type: 'string', description: 'e.g. "Inter" (or the Brand DNA main font)' },
+                fallback: { type: 'string', description: 'e.g. system-ui, sans-serif' },
+                headlineWeight: { type: 'number' },
+                bodyWeight: { type: 'number' },
+              },
+            },
+            brandStrip: {
+              type: 'object',
+              description: 'Top bar consistent across every slide',
+              properties: {
+                brandName: { type: 'string' },
+                show: { type: 'boolean' },
+              },
+            },
+            accentTreatment: { type: 'string', description: 'How the accent word in each headline is highlighted. e.g. "linear gradient from gradientStart to gradientEnd, no underline, tight letterspacing"' },
+            glowCorners: {
+              type: 'array',
+              description: 'Array of corners for the radial glow, one per slide in order. Rotates each slide to create swipe momentum. e.g. ["TL","BR","TR","BL","TL","BR","CENTER"]',
+              items: { type: 'string' },
+            },
+            mood: { type: 'string', description: '2-3 sentences describing emotional feel. Real-world reference OK (e.g., "feels like a Stripe ad", "editorial like Highsnobiety").' },
+          },
+          required: ['mode', 'palette', 'texture', 'card', 'badge', 'typography', 'accentTreatment', 'glowCorners', 'mood'],
+        },
+      },
+      required: ['hook', 'caption', 'slides', 'designSystem'],
+    },
+  },
+};
+
+// Deterministic per-slide prompt builder. Takes the LOCKED design system
+// (produced once by plan_carousel) and a single slide, and emits the skill's
+// 12 required sections in the exact order. The DESIGN SYSTEM block is
+// byte-for-byte identical across every slide in the set — that consistency
+// is what makes NanoBanana render a cohesive swipe instead of 7 drifting
+// one-offs. Changes must be limited to the PER-SLIDE block below.
+function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand }) {
+  const p = ds.palette;
+  const card = ds.card || {};
+  const badge = ds.badge || {};
+  const typo = ds.typography || {};
+  const brandStrip = ds.brandStrip || {};
+  const corner = (ds.glowCorners && ds.glowCorners[index]) || ['TL','TR','BR','BL'][index % 4];
+  const slideNum = String(index + 1).padStart(2, '0');
+  const totalNum = String(total).padStart(2, '0');
+  const isFinal = index === total - 1;
+  const isHook = index === 0;
+
+  // SHARED DESIGN SYSTEM — identical across every slide in the set.
+  const designBlock = [
+    `CANVAS: 1080x1080 px square.`,
+    `BACKGROUND: Solid base ${p.background}. Radial gradient glow of ${p.glow} anchored in the ${corner} corner (fading to transparent). Overlay: ${ds.texture}. No other background elements.`,
+    brandStrip.show !== false ? `BRANDING STRIP (top bar, identical every slide): Left: small ${p.textMuted} ${brandStrip.brandName || brand?.name || 'brand'} wordmark at 18px, weight ${typo.bodyWeight || 500}. Aligned with the top margin 48px from edges.` : `BRANDING STRIP: none`,
+    `SLIDE COUNTER: "${slideNum} / ${totalNum}" in monospaced font, ${p.textMuted} at 40% opacity, top-right corner 48px inset.`,
+    `TYPOGRAPHY: Primary family ${typo.family || 'Inter'}, fallback ${typo.fallback || 'system-ui, sans-serif'}. Headline weight ${typo.headlineWeight || 700}, body weight ${typo.bodyWeight || 400}. No serif fonts. No decorative scripts.`,
+    `CARD STYLE (applies to all visual elements): ${card.style || 'glass'} — border 1px ${p.textPrimary} at ${Math.round((card.borderOpacity ?? 0.12) * 100)}% opacity, backdrop blur ${card.blurPx || 24}px, corner radius ${card.radiusPx || 20}px.`,
+    `ACCENT WORD TREATMENT (applies to the {{accent}}...{{/accent}} span in the headline): ${ds.accentTreatment}. Gradient stops: ${p.gradientStart} → ${p.gradientEnd}.`,
+    `BADGE STYLE (pill above headline on every slide): ${badge.shape || 'pill'} shape, fill ${badge.fill || 'transparent'}, 1px border ${badge.border || p.textPrimary + ' at 20% opacity'}, text color ${badge.textColor || p.textPrimary}, letter-spacing ${badge.letterSpacing || '0.08em'}, uppercase, 12px text, 10px vertical / 16px horizontal padding.`,
+    `COLOR LOCK: background ${p.background}, primary text ${p.textPrimary}, muted text ${p.textMuted}, accent primary ${p.accentPrimary}, gradient pair ${p.gradientStart}/${p.gradientEnd}. Do NOT introduce colors outside this list.`,
+    `MOOD: ${ds.mood}`,
+  ].join('\n');
+
+  // PER-SLIDE BLOCK — only thing that changes between slides.
+  const headlineRaw = String(slide.headline || '').replace(/\{\{accent\}\}([\s\S]*?)\{\{\/accent\}\}/, (_, w) => `[ACCENT]${w}[/ACCENT]`);
+  const perSlide = [
+    `SLIDE ${slideNum} OF ${totalNum} — TYPE: ${String(slide.type || '').toUpperCase()}`,
+    `BADGE LABEL: "${(slide.badge || '').toUpperCase()}"`,
+    `HEADLINE (render with line breaks preserved, apply the accent treatment ONLY to text inside [ACCENT]...[/ACCENT]):\n${headlineRaw}`,
+    `BODY COPY (below headline, ${p.textMuted}, left-aligned, 20px, weight ${typo.bodyWeight || 400}, max 4 lines):\n${slide.body || ''}`,
+    `VISUAL ELEMENT (${slide.visualElement?.kind || 'card'} — the hero of this slide): ${slide.visualElement?.description || ''}`,
+    isFinal
+      ? `CTA (bottom): "${slide.cta || 'Follow for more'}" in a solid pill button, fill ${p.accentPrimary}, text color ${p.background}, 14px, weight 600, centered horizontally, 120px from bottom edge.`
+      : `CTA HINT (bottom-right): "Keep swiping →" in a small ${card.style || 'glass'} pill, ${p.textMuted} at 70% opacity, 12px.`,
+    `DO NOT include: ${(slide.doNot && slide.doNot.length ? slide.doNot : ['stock photography','clipart','cartoon illustration','gradient-rainbow color bars','extra text outside what is specified','Instagram UI chrome']).map(s => `no ${s}`).join('; ')}.`,
+  ].join('\n');
+
+  return [
+    `You are rendering slide ${slideNum} of a ${totalNum}-slide Instagram carousel.`,
+    `The DESIGN SYSTEM below is LOCKED and identical across every slide. Follow it exactly. Only the PER-SLIDE block changes between slides.`,
+    ``,
+    `=== DESIGN SYSTEM (LOCKED — identical on every slide) ===`,
+    designBlock,
+    ``,
+    `=== PER-SLIDE ===`,
+    perSlide,
+    ``,
+    `HARD RULES: Render ONLY the content listed above. Do not add decorative elements, extra UI, watermarks, or Instagram chrome. Text must be rendered exactly as quoted (correct spelling, exact punctuation). This is slide ${slideNum}${isHook ? ' (the HOOK — most visually rich slide)' : isFinal ? ' (the CTA — minimal, confident, single clear action)' : ''}.`,
+  ].join('\n');
+}
+
 // Extract image prompt from AI text when it describes an image instead of calling the tool
 function extractImagePromptFromText(text) {
   // Look for common patterns: "Image Description:", "Image Concept:", "Thumbnail Concept:", markdown image blocks, etc.
@@ -1712,7 +1906,9 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
       ...messages,
     ];
 
-    // Include both web_search and generate_image tools
+    // Include both web_search and generate_image tools. plan_carousel
+    // is also exposed so Instagram carousel requests can route through
+    // the plan-first flow (user approves before any NanoBanana calls).
     const tools = [
       { type: 'web_search' },
       {
@@ -1720,6 +1916,12 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
         name: 'generate_image',
         description: IMAGE_TOOL.function.description,
         parameters: IMAGE_TOOL.function.parameters,
+      },
+      {
+        type: 'function',
+        name: 'plan_carousel',
+        description: PLAN_CAROUSEL_TOOL.function.description,
+        parameters: PLAN_CAROUSEL_TOOL.function.parameters,
       },
     ];
 
@@ -1795,7 +1997,7 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
             // Also check for function calls in the completed response output
             const output = parsed.response?.output || [];
             for (const item of output) {
-              if (item.type === 'function_call' && item.name === 'generate_image') {
+              if (item.type === 'function_call' && (item.name === 'generate_image' || item.name === 'plan_carousel')) {
                 const callId = item.call_id || item.id || `fc-${Object.keys(functionCalls).length}`;
                 functionCalls[callId] = { name: item.name, arguments: item.arguments || '' };
               }
@@ -1818,32 +2020,40 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
       onTextChunk(fullContent);
     }
 
-    // Process any generate_image function calls
-    const imageCalls = [];
+    // Process function calls — we now emit both generate_image and plan_carousel.
+    // Caller receives an array of { kind: 'image'|'plan', ...args } and dispatches.
+    const toolCallsOut = [];
     for (const call of Object.values(functionCalls)) {
       if (call.name === 'generate_image') {
         try {
           const args = JSON.parse(call.arguments);
-          if (args.prompt) imageCalls.push({ id: call.id || 'fc', prompt: args.prompt });
+          if (args.prompt) toolCallsOut.push({ kind: 'image', id: call.id || 'fc', prompt: args.prompt });
+        } catch { /* skip bad JSON */ }
+      } else if (call.name === 'plan_carousel') {
+        try {
+          const args = JSON.parse(call.arguments);
+          if (args && Array.isArray(args.slides) && args.designSystem) {
+            toolCallsOut.push({ kind: 'plan', id: call.id || 'fc', plan: args });
+          }
         } catch { /* skip bad JSON */ }
       }
     }
 
     let hadToolCall = false;
-    if (imageCalls.length === 0 && fullContent) {
+    if (toolCallsOut.length === 0 && fullContent) {
       const extractedPrompt = extractImagePromptFromText(fullContent);
-      if (extractedPrompt) imageCalls.push({ id: 'fallback', prompt: extractedPrompt });
+      if (extractedPrompt) toolCallsOut.push({ kind: 'image', id: 'fallback', prompt: extractedPrompt });
     }
-    if (imageCalls.length > 0) {
+    if (toolCallsOut.length > 0) {
       hadToolCall = true;
-      await onToolCall(imageCalls);
+      await onToolCall(toolCallsOut);
     }
 
     if (onSearchStatus) onSearchStatus(null);
     return { content: fullContent, hadToolCall };
   }
 
-  // Fallback mode: Chat Completions API with image tool only (no web search)
+  // Fallback mode: Chat Completions API with image + plan_carousel tools (no web search)
   const res = await fetch('/api/xai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -1854,7 +2064,7 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
       model: 'grok-4-1-fast-non-reasoning',
       messages: [{ role: 'system', content: systemPrompt }, ...messages],
       stream: true,
-      tools: [IMAGE_TOOL],
+      tools: [IMAGE_TOOL, PLAN_CAROUSEL_TOOL],
       tool_choice: 'auto',
     }),
     signal: abortSignal,
@@ -1904,30 +2114,111 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
     }
   }
 
-  const calls = Object.values(toolCalls).filter((tc) => tc.name === 'generate_image');
+  const calls = Object.values(toolCalls).filter((tc) => tc.name === 'generate_image' || tc.name === 'plan_carousel');
 
   let hadToolCall = false;
-  const imageCalls = [];
+  const toolCallsOut = [];
   for (const call of calls) {
     try {
       const args = JSON.parse(call.arguments);
-      if (args.prompt) imageCalls.push({ id: call.id, prompt: args.prompt });
+      if (call.name === 'generate_image' && args.prompt) {
+        toolCallsOut.push({ kind: 'image', id: call.id, prompt: args.prompt });
+      } else if (call.name === 'plan_carousel' && Array.isArray(args.slides) && args.designSystem) {
+        toolCallsOut.push({ kind: 'plan', id: call.id, plan: args });
+      }
     } catch (e) { console.error('Tool call parse error:', e, call.arguments); }
   }
 
-  if (imageCalls.length === 0 && fullContent) {
+  if (toolCallsOut.length === 0 && fullContent) {
     const extractedPrompt = extractImagePromptFromText(fullContent);
     if (extractedPrompt) {
-      imageCalls.push({ id: 'fallback', prompt: extractedPrompt });
+      toolCallsOut.push({ kind: 'image', id: 'fallback', prompt: extractedPrompt });
     }
   }
 
-  if (imageCalls.length > 0) {
+  if (toolCallsOut.length > 0) {
     hadToolCall = true;
-    await onToolCall(imageCalls);
+    await onToolCall(toolCallsOut);
   }
 
   return { content: fullContent, hadToolCall };
+}
+
+// Carousel plan approval card — shows the plan_carousel output so the user
+// can review the hook, slide roster, and locked design system before we
+// burn N NanoBanana calls. Click "Approve & generate slides" to kick off
+// Phase 3 (per-slide image generation with the locked design system block).
+function CarouselPlanCard({ plan, onApprove }) {
+  const ds = plan.designSystem || {};
+  const p = ds.palette || {};
+  const slides = plan.slides || [];
+  const disabled = plan.approved || plan.generating;
+  return (
+    <div className="content-carousel-plan">
+      <div className="content-carousel-plan-header">
+        <span className="content-carousel-plan-badge">CAROUSEL PLAN</span>
+        <span className="content-carousel-plan-slides-count">{slides.length} slides</span>
+      </div>
+      {plan.hook && (
+        <div className="content-carousel-plan-hook">
+          <div className="content-carousel-plan-label">Hook</div>
+          <div className="content-carousel-plan-hook-text">"{plan.hook}"</div>
+        </div>
+      )}
+      {plan.angle && (
+        <div className="content-carousel-plan-angle">
+          <span className="content-carousel-plan-label">Angle:</span> {plan.angle}
+        </div>
+      )}
+      <div className="content-carousel-plan-section">
+        <div className="content-carousel-plan-label">Slides</div>
+        <ol className="content-carousel-plan-slide-list">
+          {slides.map((s, i) => (
+            <li key={i} className="content-carousel-plan-slide-item">
+              <span className="content-carousel-plan-slide-type">{String(s.type || '').toUpperCase()}</span>
+              <span className="content-carousel-plan-slide-desc">
+                {s.badge ? <strong>{s.badge}:</strong> : null} {(s.headline || '').replace(/\{\{accent\}\}|\{\{\/accent\}\}/g, '')}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div className="content-carousel-plan-section">
+        <div className="content-carousel-plan-label">Design system (locked)</div>
+        <div className="content-carousel-plan-palette">
+          {[p.background, p.accentPrimary, p.gradientStart, p.gradientEnd, p.textPrimary, p.glow].filter(Boolean).map((hex, i) => (
+            <div key={i} className="content-carousel-plan-swatch" style={{ background: hex }} title={hex}>
+              <span>{hex}</span>
+            </div>
+          ))}
+        </div>
+        <div className="content-carousel-plan-meta">
+          <div><strong>Mode:</strong> {ds.mode || '—'}</div>
+          <div><strong>Card:</strong> {ds.card?.style || '—'}</div>
+          <div><strong>Font:</strong> {ds.typography?.family || '—'}</div>
+          <div><strong>Accent:</strong> {ds.accentTreatment?.slice(0, 80) || '—'}</div>
+        </div>
+        {ds.mood && <div className="content-carousel-plan-mood">{ds.mood}</div>}
+      </div>
+      {plan.caption && (
+        <div className="content-carousel-plan-section">
+          <div className="content-carousel-plan-label">Caption</div>
+          <div className="content-carousel-plan-caption">{plan.caption}</div>
+        </div>
+      )}
+      <button
+        type="button"
+        className={`content-carousel-plan-approve${disabled ? ' content-carousel-plan-approve--disabled' : ''}`}
+        disabled={disabled}
+        onClick={onApprove}
+      >
+        {plan.approved
+          ? (plan.generating ? 'Generating slides…' : 'Approved')
+          : 'Approve & generate slides'}
+      </button>
+      {plan.error && <div className="content-carousel-plan-error">{plan.error}</div>}
+    </div>
+  );
 }
 
 function SocialThumb({ src }) {
@@ -2394,8 +2685,30 @@ export default function Content() {
           displayText = displayText.replace(/<<READY_(?:[AB]|CAROUSEL)>>/g, '').trim();
           setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: displayText } : m)));
         },
-        // onToolCalls  -  all generate_image calls at once, run in parallel
-        async (imageCalls) => {
+        // onToolCalls  -  now handles two kinds:
+        //   kind: 'plan'  → Instagram carousel plan_carousel. Attach the plan
+        //                   to the message and WAIT for user approval. The
+        //                   approval click fires the per-slide images with
+        //                   the locked DESIGN SYSTEM block embedded.
+        //   kind: 'image' → regular generate_image calls, run in parallel.
+        async (toolCalls) => {
+          // Backward compat: older call sites may still pass bare image arrays.
+          const normalized = toolCalls.map(c => c.kind ? c : { kind: 'image', ...c });
+          const planCalls = normalized.filter(c => c.kind === 'plan');
+          const imageCalls = normalized.filter(c => c.kind === 'image');
+
+          if (planCalls.length > 0) {
+            // Only take the first plan — Claude should only produce one.
+            const plan = planCalls[0].plan;
+            console.log(`📋 Carousel plan received: ${plan.slides?.length} slides`);
+            setMessages((prev) => prev.map((m) =>
+              m.id === assistantMsgId ? { ...m, carouselPlan: { ...plan, approved: false, generating: false } } : m
+            ));
+            // Do NOT fire generate_image — wait for approval click.
+            return;
+          }
+
+          if (imageCalls.length === 0) return;
           hadImageGeneration = true;
           console.log(`🖼️ Generating ${imageCalls.length} image(s) in parallel`);
           setMessages((prev) => prev.map((m) =>
@@ -2644,7 +2957,10 @@ export default function Content() {
               setLinkedinPreview(prev => prev ? { ...prev, content: caption } : { content: caption, images: [], totalSlides: 0, msgId: assistantMsgId });
             },
             // onToolCalls — generate images for each carousel slide
-            async (imageCalls) => {
+            async (toolCalls) => {
+              // Streamer now returns typed tool calls; LinkedIn flow only uses images.
+              const imageCalls = toolCalls.map(c => c.kind ? c : { kind: 'image', ...c }).filter(c => c.kind === 'image');
+              if (imageCalls.length === 0) return;
               // Set total slide count so the UI knows how many slots to show
               setLinkedinPreview(prev => prev ? { ...prev, totalSlides: (prev.totalSlides || 0) + imageCalls.length } : prev);
               const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
@@ -2720,6 +3036,112 @@ export default function Content() {
   const stopGenerating = useCallback(() => {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; setIsGenerating(false); setActiveAssistantId(null); }
   }, []);
+
+  // Approve an Instagram carousel plan and render the slides.
+  // Fires slide 1 first → once it lands, passes its bytes as a reference image
+  // for slides 2..N so NanoBanana visually anchors to the hook's palette and
+  // typography beyond what the text prompt alone encodes.
+  const handleCarouselApprove = useCallback(async (msgId) => {
+    const msg = messages.find(m => m.id === msgId);
+    if (!msg?.carouselPlan || msg.carouselPlan.approved) return;
+    const plan = msg.carouselPlan;
+    const slides = plan.slides || [];
+    if (!slides.length) return;
+
+    // Mark approved + kick off loading state so skeletons render.
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, carouselPlan: { ...m.carouselPlan, approved: true, generating: true }, pendingImages: slides.length, images: m.images || [] } : m
+    ));
+    setIsGenerating(true);
+    setActiveAssistantId(msgId);
+
+    const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
+    const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
+    const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
+    const brandImageData = {
+      photoUrls: allPhotoUrls,
+      logoUrl: null,
+      colors: brandDna?.colors || {},
+      mainFont: brandDna?.main_font || null,
+    };
+    const brandForPrompt = { name: brandDna?.brand_name || brandDna?.description?.split(/[.,]/)[0]?.trim() || '' };
+
+    const appendImage = (src, idx) => {
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? {
+          ...m,
+          images: [...(m.images || []), { src, idx }],
+          pendingImages: Math.max(0, (m.pendingImages || 0) - 1),
+        } : m
+      ));
+    };
+
+    try {
+      // Phase 3a: render slide 1 alone.
+      const slide1Prompt = buildCarouselSlidePrompt({
+        designSystem: plan.designSystem,
+        slide: slides[0],
+        index: 0,
+        total: slides.length,
+        brand: brandForPrompt,
+      });
+      const slide1 = await generateImage(slide1Prompt, 'instagram', brandImageData, null);
+      let hookRef = null;
+      if (slide1?.image) {
+        const src = `data:${slide1.image.mimeType};base64,${slide1.image.data}`;
+        appendImage(src, 0);
+        hookRef = { data: slide1.image.data, mimeType: slide1.image.mimeType };
+      } else {
+        // Still drop the pending counter so the skeleton clears.
+        setMessages(prev => prev.map(m =>
+          m.id === msgId ? { ...m, pendingImages: Math.max(0, (m.pendingImages || 0) - 1) } : m
+        ));
+      }
+
+      // Phase 3b: render slides 2..N in parallel, each referencing slide 1
+      // so NanoBanana visually locks onto the hook's palette/typography.
+      const rest = slides.slice(1).map(async (slide, i) => {
+        const idx = i + 1;
+        const slidePrompt = buildCarouselSlidePrompt({
+          designSystem: plan.designSystem,
+          slide,
+          index: idx,
+          total: slides.length,
+          brand: brandForPrompt,
+        });
+        const result = await generateImage(slidePrompt, 'instagram', brandImageData, hookRef ? [hookRef] : null);
+        if (result?.image) {
+          const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+          appendImage(src, idx);
+        } else {
+          setMessages(prev => prev.map(m =>
+            m.id === msgId ? { ...m, pendingImages: Math.max(0, (m.pendingImages || 0) - 1) } : m
+          ));
+        }
+        return result;
+      });
+      await Promise.allSettled(rest);
+
+      // Mark carousel generation complete.
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? {
+          ...m,
+          pendingImages: 0,
+          carouselPlan: { ...m.carouselPlan, generating: false },
+          // If Claude included a caption in the plan, surface it as the message body.
+          content: m.content || plan.caption || '',
+        } : m
+      ));
+    } catch (err) {
+      console.error('Carousel generation failed:', err);
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? { ...m, pendingImages: 0, carouselPlan: { ...m.carouselPlan, generating: false, error: err.message || 'Generation failed' } } : m
+      ));
+    } finally {
+      setIsGenerating(false);
+      setActiveAssistantId(null);
+    }
+  }, [messages, photos, brandDna]);
 
   // Block sending while any attachment is still uploading/extracting  -  otherwise the
   // AI receives a prompt without the context the user just attached.
@@ -3933,6 +4355,13 @@ export default function Content() {
                             ),
                           }}>{parsed.text}</ReactMarkdown>
                         </div>
+                      )}
+                      {/* Carousel plan approval card — Instagram only */}
+                      {msg.carouselPlan && (
+                        <CarouselPlanCard
+                          plan={msg.carouselPlan}
+                          onApprove={() => handleCarouselApprove(msg.id)}
+                        />
                       )}
                       {/* Image carousel  -  below text */}
                       {hasImages && (
