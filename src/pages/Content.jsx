@@ -1463,6 +1463,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     prompt += `   - angle: strategic POV in one sentence.\n`;
     prompt += `   - caption: the IG caption the user will paste with the post.\n`;
     prompt += `   - slides: 5-9 slides with {type, badge, headline, body, visualElement, doNot}. Slide 1 is always hook, last slide is cta.\n`;
+    prompt += `   - SLIDE VISUAL BUDGET: Slide 1 (hook) and last slide (CTA) get RICH visuals — card stacks, founder photo with floating proof chip, full stat blocks, chat UIs, diagrams, etc. MIDDLE slides (2..N-1) are TEXT-FORWARD — headline + body are the hero. Their visualElement must be MINIMAL: pick one of {"minimal-icon", "stat-chip", "divider-line", "numeric-marker"} for visualElement.kind and describe it as a tiny supporting accent (single outlined icon, one short stat, subtle divider, faint slide-number marker). Do NOT propose card-stack, node-diagram, chat-ui, ui-mockup, or founder-photo for middle slides — save those for the hook and CTA.\n`;
     prompt += `   - designSystem: locked visual spec every slide inherits. Honor Brand DNA primary color as the anchor accent — pick secondary/gradient/glow to harmonize with it, not replace it. Rotate glow corner each slide for swipe momentum. No purple/pink defaults unless Brand DNA demands.\n`;
     prompt += `   HEADLINE ACCENT: mark the hero word(s) of each headline with {{accent}}word{{/accent}} so the client can apply the gradient accent. Every headline must have exactly one accent span.\n`;
     prompt += `   After calling plan_carousel the client will render an approval card and the user decides when to generate images. Your job ends with the plan.\n`;
@@ -1831,23 +1832,49 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
     `MOOD: ${ds.mood}`,
   ].join('\n');
 
+  // Layout choice: hook (slide 1) and CTA (last slide) are visually RICH —
+  // they carry the emotional weight of the carousel and earn the full
+  // visual treatment. Middle content slides (2..N-1) are TEXT-FORWARD —
+  // headline + body dominate the canvas, and the "visual element" is
+  // degraded to a small supporting accent (single icon, tiny stat chip,
+  // subtle divider). This mirrors how good informational carousels
+  // actually read: the first slide grabs, the middle reads like a clean
+  // thread, the last closes. It also keeps cognitive load low while the
+  // reader swipes.
+  const isMiddle = !isHook && !isFinal;
+
   // PER-SLIDE BLOCK — only thing that changes between slides.
   const headlineRaw = String(slide.headline || '').replace(/\{\{accent\}\}([\s\S]*?)\{\{\/accent\}\}/, (_, w) => `[ACCENT]${w}[/ACCENT]`);
   const perSlide = [
-    `SLIDE ${slideNum} OF ${totalNum} — TYPE: ${String(slide.type || '').toUpperCase()}`,
-    `BADGE LABEL: "${(slide.badge || '').toUpperCase()}"`,
-    `HEADLINE (render with line breaks preserved, apply the accent treatment ONLY to text inside [ACCENT]...[/ACCENT]):\n${headlineRaw}`,
-    `BODY COPY (below headline, ${p.textMuted}, left-aligned, 20px, weight ${typo.bodyWeight || 400}, max 4 lines):\n${slide.body || ''}`,
-    `VISUAL ELEMENT (${slide.visualElement?.kind || 'card'} — the hero of this slide): ${slide.visualElement?.description || ''}`,
+    `SLIDE ${slideNum} OF ${totalNum} — TYPE: ${String(slide.type || '').toUpperCase()} — LAYOUT: ${isHook ? 'RICH-HOOK' : isFinal ? 'RICH-CTA' : 'TEXT-FORWARD'}`,
+    `BADGE LABEL: "${(slide.badge || '').toUpperCase()}" — positioned 96px from the top-left, just below the branding strip.`,
+    isMiddle
+      ? `HEADLINE (this is the hero of the slide — give it 55–65% of the vertical space): large ${p.textPrimary}, weight ${typo.headlineWeight || 700}, 72–88px, left-aligned, tight leading (1.05), preserve line breaks, apply accent treatment ONLY to text inside [ACCENT]...[/ACCENT]:\n${headlineRaw}`
+      : `HEADLINE (render with line breaks preserved, apply accent treatment ONLY to text inside [ACCENT]...[/ACCENT]):\n${headlineRaw}`,
+    isMiddle
+      ? `BODY COPY (directly below headline, ${p.textMuted}, left-aligned, 22px, weight ${typo.bodyWeight || 400}, leading 1.45, max 4 lines):\n${slide.body || ''}`
+      : `BODY COPY (below headline, ${p.textMuted}, left-aligned, 20px, weight ${typo.bodyWeight || 400}, max 4 lines):\n${slide.body || ''}`,
+    isMiddle
+      ? `MINIMAL ACCENT (this slide is TEXT-FORWARD — do NOT render a full card, diagram, chat UI, stat stack, or hero visual). Render ONLY one small supporting accent element in the lower portion of the canvas, max 15% of canvas area, sized smaller than the headline. Options (pick ONE that fits the slide's point): a single outlined line icon in ${p.accentPrimary} stroke at ~56px; OR a slim horizontal divider line in ${p.accentPrimary} at 30% opacity spanning 120px; OR a tiny stat chip (${card.style || 'glass'} pill, one short number + one-word label); OR a numeric marker ("${String(index + 1).padStart(2, '0')}") in ${p.accentPrimary} at 160px, weight 800, placed behind the badge area at 8% opacity. Whatever you choose, it must be SUBTLE — text is the hero on this slide. Supporting hint from the planner (use as inspiration, but keep the scale minimal regardless of what is described): "${slide.visualElement?.description || ''}"`
+      : `VISUAL ELEMENT (${slide.visualElement?.kind || 'card'} — the hero of this ${isHook ? 'HOOK' : 'CTA'} slide, full visual treatment): ${slide.visualElement?.description || ''}`,
     isFinal
       ? `CTA (bottom): "${slide.cta || 'Follow for more'}" in a solid pill button, fill ${p.accentPrimary}, text color ${p.background}, 14px, weight 600, centered horizontally, 120px from bottom edge.`
       : `CTA HINT (bottom-right): "Keep swiping →" in a small ${card.style || 'glass'} pill, ${p.textMuted} at 70% opacity, 12px.`,
-    `DO NOT include: ${(slide.doNot && slide.doNot.length ? slide.doNot : ['stock photography','clipart','cartoon illustration','gradient-rainbow color bars','extra text outside what is specified','Instagram UI chrome']).map(s => `no ${s}`).join('; ')}.`,
+    `DO NOT include: ${[
+      ...(slide.doNot && slide.doNot.length ? slide.doNot : ['stock photography','clipart','cartoon illustration','gradient-rainbow color bars','extra text outside what is specified','Instagram UI chrome']),
+      ...(isMiddle ? [
+        'no large hero visual or full-canvas graphic',
+        'no card stack, chat UI, node diagram, or multi-element composition',
+        'no mockups or UI screenshots on this slide',
+        'no illustration taking more than 15% of the canvas',
+      ] : []),
+    ].map(s => s.startsWith('no ') ? s : `no ${s}`).join('; ')}.`,
   ].join('\n');
 
   return [
     `You are rendering slide ${slideNum} of a ${totalNum}-slide Instagram carousel.`,
     `The DESIGN SYSTEM below is LOCKED and identical across every slide. Follow it exactly. Only the PER-SLIDE block changes between slides.`,
+    `LAYOUT MODEL: This carousel uses a rich-hook + minimal-body + rich-CTA model. Slide 1 and slide ${totalNum} are visually rich; slides 02–${String(total - 1).padStart(2, '0')} are TEXT-FORWARD with only a small supporting accent. Render accordingly.`,
     ``,
     `=== DESIGN SYSTEM (LOCKED — identical on every slide) ===`,
     designBlock,
