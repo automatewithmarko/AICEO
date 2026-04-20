@@ -1114,6 +1114,39 @@ export async function publishCalendarPost(id) {
   return res.json();
 }
 
+// ─── Carousel Templates (saved design systems) ───
+
+export async function getCarouselTemplates() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/carousel-templates`, { headers });
+  if (!res.ok) return { templates: [] };
+  return res.json();
+}
+
+export async function createCarouselTemplate({ name, design_system, preview_url }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/carousel-templates`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, design_system, preview_url }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to save template' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function deleteCarouselTemplate(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/carousel-templates/${id}`, {
+    method: 'DELETE',
+    headers,
+  });
+  if (!res.ok) throw new Error('Failed to delete template');
+  return res.json();
+}
+
 // ─── Billing ───
 
 export async function getBillingPlan() {

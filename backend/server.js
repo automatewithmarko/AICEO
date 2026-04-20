@@ -24,6 +24,7 @@ import formRoutes from './routes/forms.js';
 import dashboardRoutes from './routes/dashboard.js';
 import artifactVersionRoutes from './routes/artifact-versions.js';
 import calendarRoutes from './routes/calendar.js';
+import carouselTemplateRoutes from './routes/carousel-templates.js';
 import billingRoutes from './routes/billing.js';
 import adminRoutes from './routes/admin.js';
 import { startEmailSync } from './services/email-sync.js';
@@ -1014,6 +1015,13 @@ app.use((req, res, next) => {
   next();
 });
 app.use(calendarRoutes);
+
+// ─── Carousel templates (auth required) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/carousel-templates')) return requireAuth(req, res, next);
+  next();
+});
+app.use(carouselTemplateRoutes);
 
 // ─── Billing routes (auth required, except /plans and /costs which are public-ish) ───
 app.use((req, res, next) => {

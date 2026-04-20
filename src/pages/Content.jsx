@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
@@ -2287,6 +2287,38 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
   const editable = !plan.approved; // Only editable BEFORE approval.
   const [dragIdx, setDragIdx] = useState(null);
   const [dropIdx, setDropIdx] = useState(null);
+  const [templates, setTemplates] = useState([]);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+
+  // Lazy-fetch saved templates only when the picker is opened.
+  const loadTemplates = async () => {
+    if (templates.length > 0 || loadingTemplates) return;
+    setLoadingTemplates(true);
+    try {
+      const { templates: list } = await getCarouselTemplates();
+      setTemplates(list || []);
+    } catch (err) {
+      console.warn('[templates] load failed:', err);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  const applyTemplate = (template) => {
+    if (!editable || !onUpdatePlan || !template?.design_system) return;
+    onUpdatePlan({ ...plan, designSystem: template.design_system });
+    setTemplatesOpen(false);
+  };
+
+  const removeTemplate = async (id) => {
+    try {
+      await deleteCarouselTemplate(id);
+      setTemplates(prev => prev.filter(t => t.id !== id));
+    } catch (err) {
+      alert(err.message || 'Failed to delete template');
+    }
+  };
 
   const updateSlide = (idx, patch) => {
     if (!editable || !onUpdatePlan) return;
@@ -2329,6 +2361,44 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
       <div className="content-carousel-plan-header">
         <span className="content-carousel-plan-badge">CAROUSEL PLAN</span>
         <span className="content-carousel-plan-slides-count">{slides.length} slides{editable ? ' · editable' : ''}</span>
+        {editable && (
+          <div className="content-carousel-plan-templates-wrap">
+            <button
+              type="button"
+              className="content-carousel-plan-templates-btn"
+              onClick={() => { setTemplatesOpen(v => !v); if (!templatesOpen) loadTemplates(); }}
+              title="Apply a saved design system"
+            >
+              Load template ▾
+            </button>
+            {templatesOpen && (
+              <div className="content-carousel-plan-templates-pop" onClick={(e) => e.stopPropagation()}>
+                {loadingTemplates && <div className="content-carousel-plan-templates-empty">Loading…</div>}
+                {!loadingTemplates && templates.length === 0 && (
+                  <div className="content-carousel-plan-templates-empty">No saved templates yet. After generating a carousel, click "Save as template" to capture its design system.</div>
+                )}
+                {templates.map(t => (
+                  <div key={t.id} className="content-carousel-plan-template-row">
+                    <button type="button" className="content-carousel-plan-template-apply" onClick={() => applyTemplate(t)}>
+                      {t.preview_url ? <img src={t.preview_url} alt="" className="content-carousel-plan-template-thumb" /> : null}
+                      <div className="content-carousel-plan-template-info">
+                        <div className="content-carousel-plan-template-name">{t.name}</div>
+                        <div className="content-carousel-plan-template-swatches">
+                          {[t.design_system?.palette?.background, t.design_system?.palette?.accentPrimary, t.design_system?.palette?.gradientStart, t.design_system?.palette?.gradientEnd].filter(Boolean).map((hex, i) => (
+                            <span key={i} className="content-carousel-plan-template-swatch" style={{ background: hex }} />
+                          ))}
+                        </div>
+                      </div>
+                    </button>
+                    <button type="button" className="content-carousel-plan-template-delete" title="Delete template" onClick={() => removeTemplate(t.id)}>
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       {plan.hook && (
         <div className="content-carousel-plan-hook">
@@ -2428,12 +2498,27 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
         </div>
       </div>
       <div className="content-carousel-plan-section">
-        <div className="content-carousel-plan-label">Design system (locked)</div>
+        <div className="content-carousel-plan-label">Design system {editable ? '(tap a swatch to change)' : '(locked)'}</div>
         <div className="content-carousel-plan-palette">
-          {[p.background, p.accentPrimary, p.gradientStart, p.gradientEnd, p.textPrimary, p.glow].filter(Boolean).map((hex, i) => (
-            <div key={i} className="content-carousel-plan-swatch" style={{ background: hex }} title={hex}>
-              <span>{hex}</span>
-            </div>
+          {[
+            { key: 'background', label: 'BG', hex: p.background },
+            { key: 'accentPrimary', label: 'Accent', hex: p.accentPrimary },
+            { key: 'gradientStart', label: 'Grad A', hex: p.gradientStart },
+            { key: 'gradientEnd', label: 'Grad B', hex: p.gradientEnd },
+            { key: 'textPrimary', label: 'Text', hex: p.textPrimary },
+            { key: 'glow', label: 'Glow', hex: p.glow },
+          ].filter(s => s.hex).map(s => (
+            <label key={s.key} className={`content-carousel-plan-swatch${editable ? ' content-carousel-plan-swatch--editable' : ''}`} style={{ background: s.hex }} title={`${s.label}: ${s.hex}`}>
+              {editable && onUpdatePlan && (
+                <input
+                  type="color"
+                  value={s.hex}
+                  onChange={(e) => onUpdatePlan({ ...plan, designSystem: { ...ds, palette: { ...p, [s.key]: e.target.value } } })}
+                  className="content-carousel-plan-swatch-input"
+                />
+              )}
+              <span>{s.hex}</span>
+            </label>
           ))}
         </div>
         <div className="content-carousel-plan-meta">
@@ -2633,28 +2718,35 @@ function CarouselActionsBar({ msgId, plan, images }) {
     return d.toISOString().slice(0, 16);
   });
   const [scheduling, setScheduling] = useState(false);
-  const [scheduleStatus, setScheduleStatus] = useState(null); // 'saved' | null
+  const [scheduleStatus, setScheduleStatus] = useState(null); // 'saved' | 'published' | null
 
-  const saveToCalendar = async (mode /* 'scheduled' | 'draft' */) => {
+  // Upload any data-URL slides to storage and return the media array
+  // ready for social_posts.
+  const collectMedia = async () => {
+    const media = [];
+    for (const img of images) {
+      if (!img.src) continue;
+      let url = img.src;
+      if (url.startsWith('data:')) {
+        const commaIdx = url.indexOf(',');
+        const mimeMatch = url.match(/^data:([^;]+);/);
+        const base64 = url.slice(commaIdx + 1);
+        const mimeType = mimeMatch?.[1] || 'image/png';
+        const uploaded = await uploadImageToStorage(base64, mimeType);
+        url = uploaded.url || uploaded.publicUrl || url;
+      }
+      media.push({ type: 'image', url });
+    }
+    return media;
+  };
+
+  const saveToCalendar = async (mode /* 'scheduled' | 'draft' | 'publish' */) => {
     if (scheduling) return;
     setScheduling(true);
     try {
-      const media = [];
-      for (const img of images) {
-        if (!img.src) continue;
-        let url = img.src;
-        if (url.startsWith('data:')) {
-          const commaIdx = url.indexOf(',');
-          const mimeMatch = url.match(/^data:([^;]+);/);
-          const base64 = url.slice(commaIdx + 1);
-          const mimeType = mimeMatch?.[1] || 'image/png';
-          const uploaded = await uploadImageToStorage(base64, mimeType);
-          url = uploaded.url || uploaded.publicUrl || url;
-        }
-        media.push({ type: 'image', url });
-      }
+      const media = await collectMedia();
       if (!media.length) throw new Error('No images to schedule');
-      await createCalendarPost({
+      const { post } = await createCalendarPost({
         platform: 'instagram',
         caption: plan.caption || '',
         content_type: 'carousel',
@@ -2662,7 +2754,13 @@ function CarouselActionsBar({ msgId, plan, images }) {
         media,
         status: mode === 'scheduled' ? 'scheduled' : 'draft',
       });
-      setScheduleStatus('saved');
+      if (mode === 'publish') {
+        // Fire the BooSend → Instagram publish pipeline on the saved row.
+        await publishCalendarPost(post.id);
+        setScheduleStatus('published');
+      } else {
+        setScheduleStatus('saved');
+      }
       setScheduleOpen(false);
       setTimeout(() => setScheduleStatus(null), 4000);
     } catch (err) {
@@ -2670,6 +2768,44 @@ function CarouselActionsBar({ msgId, plan, images }) {
       alert(err.message || 'Failed to save to calendar');
     } finally {
       setScheduling(false);
+    }
+  };
+
+  // Save the current design system as a reusable template. Upload the hook
+  // slide as the preview thumbnail if it's still a data URL.
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateSaved, setTemplateSaved] = useState(false);
+  const saveAsTemplate = async () => {
+    if (savingTemplate) return;
+    const defaultName = `${(plan.hook || 'Carousel').slice(0, 48)} · ${new Date().toLocaleDateString()}`;
+    const name = window.prompt('Template name:', defaultName);
+    if (!name) return;
+    setSavingTemplate(true);
+    try {
+      const hook = images.find(i => i.idx === 0);
+      let previewUrl = null;
+      if (hook?.src?.startsWith('data:')) {
+        const commaIdx = hook.src.indexOf(',');
+        const mimeMatch = hook.src.match(/^data:([^;]+);/);
+        const base64 = hook.src.slice(commaIdx + 1);
+        const mimeType = mimeMatch?.[1] || 'image/png';
+        const uploaded = await uploadImageToStorage(base64, mimeType);
+        previewUrl = uploaded.url || uploaded.publicUrl || null;
+      } else if (hook?.src) {
+        previewUrl = hook.src;
+      }
+      await createCarouselTemplate({
+        name,
+        design_system: plan.designSystem,
+        preview_url: previewUrl,
+      });
+      setTemplateSaved(true);
+      setTimeout(() => setTemplateSaved(false), 4000);
+    } catch (err) {
+      console.error('Template save failed:', err);
+      alert(err.message || 'Failed to save template');
+    } finally {
+      setSavingTemplate(false);
     }
   };
 
@@ -2681,7 +2817,7 @@ function CarouselActionsBar({ msgId, plan, images }) {
       <div className="content-carousel-schedule-wrap">
         <button type="button" className="content-carousel-action-btn" onClick={() => setScheduleOpen(v => !v)} disabled={scheduling}>
           <CalendarDays size={14} />
-          {scheduleStatus === 'saved' ? 'Saved to calendar' : (scheduling ? 'Saving…' : 'Send to calendar')}
+          {scheduleStatus === 'published' ? 'Published to Instagram' : scheduleStatus === 'saved' ? 'Saved to calendar' : (scheduling ? 'Saving…' : 'Send to calendar')}
         </button>
         {scheduleOpen && (
           <div className="content-carousel-schedule-pop" onClick={(e) => e.stopPropagation()}>
@@ -2696,16 +2832,28 @@ function CarouselActionsBar({ msgId, plan, images }) {
               <button type="button" className="content-carousel-schedule-secondary" onClick={() => saveToCalendar('draft')} disabled={scheduling}>
                 Save as draft
               </button>
-              <button type="button" className="content-carousel-schedule-primary" onClick={() => saveToCalendar('scheduled')} disabled={scheduling}>
+              <button type="button" className="content-carousel-schedule-secondary" onClick={() => saveToCalendar('scheduled')} disabled={scheduling}>
                 Schedule
+              </button>
+              <button type="button" className="content-carousel-schedule-primary" onClick={() => saveToCalendar('publish')} disabled={scheduling} title="Save + publish immediately via connected Instagram account">
+                Publish now
               </button>
             </div>
             <div className="content-carousel-schedule-hint">
-              Reschedule or publish later from the Content Calendar tab.
+              "Publish now" uses the Instagram account connected under Settings. If not connected, save as draft and publish from the Content Calendar later.
             </div>
           </div>
         )}
       </div>
+      <button
+        type="button"
+        className="content-carousel-action-btn"
+        onClick={saveAsTemplate}
+        disabled={savingTemplate}
+        title="Save this design system so future carousels can inherit the look"
+      >
+        <Zap size={14} /> {templateSaved ? 'Template saved' : (savingTemplate ? 'Saving…' : 'Save as template')}
+      </button>
       {showTip && (
         <div className="content-carousel-edit-tip" onClick={dismissTip} role="button" title="Dismiss">
           <Pencil size={12} />
