@@ -2278,23 +2278,70 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
 // can review the hook, slide roster, and locked design system before we
 // burn N NanoBanana calls. Click "Approve & generate slides" to kick off
 // Phase 3 (per-slide image generation with the locked design system block).
-function CarouselPlanCard({ plan, onApprove, onRetryFailed }) {
+function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
   const ds = plan.designSystem || {};
   const p = ds.palette || {};
   const slides = plan.slides || [];
-  const disabled = plan.approved || plan.generating;
   const failed = plan.failedSlides || [];
   const hasFailed = failed.length > 0 && !plan.generating;
+  const editable = !plan.approved; // Only editable BEFORE approval.
+  const [dragIdx, setDragIdx] = useState(null);
+  const [dropIdx, setDropIdx] = useState(null);
+
+  const updateSlide = (idx, patch) => {
+    if (!editable || !onUpdatePlan) return;
+    const next = slides.map((s, i) => i === idx ? { ...s, ...patch } : s);
+    onUpdatePlan({ ...plan, slides: next });
+  };
+  const deleteSlide = (idx) => {
+    if (!editable || !onUpdatePlan) return;
+    // Hook (0) and last (CTA) cannot be removed.
+    if (idx === 0 || idx === slides.length - 1) return;
+    onUpdatePlan({ ...plan, slides: slides.filter((_, i) => i !== idx) });
+  };
+  const insertSlideAfter = (idx) => {
+    if (!editable || !onUpdatePlan) return;
+    const newSlide = {
+      type: 'explanation',
+      badge: 'NEW POINT',
+      headline: 'New slide headline — mark the {{accent}}key word{{/accent}}',
+      body: 'One short idea. Keep it to 2–4 lines.',
+      visualElement: { kind: 'minimal-icon', description: 'Small supporting accent only.' },
+      doNot: [],
+    };
+    const next = [...slides.slice(0, idx + 1), newSlide, ...slides.slice(idx + 1)];
+    onUpdatePlan({ ...plan, slides: next });
+  };
+  const moveSlide = (from, to) => {
+    if (!editable || !onUpdatePlan) return;
+    if (from === to) return;
+    // Hook stays at 0, CTA stays last.
+    if (from === 0 || from === slides.length - 1) return;
+    if (to === 0 || to >= slides.length - 1) return;
+    const next = [...slides];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onUpdatePlan({ ...plan, slides: next });
+  };
+
   return (
     <div className="content-carousel-plan">
       <div className="content-carousel-plan-header">
         <span className="content-carousel-plan-badge">CAROUSEL PLAN</span>
-        <span className="content-carousel-plan-slides-count">{slides.length} slides</span>
+        <span className="content-carousel-plan-slides-count">{slides.length} slides{editable ? ' · editable' : ''}</span>
       </div>
       {plan.hook && (
         <div className="content-carousel-plan-hook">
           <div className="content-carousel-plan-label">Hook</div>
-          <div className="content-carousel-plan-hook-text">"{plan.hook}"</div>
+          {editable
+            ? <input
+                className="content-carousel-plan-hook-input"
+                value={plan.hook}
+                onChange={(e) => onUpdatePlan && onUpdatePlan({ ...plan, hook: e.target.value })}
+                placeholder="Hook headline"
+              />
+            : <div className="content-carousel-plan-hook-text">"{plan.hook}"</div>
+          }
         </div>
       )}
       {plan.angle && (
@@ -2303,17 +2350,82 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed }) {
         </div>
       )}
       <div className="content-carousel-plan-section">
-        <div className="content-carousel-plan-label">Slides</div>
-        <ol className="content-carousel-plan-slide-list">
-          {slides.map((s, i) => (
-            <li key={i} className="content-carousel-plan-slide-item">
-              <span className="content-carousel-plan-slide-type">{String(s.type || '').toUpperCase()}</span>
-              <span className="content-carousel-plan-slide-desc">
-                {s.badge ? <strong>{s.badge}:</strong> : null} {(s.headline || '').replace(/\{\{accent\}\}|\{\{\/accent\}\}/g, '')}
-              </span>
-            </li>
-          ))}
-        </ol>
+        <div className="content-carousel-plan-label">Slides {editable && <span className="content-carousel-plan-hint">drag middle slides to reorder · pencil is always available on generated slides</span>}</div>
+        <div className="content-carousel-plan-slide-grid">
+          {slides.map((s, i) => {
+            const isHook = i === 0;
+            const isFinal = i === slides.length - 1;
+            const isLocked = isHook || isFinal;
+            const canDrag = editable && !isLocked;
+            const isDropZone = editable && dragIdx !== null && dropIdx === i && dragIdx !== i && !isHook && i < slides.length - 1;
+            return (
+              <div key={i} className={`content-carousel-plan-slide-card${isLocked ? ' content-carousel-plan-slide-card--locked' : ''}${isDropZone ? ' content-carousel-plan-slide-card--drop' : ''}`}
+                draggable={canDrag}
+                onDragStart={() => canDrag && setDragIdx(i)}
+                onDragEnter={() => editable && setDropIdx(i)}
+                onDragOver={(e) => editable && e.preventDefault()}
+                onDragEnd={() => { setDragIdx(null); setDropIdx(null); }}
+                onDrop={() => { if (dragIdx !== null && dropIdx !== null) moveSlide(dragIdx, dropIdx); setDragIdx(null); setDropIdx(null); }}
+              >
+                <div className="content-carousel-plan-slide-card-head">
+                  <span className="content-carousel-plan-slide-num">{String(i + 1).padStart(2, '0')}</span>
+                  <span className="content-carousel-plan-slide-type">{isHook ? 'HOOK' : isFinal ? 'CTA' : String(s.type || 'SLIDE').toUpperCase()}</span>
+                  {editable && !isLocked && (
+                    <button type="button" className="content-carousel-plan-slide-delete" title="Delete slide" onClick={() => deleteSlide(i)}>
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+                {editable
+                  ? <input
+                      className="content-carousel-plan-slide-badge-input"
+                      value={s.badge || ''}
+                      onChange={(e) => updateSlide(i, { badge: e.target.value })}
+                      placeholder="BADGE LABEL"
+                    />
+                  : <div className="content-carousel-plan-slide-badge">{s.badge || ''}</div>
+                }
+                {editable
+                  ? <textarea
+                      className="content-carousel-plan-slide-headline-input"
+                      value={s.headline || ''}
+                      onChange={(e) => updateSlide(i, { headline: e.target.value })}
+                      placeholder="Headline — wrap the accent word with {{accent}}word{{/accent}}"
+                      rows={2}
+                    />
+                  : <div className="content-carousel-plan-slide-headline">
+                      {(s.headline || '').replace(/\{\{accent\}\}|\{\{\/accent\}\}/g, '')}
+                    </div>
+                }
+                {editable
+                  ? <textarea
+                      className="content-carousel-plan-slide-body-input"
+                      value={s.body || ''}
+                      onChange={(e) => updateSlide(i, { body: e.target.value })}
+                      placeholder="Body copy (2–4 lines)"
+                      rows={3}
+                    />
+                  : (s.body && <div className="content-carousel-plan-slide-body">{s.body}</div>)
+                }
+                {isFinal && (
+                  editable
+                    ? <input
+                        className="content-carousel-plan-slide-cta-input"
+                        value={s.cta || ''}
+                        onChange={(e) => updateSlide(i, { cta: e.target.value })}
+                        placeholder="CTA button text"
+                      />
+                    : (s.cta && <div className="content-carousel-plan-slide-cta">CTA: {s.cta}</div>)
+                )}
+                {editable && !isFinal && i < slides.length - 1 && (
+                  <button type="button" className="content-carousel-plan-slide-insert" onClick={() => insertSlideAfter(i)} title="Insert slide after this one">
+                    <Plus size={12} /> insert slide
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
       <div className="content-carousel-plan-section">
         <div className="content-carousel-plan-label">Design system (locked)</div>
@@ -2332,10 +2444,25 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed }) {
         </div>
         {ds.mood && <div className="content-carousel-plan-mood">{ds.mood}</div>}
       </div>
-      {plan.caption && (
+      {(plan.caption || editable) && (
         <div className="content-carousel-plan-section">
           <div className="content-carousel-plan-label">Caption</div>
-          <div className="content-carousel-plan-caption">{plan.caption}</div>
+          {editable
+            ? <textarea
+                className="content-carousel-plan-caption-input"
+                value={plan.caption || ''}
+                onChange={(e) => onUpdatePlan && onUpdatePlan({ ...plan, caption: e.target.value })}
+                placeholder="IG caption (first ~125 chars show before 'more')"
+                rows={4}
+              />
+            : <div className="content-carousel-plan-caption">{plan.caption}</div>
+          }
+          {editable && (
+            <div className="content-carousel-plan-caption-counter">
+              {(plan.caption || '').length} chars
+              {(plan.caption || '').length > 125 && <span className="content-carousel-plan-caption-counter-fold"> · fold at 125</span>}
+            </div>
+          )}
         </div>
       )}
       {!plan.approved && (
@@ -2369,6 +2496,124 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed }) {
         </div>
       )}
       {plan.error && <div className="content-carousel-plan-error">{plan.error}</div>}
+    </div>
+  );
+}
+
+// Actions bar that appears below a finished carousel: ZIP download + a
+// one-time "pencil discovery" tooltip so first-time users know they can
+// edit any slide. Dismisses on click, localStorage flag so it doesn't
+// re-show on every carousel.
+// Full-screen slide viewer modal. ESC closes (falls back to chat),
+// arrow keys navigate between slides.
+function SlideViewerModal({ image, position, total, onClose, onPrev, onNext }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); onPrev(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); onNext(); }
+    };
+    window.addEventListener('keydown', onKey);
+    // Lock body scroll while modal is open.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose, onPrev, onNext]);
+  const atStart = position <= 0;
+  const atEnd = position >= total - 1;
+  return (
+    <div className="content-slide-viewer" onClick={onClose} role="dialog" aria-modal="true">
+      <button className="content-slide-viewer-close" onClick={(e) => { e.stopPropagation(); onClose(); }} aria-label="Close">
+        <X size={22} />
+      </button>
+      <div className="content-slide-viewer-counter">{position + 1} / {total}</div>
+      {!atStart && (
+        <button className="content-slide-viewer-nav content-slide-viewer-nav--prev" onClick={(e) => { e.stopPropagation(); onPrev(); }} aria-label="Previous slide">
+          <ChevronLeft size={28} />
+        </button>
+      )}
+      {!atEnd && (
+        <button className="content-slide-viewer-nav content-slide-viewer-nav--next" onClick={(e) => { e.stopPropagation(); onNext(); }} aria-label="Next slide">
+          <ChevronRight size={28} />
+        </button>
+      )}
+      <img src={image.src} alt={`Slide ${position + 1}`} className="content-slide-viewer-img" onClick={(e) => e.stopPropagation()} />
+      <div className="content-slide-viewer-hint">ESC to close · ← → to navigate</div>
+    </div>
+  );
+}
+
+function CarouselActionsBar({ msgId, plan, images }) {
+  const [downloading, setDownloading] = useState(false);
+  const [showTip, setShowTip] = useState(() => {
+    try { return localStorage.getItem('aiceo.carouselEditTipDismissed') !== '1'; } catch { return true; }
+  });
+  const dismissTip = () => {
+    setShowTip(false);
+    try { localStorage.setItem('aiceo.carouselEditTipDismissed', '1'); } catch {}
+  };
+  // Auto-dismiss after 12s so it doesn't linger forever.
+  useEffect(() => {
+    if (!showTip) return;
+    const t = setTimeout(() => dismissTip(), 12000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showTip]);
+
+  const downloadZip = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const { default: JSZip } = await import('jszip');
+      const zip = new JSZip();
+      for (const img of images) {
+        if (!img.src?.startsWith('data:')) continue;
+        const commaIdx = img.src.indexOf(',');
+        if (commaIdx === -1) continue;
+        const b64 = img.src.slice(commaIdx + 1);
+        const mime = (img.src.match(/^data:([^;]+);/) || [])[1] || 'image/png';
+        const ext = (mime.split('/')[1] || 'png').split('+')[0];
+        zip.file(`slide-${String(img.idx + 1).padStart(2, '0')}.${ext}`, b64, { base64: true });
+      }
+      if (plan?.caption) {
+        zip.file('caption.txt', plan.caption);
+      }
+      if (plan?.hook) {
+        zip.file('hook.txt', plan.hook);
+      }
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.href = url;
+      a.download = `carousel-${ts}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (err) {
+      console.error('ZIP download failed:', err);
+      alert('Download failed. Try again or download slides individually.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="content-carousel-actions">
+      <button type="button" className="content-carousel-action-btn" onClick={downloadZip} disabled={downloading}>
+        <Download size={14} /> {downloading ? 'Packing…' : `Download all (${images.length} slides + caption)`}
+      </button>
+      {showTip && (
+        <div className="content-carousel-edit-tip" onClick={dismissTip} role="button" title="Dismiss">
+          <Pencil size={12} />
+          <span>Click the pencil on any slide to edit it — the design system stays locked so consistency is preserved.</span>
+          <X size={12} className="content-carousel-edit-tip-close" />
+        </div>
+      )}
     </div>
   );
 }
@@ -2429,6 +2674,7 @@ export default function Content() {
   // the user fires off a new request.
   const [activeAssistantId, setActiveAssistantId] = useState(null);
   const [editingImage, setEditingImage] = useState(null); // { msgId, imgIdx, src }
+  const [slideViewer, setSlideViewer] = useState(null); // { msgId, idx } — full-screen slide viewer
   const [creditsDepleted, setCreditsDepleted] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -3232,6 +3478,17 @@ export default function Content() {
       }
     }
     throw lastErr || new Error('generation failed');
+  }, []);
+
+  // Update a carousel plan in place — used while the user edits slides,
+  // caption, hook, etc. on the plan card BEFORE they click Approve. Blocked
+  // once approved so already-generated slides aren't invalidated.
+  const handleUpdateCarouselPlan = useCallback((msgId, nextPlan) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id !== msgId) return m;
+      if (m.carouselPlan?.approved) return m;
+      return { ...m, carouselPlan: { ...m.carouselPlan, ...nextPlan } };
+    }));
   }, []);
 
   // Approve an Instagram carousel plan and render the slides.
@@ -4770,6 +5027,7 @@ export default function Content() {
                           plan={msg.carouselPlan}
                           onApprove={() => handleCarouselApprove(msg.id)}
                           onRetryFailed={() => handleRetryFailedSlides(msg.id)}
+                          onUpdatePlan={(next) => handleUpdateCarouselPlan(msg.id, next)}
                         />
                       )}
                       {/* Image carousel  -  below text */}
@@ -4783,7 +5041,7 @@ export default function Content() {
                                   <span>Editing...</span>
                                 </div>
                               )}
-                              <img src={img.src} alt={`Slide ${i + 1}`} />
+                              <img src={img.src} alt={`Slide ${i + 1}`} onClick={() => setSlideViewer({ msgId: msg.id, idx: img.idx })} style={{ cursor: 'zoom-in' }} />
                               <button
                                 className="content-carousel-edit"
                                 onClick={(e) => { e.stopPropagation(); setEditingImage({ msgId: msg.id, imgIdx: img.idx, src: img.src }); setEditPrompt(''); }}
@@ -4853,10 +5111,42 @@ export default function Content() {
                           ))}
                         </div>
                       )}
+                      {/* Actions bar — ZIP download, edit hint. Only when all slides finished. */}
+                      {msg.carouselPlan && sortedImages.length > 0 && !hasPending && (
+                        <CarouselActionsBar
+                          msgId={msg.id}
+                          plan={msg.carouselPlan}
+                          images={sortedImages}
+                        />
+                      )}
                     </div>
                   </div>
                 );
               })}
+              {/* Full-screen slide viewer modal */}
+              {slideViewer && (() => {
+                const vMsg = messages.find(m => m.id === slideViewer.msgId);
+                const vImages = [...(vMsg?.images || [])].sort((a, b) => a.idx - b.idx);
+                const vCurrent = vImages.find(img => img.idx === slideViewer.idx) || vImages[0];
+                if (!vCurrent) return null;
+                const vPos = vImages.findIndex(img => img.idx === vCurrent.idx);
+                return (
+                  <SlideViewerModal
+                    image={vCurrent}
+                    position={vPos}
+                    total={vImages.length}
+                    onClose={() => setSlideViewer(null)}
+                    onPrev={() => {
+                      const prevImg = vImages[vPos - 1];
+                      if (prevImg) setSlideViewer({ msgId: slideViewer.msgId, idx: prevImg.idx });
+                    }}
+                    onNext={() => {
+                      const nextImg = vImages[vPos + 1];
+                      if (nextImg) setSlideViewer({ msgId: slideViewer.msgId, idx: nextImg.idx });
+                    }}
+                  />
+                );
+              })()}
               {/* Question overlay  -  appears right after the last assistant bubble */}
               {currentQuestion && !isGenerating && (
                 <div className="content-question-overlay">
