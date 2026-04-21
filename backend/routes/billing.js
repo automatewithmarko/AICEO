@@ -1,18 +1,10 @@
 import { Router } from 'express';
-import Stripe from 'stripe';
 import { supabase } from '../services/storage.js';
 import { getUserPlan, getPlans } from '../services/plans.js';
 import { getCreditCosts } from '../services/credits.js';
+import { stripe as getStripe, getStripePriceId } from '../services/stripe.js';
 
 const router = Router();
-
-// ── Stripe Price ID map ──
-// Pricing lives in Stripe, not in our DB — so plan IDs resolve to Stripe
-// Price IDs via env vars. Two tiers per plan (standard / boost).
-function getStripePriceId(planId, boost = false) {
-  const key = `STRIPE_PRICE_${planId.toUpperCase()}_${boost ? 'BOOST' : 'STANDARD'}`;
-  return process.env[key] || null;
-}
 
 // ─── GET /api/billing/plan — user's current plan, features, credits ───
 router.get('/api/billing/plan', async (req, res) => {
@@ -131,6 +123,17 @@ router.get('/api/billing/costs', async (_req, res) => {
 
 // ─── POST /api/billing/checkout — create a Stripe Checkout Session ───
 // Starts the subscribe flow for a user picking a plan on the Billing page.
+//
+// GUARDRAILS:
+// - Rejects users who already have an active subscription (they should
+//   switch plans via the Customer Portal, not start a second Checkout —
+//   the latter creates two parallel Stripe subscriptions and double-bills).
+// - Stashes user_id in both session metadata AND subscription_data metadata
+//   so the webhook can resolve the user reliably even if the customer's
+//   email drifts.
+// - Uses an idempotency key derived from (user, plan, tier) to neutralise
+//   double-clicks.
+//
 // Body: { plan: 'complete' | 'diamond', boost?: boolean }
 // Returns: { url } — frontend redirects the browser to it.
 router.post('/api/billing/checkout', async (req, res) => {
@@ -139,32 +142,37 @@ router.post('/api/billing/checkout', async (req, res) => {
     return res.status(401).json({ error: 'Auth required' });
   }
 
-  const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY;
-  if (!STRIPE_SECRET) {
-    return res.status(500).json({ error: 'Stripe not configured' });
-  }
-
   const { plan, boost = false } = req.body || {};
   if (!plan) return res.status(400).json({ error: 'plan is required' });
 
-  const priceId = getStripePriceId(plan, boost);
+  const priceId = getStripePriceId(plan, { boost });
   if (!priceId) {
     return res.status(400).json({
       error: `No Stripe price configured for plan="${plan}" boost=${boost}. Set STRIPE_PRICE_${plan.toUpperCase()}_${boost ? 'BOOST' : 'STANDARD'} in env.`,
     });
   }
 
+  // Guard: reject if user already has an active/canceling subscription.
+  // Plan changes on an existing sub must go through the Customer Portal
+  // where Stripe handles proration, immediate/delayed switch, and keeps
+  // a single subscription object alive.
+  const { data: existingSub } = await supabase
+    .from('subscriptions')
+    .select('status, stripe_customer_id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (existingSub && ['active', 'canceling', 'trialing', 'past_due'].includes(existingSub.status)) {
+    return res.status(409).json({
+      error: 'You already have an active subscription. Use the billing portal to switch plans.',
+      use_portal: true,
+    });
+  }
+
   try {
-    const stripe = new Stripe(STRIPE_SECRET);
+    const stripe = getStripe();
 
-    // Find existing Stripe customer id (if the user already has a subscription row)
-    const { data: sub } = await supabase
-      .from('subscriptions')
-      .select('stripe_customer_id')
-      .eq('user_id', userId)
-      .single();
-
-    // Look up the user's email so Stripe can prefill it
+    // Get email for prefill if we don't have a Stripe customer yet.
     const { data: authData } = await supabase.auth.admin.getUserById(userId);
     const email = authData?.user?.email;
 
@@ -175,16 +183,19 @@ router.post('/api/billing/checkout', async (req, res) => {
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${origin}/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/billing?checkout=cancelled`,
-      customer: sub?.stripe_customer_id || undefined,
-      customer_email: sub?.stripe_customer_id ? undefined : email,
-      // Metadata flows into the webhook (see backend/routes/webhooks.js).
-      // We index by user_id so we can resolve the user reliably even
-      // if the email on the Stripe customer drifts.
+      customer: existingSub?.stripe_customer_id || undefined,
+      customer_email: existingSub?.stripe_customer_id ? undefined : email,
+      // Metadata flows into the webhook. user_id is the source of truth —
+      // email-based resolution is only a last-ditch fallback there.
       metadata: { user_id: userId, plan, boost: String(boost) },
       subscription_data: {
         metadata: { user_id: userId, plan, boost: String(boost) },
       },
       allow_promotion_codes: true,
+    }, {
+      // Stable idempotency key for a 10-minute window so double-clicks
+      // collapse to one session. Past that, user can legitimately retry.
+      idempotencyKey: `checkout:${userId}:${plan}:${boost ? 'b' : 's'}:${Math.floor(Date.now() / 600000)}`,
     });
 
     res.json({ url: session.url, session_id: session.id });
@@ -197,15 +208,15 @@ router.post('/api/billing/checkout', async (req, res) => {
 // ─── POST /api/billing/portal — create a Stripe Customer Portal session ───
 // For users with an existing subscription to update payment methods,
 // switch plans, view invoices, or cancel.
+//
+// Resolves the Stripe customer id from:
+//   1. subscriptions.stripe_customer_id (existing active/past user)
+//   2. profiles.stripe_customer_id (written by webhook / checkout)
+// Both are kept in sync so this is usually a single-row read.
 router.post('/api/billing/portal', async (req, res) => {
   const userId = req.user?.id;
   if (!userId || userId === 'anonymous') {
     return res.status(401).json({ error: 'Auth required' });
-  }
-
-  const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY;
-  if (!STRIPE_SECRET) {
-    return res.status(500).json({ error: 'Stripe not configured' });
   }
 
   try {
@@ -213,17 +224,28 @@ router.post('/api/billing/portal', async (req, res) => {
       .from('subscriptions')
       .select('stripe_customer_id')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
-    if (!sub?.stripe_customer_id) {
+    let customerId = sub?.stripe_customer_id || null;
+
+    if (!customerId) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('stripe_customer_id')
+        .eq('id', userId)
+        .maybeSingle();
+      customerId = profile?.stripe_customer_id || null;
+    }
+
+    if (!customerId) {
       return res.status(400).json({ error: 'No Stripe customer on file — subscribe first.' });
     }
 
-    const stripe = new Stripe(STRIPE_SECRET);
+    const stripe = getStripe();
     const origin = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:5173';
 
     const portal = await stripe.billingPortal.sessions.create({
-      customer: sub.stripe_customer_id,
+      customer: customerId,
       return_url: `${origin}/billing`,
     });
 

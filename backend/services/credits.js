@@ -82,12 +82,40 @@ export async function deductCredits(userId, action, referenceId = null) {
 /**
  * Add credits to a user's balance (monthly refill, purchases, etc.)
  * Creates the credits row if it doesn't exist yet.
+ *
+ * If a `stripe_event_id` is passed AND a credit_transactions row already
+ * exists with that event id, this is a retry — we skip and return the
+ * current balance. This is the last-line defense against double-credit
+ * bugs when the outer stripe_events dedupe misses (e.g. on first-ever
+ * event before the table row exists).
+ *
  * @param {string} userId
  * @param {number} amount - positive integer
  * @param {string} reason - e.g. 'monthly_refill', 'purchase', 'bonus'
+ * @param {object} [opts]
+ * @param {string} [opts.stripe_event_id] - ties this credit to a Stripe event
  */
-export async function addCredits(userId, amount, reason) {
+export async function addCredits(userId, amount, reason, opts = {}) {
   if (amount <= 0) throw new Error('Amount must be positive');
+
+  // Idempotency guard: same Stripe event should never credit twice.
+  if (opts.stripe_event_id) {
+    const { data: dupe } = await supabase
+      .from('credit_transactions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('stripe_event_id', opts.stripe_event_id)
+      .maybeSingle();
+    if (dupe) {
+      const { data: row } = await supabase
+        .from('credits')
+        .select('balance')
+        .eq('user_id', userId)
+        .single();
+      console.log(`[credits] Skipping duplicate credit for event ${opts.stripe_event_id}`);
+      return { success: true, newBalance: row?.balance ?? 0, duplicate: true };
+    }
+  }
 
   // Upsert: create row with default + amount, or increment existing
   const { data: existing } = await supabase
@@ -110,12 +138,10 @@ export async function addCredits(userId, amount, reason) {
       .insert({ user_id: userId, balance: newBalance });
   }
 
-  // Log transaction
-  await supabase.from('credit_transactions').insert({
-    user_id: userId,
-    amount: amount,
-    reason,
-  });
+  // Log transaction (with optional Stripe event linkage for audit trail)
+  const txRow = { user_id: userId, amount, reason };
+  if (opts.stripe_event_id) txRow.stripe_event_id = opts.stripe_event_id;
+  await supabase.from('credit_transactions').insert(txRow);
 
   console.log(`[credits] Added ${amount} to user ${userId} for ${reason}. New balance: ${newBalance}`);
 
@@ -140,8 +166,10 @@ export async function getCreditCosts() {
  * Refill monthly credits based on the user's plan.
  * Resets balance to the plan's credits_per_month value.
  * @param {string} userId
+ * @param {object} [opts]
+ * @param {string} [opts.stripe_event_id] - for idempotency against Stripe retries
  */
-export async function refillMonthlyCredits(userId) {
+export async function refillMonthlyCredits(userId, opts = {}) {
   // Look up the user's plan to get credits_per_month
   const { data: sub } = await supabase
     .from('subscriptions')
@@ -162,5 +190,5 @@ export async function refillMonthlyCredits(userId) {
 
   const creditsToAdd = planRow?.credits_per_month || 500;
 
-  return addCredits(userId, creditsToAdd, 'monthly_refill');
+  return addCredits(userId, creditsToAdd, 'monthly_refill', opts);
 }

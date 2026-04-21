@@ -54,6 +54,9 @@ export default function Billing() {
   const [actionError, setActionError] = useState('');
 
   // Kick off Stripe Checkout for a plan + tier. Redirects the browser.
+  // If the user already has an active subscription, the backend rejects
+  // with { use_portal: true } — in that case we open the Customer Portal
+  // instead, which is where Stripe handles plan-change + proration cleanly.
   const handleSubscribe = async (planId) => {
     setActionError('');
     setActing(planId);
@@ -61,7 +64,18 @@ export default function Billing() {
       const { url } = await createCheckoutSession({ plan: planId, boost });
       if (url) window.location.href = url;
     } catch (err) {
-      setActionError(err.message || 'Could not start checkout');
+      const msg = err.message || '';
+      if (/active subscription/i.test(msg) || /use the billing portal/i.test(msg)) {
+        // Transparently hand off to portal
+        try {
+          const { url } = await createBillingPortalSession();
+          if (url) { window.location.href = url; return; }
+        } catch (portalErr) {
+          setActionError(portalErr.message || 'Could not open billing portal');
+        }
+      } else {
+        setActionError(msg || 'Could not start checkout');
+      }
       setActing(null);
     }
   };
