@@ -22,28 +22,23 @@ const PLATFORMS = [
     ),
   },
   {
-    id: 'facebook',
-    name: 'Facebook',
-    color: '#1877F2',
-    tagline: 'Feed post',
-    limit: 63206,
-    icon: (
-      <svg viewBox="0 0 24 24" fill="currentColor">
-        <path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3V2z" />
-      </svg>
-    ),
-  },
-  {
     id: 'linkedin',
     name: 'LinkedIn',
     color: '#0A66C2',
     tagline: 'Text or article',
     limit: 3000,
+    icon: <img src="/linkedin-icon.png" alt="LinkedIn" className="cc-platform-img" />,
+  },
+  {
+    id: 'facebook',
+    name: 'Facebook',
+    color: '#1877F2',
+    tagline: 'Feed post',
+    limit: 63206,
+    comingSoon: true,
     icon: (
       <svg viewBox="0 0 24 24" fill="currentColor">
-        <path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-4 0v7h-4v-7a6 6 0 016-6z" />
-        <rect x="2" y="9" width="4" height="12" />
-        <circle cx="4" cy="4" r="2" />
+        <path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3V2z" />
       </svg>
     ),
   },
@@ -362,10 +357,14 @@ function PlatformPicker({ onPick }) {
         {PLATFORMS.map((p) => (
           <button
             key={p.id}
-            className="cc-platform-card"
+            type="button"
+            className={`cc-platform-card${p.comingSoon ? ' cc-platform-card--soon' : ''}`}
             style={{ '--pc': p.color }}
-            onClick={() => onPick(p.id)}
+            onClick={() => { if (!p.comingSoon) onPick(p.id); }}
+            disabled={!!p.comingSoon}
+            aria-disabled={!!p.comingSoon}
           >
+            {p.comingSoon && <span className="cc-platform-soon">Coming soon</span>}
             <span className="cc-platform-badge" style={{ color: p.color }}>{p.icon}</span>
             <span className="cc-platform-name">{p.name}</span>
             <span className="cc-platform-tagline">{p.tagline}</span>

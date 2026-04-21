@@ -305,7 +305,8 @@
   flex-shrink: 0;
   display: inline-flex;
 }
-.cc-pill-icon svg { width: 12px; height: 12px; }
+.cc-pill-icon svg,
+.cc-pill-icon img { width: 12px; height: 12px; object-fit: contain; }
 
 .cc-pill-text {
   overflow: hidden;
@@ -420,6 +421,7 @@
 }
 
 .cc-platform-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -429,6 +431,7 @@
   border: 1.5px solid var(--border-light);
   border-radius: 14px;
   cursor: pointer;
+  font-family: inherit;
   transition: transform 0.15s, border-color 0.15s, box-shadow 0.2s, background 0.15s;
 }
 .cc-platform-card:hover {
@@ -437,6 +440,39 @@
   background: #fff;
   box-shadow: 0 10px 30px -10px color-mix(in srgb, var(--pc) 40%, transparent),
               0 0 0 3px color-mix(in srgb, var(--pc) 12%, transparent);
+}
+
+/* "Coming soon" / disabled state */
+.cc-platform-card--soon {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--bg-light);
+}
+.cc-platform-card--soon:hover {
+  transform: none;
+  border-color: var(--border-light);
+  background: var(--bg-light);
+  box-shadow: none;
+}
+.cc-platform-card--soon .cc-platform-badge {
+  filter: grayscale(0.3);
+}
+
+.cc-platform-soon {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--text-primary);
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
 }
 
 .cc-platform-badge {
@@ -449,7 +485,8 @@
   justify-content: center;
   margin-bottom: 2px;
 }
-.cc-platform-badge svg { width: 26px; height: 26px; }
+.cc-platform-badge svg,
+.cc-platform-badge img { width: 26px; height: 26px; object-fit: contain; }
 
 .cc-platform-name {
   font-size: 14px;
@@ -824,7 +861,8 @@
   justify-content: center;
   flex-shrink: 0;
 }
-.cc-posting-badge svg { width: 18px; height: 18px; }
+.cc-posting-badge svg,
+.cc-posting-badge img { width: 18px; height: 18px; object-fit: contain; }
 
 .cc-posting-text {
   display: flex;
@@ -1076,7 +1114,8 @@
   height: 30px;
   border-radius: 9px;
 }
-.cc-posting-badge--sm svg { width: 16px; height: 16px; }
+.cc-posting-badge--sm svg,
+.cc-posting-badge--sm img { width: 16px; height: 16px; object-fit: contain; }
 
 .cc-stepped-title {
   display: flex;
@@ -1464,7 +1503,8 @@
   width: 20px;
   height: 20px;
 }
-.cc-ig-avatar-icon svg { width: 100%; height: 100%; }
+.cc-ig-avatar-icon svg,
+.cc-ig-avatar-icon img { width: 100%; height: 100%; object-fit: contain; }
 
 .cc-ig-preview-meta {
   display: flex;
