@@ -405,6 +405,12 @@
 }
 .li-single-image-delete:hover { background: #e63946; }
 
+/* Carousel-specific actions slot above the LinkedIn publish toolbar */
+.li-preview-carousel-actions {
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fafafa;
+}
+
 .li-carousel-img {
   width: 100%;
   display: block;

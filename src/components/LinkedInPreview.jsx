@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload, Send, CalendarClock, ExternalLink, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import './LinkedInPreview.css';
 
-export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge, onEditSlide, onRegenerateSlide, onDeleteImage, isGenerating }) {
+export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge, onEditSlide, onRegenerateSlide, onDeleteImage, isGenerating, actionsSlot }) {
   const [editedText, setEditedText] = useState(null);
   const [copied, setCopied] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
@@ -78,9 +78,18 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
   }, [schedState]);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(getCurrentText());
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Read the current text lazily from the DOM so we don't need to
+  // re-render on every keystroke. The contentEditable div is no longer
+  // a React-controlled input — React only seeds it when props change.
+  const getCurrentText = () => {
+    const fromDom = textRef.current?.innerText;
+    if (typeof fromDom === 'string') return fromDom;
+    return editedText !== null ? editedText : (content || '');
   };
 
   const handlePostToLinkedIn = async () => {
@@ -88,7 +97,7 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
     setPostState('posting');
     setPostError('');
     try {
-      await onPostToLinkedIn({ text, images: sortedImages });
+      await onPostToLinkedIn({ text: getCurrentText(), images: sortedImages });
       setPostState('posted');
     } catch (err) {
       setPostState('error');
@@ -101,15 +110,36 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
     if (!onSchedule || schedState === 'saving' || !schedDate || !schedTime) return;
     setSchedState('saving');
     try {
-      await onSchedule({ text, images: sortedImages, date: schedDate, time: schedTime, platform: 'linkedin' });
+      await onSchedule({ text: getCurrentText(), images: sortedImages, date: schedDate, time: schedTime, platform: 'linkedin' });
       setSchedState('saved');
     } catch {
       setSchedState('idle');
     }
   };
 
-  const handleTextInput = (e) => {
-    setEditedText(e.currentTarget.innerText);
+  // Sync the contentEditable's innerText only when the incoming stream
+  // updates the content prop AND the user hasn't started typing yet.
+  // After the first edit we stop overwriting, so the cursor never jumps.
+  const userHasEditedRef = useRef(false);
+  useEffect(() => {
+    if (!textRef.current) return;
+    if (userHasEditedRef.current) return;
+    const incoming = content || '';
+    if (textRef.current.innerText !== incoming) {
+      textRef.current.innerText = incoming;
+    }
+  }, [content]);
+
+  // Blur-only save — no state update per keystroke, so cursor never jumps.
+  const handleTextBlur = () => {
+    if (!textRef.current) return;
+    userHasEditedRef.current = true;
+    setEditedText(textRef.current.innerText);
+  };
+  const handleTextInput = () => {
+    // Mark "user is editing" so the incoming-props sync effect stops
+    // overwriting what they just typed. No state update here.
+    userHasEditedRef.current = true;
   };
 
   // Build carousel slots: completed images + pending placeholders
@@ -160,10 +190,14 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
             </button>
           </div>
 
-          {/* Post text */}
+          {/* Post text.
+              - While streaming: React seeds text via the useEffect above,
+                so a plain div with a trailing cursor reads correctly.
+              - After streaming: contentEditable with NO child — React
+                never touches it, user edits stay local, blur commits to
+                state. No cursor jumps. */}
           {streaming ? (
             <div className="li-card-text li-card-text--streaming" ref={textRef}>
-              {text}
               <span className="li-cursor" />
             </div>
           ) : (
@@ -173,9 +207,8 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
               contentEditable
               suppressContentEditableWarning
               onInput={handleTextInput}
-            >
-              {text}
-            </div>
+              onBlur={handleTextBlur}
+            />
           )}
 
           {/* Carousel / Image area */}
@@ -378,6 +411,14 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
           </div>
         </div>
       </div>
+
+      {/* Carousel-only actions slot — Download / Send to calendar / Save
+          as template, rendered by the parent. Sits above the LinkedIn
+          publish row so the workflow reads top-to-bottom: content →
+          asset ops → publish. */}
+      {actionsSlot && (
+        <div className="li-preview-carousel-actions">{actionsSlot}</div>
+      )}
 
       {/* Bottom toolbar — single row */}
       <div className="li-preview-toolbar">

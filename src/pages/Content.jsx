@@ -2706,7 +2706,7 @@ function stableRange(seed, min, max) {
   return min + (h % Math.max(1, (max - min + 1)));
 }
 
-function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate, onFullscreen, isGenerating }) {
+function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate, onFullscreen, isGenerating, actionsSlot }) {
   const images = useMemo(() => [...(msg?.images || [])].sort((a, b) => a.idx - b.idx), [msg]);
   const [idx, setIdx] = useState(0);
   const [captionExpanded, setCaptionExpanded] = useState(false);
@@ -2999,6 +2999,9 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
           )}
         </div>
       </div>
+      {/* Bottom toolbar — Download / Schedule / Save-as-template live here,
+          same place you're looking at the post. Rendered by parent. */}
+      {actionsSlot && <div className="content-ig-toolbar">{actionsSlot}</div>}
     </div>
   );
 }
@@ -3277,13 +3280,37 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
     }
   };
 
-  return (
-    <div className="content-carousel-actions">
-      {onOpenSidePreview && (
-        <button type="button" className="content-carousel-action-btn" onClick={onOpenSidePreview} title={`Preview as it would appear on ${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'}`}>
-          <Maximize2 size={14} /> Preview on {platform === 'linkedin' ? 'LinkedIn' : 'Instagram'}
+  // Two modes:
+  //   CHAT mode (onOpenSidePreview is passed): ONLY the Open Preview button.
+  //     Chat stays a summary. All the real actions live in the preview.
+  //   PREVIEW mode (no onOpenSidePreview): the full action toolbar —
+  //     Download / Send to calendar / Save as template. Rendered inside
+  //     the side preview panels so users act where they're looking.
+  if (onOpenSidePreview) {
+    const previewLabel = platform === 'linkedin' ? 'LinkedIn' : 'Instagram';
+    return (
+      <div className="content-carousel-actions">
+        <button
+          type="button"
+          className="content-carousel-action-btn content-carousel-action-btn--primary"
+          onClick={onOpenSidePreview}
+          title={`Open the ${previewLabel} preview to download, schedule, publish, and edit slides`}
+        >
+          <Maximize2 size={14} /> Open {previewLabel} preview
         </button>
-      )}
+        {showTip && (
+          <div className="content-carousel-edit-tip" onClick={dismissTip} role="button" title="Dismiss">
+            <Pencil size={12} />
+            <span>Open the preview — every action (edit, download, schedule, template) lives there.</span>
+            <X size={12} className="content-carousel-edit-tip-close" />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="content-carousel-actions content-carousel-actions--preview">
       <button type="button" className="content-carousel-action-btn" onClick={downloadZip} disabled={downloading}>
         <Download size={14} /> {downloading ? 'Packing…' : `Download all (${images.length} slides + caption)`}
       </button>
@@ -3362,13 +3389,6 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
               </button>
             </div>
           </div>
-        </div>
-      )}
-      {showTip && (
-        <div className="content-carousel-edit-tip" onClick={dismissTip} role="button" title="Dismiss">
-          <Pencil size={12} />
-          <span>Click the pencil on any slide to edit it, design is preserved.</span>
-          <X size={12} className="content-carousel-edit-tip-close" />
         </div>
       )}
     </div>
@@ -6123,26 +6143,45 @@ export default function Content() {
                           onUpdatePlan={(next) => handleUpdateCarouselPlan(msg.id, next)}
                         />
                       )}
-                      {/* LinkedIn text-post reopen button — shows when a
-                          persisted linkedinPost exists on the message but
-                          no preview is currently open for it. Clicking
-                          rehydrates linkedinPreview from the message. */}
-                      {msg.linkedinPost && msg.linkedinPost.content && linkedinPreview?.msgId !== msg.id && (
-                        <button
-                          type="button"
-                          className="content-carousel-action-btn content-linkedin-reopen"
-                          onClick={() => {
-                            setCarouselSideView(null);
-                            setLinkedinPreview({
-                              content: msg.linkedinPost.content,
-                              images: msg.images || [],
-                              totalSlides: msg.linkedinPost.totalSlides || 0,
-                              msgId: msg.id,
-                            });
-                          }}
-                        >
-                          <Maximize2 size={14} /> Open LinkedIn preview
-                        </button>
+                      {/* LinkedIn text-post summary card — always visible.
+                          Shows the generated image thumbnail (if any) and
+                          first-line caption snippet, plus an Open Preview
+                          button. Stays visible even if the preview is
+                          already open so the user always has a path back. */}
+                      {msg.linkedinPost && msg.linkedinPost.content && (
+                        <div className="content-linkedin-summary">
+                          {(msg.images || []).length > 0 && (
+                            <div className="content-linkedin-summary-thumb">
+                              <img src={(msg.images[0]?.src) || ''} alt="" />
+                            </div>
+                          )}
+                          <div className="content-linkedin-summary-body">
+                            <div className="content-linkedin-summary-label">LinkedIn post</div>
+                            <div className="content-linkedin-summary-snippet">
+                              {msg.linkedinPost.content.split('\n')[0].slice(0, 120)}{msg.linkedinPost.content.length > 120 ? '…' : ''}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="content-linkedin-summary-open"
+                            onClick={() => {
+                              const alreadyOpen = linkedinPreview?.msgId === msg.id;
+                              if (alreadyOpen) return;
+                              setCarouselSideView(null);
+                              setLinkedinPreview({
+                                content: msg.linkedinPost.content,
+                                images: msg.images || [],
+                                totalSlides: msg.linkedinPost.totalSlides || 0,
+                                msgId: msg.id,
+                              });
+                            }}
+                            disabled={linkedinPreview?.msgId === msg.id}
+                            title={linkedinPreview?.msgId === msg.id ? 'Already open in the side panel' : 'Open the LinkedIn preview'}
+                          >
+                            <Maximize2 size={14} />
+                            {linkedinPreview?.msgId === msg.id ? 'Preview open' : 'Open preview'}
+                          </button>
+                        </div>
                       )}
                       {/* Image carousel — inline slides act as a compact
                           thumbnail strip even for carousels (preview holds
@@ -6239,7 +6278,16 @@ export default function Content() {
                           ))}
                         </div>
                       )}
-                      {/* Actions bar — ZIP download, edit hint. Only when all slides finished. */}
+                      {/* Progress badge — shows while slides are still rendering. */}
+                      {msg.carouselPlan && hasPending && (
+                        <div className="content-carousel-progress">
+                          <Loader size={14} className="cs-spinner" />
+                          <span>Rendering {sortedImages.length} / {sortedImages.length + (msg.pendingImages || 0)} slides…</span>
+                        </div>
+                      )}
+                      {/* Actions bar — minimal now: just Open Preview. All
+                          other actions (download, schedule, template) live
+                          inside the preview panel itself. */}
                       {msg.carouselPlan && sortedImages.length > 0 && !hasPending && (
                         <CarouselActionsBar
                           msgId={msg.id}
@@ -6564,6 +6612,14 @@ export default function Content() {
                       contentSessionId: sessionId || null,
                     });
                   }}
+                  actionsSlot={
+                    <CarouselActionsBar
+                      msgId={panelMsg.id}
+                      plan={panelMsg.carouselPlan}
+                      images={sortedImgs}
+                      platform="linkedin"
+                    />
+                  }
                 />
               </div>
             );
@@ -6577,6 +6633,14 @@ export default function Content() {
                 isGenerating={isGenerating}
                 onClose={() => setCarouselSideView(null)}
                 onFullscreen={(idx) => setSlideViewer({ msgId: panelMsg.id, idx })}
+                actionsSlot={
+                  <CarouselActionsBar
+                    msgId={panelMsg.id}
+                    plan={panelMsg.carouselPlan}
+                    images={[...(panelMsg.images || [])].sort((a, b) => a.idx - b.idx)}
+                    platform="instagram"
+                  />
+                }
                 onEdit={panelMsg.carouselPlan ? (idx, src, instruction) => {
                   executeCarouselSlideEdit(panelMsg.id, idx, instruction);
                 } : null}
