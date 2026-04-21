@@ -228,13 +228,25 @@
   border-color: rgba(0,0,0,0.12);
 }
 
-/* Streaming state — not editable, shows typing cursor */
+/* Streaming state — not editable, shows a trailing blink via ::after
+   so we don't need a React child span (which would get wiped by the
+   useEffect that sets innerText on the live div). */
 .li-card-text--streaming {
   cursor: default;
   border-color: transparent;
 }
 .li-card-text--streaming:hover {
   border-color: transparent;
+}
+.li-card-text--streaming::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: #0a66c2;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: li-blink 0.8s step-end infinite;
 }
 .li-cursor {
   display: inline-block;

@@ -6672,7 +6672,7 @@ export default function Content() {
               onClose={() => setLinkedinPreview(null)}
               onGenerateImage={handleLinkedinGenerateImage}
               isGeneratingImage={liGeneratingImage}
-              streaming={isGenerating}
+              streaming={isGenerating && activeAssistantId === linkedinPreview.msgId}
               totalSlides={linkedinPreview?.totalSlides || 0}
               onContentChange={(newText) => {
                 // Commit user's text edits back to preview + the message so

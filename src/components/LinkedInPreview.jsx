@@ -215,43 +215,34 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
             </button>
           </div>
 
-          {/* Post text.
-              - While streaming: React seeds text via the useEffect above,
-                so a plain div with a trailing cursor reads correctly.
-              - After streaming: contentEditable with NO child — React
-                never touches it, user edits stay local, blur commits to
-                state. No cursor jumps. */}
-          {streaming ? (
-            <div className="li-card-text li-card-text--streaming" ref={textRef}>
-              <span className="li-cursor" />
+          {/* Post text. One div always mounted — toggling a branch on
+              `streaming` caused unsaved edits to vanish whenever
+              isGenerating flipped true for unrelated work (carousel
+              slide regen, etc.). The cursor visual is handled via the
+              li-card-text--streaming CSS class now, not a sibling span. */}
+          <div
+            className={`li-card-text${streaming ? ' li-card-text--streaming' : ''}`}
+            ref={textRef}
+            contentEditable={!streaming}
+            suppressContentEditableWarning
+            onInput={handleTextInput}
+            onBlur={handleTextBlur}
+          />
+          {!streaming && (dirty || saved) && (
+            <div className="li-card-save-row">
+              <span className={`li-card-save-status${saved ? ' li-card-save-status--ok' : ''}`}>
+                {saved ? 'Saved' : 'Unsaved edits'}
+              </span>
+              <button
+                type="button"
+                className="li-card-save-btn"
+                onClick={saveTextEdit}
+                disabled={!dirty}
+                title="Save your edits to the post"
+              >
+                {saved ? <><Check size={12} /> Saved</> : 'Save'}
+              </button>
             </div>
-          ) : (
-            <>
-              <div
-                className="li-card-text"
-                ref={textRef}
-                contentEditable
-                suppressContentEditableWarning
-                onInput={handleTextInput}
-                onBlur={handleTextBlur}
-              />
-              {(dirty || saved) && (
-                <div className="li-card-save-row">
-                  <span className={`li-card-save-status${saved ? ' li-card-save-status--ok' : ''}`}>
-                    {saved ? 'Saved' : 'Unsaved edits'}
-                  </span>
-                  <button
-                    type="button"
-                    className="li-card-save-btn"
-                    onClick={saveTextEdit}
-                    disabled={!dirty}
-                    title="Save your edits to the post"
-                  >
-                    {saved ? <><Check size={12} /> Saved</> : 'Save'}
-                  </button>
-                </div>
-              )}
-            </>
           )}
 
           {/* Carousel / Image area */}
