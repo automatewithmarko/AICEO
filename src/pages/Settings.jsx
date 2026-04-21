@@ -17,7 +17,7 @@ const NOTE_TAKERS = [
   { id: 'gohighlevel', name: 'GoHighLevel', logo: '/gohighlevel-logo.png' },
   { id: 'netlify', name: 'Netlify', logo: '/icon-netlify.png' },
   { id: 'boosend', name: 'BooSend', logo: '/boosend-logo.png' },
-  { id: 'linkedin', name: 'LinkedIn', logo: '/linkedin-icon.svg' },
+  { id: 'linkedin', name: 'LinkedIn', logo: '/linkedin-icon.png' },
   { id: 'email', name: 'Email (SMTP/IMAP)', logo: '/smtp-logo.png', large: true },
 ];
 

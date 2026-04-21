@@ -83,6 +83,29 @@
   color: var(--brand-red);
 }
 
+.sidebar-link--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  justify-content: flex-start;
+}
+.sidebar-link--disabled:hover {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.sidebar-soon-badge {
+  margin-left: auto;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--text-primary);
+  color: #fff;
+  white-space: nowrap;
+}
+
 /* Sidebar Dropdown */
 .sidebar-dropdown {
   display: flex;

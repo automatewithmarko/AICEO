@@ -56,6 +56,15 @@ function CallRecordingIcon({ size = 20 }) {
 function ContentCalendarIcon({ size = 20 }) {
   return <ImgIcon src="/icon-content-calendar.png" alt="Content Calendar" size={size} />;
 }
+function AccountingIcon({ size = 20 }) {
+  return <ImgIcon src="/icon-accounting.png" alt="Accounting" size={size} />;
+}
+function PressPlacementIcon({ size = 20 }) {
+  return <ImgIcon src="/icon-press-placement.png" alt="Press Placement" size={size} />;
+}
+function ReviewsIcon({ size = 20 }) {
+  return <ImgIcon src="/icon-reviews.png" alt="Reviews" size={size * 1.4} />;
+}
 function CreditsIcon({ size = 16 }) {
   return <ImgIcon src="/icon-credits.png" alt="Credits" size={size} />;
 }
@@ -85,6 +94,9 @@ const navItems = [
   { to: '/inbox', label: 'Inbox', icon: InboxIcon },
   { to: '/forms', label: 'Forms', icon: ({ size }) => <ImgIcon src="/icon-forms.svg" alt="Forms" size={size} /> },
   { to: '/crm', label: 'CRM', icon: CrmIcon },
+  { label: 'Accounting', icon: AccountingIcon, comingSoon: true },
+  { label: 'Press Placement', icon: PressPlacementIcon, comingSoon: true },
+  { label: 'Reviews', icon: ReviewsIcon, comingSoon: true },
 ];
 
 export default function Sidebar() {
@@ -149,6 +161,17 @@ export default function Sidebar() {
                     ))}
                   </div>
                 )}
+              </div>
+            ) : item.comingSoon ? (
+              <div
+                key={item.label}
+                className="sidebar-link sidebar-link--disabled"
+                aria-disabled="true"
+                title="Coming soon"
+              >
+                <item.icon size={20} />
+                <span>{item.label}</span>
+                <span className="sidebar-soon-badge">Coming soon</span>
               </div>
             ) : (
               <NavLink
