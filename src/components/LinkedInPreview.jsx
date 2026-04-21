@@ -512,15 +512,10 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
         </div>
       </div>
 
-      {/* Carousel-only actions slot — Download / Send to calendar / Save
-          as template, rendered by the parent. Sits above the LinkedIn
-          publish row so the workflow reads top-to-bottom: content →
-          asset ops → publish. */}
-      {actionsSlot && (
-        <div className="li-preview-carousel-actions">{actionsSlot}</div>
-      )}
-
-      {/* Bottom toolbar — single row */}
+      {/* Bottom toolbar — ONE row for everything: Download / Schedule /
+          Template (carousel actions from actionsSlot) + Upload / Generate
+          (text-post helpers) + Schedule / Post to LinkedIn (native).
+          Horizontal scroll if it overflows the preview width. */}
       <div className="li-preview-toolbar">
         {!streaming && (
           <input
@@ -538,6 +533,8 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
         )}
         {!streaming && text.trim() && (
           <div className="li-toolbar-row li-toolbar-row--actions">
+            {/* Carousel actions (Download / Schedule / Template) injected by parent */}
+            {actionsSlot}
             {/* Upload: hidden for carousels (their slides are designed, not uploaded) */}
             {!isCarousel && (
               <button className="li-toolbar-btn" onClick={() => uploadRef.current?.click()}>

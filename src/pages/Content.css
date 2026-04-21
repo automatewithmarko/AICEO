@@ -3186,12 +3186,22 @@
 .content-carousel-actions--preview::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
 .content-carousel-actions--preview .content-carousel-action-btn { flex-shrink: 0; }
 
-/* IG panel bottom toolbar wrapper */
+/* IG panel bottom toolbar wrapper — flex row, horizontal scroll. */
 .content-ig-toolbar {
   flex-shrink: 0;
   border-top: 1px solid #e0dfdc;
   background: #fff;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
+.content-ig-toolbar::-webkit-scrollbar { height: 4px; }
+.content-ig-toolbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
+.content-ig-toolbar .li-toolbar-btn { flex-shrink: 0; }
 
 .content-carousel-edit-tip {
   display: inline-flex;

@@ -3359,13 +3359,15 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
     );
   }
 
+  // Preview-mode: render as a Fragment so buttons flow INTO the parent
+  // toolbar row (LinkedInPreview / IG panel). No wrapper div.
   return (
-    <div className="content-carousel-actions content-carousel-actions--preview">
-      <button type="button" className="content-carousel-action-btn" onClick={downloadZip} disabled={downloading} title={`Download all ${images.length} slides + caption as a zip`}>
+    <>
+      <button type="button" className="li-toolbar-btn" onClick={downloadZip} disabled={downloading} title={`Download all ${images.length} slides + caption as a zip`}>
         <Download size={14} /> {downloading ? 'Packing…' : 'Download'}
       </button>
       <div className="content-carousel-schedule-wrap" ref={scheduleWrapRef}>
-        <button type="button" className="content-carousel-action-btn" onClick={() => setScheduleOpen(v => !v)} disabled={scheduling} title="Send to content calendar — draft, schedule, or publish now">
+        <button type="button" className="li-toolbar-btn" onClick={() => setScheduleOpen(v => !v)} disabled={scheduling} title="Send to content calendar — draft, schedule, or publish now">
           <CalendarDays size={14} />
           {scheduleStatus === 'published' ? 'Published' : scheduleStatus === 'saved' ? 'Saved' : (scheduling ? 'Saving…' : 'Schedule')}
         </button>
@@ -3397,7 +3399,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
       </div>
       <button
         type="button"
-        className="content-carousel-action-btn"
+        className="li-toolbar-btn"
         onClick={openTemplateModal}
         disabled={savingTemplate || templateSaved}
         title={templateSaved ? 'Template saved for this carousel' : 'Save this design system so future carousels can inherit the look'}
@@ -3441,7 +3443,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
