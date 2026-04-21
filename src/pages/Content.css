@@ -803,6 +803,20 @@
   object-fit: cover;
   display: block;
 }
+.content-ig-media--skeleton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: #111;
+  color: rgba(255, 255, 255, 0.7);
+}
+.content-ig-skeleton-label {
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.7);
+}
 .content-ig-counter {
   position: absolute;
   top: 12px;
@@ -3145,13 +3159,15 @@
   font-weight: 600;
 }
 
-/* Primary emphasis on the chat's Open Preview button. */
-.content-carousel-action-btn--primary {
+/* Primary emphasis on the chat's Open Preview button. Override the
+   base action-btn hover (which turns the bg grey) so the red stays. */
+.content-carousel-action-btn--primary,
+.content-carousel-action-btn--primary:hover:not(:disabled) {
   background: var(--brand-red, #e63946);
   color: #fff;
   border-color: var(--brand-red, #e63946);
 }
-.content-carousel-action-btn--primary:hover:not(:disabled) { opacity: 0.9; }
+.content-carousel-action-btn--primary:hover:not(:disabled) { opacity: 0.92; }
 
 /* Preview-mode toolbar container (rendered inside LinkedInPreview/IG panel).
    Denser styling than the chat actions bar because the preview already
@@ -3161,9 +3177,14 @@
   padding: 10px 12px;
   background: var(--surface-secondary, #fafafa);
   border-top: 1px solid var(--border-light);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
+.content-carousel-actions--preview::-webkit-scrollbar { height: 4px; }
+.content-carousel-actions--preview::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
+.content-carousel-actions--preview .content-carousel-action-btn { flex-shrink: 0; }
 
 /* IG panel bottom toolbar wrapper */
 .content-ig-toolbar {

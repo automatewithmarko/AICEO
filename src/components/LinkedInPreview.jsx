@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload, Send, CalendarClock, ExternalLink, Pencil, RefreshCw, Trash2 } from 'lucide-react';
+import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload, Send, CalendarClock, ExternalLink, Pencil, RefreshCw, Trash2, Plus } from 'lucide-react';
 import './LinkedInPreview.css';
 
-export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge, onEditSlide, onRegenerateSlide, onDeleteImage, isGenerating, actionsSlot }) {
+export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge, onEditSlide, onRegenerateSlide, onDeleteImage, isGenerating, actionsSlot, onContentChange, plan, onAddSlide, onRemoveSlide }) {
   const [editedText, setEditedText] = useState(null);
   const [copied, setCopied] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
@@ -130,21 +130,46 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
     }
   }, [content]);
 
-  // Blur-only save — no state update per keystroke, so cursor never jumps.
+  // Track whether the user has unsaved edits — shown as a "Save" badge
+  // that pulses until they commit. Keystrokes don't touch state (to keep
+  // the cursor stable); this flag flips in a useEffect via an input
+  // listener attached to the div.
+  const [dirty, setDirty] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const handleTextInput = () => {
+    userHasEditedRef.current = true;
+    setDirty(true);
+    setSaved(false);
+  };
   const handleTextBlur = () => {
     if (!textRef.current) return;
     userHasEditedRef.current = true;
-    setEditedText(textRef.current.innerText);
+    const current = textRef.current.innerText;
+    setEditedText(current);
   };
-  const handleTextInput = () => {
-    // Mark "user is editing" so the incoming-props sync effect stops
-    // overwriting what they just typed. No state update here.
-    userHasEditedRef.current = true;
+  const saveTextEdit = () => {
+    if (!textRef.current) return;
+    const current = textRef.current.innerText;
+    setEditedText(current);
+    setDirty(false);
+    setSaved(true);
+    if (onContentChange) onContentChange(current);
+    setTimeout(() => setSaved(false), 2000);
   };
 
-  // Build carousel slots: completed images + pending placeholders
-  const pendingCount = Math.max(0, (totalSlides || 0) - sortedImages.length);
-  const totalDisplaySlots = sortedImages.length + pendingCount;
+  // Build carousel slots: plan slides is authoritative (so blank slides
+  // inserted by the user are preserved). Fall back to images + pending
+  // count when no plan is available (e.g. a LinkedIn text-post gallery).
+  const planSlides = plan?.slides || [];
+  const totalDisplaySlots = planSlides.length > 0 ? planSlides.length : Math.max(totalSlides || 0, sortedImages.length);
+  const imageByIdx = (idx) => sortedImages.find(img => img.idx === idx) || null;
+  const slideSpec = (idx) => planSlides[idx] || null;
+  const currentImage = imageByIdx(slideIdx);
+  const currentSlide = slideSpec(slideIdx);
+  const isBlankSlide = currentSlide && !currentImage && currentSlide.blank === true;
+  const isPendingSlide = !currentImage && !isBlankSlide;
+  // Middle-slide indices are removable (hook and CTA stay locked).
+  const canRemoveCurrent = planSlides.length > 0 && slideIdx > 0 && slideIdx < planSlides.length - 1;
 
   return (
     <div className="li-preview">
@@ -201,25 +226,59 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
               <span className="li-cursor" />
             </div>
           ) : (
-            <div
-              className="li-card-text"
-              ref={textRef}
-              contentEditable
-              suppressContentEditableWarning
-              onInput={handleTextInput}
-              onBlur={handleTextBlur}
-            />
+            <>
+              <div
+                className="li-card-text"
+                ref={textRef}
+                contentEditable
+                suppressContentEditableWarning
+                onInput={handleTextInput}
+                onBlur={handleTextBlur}
+              />
+              {(dirty || saved) && (
+                <div className="li-card-save-row">
+                  <span className={`li-card-save-status${saved ? ' li-card-save-status--ok' : ''}`}>
+                    {saved ? 'Saved' : 'Unsaved edits'}
+                  </span>
+                  <button
+                    type="button"
+                    className="li-card-save-btn"
+                    onClick={saveTextEdit}
+                    disabled={!dirty}
+                    title="Save your edits to the post"
+                  >
+                    {saved ? <><Check size={12} /> Saved</> : 'Save'}
+                  </button>
+                </div>
+              )}
+            </>
           )}
 
           {/* Carousel / Image area */}
           {(isCarousel || hasImage) && (
             <div className="li-card-image">
               {isCarousel ? (
-                /* Carousel view — shows completed slides + pending placeholders */
+                /* Carousel view — completed slides + pending/blank placeholders. */
+                <>
                 <div className="li-carousel">
-                  {/* Current slot: either a completed image or a pending placeholder */}
-                  {slideIdx < sortedImages.length ? (
-                    <img src={sortedImages[slideIdx].src} alt={`Slide ${slideIdx + 1}`} className="li-carousel-img" />
+                  {/* Current slot: completed image, blank placeholder, or pending */}
+                  {currentImage ? (
+                    <img src={currentImage.src} alt={`Slide ${slideIdx + 1}`} className="li-carousel-img" />
+                  ) : isBlankSlide ? (
+                    <div className="li-carousel-blank-slide">
+                      <div className="li-carousel-blank-label">Blank slide</div>
+                      <div className="li-carousel-blank-hint">Click <Pencil size={12} /> and describe what this slide should say — we'll render it in the locked design system.</div>
+                      {onEditSlide && (
+                        <button
+                          type="button"
+                          className="li-carousel-blank-edit-btn"
+                          onClick={() => { setEditingSlideIdx(slideIdx); setEditDraft(''); }}
+                          disabled={isGenerating}
+                        >
+                          <Pencil size={14} /> Describe this slide
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <div className="li-carousel-pending-slide">
                       <Loader size={24} className="li-spin" />
@@ -242,49 +301,67 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                   {/* Counter */}
                   <span className="li-carousel-counter">{slideIdx + 1} / {totalDisplaySlots}</span>
 
-                  {/* Slide toolbar — download / edit / regenerate. Only on completed slides. */}
-                  {slideIdx < sortedImages.length && (
-                    <div className="li-carousel-tools">
-                      {onEditSlide && (
-                        <button
-                          type="button"
-                          className="li-carousel-tool"
-                          onClick={() => { setEditingSlideIdx(sortedImages[slideIdx].idx); setEditDraft(''); }}
-                          disabled={isGenerating}
-                          title="Edit this slide (design system stays locked)"
-                        >
-                          <Pencil size={14} />
-                        </button>
-                      )}
-                      {onRegenerateSlide && (
-                        <button
-                          type="button"
-                          className="li-carousel-tool"
-                          onClick={() => onRegenerateSlide(sortedImages[slideIdx].idx)}
-                          disabled={isGenerating}
-                          title="Re-roll this slide with the same spec"
-                        >
-                          <RefreshCw size={14} />
-                        </button>
-                      )}
+                  {/* Slide toolbar — download / edit / regenerate / remove.
+                      Download + regen only for completed slides; edit + remove
+                      apply to blank slides too. */}
+                  <div className="li-carousel-tools">
+                    {onEditSlide && (
+                      <button
+                        type="button"
+                        className="li-carousel-tool"
+                        onClick={() => { setEditingSlideIdx(slideIdx); setEditDraft(''); }}
+                        disabled={isGenerating}
+                        title={isBlankSlide ? 'Describe this blank slide' : 'Edit this slide (design system stays locked)'}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    )}
+                    {onRegenerateSlide && currentImage && (
+                      <button
+                        type="button"
+                        className="li-carousel-tool"
+                        onClick={() => onRegenerateSlide(slideIdx)}
+                        disabled={isGenerating}
+                        title="Re-roll this slide with the same spec"
+                      >
+                        <RefreshCw size={14} />
+                      </button>
+                    )}
+                    {currentImage && (
                       <a
                         className="li-carousel-tool"
-                        href={sortedImages[slideIdx].src}
+                        href={currentImage.src}
                         download={`slide-${slideIdx + 1}.png`}
                         title="Download slide"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <Download size={14} />
                       </a>
-                    </div>
-                  )}
+                    )}
+                    {onRemoveSlide && canRemoveCurrent && (
+                      <button
+                        type="button"
+                        className="li-carousel-tool li-carousel-tool--danger"
+                        onClick={() => {
+                          if (confirm('Remove this slide?')) {
+                            onRemoveSlide(slideIdx);
+                            setSlideIdx(Math.max(0, slideIdx - 1));
+                          }
+                        }}
+                        disabled={isGenerating}
+                        title="Remove this slide"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                   {/* Edit overlay — inline instruction input ON THE SLIDE */}
-                  {editingSlideIdx === sortedImages[slideIdx]?.idx && (
+                  {editingSlideIdx === slideIdx && (
                     <div className="li-carousel-edit-overlay" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="text"
                         className="li-carousel-edit-input"
-                        placeholder="Describe the change (e.g. bigger headline, swap icon...)"
+                        placeholder={isBlankSlide ? 'Describe this slide (e.g. "Why most founders miss X…")' : 'Describe the change (e.g. bigger headline, swap icon...)'}
                         value={editDraft}
                         autoFocus
                         disabled={isGenerating}
@@ -292,10 +369,9 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                         onKeyDown={(e) => {
                           if (e.key === 'Escape') { setEditingSlideIdx(null); setEditDraft(''); }
                           if (e.key === 'Enter' && editDraft.trim() && !isGenerating) {
-                            const idx = sortedImages[slideIdx].idx;
-                            const src = sortedImages[slideIdx].src;
+                            const src = currentImage?.src || null;
                             setEditingSlideIdx(null);
-                            onEditSlide(idx, src, editDraft.trim());
+                            onEditSlide(slideIdx, src, editDraft.trim());
                             setEditDraft('');
                           }
                         }}
@@ -305,10 +381,9 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                         className="li-carousel-edit-submit"
                         disabled={!editDraft.trim() || isGenerating}
                         onClick={() => {
-                          const idx = sortedImages[slideIdx].idx;
-                          const src = sortedImages[slideIdx].src;
+                          const src = currentImage?.src || null;
                           setEditingSlideIdx(null);
-                          onEditSlide(idx, src, editDraft.trim());
+                          onEditSlide(slideIdx, src, editDraft.trim());
                           setEditDraft('');
                         }}
                       >
@@ -328,15 +403,40 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
 
                   {/* Dots */}
                   <div className="li-carousel-dots">
-                    {Array.from({ length: totalDisplaySlots }).map((_, i) => (
-                      <span
-                        key={i}
-                        className={`li-carousel-dot${i === slideIdx ? ' li-carousel-dot--active' : ''}${i >= sortedImages.length ? ' li-carousel-dot--pending' : ''}`}
-                        onClick={() => setSlideIdx(i)}
-                      />
-                    ))}
+                    {Array.from({ length: totalDisplaySlots }).map((_, i) => {
+                      const hasImg = imageByIdx(i) !== null;
+                      const spec = slideSpec(i);
+                      const isBlank = !hasImg && spec?.blank === true;
+                      return (
+                        <span
+                          key={i}
+                          className={`li-carousel-dot${i === slideIdx ? ' li-carousel-dot--active' : ''}${!hasImg ? ' li-carousel-dot--pending' : ''}${isBlank ? ' li-carousel-dot--blank' : ''}`}
+                          onClick={() => setSlideIdx(i)}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
+                {onAddSlide && planSlides.length > 0 && (
+                  <div className="li-carousel-add-row">
+                    <button
+                      type="button"
+                      className="li-carousel-add-btn"
+                      onClick={() => {
+                        // Insert after the current slide unless current is the
+                        // CTA (locked at end) — then insert before it.
+                        const anchor = slideIdx >= planSlides.length - 1 ? planSlides.length - 2 : slideIdx;
+                        onAddSlide(anchor);
+                        setSlideIdx(anchor + 1);
+                      }}
+                      disabled={isGenerating}
+                      title="Insert a blank slide — describe it with the edit button"
+                    >
+                      <Plus size={14} /> Add slide after {slideIdx + 1}
+                    </button>
+                  </div>
+                )}
+                </>
               ) : hasImage ? (
                 /* Single image (text post with generated image) */
                 <div className="li-single-image-wrap">

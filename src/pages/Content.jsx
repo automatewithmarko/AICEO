@@ -2760,11 +2760,42 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
     return () => window.removeEventListener('keydown', onKey);
   }, [images.length, onClose]);
 
-  if (!msg || images.length === 0) return null;
+  if (!msg) return null;
+  const plan = msg.carouselPlan || {};
+  // Empty-state: no images yet but generation is about to start OR is
+  // streaming — render a skeleton panel so the user sees the preview
+  // open immediately after approving, rather than nothing at all.
+  if (images.length === 0) {
+    const planSlideCount = plan.slides?.length || (msg.pendingImages || 0) || 0;
+    return (
+      <div className="content-ig-preview" role="dialog" aria-label="Instagram preview">
+        <div className="content-ig-preview-header">
+          <span className="content-ig-preview-title">Instagram preview</span>
+          <button className="content-ig-preview-close" onClick={onClose} title="Close">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="content-ig-feed">
+          <div className="content-ig-post">
+            <div className="content-ig-post-header">
+              <div className="content-ig-avatar-ring">
+                <div className="content-ig-avatar content-ig-avatar--fallback">·</div>
+              </div>
+              <span className="content-ig-username">preparing post…</span>
+            </div>
+            <div className="content-ig-media content-ig-media--skeleton">
+              <Loader size={24} className="cs-spinner" />
+              <div className="content-ig-skeleton-label">
+                {planSlideCount > 0 ? `Rendering 0 / ${planSlideCount} slides…` : 'Preparing…'}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const current = images[idx];
   if (!current) return null;
-
-  const plan = msg.carouselPlan || {};
   const caption = plan.caption || msg.content || '';
   // LinkedIn captions usually aren't truncated aggressively on feed; IG
   // folds at ~125 chars. Different fold per platform keeps the preview honest.
@@ -3330,13 +3361,13 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
 
   return (
     <div className="content-carousel-actions content-carousel-actions--preview">
-      <button type="button" className="content-carousel-action-btn" onClick={downloadZip} disabled={downloading}>
-        <Download size={14} /> {downloading ? 'Packing…' : `Download all (${images.length} slides + caption)`}
+      <button type="button" className="content-carousel-action-btn" onClick={downloadZip} disabled={downloading} title={`Download all ${images.length} slides + caption as a zip`}>
+        <Download size={14} /> {downloading ? 'Packing…' : 'Download'}
       </button>
       <div className="content-carousel-schedule-wrap" ref={scheduleWrapRef}>
-        <button type="button" className="content-carousel-action-btn" onClick={() => setScheduleOpen(v => !v)} disabled={scheduling}>
+        <button type="button" className="content-carousel-action-btn" onClick={() => setScheduleOpen(v => !v)} disabled={scheduling} title="Send to content calendar — draft, schedule, or publish now">
           <CalendarDays size={14} />
-          {scheduleStatus === 'published' ? `Published to ${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'}` : scheduleStatus === 'saved' ? 'Saved to calendar' : (scheduling ? 'Saving…' : 'Send to calendar')}
+          {scheduleStatus === 'published' ? 'Published' : scheduleStatus === 'saved' ? 'Saved' : (scheduling ? 'Saving…' : 'Schedule')}
         </button>
         {scheduleOpen && (
           <div className="content-carousel-schedule-pop" onClick={(e) => e.stopPropagation()}>
@@ -3371,7 +3402,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
         disabled={savingTemplate || templateSaved}
         title={templateSaved ? 'Template saved for this carousel' : 'Save this design system so future carousels can inherit the look'}
       >
-        <Zap size={14} /> {templateSaved ? 'Template saved' : (savingTemplate ? 'Saving…' : 'Save as template')}
+        <Zap size={14} /> {templateSaved ? 'Template saved' : (savingTemplate ? 'Saving…' : 'Template')}
       </button>
       {templateModalOpen && (
         <div className="content-template-modal-overlay" onClick={() => !savingTemplate && setTemplateModalOpen(false)} role="dialog" aria-modal="true">
@@ -4014,8 +4045,15 @@ export default function Content() {
           hadImageGeneration = true;
           console.log(`🖼️ Generating ${imageCalls.length} image(s) in parallel`);
           setMessages((prev) => prev.map((m) =>
-            m.id === assistantMsgId ? { ...m, pendingImages: imageCalls.length } : m
+            m.id === assistantMsgId ? { ...m, pendingImages: imageCalls.length, platform: m.platform || activePlatform.id } : m
           ));
+          // Auto-open the side preview for Instagram image generation
+          // (carousel, single post, or story) so the user sees slides
+          // stream in without scrolling. Matches LinkedIn's auto-open.
+          if (activePlatform.id === 'instagram') {
+            setLinkedinPreview(null);
+            setCarouselSideView({ msgId: assistantMsgId });
+          }
 
           // Collect previous images from the conversation for regeneration reference
           // Find the most recent assistant message that has images (the previous generation)
@@ -4474,6 +4512,64 @@ export default function Content() {
       setIsGenerating(false);
     }
   }, [messages, photos, brandDna, generateSlideWithRetry]);
+
+  // Insert a blank slide into a carousel at the given position. The new
+  // slide is a placeholder with an empty body — the user drives its
+  // content by clicking Edit on the blank and typing an instruction,
+  // which goes through executeCarouselSlideEdit to generate the image.
+  //
+  // Hook (idx 0) and CTA (last) stay locked; blank slides always land
+  // somewhere in the middle. Inserting at insertAfterIdx means the new
+  // slide becomes index insertAfterIdx + 1. All higher indexes shift up.
+  const handleCarouselAddSlide = useCallback((msgId, insertAfterIdx) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id !== msgId || !m.carouselPlan) return m;
+      const slides = m.carouselPlan.slides || [];
+      // Block inserting after the CTA (would push CTA off the end).
+      const safeInsert = Math.min(insertAfterIdx, slides.length - 2);
+      const newSlide = {
+        type: 'explanation',
+        badge: 'NEW POINT',
+        headline: 'Describe this slide with the edit button',
+        body: '',
+        visualElement: { kind: 'minimal-icon', description: '' },
+        doNot: [],
+        blank: true,
+      };
+      const nextSlides = [...slides.slice(0, safeInsert + 1), newSlide, ...slides.slice(safeInsert + 1)];
+      // Images shift up too — bump idx for every image at or after the
+      // new position. The blank slide has no image (yet).
+      const nextImages = (m.images || []).map(img => {
+        if (img.idx > safeInsert) return { ...img, idx: img.idx + 1 };
+        return img;
+      });
+      return {
+        ...m,
+        carouselPlan: { ...m.carouselPlan, slides: nextSlides },
+        images: nextImages,
+      };
+    }));
+  }, []);
+
+  // Remove a middle slide. Hook (0) and CTA (last) are uneligible.
+  // Shifts all higher indexes down by 1 so the plan and images stay
+  // consistent. Persists via auto-save.
+  const handleCarouselRemoveSlide = useCallback((msgId, slideIdx) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id !== msgId || !m.carouselPlan) return m;
+      const slides = m.carouselPlan.slides || [];
+      if (slideIdx <= 0 || slideIdx >= slides.length - 1) return m; // hook + CTA locked
+      const nextSlides = slides.filter((_, i) => i !== slideIdx);
+      const nextImages = (m.images || [])
+        .filter(img => img.idx !== slideIdx)
+        .map(img => (img.idx > slideIdx ? { ...img, idx: img.idx - 1 } : img));
+      return {
+        ...m,
+        carouselPlan: { ...m.carouselPlan, slides: nextSlides },
+        images: nextImages,
+      };
+    }));
+  }, []);
 
   const handleCarouselSlideRegenerate = useCallback(async (msgId, slideIdx) => {
     if (isGenerating) return;
@@ -6534,6 +6630,11 @@ export default function Content() {
               isGeneratingImage={liGeneratingImage}
               streaming={isGenerating}
               totalSlides={linkedinPreview?.totalSlides || 0}
+              onContentChange={(newText) => {
+                // Commit user's text edits back to preview + the message so
+                // the change survives refresh (msg.linkedinPost.content).
+                setLinkedinPreview(prev => prev ? { ...prev, content: newText } : null);
+              }}
               onDeleteImage={() => {
                 // Clear the generated image on a text-post preview. Images
                 // live in linkedinPreview.images AND on the underlying
@@ -6612,6 +6713,9 @@ export default function Content() {
                   streaming={false}
                   isGenerating={isGenerating}
                   onClose={() => setCarouselSideView(null)}
+                  plan={panelMsg.carouselPlan}
+                  onAddSlide={(afterIdx) => handleCarouselAddSlide(panelMsg.id, afterIdx)}
+                  onRemoveSlide={(idx) => handleCarouselRemoveSlide(panelMsg.id, idx)}
                   onEditSlide={(idx, src, instruction) => executeCarouselSlideEdit(panelMsg.id, idx, instruction)}
                   onRegenerateSlide={(idx) => handleCarouselSlideRegenerate(panelMsg.id, idx)}
                   isLinkedInConnected={isLinkedInConnected}
