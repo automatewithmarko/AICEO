@@ -2710,6 +2710,8 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
   const images = useMemo(() => [...(msg?.images || [])].sort((a, b) => a.idx - b.idx), [msg]);
   const [idx, setIdx] = useState(0);
   const [captionExpanded, setCaptionExpanded] = useState(false);
+  const [editingSlideIdx, setEditingSlideIdx] = useState(null);
+  const [editDraft, setEditDraft] = useState('');
 
   // Stable dummy counts for this post — derived from msg.id, so they
   // don't change as the user scrolls or re-renders.
@@ -2821,7 +2823,7 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
                 <Maximize2 size={14} />
               </button>
               {onEdit && (
-                <button className="content-ig-tool" onClick={() => onEdit(current.idx, current.src)} title="Edit slide (keeps design)" disabled={isGenerating}>
+                <button className="content-ig-tool" onClick={() => { setEditingSlideIdx(current.idx); setEditDraft(''); }} title="Edit slide (keeps design)" disabled={isGenerating}>
                   <Pencil size={14} />
                 </button>
               )}
@@ -2831,6 +2833,51 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
                 </button>
               )}
             </div>
+            {/* Inline edit instruction overlay on the slide */}
+            {editingSlideIdx === current.idx && (
+              <div className="content-ig-edit-overlay" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="text"
+                  className="content-ig-edit-input"
+                  placeholder="Describe the change…"
+                  value={editDraft}
+                  autoFocus
+                  disabled={isGenerating}
+                  onChange={(e) => setEditDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') { setEditingSlideIdx(null); setEditDraft(''); }
+                    if (e.key === 'Enter' && editDraft.trim() && !isGenerating) {
+                      const draft = editDraft.trim();
+                      setEditingSlideIdx(null);
+                      setEditDraft('');
+                      onEdit(current.idx, current.src, draft);
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="content-ig-edit-submit"
+                  disabled={!editDraft.trim() || isGenerating}
+                  onClick={() => {
+                    const draft = editDraft.trim();
+                    setEditingSlideIdx(null);
+                    setEditDraft('');
+                    onEdit(current.idx, current.src, draft);
+                  }}
+                >
+                  Apply
+                </button>
+                <button type="button" className="content-ig-edit-cancel" onClick={() => { setEditingSlideIdx(null); setEditDraft(''); }}>
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+            {/* Loading overlay while regen/edit runs for any slide */}
+            {isGenerating && editingSlideIdx === null && (msg.editingIdx === current.idx || (msg.pendingImages || 0) > 0) && (
+              <div className="content-ig-loading-overlay">
+                <Loader size={24} className="cs-spinner" />
+              </div>
+            )}
           </div>
 
           {/* Dots indicator — both platforms */}
@@ -4301,6 +4348,94 @@ export default function Content() {
   // Regenerate one carousel slide with the same locked spec (no edit text).
   // Useful when the content is right but NanoBanana's render has a bad
   // layout — re-roll without having to type a fake edit instruction.
+  // Standalone carousel-slide edit runner. Used by the inline pencil
+  // (via handleImageEdit) AND by the side preview panels (LinkedInPreview,
+  // CarouselSidePanel) so they can host their own edit input field
+  // instead of having the edit UI live in the chat.
+  const executeCarouselSlideEdit = useCallback(async (msgId, imgIdx, editInstruction) => {
+    if (!editInstruction?.trim()) return;
+    const carouselMsg = messages.find(m => m.id === msgId);
+    const plan = carouselMsg?.carouselPlan;
+    const slide = plan?.slides?.[imgIdx];
+    if (!plan || !slide) return;
+    const platformId = carouselMsg.platform || 'instagram';
+    setIsGenerating(true);
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, editingIdx: imgIdx } : m));
+    try {
+      const brandForPrompt = { name: brandDna?.brand_name || brandDna?.description?.split(/[.,]/)[0]?.trim() || '' };
+      const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
+      const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
+      const brandImageData = {
+        photoUrls: [...uploadedPhotoUrls, ...oneBrandPhoto],
+        logoUrl: null,
+        colors: brandDna?.colors || {},
+        mainFont: brandDna?.main_font || null,
+      };
+      const basePrompt = buildCarouselSlidePrompt({
+        designSystem: plan.designSystem,
+        slide,
+        index: imgIdx,
+        total: plan.slides.length,
+        brand: brandForPrompt,
+        platform: platformId,
+      });
+      const editedPrompt = [
+        `USER EDIT INSTRUCTION (apply ONLY this change to the slide below — keep every other element identical: palette, typography, layout zones, badge, branding strip, slide counter, chapter mark, glow position, mood):`,
+        `  ${editInstruction.trim()}`,
+        ``,
+        `If the edit changes a specific piece of text, update ONLY that text in TEXT CONTENT below; all other text must render exactly as originally specified.`,
+        ``,
+        basePrompt,
+      ].join('\n');
+      // Reference current slide + hook so palette anchors visually.
+      const currentImg = (carouselMsg.images || []).find(i => i.idx === imgIdx);
+      const hookImg = (carouselMsg.images || []).find(i => i.idx === 0);
+      const toRef = async (img) => {
+        if (!img?.src) return null;
+        if (img.src.startsWith('data:')) {
+          const c = img.src.indexOf(',');
+          const m = img.src.match(/^data:([^;]+);/);
+          return c !== -1 ? { data: img.src.slice(c + 1), mimeType: m?.[1] || 'image/jpeg' } : null;
+        }
+        try {
+          const r = await fetch(img.src, { mode: 'cors' });
+          const b = await r.blob();
+          const buf = await b.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+          return { data: base64, mimeType: b.type || 'image/jpeg' };
+        } catch { return null; }
+      };
+      const refs = [];
+      const currentRef = await toRef(currentImg);
+      if (currentRef) refs.push(currentRef);
+      if (hookImg && hookImg.idx !== imgIdx) {
+        const hookRef = await toRef(hookImg);
+        if (hookRef) refs.push(hookRef);
+      }
+      const result = await generateSlideWithRetry(imgIdx, editedPrompt, brandImageData, refs, { maxAttempts: 3, platform: platformId });
+      const newSrc = `data:${result.image.mimeType};base64,${result.image.data}`;
+      setMessages(prev => prev.map(m => {
+        if (m.id !== msgId) return m;
+        const newImages = [...(m.images || [])];
+        const target = newImages.findIndex(img => img.idx === imgIdx);
+        if (target !== -1) newImages[target] = { ...newImages[target], src: newSrc };
+        else newImages.push({ src: newSrc, idx: imgIdx });
+        const failedLeft = (m.carouselPlan?.failedSlides || []).filter(x => x !== imgIdx);
+        return {
+          ...m,
+          images: newImages,
+          editingIdx: undefined,
+          carouselPlan: { ...m.carouselPlan, failedSlides: failedLeft },
+        };
+      }));
+    } catch (err) {
+      console.error('Carousel slide edit failed:', err);
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, editingIdx: undefined } : m));
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [messages, photos, brandDna, generateSlideWithRetry]);
+
   const handleCarouselSlideRegenerate = useCallback(async (msgId, slideIdx) => {
     if (isGenerating) return;
     const msg = messages.find(m => m.id === msgId);
@@ -6009,8 +6144,12 @@ export default function Content() {
                           <Maximize2 size={14} /> Open LinkedIn preview
                         </button>
                       )}
-                      {/* Image carousel  -  below text */}
-                      {hasImages && (
+                      {/* Image carousel — inline slides. Hidden for carousel
+                          messages (the side preview covers it end-to-end).
+                          Still shown for single-image content (YouTube
+                          thumbnails, single IG posts, LinkedIn text-post
+                          images), which have no preview panel of their own. */}
+                      {hasImages && !msg.carouselPlan && (
                         <div className="content-image-carousel">
                           {sortedImages.map((img, i) => (
                             <div key={i} className={`content-carousel-slide content-generated-image--fadein${msg.editingIdx === img.idx ? ' content-carousel-slide--editing' : ''}`}>
@@ -6407,10 +6546,7 @@ export default function Content() {
                   streaming={false}
                   isGenerating={isGenerating}
                   onClose={() => setCarouselSideView(null)}
-                  onEditSlide={(idx, src) => {
-                    setEditingImage({ msgId: panelMsg.id, imgIdx: idx, src });
-                    setEditPrompt('');
-                  }}
+                  onEditSlide={(idx, src, instruction) => executeCarouselSlideEdit(panelMsg.id, idx, instruction)}
                   onRegenerateSlide={(idx) => handleCarouselSlideRegenerate(panelMsg.id, idx)}
                   isLinkedInConnected={isLinkedInConnected}
                   onPostToLinkedIn={async ({ text, images: imgs, connect }) => {
@@ -6442,9 +6578,8 @@ export default function Content() {
                 isGenerating={isGenerating}
                 onClose={() => setCarouselSideView(null)}
                 onFullscreen={(idx) => setSlideViewer({ msgId: panelMsg.id, idx })}
-                onEdit={panelMsg.carouselPlan ? (idx, src) => {
-                  setEditingImage({ msgId: panelMsg.id, imgIdx: idx, src });
-                  setEditPrompt('');
+                onEdit={panelMsg.carouselPlan ? (idx, src, instruction) => {
+                  executeCarouselSlideEdit(panelMsg.id, idx, instruction);
                 } : null}
                 onRegenerate={panelMsg.carouselPlan?.slides ? (idx) => {
                   handleCarouselSlideRegenerate(panelMsg.id, idx);

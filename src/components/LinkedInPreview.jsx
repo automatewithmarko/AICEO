@@ -12,6 +12,9 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
   const [schedDate, setSchedDate] = useState('');
   const [schedTime, setSchedTime] = useState('09:00');
   const [schedState, setSchedState] = useState('idle'); // idle | saving | saved
+  // Edit overlay: which slide is being edited + the instruction draft
+  const [editingSlideIdx, setEditingSlideIdx] = useState(null);
+  const [editDraft, setEditDraft] = useState('');
   const uploadRef = useRef(null);
   const textRef = useRef(null);
   const schedRef = useRef(null);
@@ -213,7 +216,7 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                         <button
                           type="button"
                           className="li-carousel-tool"
-                          onClick={() => onEditSlide(sortedImages[slideIdx].idx, sortedImages[slideIdx].src)}
+                          onClick={() => { setEditingSlideIdx(sortedImages[slideIdx].idx); setEditDraft(''); }}
                           disabled={isGenerating}
                           title="Edit this slide (design system stays locked)"
                         >
@@ -240,6 +243,53 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                       >
                         <Download size={14} />
                       </a>
+                    </div>
+                  )}
+                  {/* Edit overlay — inline instruction input ON THE SLIDE */}
+                  {editingSlideIdx === sortedImages[slideIdx]?.idx && (
+                    <div className="li-carousel-edit-overlay" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        className="li-carousel-edit-input"
+                        placeholder="Describe the change (e.g. bigger headline, swap icon...)"
+                        value={editDraft}
+                        autoFocus
+                        disabled={isGenerating}
+                        onChange={(e) => setEditDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') { setEditingSlideIdx(null); setEditDraft(''); }
+                          if (e.key === 'Enter' && editDraft.trim() && !isGenerating) {
+                            const idx = sortedImages[slideIdx].idx;
+                            const src = sortedImages[slideIdx].src;
+                            setEditingSlideIdx(null);
+                            onEditSlide(idx, src, editDraft.trim());
+                            setEditDraft('');
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="li-carousel-edit-submit"
+                        disabled={!editDraft.trim() || isGenerating}
+                        onClick={() => {
+                          const idx = sortedImages[slideIdx].idx;
+                          const src = sortedImages[slideIdx].src;
+                          setEditingSlideIdx(null);
+                          onEditSlide(idx, src, editDraft.trim());
+                          setEditDraft('');
+                        }}
+                      >
+                        Apply
+                      </button>
+                      <button type="button" className="li-carousel-edit-cancel" onClick={() => { setEditingSlideIdx(null); setEditDraft(''); }}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                  {/* Loading overlay during edit/regen generation for this slide */}
+                  {isGenerating && editingSlideIdx === null && (
+                    <div className="li-carousel-loading-overlay">
+                      <Loader size={22} className="li-spin" />
                     </div>
                   )}
 

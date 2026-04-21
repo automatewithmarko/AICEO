@@ -717,6 +717,7 @@
   padding: 16px;
   display: flex;
   justify-content: center;
+  align-items: flex-start; /* pin post to top; no blank space below when content is short */
   -webkit-overflow-scrolling: touch;
 }
 .content-ig-post {
@@ -862,6 +863,71 @@
 }
 .content-ig-tool:hover:not(:disabled) { background: rgba(0, 0, 0, 0.85); }
 .content-ig-tool:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Inline edit overlay on an IG slide — instruction input + Apply/Cancel */
+.content-ig-edit-overlay {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.85);
+  border-radius: 10px;
+  z-index: 3;
+  backdrop-filter: blur(8px);
+}
+.content-ig-edit-input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 13px;
+  font-family: inherit;
+}
+.content-ig-edit-input::placeholder { color: rgba(255, 255, 255, 0.55); }
+.content-ig-edit-input:focus { outline: none; border-color: #fff; background: rgba(255, 255, 255, 0.15); }
+.content-ig-edit-submit {
+  padding: 8px 14px;
+  border: none;
+  background: var(--brand-red, #e63946);
+  color: #fff;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.content-ig-edit-submit:hover:not(:disabled) { opacity: 0.9; }
+.content-ig-edit-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.content-ig-edit-cancel {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.content-ig-edit-cancel:hover { background: rgba(255, 255, 255, 0.15); }
+
+.content-ig-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  z-index: 2;
+  pointer-events: none;
+}
 
 /* Actions row — icons with counts beside them, inline */
 .content-ig-actions {

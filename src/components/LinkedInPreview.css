@@ -320,6 +320,71 @@
 .li-carousel-tool:hover:not(:disabled) { background: rgba(0, 0, 0, 0.85); }
 .li-carousel-tool:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Inline edit instruction bar on a slide */
+.li-carousel-edit-overlay {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.85);
+  border-radius: 10px;
+  z-index: 3;
+  backdrop-filter: blur(8px);
+}
+.li-carousel-edit-input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 13px;
+  font-family: inherit;
+}
+.li-carousel-edit-input::placeholder { color: rgba(255, 255, 255, 0.55); }
+.li-carousel-edit-input:focus { outline: none; border-color: #fff; background: rgba(255, 255, 255, 0.15); }
+.li-carousel-edit-submit {
+  padding: 8px 14px;
+  border: none;
+  background: #0a66c2;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.li-carousel-edit-submit:hover:not(:disabled) { background: #0b5cb1; }
+.li-carousel-edit-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.li-carousel-edit-cancel {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.li-carousel-edit-cancel:hover { background: rgba(255, 255, 255, 0.15); }
+
+.li-carousel-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  z-index: 2;
+  pointer-events: none;
+}
+
 /* Single-image text post: delete control */
 .li-single-image-wrap { position: relative; }
 .li-single-image-delete {
