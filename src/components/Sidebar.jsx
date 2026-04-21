@@ -7,6 +7,7 @@ import {
   LogOut,
   Settings,
   User,
+  CreditCard,
 } from 'lucide-react';
 import './Sidebar.css';
 
@@ -205,6 +206,10 @@ export default function Sidebar() {
                 </div>
               </div>
               <div className="profile-divider" />
+              <button className="profile-menu-item" onClick={() => { navigate('/billing'); setProfileOpen(false); }}>
+                <CreditCard size={16} />
+                <span>Billing & Credits</span>
+              </button>
               <button className="profile-menu-item" onClick={() => { navigate('/settings'); setProfileOpen(false); }}>
                 <Settings size={16} />
                 <span>Settings</span>

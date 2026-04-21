@@ -11,6 +11,7 @@ import Inbox from './pages/Inbox';
 import Sales from './pages/Sales';
 import Products from './pages/Products';
 import Settings from './pages/Settings';
+import Billing from './pages/Billing';
 import OutlierDetector from './pages/OutlierDetector';
 import ContentCalendar from './pages/ContentCalendar';
 import CRM from './pages/CRM';
@@ -67,6 +68,7 @@ function App() {
         <Route path="/meetings" element={<Meetings />} />
         <Route path="/meetings/:id" element={<MeetingDetail />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/billing" element={<Billing />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>

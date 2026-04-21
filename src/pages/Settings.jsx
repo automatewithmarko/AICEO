@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, ChevronDown, FileText, Loader, Plus, Dna, Calendar } from 'lucide-react';
 import ColorWheelPicker from '../components/ColorWheelPicker';
 import FontSelector from '../components/FontSelector';
@@ -98,6 +98,7 @@ export default function Settings() {
   const initialLoadDone = useRef(false);
   const saveTimer = useRef(null);
   const location = useLocation();
+  const navigate = useNavigate();
 
   // Scroll to Brand DNA when navigated from Content page
   useEffect(() => {
@@ -682,8 +683,11 @@ export default function Settings() {
                 <span className="settings-credits-warning">Credits running low</span>
               )}
             </div>
-            <button className="settings-btn settings-btn--primary">
-              Buy More Credits
+            <button
+              className="settings-btn settings-btn--primary"
+              onClick={() => navigate('/billing')}
+            >
+              Manage billing
             </button>
           </div>
 
