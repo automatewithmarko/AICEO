@@ -4406,6 +4406,11 @@ export default function Content() {
     ));
     setIsGenerating(true);
     setActiveAssistantId(msgId);
+    // Auto-open the side preview just like LinkedIn text-posts do when
+    // they start streaming. Slides appear inside the preview panel as
+    // they render; user gets live feedback without scrolling up.
+    setLinkedinPreview(null);
+    setCarouselSideView({ msgId });
 
     const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
     const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
@@ -6324,6 +6329,17 @@ export default function Content() {
               isGeneratingImage={liGeneratingImage}
               streaming={isGenerating}
               totalSlides={linkedinPreview?.totalSlides || 0}
+              onDeleteImage={() => {
+                // Clear the generated image on a text-post preview. Images
+                // live in linkedinPreview.images AND on the underlying
+                // message — wipe both so it doesn't return on re-save.
+                setLinkedinPreview(prev => prev ? { ...prev, images: [] } : null);
+                if (linkedinPreview?.msgId) {
+                  setMessages(prev => prev.map(m =>
+                    m.id === linkedinPreview.msgId ? { ...m, images: [] } : m
+                  ));
+                }
+              }}
               onUploadImages={(files) => {
                 const newImages = files.map((file, i) => ({
                   src: URL.createObjectURL(file),
@@ -6371,6 +6387,10 @@ export default function Content() {
           if (isLi) {
             const caption = panelMsg.carouselPlan?.caption || '';
             const sortedImgs = [...(panelMsg.images || [])].sort((a, b) => a.idx - b.idx);
+            // Total slide count comes from the plan, not completed images —
+            // so LinkedInPreview can show pending placeholders as slides
+            // stream in during generation.
+            const planSlideCount = panelMsg.carouselPlan?.slides?.length || sortedImgs.length;
             const displayName = brandDna?.brand_name || user?.name || 'Your Brand';
             const subtitle = brandDna?.description?.split(/[.!?]/)[0]?.trim().slice(0, 80) || 'Author';
             return (
@@ -6383,9 +6403,15 @@ export default function Content() {
                   userSubtitle={subtitle}
                   followerCount={brandDna?.linkedin_followers || '1,200'}
                   postAge="1w"
-                  totalSlides={sortedImgs.length}
+                  totalSlides={planSlideCount}
                   streaming={false}
+                  isGenerating={isGenerating}
                   onClose={() => setCarouselSideView(null)}
+                  onEditSlide={(idx, src) => {
+                    setEditingImage({ msgId: panelMsg.id, imgIdx: idx, src });
+                    setEditPrompt('');
+                  }}
+                  onRegenerateSlide={(idx) => handleCarouselSlideRegenerate(panelMsg.id, idx)}
                   isLinkedInConnected={isLinkedInConnected}
                   onPostToLinkedIn={async ({ text, images: imgs, connect }) => {
                     if (connect) { navigate('/settings', { state: { scrollTo: 'integrations' } }); return; }

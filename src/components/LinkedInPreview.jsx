@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload, Send, CalendarClock, ExternalLink } from 'lucide-react';
+import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload, Send, CalendarClock, ExternalLink, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import './LinkedInPreview.css';
 
-export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge }) {
+export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge, onEditSlide, onRegenerateSlide, onDeleteImage, isGenerating }) {
   const [editedText, setEditedText] = useState(null);
   const [copied, setCopied] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
@@ -206,11 +206,41 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                   {/* Counter */}
                   <span className="li-carousel-counter">{slideIdx + 1} / {totalDisplaySlots}</span>
 
-                  {/* Download button — only for completed slides */}
+                  {/* Slide toolbar — download / edit / regenerate. Only on completed slides. */}
                   {slideIdx < sortedImages.length && (
-                    <a className="li-carousel-download" href={sortedImages[slideIdx].src} download={`slide-${slideIdx + 1}.png`}>
-                      <Download size={14} />
-                    </a>
+                    <div className="li-carousel-tools">
+                      {onEditSlide && (
+                        <button
+                          type="button"
+                          className="li-carousel-tool"
+                          onClick={() => onEditSlide(sortedImages[slideIdx].idx, sortedImages[slideIdx].src)}
+                          disabled={isGenerating}
+                          title="Edit this slide (design system stays locked)"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      )}
+                      {onRegenerateSlide && (
+                        <button
+                          type="button"
+                          className="li-carousel-tool"
+                          onClick={() => onRegenerateSlide(sortedImages[slideIdx].idx)}
+                          disabled={isGenerating}
+                          title="Re-roll this slide with the same spec"
+                        >
+                          <RefreshCw size={14} />
+                        </button>
+                      )}
+                      <a
+                        className="li-carousel-tool"
+                        href={sortedImages[slideIdx].src}
+                        download={`slide-${slideIdx + 1}.png`}
+                        title="Download slide"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Download size={14} />
+                      </a>
+                    </div>
                   )}
 
                   {/* Dots */}
@@ -226,7 +256,19 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                 </div>
               ) : hasImage ? (
                 /* Single image (text post with generated image) */
-                <img src={sortedImages[0].src} alt="" />
+                <div className="li-single-image-wrap">
+                  <img src={sortedImages[0].src} alt="" />
+                  {onDeleteImage && (
+                    <button
+                      type="button"
+                      className="li-single-image-delete"
+                      onClick={onDeleteImage}
+                      title="Remove image"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
               ) : null}
             </div>
           )}
@@ -287,45 +329,40 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
         </div>
       </div>
 
-      {/* Bottom toolbar */}
+      {/* Bottom toolbar — single row */}
       <div className="li-preview-toolbar">
-        <div className="li-toolbar-row">
-          <button className="li-toolbar-btn" onClick={handleCopy} disabled={streaming}>
-            {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy Text</>}
-          </button>
-          {!streaming && (
-            <>
-              <input
-                ref={uploadRef}
-                type="file"
-                accept="image/*"
-                multiple
-                style={{ display: 'none' }}
-                onChange={(e) => {
-                  const files = Array.from(e.target.files || []);
-                  if (files.length > 0 && onUploadImages) onUploadImages(files);
-                  e.target.value = '';
-                }}
-              />
-              <button className="li-toolbar-btn" onClick={() => uploadRef.current?.click()}>
-                <Upload size={14} /> Upload Image{isCarousel ? 's' : ''}
-              </button>
-            </>
-          )}
-          {onGenerateImage && !streaming && !isCarousel && (
-            <button
-              className="li-toolbar-btn li-toolbar-btn--primary"
-              onClick={() => onGenerateImage(text)}
-              disabled={isGeneratingImage || !text.trim()}
-            >
-              {isGeneratingImage ? <><Loader size={14} className="li-spin" /> Generating...</> : <><ImagePlus size={14} /> Generate Image</>}
-            </button>
-          )}
-        </div>
-
-        {/* Post & Schedule row */}
+        {!streaming && (
+          <input
+            ref={uploadRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []);
+              if (files.length > 0 && onUploadImages) onUploadImages(files);
+              e.target.value = '';
+            }}
+          />
+        )}
         {!streaming && text.trim() && (
           <div className="li-toolbar-row li-toolbar-row--actions">
+            {/* Upload: hidden for carousels (their slides are designed, not uploaded) */}
+            {!isCarousel && (
+              <button className="li-toolbar-btn" onClick={() => uploadRef.current?.click()}>
+                <Upload size={14} /> Upload Image
+              </button>
+            )}
+            {/* Generate image: only for text posts that don't have one yet */}
+            {onGenerateImage && !isCarousel && (
+              <button
+                className="li-toolbar-btn"
+                onClick={() => onGenerateImage(text)}
+                disabled={isGeneratingImage || !text.trim()}
+              >
+                {isGeneratingImage ? <><Loader size={14} className="li-spin" /> Generating...</> : <><ImagePlus size={14} /> Generate Image</>}
+              </button>
+            )}
             {/* Schedule button with popover */}
             <div className="li-schedule-wrap" ref={schedRef}>
               <button

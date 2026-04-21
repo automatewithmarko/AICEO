@@ -294,6 +294,52 @@
   background: rgba(0,0,0,0.8);
 }
 
+/* Slide toolbar (Edit / Regen / Download) — appears over the slide */
+.li-carousel-tools {
+  position: absolute;
+  bottom: 36px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  z-index: 2;
+}
+.li-carousel-tool {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+.li-carousel-tool:hover:not(:disabled) { background: rgba(0, 0, 0, 0.85); }
+.li-carousel-tool:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Single-image text post: delete control */
+.li-single-image-wrap { position: relative; }
+.li-single-image-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.li-single-image-delete:hover { background: #e63946; }
+
 .li-carousel-img {
   width: 100%;
   display: block;
