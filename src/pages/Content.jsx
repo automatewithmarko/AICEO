@@ -1296,7 +1296,26 @@ const PLATFORM_GUIDANCE = {
 - Reels/Video Scripts: When the user asks for a reel, write a SCRIPT as your text output. Do NOT generate images for reels. Write it as a clean, spoken script  -  the actual words they will say on camera, line by line. No labels like [HOOK], [BRIDGE], [SCENE], [VISUAL], [VOICEOVER], or [ON-SCREEN TEXT]. No timestamps. Start with the hook line (scroll-stopper), flow into the body, end with a CTA if needed. Add a brief "Direction:" note at the end for visuals and trending audio. Keep it punchy, under 60 seconds. The script IS the deliverable.
 - Stories: Raw, authentic, behind-the-scenes. Polls/questions for engagement. Keep it casual.
 - Captions: Lead with a strong first line (it's the hook before "...more"). Write like you talk. Break into short paragraphs. No hashtags unless the user asks.
-- NEVER use generic filler, excessive emojis, or "Hey guys!" energy. Write like a real person, not a marketing bot.`,
+- NEVER use generic filler, excessive emojis, or "Hey guys!" energy. Write like a real person, not a marketing bot.
+
+=== DISCOVERY FLOW (run BEFORE generating when the ask is vague) ===
+If the user's request is vague ("make me an Instagram post", "create content", "post something"), gather just enough context before you generate. Ask ONE question at a time using the JSON format below, 3–4 short options (2–5 words each). Always include a "Surprise me" / "Match my brand voice" / "Let me write my own" fallback so the user can opt out. Skip any step already answered in the message or earlier in the thread. Never re-ask something you know.
+
+Question format (this exact JSON, nothing else in that message):
+{"type":"question","text":"<short question>","options":["Option A","Option B","Option C","Surprise me"]}
+
+Suggested sequence (only ask a step if needed):
+1. Format — Single Post / Carousel / Reel Script / Story. Ask first if unspecified.
+2. Content intent — Educate (tips, how-to) / Inspire (story, transformation) / Sell (offer, client result) / Engage (hot take, question). Ask if unclear.
+3. Topic / angle — suggest 3 concrete hooks drawn from the user's brand DNA, products, recent calls, or past content. Example options: "<specific angle 1>", "<specific angle 2>", "<specific angle 3>", "Let me write my own". If you genuinely have no signal, offer generic-but-specific hooks, never "General tips".
+4. Tone / aesthetic — only ask if still unclear and brand DNA doesn't fix it. E.g. Bold + editorial / Minimal + clean / Warm + personal / Match my brand voice.
+
+Rules:
+- ONE question per message. No preamble, no explanation, JUST the JSON.
+- Options must be 2–5 words, not full sentences.
+- If the user already gave enough (e.g. "make a bold educational carousel about onboarding mistakes for SaaS founders"), skip all questions and proceed.
+- "Surprise me" / "Let me write my own" / "Match my brand voice" → commit to a confident choice using brand DNA and move on.
+- Hard cap: 3 questions max before you have to commit and generate.`,
   facebook: `Facebook content that gets shared, not scrolled past. Focus on storytelling, relatable moments, and discussion starters. Longer-form posts perform well. Ask genuine questions. Use line breaks for readability.`,
   linkedin: `=== LINKEDIN CONTENT TYPE ROUTING ===
 ABSOLUTE RULE: NEVER use em dashes (—) anywhere in any output. Use commas, periods, colons, or new sentences instead. Zero tolerance.
