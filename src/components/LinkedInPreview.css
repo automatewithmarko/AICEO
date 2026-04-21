@@ -752,6 +752,13 @@
   background: #004182;
   border-color: #004182;
 }
+.li-toolbar-btn--instagram {
+  background: linear-gradient(90deg, #f09433, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888);
+  border-color: #dc2743;
+  color: #fff;
+}
+.li-toolbar-btn--instagram:hover { filter: brightness(0.95); }
+.li-toolbar-btn--instagram:disabled { opacity: 0.7; }
 .li-toolbar-btn--linkedin-connect {
   background: #fff;
   border: 1px solid #0a66c2;

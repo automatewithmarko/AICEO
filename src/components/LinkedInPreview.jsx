@@ -551,53 +551,58 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                 {isGeneratingImage ? <><Loader size={14} className="li-spin" /> Generating...</> : <><ImagePlus size={14} /> Generate Image</>}
               </button>
             )}
-            {/* Schedule button with popover */}
-            <div className="li-schedule-wrap" ref={schedRef}>
-              <button
-                className="li-toolbar-btn li-toolbar-btn--outline"
-                onClick={() => setScheduleOpen(o => !o)}
-                disabled={streaming}
-              >
-                <CalendarClock size={14} /> Schedule
-              </button>
-              {scheduleOpen && (
-                <div className="li-schedule-popover">
-                  <div className="li-schedule-title">Schedule post</div>
-                  <label className="li-schedule-label">
-                    Date
-                    <input
-                      type="date"
-                      className="li-schedule-input"
-                      value={schedDate}
-                      onChange={(e) => setSchedDate(e.target.value)}
-                      min={new Date().toISOString().split('T')[0]}
-                    />
-                  </label>
-                  <label className="li-schedule-label">
-                    Time
-                    <input
-                      type="time"
-                      className="li-schedule-input"
-                      value={schedTime}
-                      onChange={(e) => setSchedTime(e.target.value)}
-                    />
-                  </label>
-                  <button
-                    className="li-toolbar-btn li-toolbar-btn--primary li-schedule-confirm"
-                    onClick={handleSchedule}
-                    disabled={schedState === 'saving' || !schedDate || !schedTime}
-                  >
-                    {schedState === 'saving' ? (
-                      <><Loader size={14} className="li-spin" /> Saving...</>
-                    ) : schedState === 'saved' ? (
-                      <><Check size={14} /> Scheduled!</>
-                    ) : (
-                      <><CalendarClock size={14} /> Confirm Schedule</>
-                    )}
-                  </button>
-                </div>
-              )}
-            </div>
+            {/* Schedule button with popover — only for text posts.
+                Carousels get a richer draft/schedule/publish modal from
+                the actionsSlot (CarouselActionsBar) above. Two Schedule
+                buttons would be confusing. */}
+            {!isCarousel && (
+              <div className="li-schedule-wrap" ref={schedRef}>
+                <button
+                  className="li-toolbar-btn li-toolbar-btn--outline"
+                  onClick={() => setScheduleOpen(o => !o)}
+                  disabled={streaming}
+                >
+                  <CalendarClock size={14} /> Schedule
+                </button>
+                {scheduleOpen && (
+                  <div className="li-schedule-popover">
+                    <div className="li-schedule-title">Schedule post</div>
+                    <label className="li-schedule-label">
+                      Date
+                      <input
+                        type="date"
+                        className="li-schedule-input"
+                        value={schedDate}
+                        onChange={(e) => setSchedDate(e.target.value)}
+                        min={new Date().toISOString().split('T')[0]}
+                      />
+                    </label>
+                    <label className="li-schedule-label">
+                      Time
+                      <input
+                        type="time"
+                        className="li-schedule-input"
+                        value={schedTime}
+                        onChange={(e) => setSchedTime(e.target.value)}
+                      />
+                    </label>
+                    <button
+                      className="li-toolbar-btn li-toolbar-btn--primary li-schedule-confirm"
+                      onClick={handleSchedule}
+                      disabled={schedState === 'saving' || !schedDate || !schedTime}
+                    >
+                      {schedState === 'saving' ? (
+                        <><Loader size={14} className="li-spin" /> Saving...</>
+                      ) : schedState === 'saved' ? (
+                        <><Check size={14} /> Scheduled!</>
+                      ) : (
+                        <><CalendarClock size={14} /> Confirm Schedule</>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Post to LinkedIn button */}
             {isLinkedInConnected ? (

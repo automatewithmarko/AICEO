@@ -3192,20 +3192,6 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
   // upload on the fly so the calendar entry holds real URLs, not huge
   // base64 blobs that would blow up the table.
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  // Outside-click to close the schedule popover. Scoped to when it's open
-  // so we don't attach listeners for carousels that aren't interacting
-  // with the popover.
-  const scheduleWrapRef = useRef(null);
-  useEffect(() => {
-    if (!scheduleOpen) return;
-    const onDown = (e) => {
-      if (scheduleWrapRef.current && !scheduleWrapRef.current.contains(e.target)) {
-        setScheduleOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [scheduleOpen]);
   const [scheduleWhen, setScheduleWhen] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -3366,37 +3352,10 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
       <button type="button" className="li-toolbar-btn" onClick={downloadZip} disabled={downloading} title={`Download all ${images.length} slides + caption as a zip`}>
         <Download size={14} /> {downloading ? 'Packing…' : 'Download'}
       </button>
-      <div className="content-carousel-schedule-wrap" ref={scheduleWrapRef}>
-        <button type="button" className="li-toolbar-btn" onClick={() => setScheduleOpen(v => !v)} disabled={scheduling} title="Send to content calendar — draft, schedule, or publish now">
-          <CalendarDays size={14} />
-          {scheduleStatus === 'published' ? 'Published' : scheduleStatus === 'saved' ? 'Saved' : (scheduling ? 'Saving…' : 'Schedule')}
-        </button>
-        {scheduleOpen && (
-          <div className="content-carousel-schedule-pop" onClick={(e) => e.stopPropagation()}>
-            <label className="content-carousel-schedule-label">Schedule date/time</label>
-            <input
-              type="datetime-local"
-              className="content-carousel-schedule-input"
-              value={scheduleWhen}
-              onChange={(e) => setScheduleWhen(e.target.value)}
-            />
-            <div className="content-carousel-schedule-actions">
-              <button type="button" className="content-carousel-schedule-secondary" onClick={() => saveToCalendar('draft')} disabled={scheduling}>
-                Save as draft
-              </button>
-              <button type="button" className="content-carousel-schedule-secondary" onClick={() => saveToCalendar('scheduled')} disabled={scheduling}>
-                Schedule
-              </button>
-              <button type="button" className="content-carousel-schedule-primary" onClick={() => saveToCalendar('publish')} disabled={scheduling} title="Save + publish immediately via connected Instagram account">
-                Publish now
-              </button>
-            </div>
-            <div className="content-carousel-schedule-hint">
-              "Publish now" uses the {platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} account connected under Settings. If not connected, save as draft and publish from the Content Calendar later.
-            </div>
-          </div>
-        )}
-      </div>
+      <button type="button" className="li-toolbar-btn" onClick={() => setScheduleOpen(true)} disabled={scheduling} title="Send to content calendar — draft, schedule, or publish now">
+        <CalendarDays size={14} />
+        {scheduleStatus === 'published' ? 'Published' : scheduleStatus === 'saved' ? 'Saved' : (scheduling ? 'Saving…' : 'Schedule')}
+      </button>
       <button
         type="button"
         className="li-toolbar-btn"
@@ -3406,6 +3365,60 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
       >
         <Zap size={14} /> {templateSaved ? 'Template saved' : (savingTemplate ? 'Saving…' : 'Template')}
       </button>
+      {/* Post to {Platform} button — direct publish via connected account.
+          On LinkedIn carousels this sits alongside the native Post to
+          LinkedIn button below — both route through the same BooSend →
+          platform publish pipeline. */}
+      {platform === 'instagram' && (
+        <button
+          type="button"
+          className="li-toolbar-btn li-toolbar-btn--instagram"
+          onClick={() => saveToCalendar('publish')}
+          disabled={scheduling}
+          title="Publish now to your connected Instagram account"
+        >
+          <Send size={14} /> Post to Instagram
+        </button>
+      )}
+      {/* Schedule modal — centered overlay so it escapes the toolbar's
+          overflow clipping. Backed by the same draft/schedule/publish
+          flow. */}
+      {scheduleOpen && (
+        <div className="content-template-modal-overlay" onClick={() => !scheduling && setScheduleOpen(false)} role="dialog" aria-modal="true">
+          <div className="content-template-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="content-template-modal-header">
+              <span className="content-template-modal-title">Send to content calendar</span>
+              <button type="button" className="content-template-modal-close" onClick={() => !scheduling && setScheduleOpen(false)} aria-label="Close">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="content-template-modal-body">
+              <label className="content-template-modal-label">Schedule date/time</label>
+              <input
+                type="datetime-local"
+                className="content-template-modal-input"
+                value={scheduleWhen}
+                onChange={(e) => setScheduleWhen(e.target.value)}
+                disabled={scheduling}
+              />
+              <div className="content-template-modal-hint">
+                "Publish now" posts immediately via your connected {platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} account. "Schedule" pins it to the chosen date. "Save as draft" parks it in the Content Calendar for later.
+              </div>
+            </div>
+            <div className="content-template-modal-footer">
+              <button type="button" className="content-template-modal-cancel" onClick={() => saveToCalendar('draft')} disabled={scheduling}>
+                Save as draft
+              </button>
+              <button type="button" className="content-template-modal-cancel" onClick={() => saveToCalendar('scheduled')} disabled={scheduling}>
+                Schedule
+              </button>
+              <button type="button" className="content-template-modal-save" onClick={() => saveToCalendar('publish')} disabled={scheduling}>
+                {scheduling ? 'Working…' : 'Publish now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {templateModalOpen && (
         <div className="content-template-modal-overlay" onClick={() => !savingTemplate && setTemplateModalOpen(false)} role="dialog" aria-modal="true">
           <div className="content-template-modal" onClick={(e) => e.stopPropagation()}>
