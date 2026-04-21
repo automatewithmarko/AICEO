@@ -685,7 +685,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  /* Right side reserves ~80px for the fixed-position notification bell
+     (top:16px right:20px on every page) so the close X isn't buried
+     underneath it. Matches the spacing ArtifactPanel already uses. */
+  padding: 12px 80px 12px 16px;
   background: #fff;
   border-bottom: 1px solid #dbdbdb;
   flex-shrink: 0;
@@ -925,6 +928,50 @@
 }
 .content-ig-meta-time { font-size: 10px; }
 
+.content-ig-comment-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 14px;
+  border-top: 1px solid #efefef;
+}
+.content-ig-avatar-sm {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #efefef;
+}
+.content-ig-avatar-sm img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.content-ig-avatar-sm-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #262626;
+}
+.content-ig-comment-placeholder {
+  flex: 1;
+  font-size: 13px;
+  color: #8e8e8e;
+}
+.content-ig-comment-emoji {
+  font-size: 16px;
+  color: #262626;
+  opacity: 0.6;
+}
+.content-ig-comment-more {
+  font-size: 18px;
+  color: #262626;
+  opacity: 0.6;
+  line-height: 0.5;
+  padding-bottom: 4px;
+}
+
 /* ── LinkedIn-mode overrides ── */
 .content-ig-preview--linkedin {
   background: #f4f2ee;
@@ -968,61 +1015,130 @@
 .content-ig-preview--linkedin .content-ig-indicator { padding: 6px 0 8px; background: #fff; }
 .content-ig-preview--linkedin .content-ig-indicator-dot { background: #d0d0d0; width: 5px; height: 5px; }
 .content-ig-preview--linkedin .content-ig-indicator-dot--active { background: #0a66c2; }
-.content-ig-preview--linkedin .content-ig-caption {
+
+/* LinkedIn caption — match LinkedInPreview component styles */
+.content-li-caption {
   padding: 8px 14px 4px;
   color: #000000e6;
   font-size: 14px;
   line-height: 1.5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-.content-ig-preview--linkedin .content-ig-caption-body { font-weight: 400; }
-.content-ig-preview--linkedin .content-ig-more-link { color: #00000099; font-size: 14px; font-weight: 600; margin-left: 0; }
-.content-ig-li-reactions {
+.content-li-caption-body { font-weight: 400; }
+.content-li-more-link {
+  margin-left: 4px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #00000099;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.content-li-more-link:hover { text-decoration: underline; color: #0a66c2; }
+
+/* Reactions row with branded SVG pills + counts */
+.content-li-reactions {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px 14px 8px;
   font-size: 12px;
   color: #00000099;
-  border-bottom: 1px solid #e0dfdc;
 }
-.content-ig-li-reaction-dots {
+.content-li-reactions-icons {
   display: inline-flex;
   align-items: center;
-  gap: -4px;
+  margin-right: 4px;
 }
-.content-ig-li-reaction-dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 2px solid #fff;
+.content-li-reaction-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin-left: -4px;
-  display: inline-block;
 }
-.content-ig-li-reaction-dot:first-child { margin-left: 0; }
-.content-ig-li-reaction-dot--like { background: #0a66c2; }
-.content-ig-li-reaction-dot--celebrate { background: #e16745; }
-.content-ig-li-reaction-dot--insightful { background: #f5b940; }
-.content-ig-li-reaction-count { margin-left: 4px; }
-.content-ig-li-reaction-sep { margin: 0 2px; }
-.content-ig-li-actions {
+.content-li-reaction-emoji:first-child { margin-left: 0; }
+.content-li-reaction-emoji svg {
+  border: 2px solid #fff;
+  border-radius: 50%;
+  display: block;
+}
+.content-li-reaction-count { color: #00000099; }
+.content-li-reaction-sep { color: #00000099; margin: 0 4px; }
+.content-li-comments-count {}
+
+.content-li-divider {
+  height: 1px;
+  background: #e0dfdc;
+  margin: 0 14px;
+}
+
+/* Action buttons: Like / Comment / Repost / Send with real SVGs */
+.content-li-actions {
   display: flex;
   justify-content: space-around;
-  padding: 4px 0;
-  border-top: 0;
+  padding: 4px 6px;
 }
-.content-ig-li-actions span {
+.content-li-action {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 14px;
+  padding: 10px 12px;
   font-size: 13px;
   font-weight: 600;
-  color: #00000099;
+  color: #666;
+  background: transparent;
+  border: none;
   border-radius: 6px;
-  cursor: default;
+  cursor: pointer;
   transition: background 0.15s ease;
 }
-.content-ig-li-actions span:hover { background: #0000000a; }
+.content-li-action:hover { background: #0000000a; }
+
+/* Comment area at the bottom of the LinkedIn card */
+.content-li-comment-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 14px;
+}
+.content-li-comment-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #e7f3ff;
+  flex-shrink: 0;
+}
+.content-li-comment-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.content-li-comment-avatar-ph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0a66c2;
+  background: #e7f3ff;
+}
+.content-li-comment-input {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid #e0dfdc;
+  border-radius: 18px;
+  background: #fff;
+  cursor: text;
+}
+.content-li-comment-placeholder {
+  font-size: 13px;
+  color: #00000099;
+  font-weight: 600;
+}
 
 /* Top bar — prev convos on left, platform pills centered */
 .content-top-bar {
@@ -2123,11 +2239,12 @@
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .cs-template-item--on {
-  border-color: var(--brand-red, #e63946);
-  background: rgba(230, 57, 70, 0.05);
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.06);
 }
 .cs-template-toggle {
   flex: 1;
+  min-width: 0; /* allows the child .cs-template-info to truncate */
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2140,7 +2257,7 @@
   transition: background 0.15s ease;
 }
 .cs-template-toggle:hover { background: var(--surface-secondary, #f5f5f5); }
-.cs-template-item--on .cs-template-toggle:hover { background: rgba(230, 57, 70, 0.08); }
+.cs-template-item--on .cs-template-toggle:hover { background: rgba(34, 197, 94, 0.1); }
 .cs-template-thumb {
   width: 36px;
   height: 36px;
@@ -2148,7 +2265,11 @@
   object-fit: cover;
   flex-shrink: 0;
 }
-.cs-template-info { flex: 1; min-width: 0; }
+.cs-template-info {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
 .cs-template-name {
   font-size: 12px;
   font-weight: 600;
@@ -2156,6 +2277,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
 }
 .cs-template-swatches { display: flex; gap: 3px; margin-top: 3px; }
 .cs-template-swatch {
@@ -2163,24 +2285,27 @@
   height: 11px;
   border-radius: 2px;
   border: 1px solid rgba(0, 0, 0, 0.05);
+  flex-shrink: 0;
 }
 .cs-template-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--brand-red, #e63946);
+  background: #22c55e;
   flex-shrink: 0;
 }
 .cs-template-delete {
   border: none;
   background: transparent;
   padding: 4px 6px;
-  color: var(--text-muted, #aaa);
+  color: var(--text-muted, #888);
   cursor: pointer;
-  opacity: 0.5;
-  transition: opacity 0.15s ease, color 0.15s ease;
+  opacity: 1; /* always visible, not just on hover */
+  transition: color 0.15s ease, background 0.15s ease;
+  flex-shrink: 0;
+  border-radius: 4px;
 }
-.cs-template-delete:hover { opacity: 1; color: var(--brand-red, #e63946); }
+.cs-template-delete:hover { color: var(--brand-red, #e63946); background: rgba(230, 57, 70, 0.08); }
 
 /* ── Social Cards ── */
 .cs-social-cards {
@@ -2848,6 +2973,11 @@
 }
 .content-carousel-action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
+.content-linkedin-reopen {
+  margin-top: 12px;
+  align-self: flex-start;
+}
+
 .content-carousel-edit-tip {
   display: inline-flex;
   align-items: center;
@@ -2942,6 +3072,128 @@
   color: var(--text-muted, #888);
   line-height: 1.4;
 }
+
+/* ── Save-as-template modal (centered overlay) ── */
+.content-template-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: templateModalFadeIn 0.15s ease;
+}
+@keyframes templateModalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.content-template-modal {
+  width: min(440px, calc(100vw - 32px));
+  background: var(--surface-primary, #fff);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: templateModalPop 0.18s ease;
+}
+@keyframes templateModalPop {
+  from { transform: translateY(8px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+.content-template-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+.content-template-modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #1a1a1a);
+}
+.content-template-modal-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+}
+.content-template-modal-close:hover { background: var(--surface-secondary, #f5f5f5); color: var(--text-primary, #1a1a1a); }
+.content-template-modal-body {
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.content-template-modal-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted, #666);
+}
+.content-template-modal-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--surface-primary, #fff);
+  color: var(--text-primary, #1a1a1a);
+  font-size: 14px;
+  font-family: inherit;
+}
+.content-template-modal-input:focus {
+  outline: none;
+  border-color: var(--brand-red, #e63946);
+}
+.content-template-modal-hint {
+  font-size: 12px;
+  color: var(--text-muted, #888);
+  line-height: 1.5;
+}
+.content-template-modal-error {
+  font-size: 12px;
+  color: var(--brand-red, #e63946);
+  padding: 4px 0;
+}
+.content-template-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--border-light);
+}
+.content-template-modal-cancel {
+  padding: 8px 14px;
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-primary, #1a1a1a);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.content-template-modal-cancel:hover:not(:disabled) { background: var(--surface-secondary, #f5f5f5); }
+.content-template-modal-cancel:disabled { opacity: 0.6; cursor: not-allowed; }
+.content-template-modal-save {
+  padding: 8px 14px;
+  border: 1px solid var(--brand-red, #e63946);
+  background: var(--brand-red, #e63946);
+  color: #fff;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.content-template-modal-save:hover:not(:disabled) { opacity: 0.9; }
+.content-template-modal-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Template picker ── */
 .content-carousel-plan-templates-wrap {

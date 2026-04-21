@@ -2793,28 +2793,61 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
           {/* Platform-specific caption + action row */}
           {isLinkedin ? (
             <>
-              <div className="content-ig-caption">
-                <span className="content-ig-caption-body">
+              <div className="content-li-caption">
+                <span className="content-li-caption-body">
                   {captionDisplay}
                   {captionIsLong && !captionExpanded && (
-                    <button className="content-ig-more-link" onClick={() => setCaptionExpanded(true)}> …see more</button>
+                    <button className="content-li-more-link" onClick={() => setCaptionExpanded(true)}>…see more</button>
                   )}
                 </span>
               </div>
-              <div className="content-ig-li-reactions">
-                <span className="content-ig-li-reaction-dots">
-                  <span className="content-ig-li-reaction-dot content-ig-li-reaction-dot--like" />
-                  <span className="content-ig-li-reaction-dot content-ig-li-reaction-dot--celebrate" />
-                  <span className="content-ig-li-reaction-dot content-ig-li-reaction-dot--insightful" />
-                </span>
-                <span className="content-ig-li-reaction-count">{(Math.floor(Math.random() * 400) + 60).toLocaleString()}</span>
-                <span className="content-ig-li-reaction-sep">·</span>
-                <span>{(Math.floor(Math.random() * 30) + 4)} comments</span>
+              {/* Branded LinkedIn reaction SVGs — same set used in LinkedInPreview component */}
+              <div className="content-li-reactions">
+                <div className="content-li-reactions-icons">
+                  <span className="content-li-reaction-emoji">
+                    <svg width="16" height="16" viewBox="0 0 16 16"><defs><linearGradient id="liCarLikeGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#378FE9"/><stop offset="100%" stopColor="#0D6BC6"/></linearGradient></defs><circle cx="8" cy="8" r="8" fill="url(#liCarLikeGrad)"/><path d="M11.5 7.2h-2l.3-1.5c.1-.5-.1-1-.5-1.2-.2-.1-.5 0-.6.2L7 7.2H5.5c-.3 0-.5.2-.5.5v3.8c0 .3.2.5.5.5h4.8c.4 0 .7-.2.8-.6l.8-2.6c.2-.5-.2-1.1-.7-1.1L11.5 7.2z" fill="#fff"/></svg>
+                  </span>
+                  <span className="content-li-reaction-emoji">
+                    <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="#44712E"/><path d="M6 10.5l1-4.5 2 1.5L8 12l-2-1.5z" fill="#fff" opacity="0.9"/><path d="M5 5l1.5 1M10 4.5l-1 1.5M7.5 3.5V5M11 6l-1 .5" stroke="#FFC233" strokeWidth="1" strokeLinecap="round"/></svg>
+                  </span>
+                  <span className="content-li-reaction-emoji">
+                    <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="#DF704D"/><path d="M8 12s-3.5-2.2-3.5-4.5C4.5 6.1 5.6 5 7 5c.8 0 1.4.4 1.7.9h.1c.3-.5 1-.9 1.7-.9 1.4 0 2.5 1.1 2.5 2.5C13 9.8 9.5 12 8 12z" fill="#fff"/></svg>
+                  </span>
+                </div>
+                <span className="content-li-reaction-count">{(Math.floor(Math.random() * 400) + 60).toLocaleString()}</span>
+                <span className="content-li-reaction-sep">·</span>
+                <span className="content-li-comments-count">{(Math.floor(Math.random() * 30) + 4)} comments</span>
               </div>
-              <div className="content-ig-li-actions">
-                <span><Heart size={18} strokeWidth={1.6} /> Like</span>
-                <span><MessageCircle size={18} strokeWidth={1.6} /> Comment</span>
-                <span><Send size={18} strokeWidth={1.6} /> Share</span>
+              <div className="content-li-divider" />
+              <div className="content-li-actions">
+                <button className="content-li-action" type="button">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M19.46 11l-3.91-3.91a7 7 0 01-1.69-2.74l-.49-1.47A2.76 2.76 0 0010.76 1 2.75 2.75 0 008 3.74v1.12a9.19 9.19 0 00.46 2.85L8.89 9H4.12A2.12 2.12 0 002 11.12a2.16 2.16 0 00.92 1.76A2.11 2.11 0 002 14.62a2.14 2.14 0 001.28 2 2 2 0 00-.28 1 2.12 2.12 0 002 2.12v.14A2.12 2.12 0 007.12 22h7.49a8.08 8.08 0 003.58-.84l.31-.16H21V11z" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  <span>Like</span>
+                </button>
+                <button className="content-li-action" type="button">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M7 9h10M7 13h6M21 20l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-1v4z" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  <span>Comment</span>
+                </button>
+                <button className="content-li-action" type="button">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M13.5 2L17 5.5 13.5 9" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M6 10.5V8a2.5 2.5 0 012.5-2.5H17" stroke="#666" strokeWidth="1.5" strokeLinecap="round"/><path d="M10.5 22L7 18.5 10.5 15" stroke="#666" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M18 13.5V16a2.5 2.5 0 01-2.5 2.5H7" stroke="#666" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                  <span>Repost</span>
+                </button>
+                <button className="content-li-action" type="button">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M21 3L14.5 21l-3-7.5L4 10.5 21 3z" stroke="#666" strokeWidth="1.5" strokeLinejoin="round"/></svg>
+                  <span>Send</span>
+                </button>
+              </div>
+              {/* Comment area — matches LinkedInPreview's styling */}
+              <div className="content-li-comment-area">
+                <div className="content-li-comment-avatar">
+                  {avatarUrl
+                    ? <img src={avatarUrl} alt="" onError={(e) => { e.target.style.display = 'none'; }} />
+                    : <div className="content-li-comment-avatar-ph">{displayName.charAt(0).toUpperCase()}</div>
+                  }
+                </div>
+                <div className="content-li-comment-input">
+                  <span className="content-li-comment-placeholder">Add a comment...</span>
+                </div>
               </div>
             </>
           ) : (
@@ -2839,8 +2872,20 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
                 </span>
               </div>
               <div className="content-ig-meta">
-                <span>View all comments</span>
+                <span>View all {(Math.floor(Math.random() * 20) + 6)} comments</span>
                 <span className="content-ig-meta-time">Just now</span>
+              </div>
+              {/* IG-style comment input row — visual only */}
+              <div className="content-ig-comment-row">
+                <div className="content-ig-avatar-sm">
+                  {avatarUrl
+                    ? <img src={avatarUrl} alt="" onError={(e) => { e.target.style.display = 'none'; }} />
+                    : <div className="content-ig-avatar-sm-fallback">{username.charAt(0).toUpperCase()}</div>
+                  }
+                </div>
+                <span className="content-ig-comment-placeholder">Add a comment…</span>
+                <span className="content-ig-comment-emoji">😊</span>
+                <span className="content-ig-comment-more">⋯</span>
               </div>
             </>
           )}
@@ -2986,6 +3031,20 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
   // upload on the fly so the calendar entry holds real URLs, not huge
   // base64 blobs that would blow up the table.
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  // Outside-click to close the schedule popover. Scoped to when it's open
+  // so we don't attach listeners for carousels that aren't interacting
+  // with the popover.
+  const scheduleWrapRef = useRef(null);
+  useEffect(() => {
+    if (!scheduleOpen) return;
+    const onDown = (e) => {
+      if (scheduleWrapRef.current && !scheduleWrapRef.current.contains(e.target)) {
+        setScheduleOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [scheduleOpen]);
   const [scheduleWhen, setScheduleWhen] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -3050,12 +3109,25 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
   // slide as the preview thumbnail if it's still a data URL.
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateSaved, setTemplateSaved] = useState(false);
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [templateNameDraft, setTemplateNameDraft] = useState('');
+  const [templateModalError, setTemplateModalError] = useState('');
+  const openTemplateModal = () => {
+    if (templateSaved || savingTemplate) return;
+    const defaultName = `${(plan.hook || 'Carousel').replace(/\{\{\/?accent\}\}/g, '').slice(0, 48).trim()} · ${new Date().toLocaleDateString()}`;
+    setTemplateNameDraft(defaultName);
+    setTemplateModalError('');
+    setTemplateModalOpen(true);
+  };
   const saveAsTemplate = async () => {
+    const name = templateNameDraft.trim();
+    if (!name) {
+      setTemplateModalError('Name is required.');
+      return;
+    }
     if (savingTemplate) return;
-    const defaultName = `${(plan.hook || 'Carousel').slice(0, 48)} · ${new Date().toLocaleDateString()}`;
-    const name = window.prompt('Template name:', defaultName);
-    if (!name) return;
     setSavingTemplate(true);
+    setTemplateModalError('');
     try {
       const hook = images.find(i => i.idx === 0);
       let previewUrl = null;
@@ -3075,13 +3147,13 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
         preview_url: previewUrl,
       });
       setTemplateSaved(true);
+      setTemplateModalOpen(false);
       // Notify the sidebar card to refetch so the new template appears
       // immediately without a page reload.
       try { window.dispatchEvent(new CustomEvent('carousel-templates-changed')); } catch {}
-      setTimeout(() => setTemplateSaved(false), 4000);
     } catch (err) {
       console.error('Template save failed:', err);
-      alert(err.message || 'Failed to save template');
+      setTemplateModalError(err.message || 'Failed to save template');
     } finally {
       setSavingTemplate(false);
     }
@@ -3097,7 +3169,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
       <button type="button" className="content-carousel-action-btn" onClick={downloadZip} disabled={downloading}>
         <Download size={14} /> {downloading ? 'Packing…' : `Download all (${images.length} slides + caption)`}
       </button>
-      <div className="content-carousel-schedule-wrap">
+      <div className="content-carousel-schedule-wrap" ref={scheduleWrapRef}>
         <button type="button" className="content-carousel-action-btn" onClick={() => setScheduleOpen(v => !v)} disabled={scheduling}>
           <CalendarDays size={14} />
           {scheduleStatus === 'published' ? `Published to ${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'}` : scheduleStatus === 'saved' ? 'Saved to calendar' : (scheduling ? 'Saving…' : 'Send to calendar')}
@@ -3131,12 +3203,49 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
       <button
         type="button"
         className="content-carousel-action-btn"
-        onClick={saveAsTemplate}
-        disabled={savingTemplate}
-        title="Save this design system so future carousels can inherit the look"
+        onClick={openTemplateModal}
+        disabled={savingTemplate || templateSaved}
+        title={templateSaved ? 'Template saved for this carousel' : 'Save this design system so future carousels can inherit the look'}
       >
         <Zap size={14} /> {templateSaved ? 'Template saved' : (savingTemplate ? 'Saving…' : 'Save as template')}
       </button>
+      {templateModalOpen && (
+        <div className="content-template-modal-overlay" onClick={() => !savingTemplate && setTemplateModalOpen(false)} role="dialog" aria-modal="true">
+          <div className="content-template-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="content-template-modal-header">
+              <span className="content-template-modal-title">Save as template</span>
+              <button type="button" className="content-template-modal-close" onClick={() => !savingTemplate && setTemplateModalOpen(false)} aria-label="Close">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="content-template-modal-body">
+              <label className="content-template-modal-label">Template name</label>
+              <input
+                type="text"
+                className="content-template-modal-input"
+                value={templateNameDraft}
+                onChange={(e) => setTemplateNameDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveAsTemplate(); if (e.key === 'Escape' && !savingTemplate) setTemplateModalOpen(false); }}
+                placeholder="e.g. Minimalist Amber, Bold Editorial…"
+                autoFocus
+                disabled={savingTemplate}
+              />
+              <div className="content-template-modal-hint">
+                Captures the locked palette, typography, card style, glow, and mood. Future carousels can inherit this look from the sidebar "Saved samples" card.
+              </div>
+              {templateModalError && <div className="content-template-modal-error">{templateModalError}</div>}
+            </div>
+            <div className="content-template-modal-footer">
+              <button type="button" className="content-template-modal-cancel" onClick={() => setTemplateModalOpen(false)} disabled={savingTemplate}>
+                Cancel
+              </button>
+              <button type="button" className="content-template-modal-save" onClick={saveAsTemplate} disabled={savingTemplate || !templateNameDraft.trim()}>
+                {savingTemplate ? 'Saving…' : 'Save template'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showTip && (
         <div className="content-carousel-edit-tip" onClick={dismissTip} role="button" title="Dismiss">
           <Pencil size={12} />
@@ -3225,6 +3334,29 @@ export default function Content() {
   // tool-call-only responses that land in the preview panel.
   const linkedinPreviewRef = useRef(null);
   useEffect(() => { linkedinPreviewRef.current = linkedinPreview; }, [linkedinPreview]);
+  // Mirror the linkedinPreview's text content onto the owning message so
+  // a page refresh can rehydrate the preview. Images already live on
+  // msg.images (auto-save uploads them), so we only persist the post
+  // text + totalSlides here.
+  useEffect(() => {
+    if (!linkedinPreview?.msgId) return;
+    const content = linkedinPreview.content || '';
+    if (!content) return;
+    setMessages(prev => prev.map(m => {
+      if (m.id !== linkedinPreview.msgId) return m;
+      const existing = m.linkedinPost || {};
+      if (existing.content === content && existing.totalSlides === (linkedinPreview.totalSlides || 0)) {
+        return m;
+      }
+      return {
+        ...m,
+        linkedinPost: {
+          content,
+          totalSlides: linkedinPreview.totalSlides || 0,
+        },
+      };
+    }));
+  }, [linkedinPreview?.content, linkedinPreview?.totalSlides, linkedinPreview?.msgId]);
   const [liGeneratingImage, setLiGeneratingImage] = useState(false);
 
   // Keep LinkedIn preview images in sync with the message's images
@@ -3466,6 +3598,12 @@ export default function Content() {
         const persisted = { id: m.id, role: m.role, content: m.content, images: uploadedImages };
         if (persistedPlan) persisted.carouselPlan = persistedPlan;
         if (m.platform) persisted.platform = m.platform;
+        if (m.linkedinPost && m.linkedinPost.content) {
+          persisted.linkedinPost = {
+            content: m.linkedinPost.content,
+            totalSlides: m.linkedinPost.totalSlides || 0,
+          };
+        }
         return persisted;
       }));
       // Also update local state with uploaded URLs so future saves don't re-upload
@@ -3859,6 +3997,8 @@ export default function Content() {
         if (refContext) postSystemPrompt += refContext;
         postSystemPrompt += `=== WRITING GUIDELINES ${refContext ? '(use as fallback if no reference content above)' : '(FOLLOW THIS STRUCTURE EXACTLY)'} ===\n${variationPrompt}\n\n`;
         postSystemPrompt += `=== FINAL OVERRIDE (READ THIS LAST) ===\nIGNORE the "INPUT FORMAT", "OUTPUT FORMAT", and "QUALITY CHECKLIST" sections in the guidelines above. Those are structural references, NOT instructions for you to output.\nYou already have all inputs from the conversation history. Do NOT output "Topic:", "Content Intent:", "Brain Dump:", "Client Voice DNA:", or any template fields.\n${refContext ? 'IMPORTANT: The reference content above is your PRIMARY template. Mirror its structure exactly. The writing guidelines are secondary.\n' : ''}Output ONLY the raw LinkedIn post text. Nothing before it, nothing after it. Just the post itself, ready to paste into LinkedIn.`;
+        // Only ONE preview tenant in the right pane at a time.
+        setCarouselSideView(null);
         setLinkedinPreview({ content: '', images: [], msgId: assistantMsgId });
         try {
           await streamContentResponse(
@@ -3936,6 +4076,7 @@ export default function Content() {
 
         // Use a ref to accumulate images safely across concurrent promises
         const carouselImagesRef = [];
+        setCarouselSideView(null);
         setLinkedinPreview({ content: '', images: [], totalSlides: 0, msgId: assistantMsgId });
         try {
           await streamContentResponse(
@@ -5755,6 +5896,27 @@ export default function Content() {
                           onUpdatePlan={(next) => handleUpdateCarouselPlan(msg.id, next)}
                         />
                       )}
+                      {/* LinkedIn text-post reopen button — shows when a
+                          persisted linkedinPost exists on the message but
+                          no preview is currently open for it. Clicking
+                          rehydrates linkedinPreview from the message. */}
+                      {msg.linkedinPost && msg.linkedinPost.content && linkedinPreview?.msgId !== msg.id && (
+                        <button
+                          type="button"
+                          className="content-carousel-action-btn content-linkedin-reopen"
+                          onClick={() => {
+                            setCarouselSideView(null);
+                            setLinkedinPreview({
+                              content: msg.linkedinPost.content,
+                              images: msg.images || [],
+                              totalSlides: msg.linkedinPost.totalSlides || 0,
+                              msgId: msg.id,
+                            });
+                          }}
+                        >
+                          <Maximize2 size={14} /> Open LinkedIn preview
+                        </button>
+                      )}
                       {/* Image carousel  -  below text */}
                       {hasImages && (
                         <div className="content-image-carousel">
@@ -6106,7 +6268,7 @@ export default function Content() {
             />
           </div>
         )}
-        {carouselSideView && (() => {
+        {carouselSideView && !linkedinPreview && (() => {
           const panelMsg = messages.find(m => m.id === carouselSideView.msgId);
           if (!panelMsg) return null;
           return (
