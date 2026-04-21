@@ -2904,17 +2904,24 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
             </>
           ) : (
             <>
-              {/* IG action row — visual only, not functional */}
+              {/* IG action row — icons with per-action counts (Reel-style) */}
               <div className="content-ig-actions">
-                <Heart size={26} strokeWidth={1.8} />
-                <MessageCircle size={26} strokeWidth={1.8} />
-                <Send size={26} strokeWidth={1.8} />
-                <Bookmark size={26} strokeWidth={1.8} className="content-ig-action-save" />
-              </div>
-              {/* Likes count + activity summary (stable per-post) */}
-              <div className="content-ig-likes">
-                {dummyCounts.likes.toLocaleString()} likes
-                <span className="content-ig-likes-sub"> · {dummyCounts.comments} comments · {dummyCounts.shares} shares · {dummyCounts.saves} saves</span>
+                <div className="content-ig-action">
+                  <Heart size={26} strokeWidth={1.8} />
+                  <span className="content-ig-action-count">{dummyCounts.likes.toLocaleString()}</span>
+                </div>
+                <div className="content-ig-action">
+                  <MessageCircle size={26} strokeWidth={1.8} />
+                  <span className="content-ig-action-count">{dummyCounts.comments}</span>
+                </div>
+                <div className="content-ig-action">
+                  <Send size={26} strokeWidth={1.8} />
+                  <span className="content-ig-action-count">{dummyCounts.shares}</span>
+                </div>
+                <div className="content-ig-action content-ig-action-save">
+                  <Bookmark size={26} strokeWidth={1.8} />
+                  <span className="content-ig-action-count">{dummyCounts.saves}</span>
+                </div>
               </div>
               {/* Caption with IG's 125-char fold */}
               <div className="content-ig-caption">
