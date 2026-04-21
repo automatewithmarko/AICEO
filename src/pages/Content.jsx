@@ -6690,16 +6690,66 @@ export default function Content() {
                   ));
                 }
               }}
-              onUploadImages={(files) => {
-                const newImages = files.map((file, i) => ({
+              onUploadImages={async (files) => {
+                // Instant optimistic render via blob: URLs, then upload to
+                // Supabase storage so the real URL lands on msg.images and
+                // the image survives a page refresh. Blob URLs are in-
+                // memory only — they die on reload, which is why the
+                // previous implementation silently "lost" uploads.
+                const msgId = linkedinPreview?.msgId;
+                if (!msgId) return;
+                const startIdx = (linkedinPreview?.images?.length || 0);
+                const optimistic = files.map((file, i) => ({
                   src: URL.createObjectURL(file),
-                  idx: (linkedinPreview?.images?.length || 0) + i,
+                  idx: startIdx + i,
+                  _uploading: true,
                 }));
                 setLinkedinPreview(prev => prev ? {
                   ...prev,
-                  images: [...(prev.images || []), ...newImages],
-                  totalSlides: newImages.length > 1 ? (prev.images?.length || 0) + newImages.length : prev.totalSlides,
+                  images: [...(prev.images || []), ...optimistic],
+                  totalSlides: optimistic.length > 1 ? (prev.images?.length || 0) + optimistic.length : prev.totalSlides,
                 } : prev);
+                // Upload each file sequentially — get a real Supabase URL
+                // and swap it in both on the preview and the owning msg.
+                for (let i = 0; i < files.length; i++) {
+                  const file = files[i];
+                  const idx = startIdx + i;
+                  try {
+                    const base64 = await new Promise((resolve, reject) => {
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        const result = String(reader.result || '');
+                        const comma = result.indexOf(',');
+                        resolve(comma !== -1 ? result.slice(comma + 1) : result);
+                      };
+                      reader.onerror = reject;
+                      reader.readAsDataURL(file);
+                    });
+                    const uploaded = await uploadImageToStorage(base64, file.type || 'image/png');
+                    const url = uploaded.url || uploaded.publicUrl || null;
+                    if (!url) throw new Error('upload returned no URL');
+                    // Replace the blob placeholder on the preview.
+                    setLinkedinPreview(prev => {
+                      if (!prev) return prev;
+                      const next = (prev.images || []).map(im => im.idx === idx ? { src: url, idx } : im);
+                      return { ...prev, images: next };
+                    });
+                    // Persist onto the message so auto-save + reload see it.
+                    setMessages(prev => prev.map(m => {
+                      if (m.id !== msgId) return m;
+                      const existing = m.images || [];
+                      const without = existing.filter(im => im.idx !== idx);
+                      return { ...m, images: [...without, { src: url, idx }] };
+                    }));
+                  } catch (err) {
+                    console.error('Upload failed:', err);
+                    // Clear the broken placeholder rather than leave it.
+                    setLinkedinPreview(prev => prev ? {
+                      ...prev,
+                      images: (prev.images || []).filter(im => im.idx !== idx),
+                    } : prev);
+                  }
+                }
               }}
               isLinkedInConnected={isLinkedInConnected}
               onPostToLinkedIn={async ({ text, images, connect }) => {
