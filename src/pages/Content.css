@@ -863,23 +863,23 @@
 .content-ig-tool:hover:not(:disabled) { background: rgba(0, 0, 0, 0.85); }
 .content-ig-tool:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Actions row — icons with counts underneath, Reel-style */
+/* Actions row — icons with counts beside them, inline */
 .content-ig-actions {
   display: flex;
-  align-items: flex-end;
-  gap: 16px;
+  align-items: center;
+  gap: 14px;
   padding: 8px 14px 6px;
   color: #262626;
 }
 .content-ig-action {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
-  gap: 2px;
+  gap: 5px;
   cursor: default;
 }
 .content-ig-action-count {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: #262626;
   letter-spacing: 0;
