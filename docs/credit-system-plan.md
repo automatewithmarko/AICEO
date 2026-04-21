@@ -72,30 +72,37 @@ This maps directly to how users think about value:
 
 ---
 
-## 5. Proposed credit costs (what we reseed the table with)
+## 5. Proposed costs & per-action unit economics
 
-Chat drops to zero. Web research drops to zero (rate-limited behind
-the scenes). Artifact prices bump modestly to absorb the chat-token
-spend that no longer has its own line item.
+Chat and web research drop to zero. Artifact prices bump modestly to
+absorb the chat-token spend that no longer has its own line item.
 
-| Action | Current | Proposed | Change |
-|---|---|---|---|
-| `ai_ceo_message` | 1 | **0** | − 1 |
-| `web_research` | 2 | **0** | − 2 |
-| `image_generation` | 3 | 3 | — |
-| `text_post` | 5 | 5 | — |
-| `call_recording` | 5 | 5 | — |
-| `call_intelligence` | 10 | 10 | — |
-| `dm_automation` | 10 | 15 | + 5 |
-| `carousel` | 15 | 20 | + 5 |
-| `lead_magnet` | 15 | 20 | + 5 |
-| `story_sequence` | 15 | 20 | + 5 |
-| `squeeze_page` | 20 | 25 | + 5 |
-| `newsletter` | 20 | 25 | + 5 |
-| `landing_page` | 25 | 35 | + 10 |
+Margin is calculated assuming 1 credit ≈ $0.10 of plan revenue (the
+ratio of $99/mo ÷ 500 monthly credits on Complete is already at that
+level). "API cost" is roughly what we pay Grok / Claude / Gemini per
+run. "—" means the action is free to the user and its tiny API cost
+is absorbed into the artifact prices below.
 
-The bumps are small in absolute terms and the artifacts still land at
-round, memorable numbers.
+| Action | Current cr | Proposed cr | Change | API cost | Retail @ $0.10/cr | Margin |
+|---|---|---|---|---|---|---|
+| `ai_ceo_message` | 1 | **0** | − 1 | ~$0.008 | — | absorbed |
+| `web_research` | 2 | **0** | − 2 | ~$0.015 | — | absorbed |
+| `image_generation` | 3 | 3 | — | ~$0.020 | $0.30 | **93%** |
+| `text_post` | 5 | 5 | — | ~$0.015 | $0.50 | **97%** |
+| `call_recording` | 5 | 5 | — | ~$0.010 | $0.50 | **98%** |
+| `call_intelligence` | 10 | 10 | — | ~$0.050 | $1.00 | **95%** |
+| `dm_automation` | 10 | 15 | + 5 | ~$0.030 | $1.50 | **98%** |
+| `carousel` | 15 | 20 | + 5 | ~$0.190 | $2.00 | **91%** |
+| `lead_magnet` | 15 | 20 | + 5 | ~$0.100 | $2.00 | **95%** |
+| `story_sequence` | 15 | 20 | + 5 | ~$0.080 | $2.00 | **96%** |
+| `squeeze_page` | 20 | 25 | + 5 | ~$0.080 | $2.50 | **97%** |
+| `newsletter` | 20 | 25 | + 5 | ~$0.040 | $2.50 | **98%** |
+| `landing_page` | 25 | 35 | + 10 | ~$0.120 | $3.50 | **97%** |
+
+Every paid action clears 90%+ margin on its own. The free actions run
+at a small loss per call, but that loss is fully backfilled by the
+~20% price bump on artifacts (that's what the "+5" / "+10" column is
+for — it bundles chat tokens into the deliverable).
 
 ### How this looks to the Complete user (500 credits/month)
 
@@ -111,83 +118,26 @@ The "slightly fewer artifacts" line is more than paid for by
 
 ---
 
-## 6. Unit economics — before vs after
+## 6. Realistic usage scenarios ($99/mo Complete plan, 500 cr)
 
-### Real API cost per action (roughly what we pay the LLM providers)
+All four scenarios in one table. "Before" means current system,
+"After" means proposed. Revenue is $99/mo in every row; API cost is
+the same either way (the cost lives in the model call, not the
+pricing policy) — what changes is the user's perception.
 
-| Item | Cost |
-|---|---|
-| Chat turn (AI CEO, Grok) | ~$0.008 |
-| Web research turn | ~$0.015 |
-| One image | ~$0.02 |
-| Text post | ~$0.015 |
-| Call intelligence | ~$0.05 |
-| DM automation | ~$0.03 |
-| Newsletter HTML | ~$0.04 |
-| Squeeze page | ~$0.08 |
-| Lead magnet PDF | ~$0.10 |
-| Story sequence (text + images) | ~$0.08 |
-| Landing page | ~$0.12 |
-| Carousel (plan + 8 slides) | ~$0.19 |
+| Scenario | Usage | Credits used (After) | API cost | Margin |
+|---|---|---|---|---|
+| **A — Casual** | 200 chats + 2 LPs + 3 carousels + 2 newsletters + 10 images | 210 / 500 | $2.69 | **97.3%** |
+| **B — Power (carousels only)** | 25 carousels | 500 / 500 | $4.75 | **95.2%** |
+| **C — Power (landing pages only)** | 14 landing pages | 490 / 500 | $1.68 | **98.3%** |
+| **D — Worst plausible abuse** | 1,000 chats + 25 carousels | 500 / 500 (chat is free) | $12.75 | **87.1%** |
 
-### Scenario A — casual user on Complete ($99/mo)
-
-200 chat messages + 2 landing pages + 3 carousels + 2 newsletters +
-10 one-off images.
-
-|  | Before | After |
-|---|---|---|
-| Credits used | 200 + 50 + 45 + 40 + 30 = **365** / 500 | 0 + 70 + 60 + 50 + 30 = **210** / 500 |
-| Real API cost | $1.60 + $0.24 + $0.57 + $0.08 + $0.20 = **$2.69** | Same: **$2.69** |
-| Revenue | $99 | $99 |
-| **Margin** | **97.3%** | **97.3%** |
-| User feels | "I burned 40% of my credits just chatting" | "I chatted all day for free AND have 7 finished assets" |
-
-Margin is identical (cost to us is the same either way). What
-changes is the user's **willingness to continue**.
-
-### Scenario B — power user on Complete, max artifacts only
-
-Burns every credit on carousels: 500 / 20 = **25 carousels/mo**.
-
-| | Value |
-|---|---|
-| Real API cost | 25 × $0.19 = **$4.75** |
-| Revenue | $99 |
-| **Margin** | **95.2%** |
-
-### Scenario C — power user on Complete, max landing pages
-
-Burns every credit on landing pages: 500 / 35 = **14 landing pages/mo**.
-
-| | Value |
-|---|---|
-| Real API cost | 14 × $0.12 = **$1.68** |
-| Revenue | $99 |
-| **Margin** | **98.3%** |
-
-### Scenario D — worst plausible abuse
-
-Heavy chatter (1,000 messages/mo = $8 API) + max carousels on top
-(25 × $0.19 = $4.75).
-
-| | Value |
-|---|---|
-| Real API cost | **$12.75** |
-| Revenue | $99 |
-| **Margin** | **87.1%** |
-
-Every realistic usage pattern clears 70% by a wide margin. The
-floor is ~85% and the typical case is ~97%.
-
-### Diamond plan ($99/mo, 600 credits) behaves the same, slightly roomier
-
-Same math, +20% more artifact headroom. Margins land in the same
-95–98% band.
-
-### Boost tier ($199/mo) doubles the revenue on identical cost, so
-
-pushes margin from ~97% to ~98.7% for the same output.
+- **Floor:** ~85% margin even under abusive chatter.
+- **Typical:** ~97% margin.
+- **Diamond plan (600 cr, same price):** +20% artifact headroom, same
+  margin band (95–98%).
+- **Boost tier ($199/mo, same credits):** double revenue, same cost →
+  margin climbs from ~97% to ~98.7%.
 
 ---
 

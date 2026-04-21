@@ -341,7 +341,29 @@
   background: var(--bg-white);
   border: 1px solid var(--border-light);
   border-radius: 12px;
-  overflow: hidden;
+  max-height: 420px;
+  overflow-y: auto;
+  /* Subtle scrollbar styling — optional, degrades gracefully on browsers
+     that don't support it. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+
+.billing-activity::-webkit-scrollbar {
+  width: 8px;
+}
+
+.billing-activity::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.billing-activity::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 10px;
+}
+
+.billing-activity::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
 .billing-activity-row {
