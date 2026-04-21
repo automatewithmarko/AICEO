@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CreditCard, Zap, Calendar, Check, Receipt, ArrowUpRight, Loader2, TrendingUp } from 'lucide-react';
-import { getBillingPlan, getBillingCredits, getAvailablePlans, getCreditCosts } from '../lib/api';
+import { CreditCard, Zap, Calendar, Check, Receipt, ArrowUpRight, Loader2, TrendingUp, ExternalLink, Sparkles } from 'lucide-react';
+import { getBillingPlan, getBillingCredits, getAvailablePlans, getCreditCosts, createCheckoutSession, createBillingPortalSession } from '../lib/api';
 import './Pages.css';
 import './Billing.css';
 
@@ -49,6 +49,35 @@ export default function Billing() {
   const [creditData, setCreditData] = useState(null);
   const [plans, setPlans] = useState([]);
   const [costs, setCosts] = useState([]);
+  const [boost, setBoost] = useState(false);
+  const [acting, setActing] = useState(null); // planId being subscribed, or 'portal'
+  const [actionError, setActionError] = useState('');
+
+  // Kick off Stripe Checkout for a plan + tier. Redirects the browser.
+  const handleSubscribe = async (planId) => {
+    setActionError('');
+    setActing(planId);
+    try {
+      const { url } = await createCheckoutSession({ plan: planId, boost });
+      if (url) window.location.href = url;
+    } catch (err) {
+      setActionError(err.message || 'Could not start checkout');
+      setActing(null);
+    }
+  };
+
+  // Open the Stripe Customer Portal — switch/cancel plan, update card, etc.
+  const handleManage = async () => {
+    setActionError('');
+    setActing('portal');
+    try {
+      const { url } = await createBillingPortalSession();
+      if (url) window.location.href = url;
+    } catch (err) {
+      setActionError(err.message || 'Could not open billing portal');
+      setActing(null);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +100,21 @@ export default function Billing() {
       }
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // If the user just came back from Stripe Checkout, the Stripe webhook
+  // may still be in-flight when they land here. Show a confirmation
+  // banner + strip the ?checkout=... params from the URL.
+  const [checkoutReturn, setCheckoutReturn] = useState(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('checkout');
+    if (status) {
+      setCheckoutReturn(status);
+      // Clean the URL so a refresh doesn't re-show the banner.
+      const clean = window.location.pathname;
+      window.history.replaceState({}, '', clean);
+    }
   }, []);
 
   const currentPlan = planData?.plan || null;
@@ -104,6 +148,18 @@ export default function Billing() {
   return (
     <div className="page-container">
       <h1 className="page-title">Billing & Credits</h1>
+
+      {checkoutReturn === 'success' && (
+        <div className="billing-banner billing-banner--success">
+          <Check size={16} />
+          <span>Thanks — your subscription is being activated. Plan details refresh in a moment.</span>
+        </div>
+      )}
+      {checkoutReturn === 'cancelled' && (
+        <div className="billing-banner billing-banner--info">
+          <span>Checkout cancelled. Nothing was charged.</span>
+        </div>
+      )}
 
       {/* Current plan + credits side-by-side */}
       <div className="billing-grid">
@@ -203,9 +259,25 @@ export default function Billing() {
             </div>
           )}
 
-          <button className="billing-btn billing-btn--primary">Buy more credits</button>
+          {/* Manage billing if subscribed, else a subscribe prompt is in
+              the Available Plans section below. */}
+          {planData?.plan?.id && subscription?.stripe_customer_id !== null ? (
+            <button
+              className="billing-btn billing-btn--primary"
+              onClick={handleManage}
+              disabled={acting === 'portal'}
+            >
+              {acting === 'portal' ? <><Loader2 size={14} className="billing-spinner" /> Opening…</> : <><ExternalLink size={14} /> Manage subscription</>}
+            </button>
+          ) : null}
         </div>
       </div>
+
+      {actionError && (
+        <div className="billing-action-error">
+          <span>{actionError}</span>
+        </div>
+      )}
 
       {/* What a credit buys */}
       <div className="billing-section">
@@ -264,7 +336,7 @@ export default function Billing() {
       )}
 
       {/* Other plans */}
-      {plans.length > 1 && (
+      {plans.length > 0 && (
         <div className="billing-section">
           <div className="billing-section-head">
             <div>
@@ -273,16 +345,40 @@ export default function Billing() {
             </div>
             <TrendingUp size={18} style={{ color: 'var(--text-muted)' }} />
           </div>
+
+          {/* Boost toggle — flips the Stripe price each plan card uses */}
+          <div className="billing-boost-toggle">
+            <button
+              type="button"
+              className={`billing-boost-tab ${!boost ? 'billing-boost-tab--active' : ''}`}
+              onClick={() => setBoost(false)}
+            >
+              Standard
+            </button>
+            <button
+              type="button"
+              className={`billing-boost-tab ${boost ? 'billing-boost-tab--active' : ''}`}
+              onClick={() => setBoost(true)}
+            >
+              <Sparkles size={13} /> With Boost
+            </button>
+          </div>
+
           <div className="billing-plans-grid">
             {plans
               .slice()
               .sort((a, b) => (a.sort_order ?? 99) - (b.sort_order ?? 99))
               .map((p) => {
                 const isCurrent = p.id === currentPlan?.id;
+                const price = boost
+                  ? (p.monthly_price_with_boost ?? p.monthly_price_without_boost)
+                  : p.monthly_price_without_boost;
                 const featureKeys = Object.entries(p.features || {})
                   .filter(([, v]) => v === true)
                   .slice(0, 6)
                   .map(([k]) => k.replace(/_/g, ' '));
+                const busy = acting === p.id;
+                const displayShort = p.display_name?.split(' ')[0] || p.name;
                 return (
                   <div key={p.id} className={`billing-plan-card ${isCurrent ? 'billing-plan-card--current' : ''}`}>
                     <div className="billing-plan-card-head">
@@ -290,7 +386,7 @@ export default function Billing() {
                       {isCurrent && <span className="billing-plan-card-badge">Current</span>}
                     </div>
                     <div className="billing-plan-card-price">
-                      <span className="billing-plan-card-price-amount">${p.monthly_price_without_boost}</span>
+                      <span className="billing-plan-card-price-amount">${price}</span>
                       <span className="billing-plan-card-price-unit">/ mo</span>
                     </div>
                     <div className="billing-plan-card-credits">
@@ -308,11 +404,19 @@ export default function Billing() {
                         ))}
                       </ul>
                     )}
-                    {!isCurrent && (
-                      <button className="billing-btn billing-btn--outline billing-plan-card-cta">
-                        Switch to {p.display_name?.split(' ')[0] || p.name}
-                      </button>
-                    )}
+                    <button
+                      className={`billing-btn ${isCurrent ? 'billing-btn--outline' : 'billing-btn--primary'} billing-plan-card-cta`}
+                      onClick={() => (isCurrent ? handleManage() : handleSubscribe(p.id))}
+                      disabled={busy || (isCurrent && acting === 'portal')}
+                    >
+                      {busy ? (
+                        <><Loader2 size={14} className="billing-spinner" /> Starting…</>
+                      ) : isCurrent ? (
+                        <>Manage</>
+                      ) : (
+                        <>{currentPlan ? `Switch to ${displayShort}` : `Subscribe to ${displayShort}`}</>
+                      )}
+                    </button>
                   </div>
                 );
               })}

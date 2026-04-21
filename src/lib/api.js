@@ -1176,3 +1176,33 @@ export async function getCreditCosts() {
   if (!res.ok) return { costs: [] };
   return res.json();
 }
+
+// Start a Stripe Checkout session for a plan. Returns { url } which the
+// caller should redirect the browser to (window.location.href = url).
+export async function createCheckoutSession({ plan, boost = false }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/billing/checkout`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plan, boost }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Checkout failed' }));
+    throw new Error(err.error || 'Checkout failed');
+  }
+  return res.json();
+}
+
+// Open the Stripe Customer Portal for the signed-in user. Returns { url }.
+export async function createBillingPortalSession() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/billing/portal`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Portal failed' }));
+    throw new Error(err.error || 'Portal failed');
+  }
+  return res.json();
+}
