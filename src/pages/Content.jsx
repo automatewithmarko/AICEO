@@ -2920,7 +2920,6 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
                 </div>
                 <div className="content-ig-action content-ig-action-save">
                   <Bookmark size={26} strokeWidth={1.8} />
-                  <span className="content-ig-action-count">{dummyCounts.saves}</span>
                 </div>
               </div>
               {/* Caption with IG's 125-char fold */}
