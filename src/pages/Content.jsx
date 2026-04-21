@@ -6144,12 +6144,11 @@ export default function Content() {
                           <Maximize2 size={14} /> Open LinkedIn preview
                         </button>
                       )}
-                      {/* Image carousel — inline slides. Hidden for carousel
-                          messages (the side preview covers it end-to-end).
-                          Still shown for single-image content (YouTube
-                          thumbnails, single IG posts, LinkedIn text-post
-                          images), which have no preview panel of their own. */}
-                      {hasImages && !msg.carouselPlan && (
+                      {/* Image carousel — inline slides act as a compact
+                          thumbnail strip even for carousels (preview holds
+                          the editing surface; chat keeps a visual summary
+                          so the user can see what they made at a glance). */}
+                      {hasImages && (
                         <div className="content-image-carousel">
                           {sortedImages.map((img, i) => (
                             <div key={i} className={`content-carousel-slide content-generated-image--fadein${msg.editingIdx === img.idx ? ' content-carousel-slide--editing' : ''}`}>
