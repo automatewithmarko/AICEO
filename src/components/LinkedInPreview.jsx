@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload, Send, CalendarClock, ExternalLink } from 'lucide-react';
 import './LinkedInPreview.css';
 
-export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected }) {
+export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge }) {
   const [editedText, setEditedText] = useState(null);
   const [copied, setCopied] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
@@ -136,8 +136,15 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                 <span className="li-name">{userName || 'Your Name'}</span>
                 <span className="li-degree">· 1st</span>
               </div>
+              {(userSubtitle || followerCount) && (
+                <span className="li-subtitle">
+                  {userSubtitle || ''}
+                  {userSubtitle && followerCount ? ' • ' : ''}
+                  {followerCount ? `${followerCount} followers` : ''}
+                </span>
+              )}
               <span className="li-time">
-                Just now ·{' '}
+                {postAge || 'Just now'} ·{' '}
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="li-globe">
                   <path d="M8 1a7 7 0 110 14A7 7 0 018 1zM3.17 9H5.1c.1 1.63.44 3.04.95 3.9A6.02 6.02 0 013.17 9zm-.01-2c.38-1.86 1.49-3.44 3.03-4.37C5.68 3.76 5.2 5.37 5.1 7H3.16zm9.67 0h-1.95c-.1-1.63-.58-3.24-1.09-4.37A6.02 6.02 0 0112.83 7zM7.1 7c.12-1.8.64-3.57 1.18-4.46.4.68.85 2.35.97 4.46H7.1zm2.15 2H7.1c.12 1.56.5 3.06.9 3.93.54-.89.97-2.37 1.09-3.93h.16zm3.58 0h-1.95c-.1 1.63-.44 3.04-.95 3.9A6.02 6.02 0 0012.83 9z"/>
                 </svg>

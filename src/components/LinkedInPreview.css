@@ -11,9 +11,23 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  /* Right side reserves ~80px for the fixed-position notification bell
+     (top:16px right:20px) so the close X isn't covered by it. */
+  padding: 12px 80px 12px 16px;
   background: #fff;
   border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+
+.li-subtitle {
+  font-size: 12px;
+  color: #00000099;
+  display: block;
+  line-height: 1.35;
+  margin-top: 1px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .li-preview-title {

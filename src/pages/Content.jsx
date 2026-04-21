@@ -2692,10 +2692,36 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
 // with IG's 125-char fold + "more" toggle. Reads straight from the
 // message (no data copy) so edits/regenerates made elsewhere reflect
 // here immediately. ESC + arrow keys wired.
+// Deterministic pseudo-random from a string — gives each message stable
+// dummy reaction/comment/share counts so they don't fluctuate on every
+// render but still vary between posts.
+function stableHash(seed) {
+  let h = 0;
+  const s = String(seed || '');
+  for (let i = 0; i < s.length; i++) h = ((h * 31) + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function stableRange(seed, min, max) {
+  const h = stableHash(seed);
+  return min + (h % Math.max(1, (max - min + 1)));
+}
+
 function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate, onFullscreen, isGenerating }) {
   const images = useMemo(() => [...(msg?.images || [])].sort((a, b) => a.idx - b.idx), [msg]);
   const [idx, setIdx] = useState(0);
   const [captionExpanded, setCaptionExpanded] = useState(false);
+
+  // Stable dummy counts for this post — derived from msg.id, so they
+  // don't change as the user scrolls or re-renders.
+  const dummyCounts = useMemo(() => ({
+    likes: stableRange(msg?.id + ':likes', 240, 980),
+    comments: stableRange(msg?.id + ':comments', 8, 54),
+    shares: stableRange(msg?.id + ':shares', 3, 42),
+    saves: stableRange(msg?.id + ':saves', 12, 120),
+    liReactions: stableRange(msg?.id + ':lireac', 80, 420),
+    liComments: stableRange(msg?.id + ':licmt', 6, 38),
+    liReposts: stableRange(msg?.id + ':lirep', 2, 18),
+  }), [msg?.id]);
 
   // Clamp idx if images list shrinks (e.g. a regenerate happens mid-view).
   useEffect(() => {
@@ -2840,9 +2866,9 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
                     <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="#DF704D"/><path d="M8 12s-3.5-2.2-3.5-4.5C4.5 6.1 5.6 5 7 5c.8 0 1.4.4 1.7.9h.1c.3-.5 1-.9 1.7-.9 1.4 0 2.5 1.1 2.5 2.5C13 9.8 9.5 12 8 12z" fill="#fff"/></svg>
                   </span>
                 </div>
-                <span className="content-li-reaction-count">{(Math.floor(Math.random() * 400) + 60).toLocaleString()}</span>
+                <span className="content-li-reaction-count">{dummyCounts.liReactions.toLocaleString()}</span>
                 <span className="content-li-reaction-sep">·</span>
-                <span className="content-li-comments-count">{(Math.floor(Math.random() * 30) + 4)} comments</span>
+                <span className="content-li-comments-count">{dummyCounts.liComments} comments · {dummyCounts.liReposts} reposts</span>
               </div>
               <div className="content-li-divider" />
               <div className="content-li-actions">
@@ -2885,8 +2911,11 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
                 <Send size={26} strokeWidth={1.8} />
                 <Bookmark size={26} strokeWidth={1.8} className="content-ig-action-save" />
               </div>
-              {/* Likes count — placeholder */}
-              <div className="content-ig-likes">{(Math.floor(Math.random() * 800) + 200).toLocaleString()} likes</div>
+              {/* Likes count + activity summary (stable per-post) */}
+              <div className="content-ig-likes">
+                {dummyCounts.likes.toLocaleString()} likes
+                <span className="content-ig-likes-sub"> · {dummyCounts.comments} comments · {dummyCounts.shares} shares · {dummyCounts.saves} saves</span>
+              </div>
               {/* Caption with IG's 125-char fold */}
               <div className="content-ig-caption">
                 <span className="content-ig-caption-username">{username}</span>
@@ -2898,7 +2927,7 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
                 </span>
               </div>
               <div className="content-ig-meta">
-                <span>View all {(Math.floor(Math.random() * 20) + 6)} comments</span>
+                <span>View all {dummyCounts.comments} comments</span>
                 <span className="content-ig-meta-time">Just now</span>
               </div>
               {/* IG-style comment input row — visual only */}
@@ -3134,13 +3163,18 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
   // Save the current design system as a reusable template. Upload the hook
   // slide as the preview thumbnail if it's still a data URL.
   const [savingTemplate, setSavingTemplate] = useState(false);
-  const [templateSaved, setTemplateSaved] = useState(false);
+  // Seed from persisted plan.templateSaved so the button stays disabled
+  // after a page refresh if this carousel's template was already saved.
+  const [templateSaved, setTemplateSaved] = useState(!!plan?.templateSaved);
+  useEffect(() => { setTemplateSaved(!!plan?.templateSaved); }, [plan?.templateSaved]);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [templateNameDraft, setTemplateNameDraft] = useState('');
   const [templateModalError, setTemplateModalError] = useState('');
   const openTemplateModal = () => {
     if (templateSaved || savingTemplate) return;
-    const defaultName = `${(plan.hook || 'Carousel').replace(/\{\{\/?accent\}\}/g, '').slice(0, 48).trim()} · ${new Date().toLocaleDateString()}`;
+    const platformTag = platform === 'linkedin' ? 'LI' : 'IG';
+    const hookSnippet = (plan.hook || 'Carousel').replace(/\{\{\/?accent\}\}/g, '').slice(0, 48).trim();
+    const defaultName = `${platformTag} · ${hookSnippet} · ${new Date().toLocaleDateString()}`;
     setTemplateNameDraft(defaultName);
     setTemplateModalError('');
     setTemplateModalOpen(true);
@@ -3173,6 +3207,11 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
         preview_url: previewUrl,
       });
       setTemplateSaved(true);
+      // Stamp it on the plan so auto-save persists the flag; button stays
+      // disabled even after a page refresh.
+      try {
+        window.dispatchEvent(new CustomEvent('carousel-template-saved', { detail: { msgId } }));
+      } catch {}
       setTemplateModalOpen(false);
       // Notify the sidebar card to refetch so the new template appears
       // immediately without a page reload.
@@ -3538,8 +3577,23 @@ export default function Content() {
     loadTpls();
     // Refetch whenever a template is saved elsewhere in the page.
     const onChange = () => loadTpls();
+    // Stamp templateSaved=true on the originating message's carouselPlan
+    // so the "Save as template" button stays disabled across refreshes.
+    const onSaved = (e) => {
+      const msgId = e?.detail?.msgId;
+      if (!msgId) return;
+      setMessages(prev => prev.map(m => {
+        if (m.id !== msgId || !m.carouselPlan) return m;
+        if (m.carouselPlan.templateSaved) return m;
+        return { ...m, carouselPlan: { ...m.carouselPlan, templateSaved: true } };
+      }));
+    };
     window.addEventListener('carousel-templates-changed', onChange);
-    return () => window.removeEventListener('carousel-templates-changed', onChange);
+    window.addEventListener('carousel-template-saved', onSaved);
+    return () => {
+      window.removeEventListener('carousel-templates-changed', onChange);
+      window.removeEventListener('carousel-template-saved', onSaved);
+    };
   }, []);
 
   const toggleSavedTemplate = useCallback((id) => {
@@ -3619,6 +3673,7 @@ export default function Content() {
               slides: m.carouselPlan.slides,
               designSystem: m.carouselPlan.designSystem,
               approved: m.carouselPlan.approved,
+              templateSaved: !!m.carouselPlan.templateSaved,
             }
           : undefined;
         const persisted = { id: m.id, role: m.role, content: m.content, images: uploadedImages };
@@ -6253,8 +6308,11 @@ export default function Content() {
             <LinkedInPreview
               content={linkedinPreview.content}
               images={linkedinPreview.images}
-              userName={user?.name}
-              userAvatar={brandDna?.photo_urls?.[0] || user?.avatar}
+              userName={brandDna?.brand_name || user?.name}
+              userAvatar={brandDna?.logos?.find(l => l.isDefault)?.url || brandDna?.logos?.[0]?.url || brandDna?.logo_url || brandDna?.photo_urls?.[0] || user?.avatar}
+              userSubtitle={brandDna?.description?.split(/[.!?]/)[0]?.trim().slice(0, 80) || 'Author'}
+              followerCount={brandDna?.linkedin_followers || '1,200'}
+              postAge="1w"
               onClose={() => setLinkedinPreview(null)}
               onGenerateImage={handleLinkedinGenerateImage}
               isGeneratingImage={liGeneratingImage}
@@ -6297,6 +6355,52 @@ export default function Content() {
         {carouselSideView && !linkedinPreview && (() => {
           const panelMsg = messages.find(m => m.id === carouselSideView.msgId);
           if (!panelMsg) return null;
+          const isLi = panelMsg.platform === 'linkedin';
+          // LinkedIn carousels reuse the same LinkedInPreview component that
+          // powers the text-post preview — authentic LI chrome, text-above-
+          // media order, real reaction SVGs, real action bar. The carousel
+          // images feed in via images + totalSlides; the caption feeds in
+          // via content. Instagram carousels keep the dedicated IG-styled
+          // CarouselSidePanel (profile ring, square media, IG action row).
+          if (isLi) {
+            const caption = panelMsg.carouselPlan?.caption || '';
+            const sortedImgs = [...(panelMsg.images || [])].sort((a, b) => a.idx - b.idx);
+            const displayName = brandDna?.brand_name || user?.name || 'Your Brand';
+            const subtitle = brandDna?.description?.split(/[.!?]/)[0]?.trim().slice(0, 80) || 'Author';
+            return (
+              <div className="content-main-preview">
+                <LinkedInPreview
+                  content={caption}
+                  images={sortedImgs}
+                  userName={displayName}
+                  userAvatar={brandDna?.logos?.find(l => l.isDefault)?.url || brandDna?.logos?.[0]?.url || brandDna?.logo_url || brandDna?.photo_urls?.[0]}
+                  userSubtitle={subtitle}
+                  followerCount={brandDna?.linkedin_followers || '1,200'}
+                  postAge="1w"
+                  totalSlides={sortedImgs.length}
+                  streaming={false}
+                  onClose={() => setCarouselSideView(null)}
+                  isLinkedInConnected={isLinkedInConnected}
+                  onPostToLinkedIn={async ({ text, images: imgs, connect }) => {
+                    if (connect) { navigate('/settings', { state: { scrollTo: 'integrations' } }); return; }
+                    const imageUrl = imgs?.[0]?.src || null;
+                    await postToLinkedIn(text, imageUrl);
+                  }}
+                  onSchedule={async ({ text, images: imgs, date, time, platform }) => {
+                    const scheduledAt = `${date}T${time}:00`;
+                    const thumbnailUrl = imgs?.[0]?.src || null;
+                    await schedulePost({
+                      platform,
+                      caption: text,
+                      scheduledAt,
+                      thumbnailUrl,
+                      contentSessionId: sessionId || null,
+                    });
+                  }}
+                />
+              </div>
+            );
+          }
           return (
             <div className="content-main-preview">
               <CarouselSidePanel
