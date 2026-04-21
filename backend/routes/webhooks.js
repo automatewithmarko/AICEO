@@ -86,7 +86,12 @@ router.post('/api/webhooks/stripe', async (req, res) => {
   //    Priority: metadata.user_id (written at checkout creation)
   //              → profiles.stripe_customer_id (written on first checkout)
   //              → customer.metadata.user_id on Stripe Customer
-  //              → LAST-DITCH email match (one targeted query, not list-all)
+  //
+  // Note: profiles doesn't carry `email` (auth.users does), so there's
+  // no email-based fallback here. Every Stripe customer created through
+  // our own checkout flow carries `metadata.user_id`, so the first
+  // branch catches 99%+ of cases; the other branches cover existing
+  // customers whose first event lands before the profile is stamped.
   const resolveUserId = async (stripeEvent) => {
     const obj = stripeEvent.data?.object || {};
 
@@ -109,16 +114,6 @@ router.post('/api/webhooks/stripe', async (req, res) => {
       try {
         const customer = await stripe.customers.retrieve(customerId);
         if (customer.metadata?.user_id) return customer.metadata.user_id;
-
-        // d) Last-ditch: match customer email → profiles.
-        if (customer.email) {
-          const { data: emailMatch } = await supabase
-            .from('profiles')
-            .select('id')
-            .ilike('email', customer.email)
-            .maybeSingle();
-          if (emailMatch?.id) return emailMatch.id;
-        }
       } catch (err) {
         console.log(`[webhook/stripe] Customer retrieve failed: ${err.message}`);
       }
