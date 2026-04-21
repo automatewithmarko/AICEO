@@ -220,7 +220,7 @@ FALLBACK (only when NO DESIGN SYSTEM block is present — single text-post image
 // (including the DESIGN SYSTEM deference block), but map to a 3:4
 // portrait aspect ratio in PLATFORM_CONFIG above. Alias so a single
 // source of truth lives on the `linkedin` key.
-platformRules.linkedin_carousel = platformRules.linkedin;
+PLATFORM_IMAGE_RULES.linkedin_carousel = PLATFORM_IMAGE_RULES.linkedin;
 
 // Also treat isCarousel as true for LinkedIn carousel slides, so
 // the design-quality guardrails (no stock photos, typography-first)
