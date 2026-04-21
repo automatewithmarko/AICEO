@@ -698,12 +698,18 @@
 .li-toolbar-row {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  align-items: center;
 }
+.li-toolbar-row::-webkit-scrollbar { height: 4px; }
+.li-toolbar-row::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
+.li-toolbar-btn { flex-shrink: 0; }
 .li-toolbar-row--actions {
   padding-top: 4px;
   border-top: 1px solid rgba(0,0,0,0.06);
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 .li-toolbar-btn {
   display: flex;
