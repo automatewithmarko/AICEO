@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload, Send, CalendarClock, ExternalLink, Pencil, RefreshCw, Trash2, Plus } from 'lucide-react';
+import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload, Send, CalendarClock, ExternalLink, Pencil, RefreshCw, Trash2, Plus, Maximize2 } from 'lucide-react';
 import './LinkedInPreview.css';
 
-export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge, onEditSlide, onRegenerateSlide, onDeleteImage, isGenerating, actionsSlot, onContentChange, plan, onAddSlide, onRemoveSlide }) {
+export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge, onEditSlide, onRegenerateSlide, onDeleteImage, isGenerating, actionsSlot, onContentChange, plan, onAddSlide, onRemoveSlide, onFullscreen }) {
   const [editedText, setEditedText] = useState(null);
   const [copied, setCopied] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
@@ -301,10 +301,21 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                   {/* Counter */}
                   <span className="li-carousel-counter">{slideIdx + 1} / {totalDisplaySlots}</span>
 
-                  {/* Slide toolbar — download / edit / regenerate / remove.
-                      Download + regen only for completed slides; edit + remove
-                      apply to blank slides too. */}
+                  {/* Slide toolbar — fullscreen / edit / regenerate /
+                      download / remove. Regen + download only on completed
+                      slides; edit + remove apply to blank slides too. */}
                   <div className="li-carousel-tools">
+                    {onFullscreen && currentImage && (
+                      <button
+                        type="button"
+                        className="li-carousel-tool"
+                        onClick={() => onFullscreen(slideIdx)}
+                        disabled={isGenerating}
+                        title="Full screen"
+                      >
+                        <Maximize2 size={14} />
+                      </button>
+                    )}
                     {onEditSlide && (
                       <button
                         type="button"

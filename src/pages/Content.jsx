@@ -2882,6 +2882,35 @@ function CarouselSidePanel({ msg, brandDna, user, onClose, onEdit, onRegenerate,
                   <RefreshCw size={14} />
                 </button>
               )}
+              <button
+                type="button"
+                className="content-ig-tool"
+                title="Download this slide"
+                onClick={async (e) => {
+                  // <a download> is silently ignored for cross-origin URLs.
+                  // Fetch as blob and trigger via an ephemeral object URL so
+                  // downloads work whether src is a data URL or Supabase URL.
+                  e.stopPropagation();
+                  try {
+                    const res = await fetch(current.src, { mode: 'cors' });
+                    const blob = await res.blob();
+                    const ext = (blob.type.split('/')[1] || 'png').split('+')[0];
+                    const objectUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = objectUrl;
+                    a.download = `slide-${current.idx + 1}.${ext}`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+                  } catch (err) {
+                    console.error('Slide download failed:', err);
+                    window.open(current.src, '_blank', 'noopener');
+                  }
+                }}
+              >
+                <Download size={14} />
+              </button>
             </div>
             {/* Inline edit instruction overlay on the slide */}
             {editingSlideIdx === current.idx && (
@@ -6733,6 +6762,7 @@ export default function Content() {
                   onRemoveSlide={(idx) => handleCarouselRemoveSlide(panelMsg.id, idx)}
                   onEditSlide={(idx, src, instruction) => executeCarouselSlideEdit(panelMsg.id, idx, instruction)}
                   onRegenerateSlide={(idx) => handleCarouselSlideRegenerate(panelMsg.id, idx)}
+                  onFullscreen={(idx) => setSlideViewer({ msgId: panelMsg.id, idx })}
                   isLinkedInConnected={isLinkedInConnected}
                   onPostToLinkedIn={async ({ text, images: imgs, connect }) => {
                     if (connect) { navigate('/settings', { state: { scrollTo: 'integrations' } }); return; }
