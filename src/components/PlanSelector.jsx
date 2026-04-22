@@ -47,25 +47,27 @@ const PLANS = [
       'Priority support',
     ],
   },
-  // Internal QA plan — shown so the team can validate the full real-money
-  // flow on a $1 charge instead of $99. Remove this entry (and the matching
-  // plans-table row + Stripe product) before public launch.
-  {
-    id: 'test',
-    name: '🧪 Test Plan (Internal QA)',
-    setup: 2,
-    monthlyStandard: 1,
-    monthlyBoost: 1,
-    credits: 10,
-    recommended: false,
-    testOnly: true,
-    features: [
-      'For team testing only — DO NOT BUY',
-      'Validates the full Stripe checkout flow',
-      'Charges your card $1/mo + $2 setup',
-      'Refundable from the Stripe dashboard',
-    ],
-  },
+  // Internal QA plan — only rendered when VITE_SHOW_TEST_PLAN=true so a
+  // real end-user on production never sees this card. Set the env var
+  // on the dev Netlify site when QAing, leave unset in prod.
+  ...(import.meta.env.VITE_SHOW_TEST_PLAN === 'true'
+    ? [{
+      id: 'test',
+      name: '🧪 Test Plan (Internal QA)',
+      setup: 2,
+      monthlyStandard: 1,
+      monthlyBoost: 1,
+      credits: 10,
+      recommended: false,
+      testOnly: true,
+      features: [
+        'For team testing only — DO NOT BUY',
+        'Validates the full Stripe checkout flow',
+        'Charges your card $1/mo + $2 setup',
+        'Refundable from the Stripe dashboard',
+      ],
+    }]
+    : []),
 ];
 
 export default function PlanSelector() {

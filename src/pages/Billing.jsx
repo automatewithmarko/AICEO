@@ -98,6 +98,13 @@ export default function Billing() {
     }
   };
 
+  // Ref flag set by the post-checkout polling effect below once it has
+  // written fresh plan data. This prevents the initial data loader from
+  // stomping on the fresh data if its Promise.all happens to resolve
+  // AFTER polling settles (can happen under a slow network — loader
+  // has 4 parallel calls, polling has 1).
+  const pollingSettledRef = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -110,8 +117,10 @@ export default function Billing() {
           getCreditCosts(),
         ]);
         if (cancelled) return;
-        setPlanData(pd || null);
-        setCreditData(cd || null);
+        // If polling already settled with the activated plan, keep it.
+        // Otherwise adopt the initial load's snapshot.
+        if (!pollingSettledRef.current) setPlanData(pd || null);
+        if (!pollingSettledRef.current) setCreditData(cd || null);
         setPlans(pl?.plans || []);
         setCosts(co?.costs || []);
       } finally {
@@ -154,7 +163,10 @@ export default function Billing() {
       const wait = Math.max(0, MIN_VISIBLE_MS - elapsed);
       setTimeout(() => {
         if (cancelled) return;
-        if (fresh) setPlanData(fresh);
+        if (fresh) {
+          setPlanData(fresh);
+          pollingSettledRef.current = true; // block the initial loader from stomping
+        }
         getBillingCredits().then((cd) => { if (!cancelled) setCreditData(cd || null); }).catch(() => {});
         setSettling(false);
         // Refresh AuthContext so user.plan picks up the new plan and the

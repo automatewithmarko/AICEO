@@ -239,6 +239,46 @@ router.post('/api/webhooks/stripe', async (req, res) => {
         break;
       }
 
+      // ── Stripe "pause collection" feature: renewal disabled ──
+      case 'customer.subscription.paused': {
+        if (!userId) break;
+        const r = await supabase.from('subscriptions')
+          .update({ status: 'paused', updated_at: new Date().toISOString() })
+          .eq('user_id', userId);
+        if (r.error) throw new Error(`subscription pause: ${r.error.message}`);
+        console.log(`[webhook/stripe] Subscription paused: user=${userId}`);
+        break;
+      }
+
+      // ── Stripe "resume collection": renewal re-enabled ──
+      case 'customer.subscription.resumed': {
+        if (!userId) break;
+        const r = await supabase.from('subscriptions')
+          .update({ status: 'active', updated_at: new Date().toISOString() })
+          .eq('user_id', userId);
+        if (r.error) throw new Error(`subscription resume: ${r.error.message}`);
+        console.log(`[webhook/stripe] Subscription resumed: user=${userId}`);
+        break;
+      }
+
+      // ── Customer record changed on Stripe side (email, metadata, etc.) ──
+      // We don't store customer email locally (it's in auth.users), but we
+      // log it so we can see when Stripe made changes, and we defensively
+      // reconcile stripe_customer_id on our profile row if it diverged.
+      case 'customer.updated': {
+        if (!userId) break;
+        const cust = obj;
+        // If we somehow have a different stripe_customer_id on the profile,
+        // overwrite it (Stripe is the source of truth for their own IDs).
+        const { error: e } = await supabase
+          .from('profiles')
+          .update({ stripe_customer_id: cust.id })
+          .eq('id', userId);
+        if (e) console.error(`[webhook/stripe] profile stripe_customer_id reconcile FAILED: ${e.message}`);
+        console.log(`[webhook/stripe] Customer updated: user=${userId} email=${cust.email || 'n/a'}`);
+        break;
+      }
+
       // ── Subscription deleted (fully cancelled, past end of period) ──
       case 'customer.subscription.deleted': {
         if (!userId) break;
