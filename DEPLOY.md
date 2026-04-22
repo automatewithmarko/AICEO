@@ -20,18 +20,19 @@ Future Claude instances (and humans): these rules exist to keep production safe 
 
 ## Hard rules (do not violate without explicit user request)
 
-1. **Never push to `main`.** Push to `dev` only. Promote to `main` only when the user explicitly says *"merge"*, *"promote"*, *"ship to main"*, *"release"*, or similar.
-2. **Never run `railway up` against the `production` environment.** The `production` env deploys via CLI, but only the user runs that deploy — Claude should not trigger it. If you accidentally run `railway up` while `production` is the active env, you ship whatever is in the local working tree directly to live users.
-3. **Always verify the active Railway environment before `railway up`.** Run `railway status` first. If it says `Environment: production`, switch with `railway environment dev` BEFORE deploying.
-4. **Pushing to `main` does NOT auto-deploy Railway.** Railway production is CLI-only. Frontend (Netlify) does auto-deploy `main` → `aiceoproduction.netlify.app`, but backend stays on the previous version until the user explicitly runs `railway up` with the production env active.
-5. **Never commit secrets.** `.env` stays local. Railway dashboard and Netlify dashboard hold the server/client env vars.
-6. **Shared database means:** dev writes (scheduled posts, templates, brand DNA changes, etc.) can land in the same `social_posts` / `brand_dna` / etc. tables that production users read. Use a test account on dev. Avoid "Publish now" unless you actually want to post to a real connected account.
+1. **Never push to `main`.** Push to `dev` only. Promote to `main` only when the user explicitly says *"merge"*, *"promote"*, *"ship to main"*, *"release"*, *"deploy frontend"*, or similar. (Pushing to `main` triggers a Netlify rebuild of the production frontend.)
+2. **Claude DOES auto-deploy backend to the Railway `dev` environment after every commit to `dev`.** Standard flow after a commit: `git push origin dev` → `railway environment dev` → `railway service aiceo-backend` → `railway up --detach` → `railway environment production` (reset). This keeps the dev backend in sync with the dev branch so the user can test against `aiceo-backend-dev.up.railway.app` without an extra step.
+3. **Claude NEVER runs `railway up` against the `production` environment.** Production backend deploys are CLI-only and only the user runs that command. Even if the user says "merge to main," Claude only does the git merge — it does NOT deploy backend to prod.
+4. **Always verify the active Railway environment before `railway up`.** Run `railway status` first. If it says `Environment: production`, switch with `railway environment dev` BEFORE deploying. After `railway up`, switch back with `railway environment production` so a future stray command doesn't accidentally target dev when you mean prod.
+5. **Pushing to `main` does NOT auto-deploy Railway production.** It only triggers Netlify's prod frontend rebuild. Backend prod stays on its previous version until the user explicitly runs `railway up` with the production env active themselves.
+6. **Never commit secrets.** `.env` stays local. Railway dashboard and Netlify dashboard hold the server/client env vars.
+7. **Shared database means:** dev writes (scheduled posts, templates, brand DNA changes, etc.) can land in the same `social_posts` / `brand_dna` / etc. tables that production users read. Use a test account on dev. Avoid "Publish now" unless you actually want to post to a real connected account.
 
 ---
 
 ## How to ship changes
 
-### Normal dev iteration
+### Normal dev iteration (Claude does this after every commit)
 
 ```bash
 # 1. make changes
@@ -39,15 +40,18 @@ git add <files>
 git commit -m "…"
 
 # 2. push to dev (Netlify auto-deploys aiceo-dev.netlify.app)
-git push origin HEAD:dev    # or: git checkout dev && git push origin dev
+git push origin dev
 
-# 3. if backend changed, deploy backend to Railway dev env
-railway status               # confirm Environment: production ← you need to switch
+# 3. deploy backend to Railway dev env — REQUIRED on every dev push
+railway status                  # confirm active env
 railway environment dev
 railway service aiceo-backend
-railway up --detach          # uploads local tree and deploys to dev env
-railway environment production   # optional — reset so future commands don't accidentally target dev
+railway up --detach             # uploads local tree and deploys to dev env
+railway environment production  # reset so future commands don't target dev by mistake
 ```
+
+This is the standard flow. Claude runs all of it after every commit so
+the `dev` Railway backend always matches `origin/dev`.
 
 ### Promoting dev → production (only when user asks)
 
