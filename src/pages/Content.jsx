@@ -1513,7 +1513,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       ? 'Tone: professional thought-leadership — substance and specificity win on LinkedIn. Hook formats: specificity ("I cut churn 62% in 90 days — here\'s exactly how"), contrarian ("Most SaaS founders are wrong about onboarding"), credibility-driven ("What I learned after 100 customer calls"). Avoid trendy/editorial language and emoji. Use LinkedIn\'s intent framework: educating (frameworks), nurturing (stories), soft-sell (client results), hard-sell (direct offer), engagement (contrarian).'
       : 'Tone: editorial/trend-aware. Hook formats: confession ("I did [unexpected thing]"), contrarian ("[belief] is a lie"), specificity ("[number] in [timeframe]"), curiosity gap. NEVER "Are you making these mistakes?" or "X tips for Y".';
     const captionGuidance = isLinkedin
-      ? 'caption: the LinkedIn caption, 2-4 sentences, professional voice, no hashtags unless asked, no em dashes.'
+      ? 'caption: a FULL-DEPTH LinkedIn post caption (80-250 words) that reads exactly like a standalone LinkedIn text post — strong hook first line, substantive body with line breaks, clear CTA that references the carousel. Do NOT write a 2-sentence summary. See LINKEDIN CAPTION STANDARD below for the bar.'
       : 'caption: the IG caption the user will paste with the post.';
     const ctaGuidance = isLinkedin
       ? 'CTA slide ("Comment [keyword]" outperforms "link in bio" on LinkedIn — prefer comment CTAs)'
@@ -1542,6 +1542,28 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     prompt += `   After calling plan_carousel the client will render an approval card and the user decides when to generate images. Your job ends with the plan.\n`;
     prompt += `   Your text output next to the tool call: ONE short line (e.g. "Here's the plan — approve to generate."). Do NOT describe the slides in prose. Do NOT emit the old <<READY_CAROUSEL>> marker — use plan_carousel instead.\n`;
     prompt += `   For non-carousel ${isLinkedin ? 'LinkedIn' : 'Instagram'} content (${isLinkedin ? 'text post' : 'single post, story'}): ${isLinkedin ? 'use the existing <<READY_A>> / <<READY_B>> flow described in platform guidance' : 'call generate_image as normal'}.\n`;
+
+    if (isLinkedin) {
+      // LinkedIn audiences reward substance. The default tool schema says
+      // "2-4 lines of body copy" per slide, which is fine for IG but too
+      // thin for LI — readers expect real value + specificity. Import the
+      // full LinkedIn carousel copy framework so Claude produces LI-quality
+      // slides and a LI-quality caption, not an IG-grade summary.
+      prompt += `\n=== LINKEDIN CAROUSEL COPY STANDARD (applies to every headline + body + caption) ===\n${LINKEDIN_CAROUSEL_PROMPT}\n\n`;
+      prompt += `=== LINKEDIN CAPTION STANDARD (applies to plan.caption) ===\n`;
+      prompt += `The caption you put in plan.caption MUST be a real LinkedIn post, not a 2-sentence carousel hint. Apply the LinkedIn text-post framework:\n`;
+      prompt += `- Strong hook first line (under 12 words; starts with I / You / If / When / a quoted statement / a specific number).\n`;
+      prompt += `- Substantive body: 3-6 short paragraphs (each 1-2 sentences), line breaks between paragraphs for mobile readability.\n`;
+      prompt += `- Offer real value in the caption itself — don't just tease the carousel. The caption should stand on its own as a post AND make readers swipe.\n`;
+      prompt += `- Clear CTA in the last line that references the carousel explicitly (e.g. "Swipe for the full playbook", "Comment KEYWORD for the template", "Which slide hit hardest? Drop a number below").\n`;
+      prompt += `- NO em dashes. NO hashtags unless the user explicitly asks. Founder voice — sound like the person speaking, not a corporate brand.\n`;
+      prompt += `- Length: 80-250 words. Anything shorter is a missed opportunity for a LinkedIn audience.\n\n`;
+      prompt += `=== LINKEDIN SLIDE BODY STANDARD (applies to each slide's body field) ===\n`;
+      prompt += `Each slide's body must carry real, specific value — 3-6 lines of substantive copy, NOT 2 generic lines. Treat each slide as one paragraph of a LinkedIn post: one clear idea, expanded with specificity (real numbers, concrete examples, named tools/frameworks, short anecdotes).\n`;
+      prompt += `BAD (too thin — will look like a filler slide on LI):\n  "Most teams waste budget on ads. Think before you spend."\n`;
+      prompt += `GOOD (LinkedIn-depth — substantive, specific, memorable):\n  "Most SaaS teams burn $30-50k on Facebook ads before noticing their landing page converts at 0.8%. The fix isn't more spend. It's rewriting the hero section with the CLEAR framework: Context, Lift, Evidence, Ask, Reinforce. A client ran this last quarter — CAC dropped from $420 to $180 in six weeks."\n`;
+      prompt += `Every middle slide should be that caliber: a paragraph you could pull out and post as a standalone tip.\n\n`;
+    }
   } else {
     prompt += `2. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
     prompt += `   - CAROUSEL: You MUST plan the FULL carousel as a STORYLINE before generating any slides. Follow this structure:\n`;
