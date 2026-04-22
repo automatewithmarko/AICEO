@@ -3545,7 +3545,11 @@ export default function Content() {
     { id: 'products', label: 'Products', iconSrc: '/icon-products.png', items: [] },
   ]);
 
+  // Fetch context sidebar data. Depends on `user` so it re-runs once auth
+  // is restored from local storage (avoids the race where the first fetch
+  // hits the backend as anonymous and gets empty arrays back).
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
     const fmt = (d) => { try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } };
     Promise.all([
@@ -3580,7 +3584,7 @@ export default function Content() {
       ]);
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [user]);
 
   const toggleContentCtxItem = (id) => {
     setContentSelectedCtx((prev) => {
