@@ -3815,12 +3815,11 @@ export default function Content() {
       .eq('id', id)
       .single();
     if (error || !data) return;
-    // Clear sidebar state so the sessionId-scoped fetch below repopulates
-    // from scratch — otherwise items from the previous session leak in.
+    // Clear session-scoped sidebar uploads (photos, docs, URLs).
+    // Context selections are global — NOT cleared on session switch.
     setPhotos([]);
     setDocuments([]);
     setSocialUrls([]);
-    setContentSelectedCtx(new Set());
     ensureSessionPromiseRef.current = null;
     sessionIdRef.current = data.id;
     setSessionId(data.id);
@@ -3840,7 +3839,7 @@ export default function Content() {
     setPhotos([]);
     setDocuments([]);
     setSocialUrls([]);
-    setContentSelectedCtx(new Set());
+    // Context selections are global — NOT cleared on new conversation.
     setCurrentQuestion(null);
     setShowSessions(false);
     setLinkedinPreview(null);
