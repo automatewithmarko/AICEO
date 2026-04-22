@@ -146,7 +146,7 @@ router.post('/api/webhooks/stripe', async (req, res) => {
         const { plan, tier } = resolved;
         const status = sub.cancel_at_period_end ? 'canceling' : 'active';
 
-        await supabase.from('subscriptions').upsert({
+        const subUpsert = await supabase.from('subscriptions').upsert({
           user_id: userId,
           plan,
           tier,
@@ -158,14 +158,25 @@ router.post('/api/webhooks/stripe', async (req, res) => {
           current_period_end: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'user_id' });
+        if (subUpsert.error) {
+          // Loud failure — silent failure here is the difference between
+          // "user paid and got their plan" and "user paid and stayed
+          // stuck on PlanSelector forever". Throwing forces a 5xx so
+          // Stripe retries the event.
+          console.error(`[webhook/stripe] subscriptions upsert FAILED: ${subUpsert.error.code} ${subUpsert.error.message}`);
+          throw new Error(`subscriptions upsert: ${subUpsert.error.message}`);
+        }
 
         // Store the Stripe customer ID on the user's profile for future
         // webhook resolution (avoids the email-match fallback).
         if (session.customer) {
-          await supabase
+          const profUpdate = await supabase
             .from('profiles')
             .update({ stripe_customer_id: session.customer })
             .eq('id', userId);
+          if (profUpdate.error) {
+            console.error(`[webhook/stripe] profile stripe_customer_id update FAILED: ${profUpdate.error.message}`);
+          }
         }
 
         // Seed first-month credits here (exactly once per event.id — the
@@ -214,7 +225,11 @@ router.post('/api/webhooks/stripe', async (req, res) => {
           patch.tier = resolved.tier;
           patch.stripe_price_id = priceId;
         }
-        await supabase.from('subscriptions').upsert(patch, { onConflict: 'user_id' });
+        const updRes = await supabase.from('subscriptions').upsert(patch, { onConflict: 'user_id' });
+        if (updRes.error) {
+          console.error(`[webhook/stripe] subscriptions upsert FAILED on update: ${updRes.error.code} ${updRes.error.message}`);
+          throw new Error(`subscriptions update: ${updRes.error.message}`);
+        }
         console.log(`[webhook/stripe] Subscription updated: user=${userId} plan=${resolved?.plan || '?'} tier=${resolved?.tier || '?'} status=${status}`);
         break;
       }
