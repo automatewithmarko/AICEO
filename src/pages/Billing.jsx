@@ -140,7 +140,20 @@ export default function Billing() {
     let cancelled = false;
     let attempts = 0;
     const maxAttempts = 15; // 15 × 2s = 30s ceiling
+    const startedAt = Date.now();
+    const MIN_VISIBLE_MS = 1500; // hold "Activating…" for at least this long
     setSettling(true);
+
+    const finish = (fresh) => {
+      const elapsed = Date.now() - startedAt;
+      const wait = Math.max(0, MIN_VISIBLE_MS - elapsed);
+      setTimeout(() => {
+        if (cancelled) return;
+        if (fresh) setPlanData(fresh);
+        getBillingCredits().then((cd) => { if (!cancelled) setCreditData(cd || null); }).catch(() => {});
+        setSettling(false);
+      }, wait);
+    };
 
     const poll = async () => {
       if (cancelled) return;
@@ -154,19 +167,18 @@ export default function Billing() {
           && freshPlanId !== planAtLandRef.current
           && ['active', 'trialing', 'canceling'].includes(freshStatus);
         if (settled || attempts >= maxAttempts) {
-          setPlanData(fresh);
-          // Refresh credits too — webhook seeds them on activation
-          getBillingCredits().then((cd) => { if (!cancelled) setCreditData(cd || null); }).catch(() => {});
-          setSettling(false);
+          finish(fresh);
           return;
         }
       } catch { /* keep polling */ }
       setTimeout(poll, 2000);
     };
-    setTimeout(poll, 1500); // give the webhook a head start
+    // Start polling almost immediately — the MIN_VISIBLE_MS hold above
+    // ensures the "Activating…" banner is still seen for ≥1.5s even if
+    // the very first poll comes back already-settled.
+    setTimeout(poll, 300);
 
     return () => { cancelled = true; };
-    // We deliberately don't depend on planData so polling starts once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -187,29 +199,19 @@ export default function Billing() {
     return [...costs].sort((a, b) => a.cost - b.cost);
   }, [costs]);
 
-  if (loading) {
-    return (
-      <div className="page-container">
-        <h1 className="page-title">Billing & Credits</h1>
-        <div className="billing-loading">
-          <Loader2 size={22} className="billing-spinner" /> Loading your billing info…
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="page-container">
-      <h1 className="page-title">Billing & Credits</h1>
-
-      {/* Settling = webhook is in-flight, plan hasn't changed yet */}
+  // Banners render ABOVE the loading gate so a fresh-from-Stripe user
+  // always sees the activation feedback, even while the initial data
+  // load is in flight. (Previously they were inside the not-loading
+  // branch and never showed because polling settled before the data
+  // load did.)
+  const banners = (
+    <>
       {settling && (
         <div className="billing-banner billing-banner--success">
           <Loader2 size={16} className="billing-spinner" />
           <span>Activating your subscription… this usually takes a few seconds.</span>
         </div>
       )}
-      {/* Settled = polling found the new plan */}
       {checkoutReturn === 'success' && !settling && (
         <div className="billing-banner billing-banner--success">
           <Check size={16} />
@@ -221,8 +223,6 @@ export default function Billing() {
           <span>Checkout cancelled. Nothing was charged.</span>
         </div>
       )}
-
-      {/* past_due — payment failed, sub still alive but at risk */}
       {subscription?.status === 'past_due' && (
         <div className="billing-banner billing-banner--warning">
           <AlertTriangle size={16} />
@@ -234,8 +234,6 @@ export default function Billing() {
           </button>
         </div>
       )}
-
-      {/* canceling — user cancelled but still has access until period end */}
       {subscription?.status === 'canceling' && (
         <div className="billing-banner billing-banner--info">
           <Clock size={16} />
@@ -248,6 +246,25 @@ export default function Billing() {
           </button>
         </div>
       )}
+    </>
+  );
+
+  if (loading) {
+    return (
+      <div className="page-container">
+        <h1 className="page-title">Billing & Credits</h1>
+        {banners}
+        <div className="billing-loading">
+          <Loader2 size={22} className="billing-spinner" /> Loading your billing info…
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-container">
+      <h1 className="page-title">Billing & Credits</h1>
+      {banners}
 
       {/* Current plan + credits side-by-side */}
       <div className="billing-grid">
