@@ -174,8 +174,19 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut();
   };
 
+  // Re-runs the full buildUser pipeline against the current Supabase
+  // session. Use after a checkout completes or the user's plan has
+  // otherwise changed underneath us — refreshCredits only updates
+  // credits/features/planData, NOT user.plan, so the App-level
+  // PlanSelector overlay would otherwise stay open even after a
+  // successful subscription activation.
+  const refreshUser = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    await buildUser(session);
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, credits, features, planData, loading, login, signup, logout, hasFeature, refreshCredits }}>
+    <AuthContext.Provider value={{ user, credits, features, planData, loading, login, signup, logout, hasFeature, refreshCredits, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CreditCard, Zap, Calendar, Check, Receipt, ArrowUpRight, Loader2, TrendingUp, ExternalLink, Sparkles, AlertTriangle, Clock } from 'lucide-react';
 import { getBillingPlan, getBillingCredits, getAvailablePlans, getCreditCosts, createCheckoutSession, createBillingPortalSession } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 import './Pages.css';
 import './Billing.css';
 
@@ -44,6 +46,8 @@ function humanReason(reason) {
 }
 
 export default function Billing() {
+  const navigate = useNavigate();
+  const { refreshUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [planData, setPlanData] = useState(null);
   const [creditData, setCreditData] = useState(null);
@@ -52,6 +56,7 @@ export default function Billing() {
   const [boost, setBoost] = useState(false);
   const [acting, setActing] = useState(null); // planId being subscribed, or 'portal'
   const [actionError, setActionError] = useState('');
+  const [redirecting, setRedirecting] = useState(false);
 
   // Kick off Stripe Checkout for a plan + tier. Redirects the browser.
   // If the user already has an active subscription, the backend rejects
@@ -152,6 +157,15 @@ export default function Billing() {
         if (fresh) setPlanData(fresh);
         getBillingCredits().then((cd) => { if (!cancelled) setCreditData(cd || null); }).catch(() => {});
         setSettling(false);
+        // Refresh AuthContext so user.plan picks up the new plan and the
+        // top-level PlanSelector overlay no longer fires when we navigate.
+        // Then auto-redirect into the product after the user has had time
+        // to read the success banner.
+        refreshUser?.().catch(() => {});
+        setRedirecting(true);
+        setTimeout(() => {
+          if (!cancelled) navigate('/ai-ceo');
+        }, 1800);
       }, wait);
     };
 
@@ -215,7 +229,10 @@ export default function Billing() {
       {checkoutReturn === 'success' && !settling && (
         <div className="billing-banner billing-banner--success">
           <Check size={16} />
-          <span>You're all set — welcome to {currentPlan?.display_name || 'AICEO'}.</span>
+          <span>
+            You're all set — welcome to {currentPlan?.display_name || 'AICEO'}.
+            {redirecting ? ' Taking you to your AI CEO…' : ''}
+          </span>
         </div>
       )}
       {checkoutReturn === 'cancelled' && (
