@@ -6,6 +6,21 @@ import { stripe as getStripe, getStripePriceId } from '../services/stripe.js';
 
 const router = Router();
 
+// Per-user rate limiter for checkout creation. Single-instance in-memory
+// Map; if we ever scale beyond one Railway replica, swap for Redis.
+// 3 attempts per 60s is generous for legitimate use (double-clicks +
+// genuine retries) and prevents an authenticated user from burning
+// our Stripe API quota by spamming.
+const checkoutAttempts = new Map();
+function rateLimitOk(userId, max = 3, windowMs = 60_000) {
+  const now = Date.now();
+  const recent = (checkoutAttempts.get(userId) || []).filter((t) => now - t < windowMs);
+  if (recent.length >= max) return false;
+  recent.push(now);
+  checkoutAttempts.set(userId, recent);
+  return true;
+}
+
 // Resolve the origin to use in Stripe success/cancel redirects.
 //
 // Trust order:
@@ -75,6 +90,8 @@ router.get('/api/billing/plan', async (req, res) => {
         status: sub.status,
         current_period_start: sub.current_period_start,
         current_period_end: sub.current_period_end,
+        disputed: !!sub.disputed,
+        tier: sub.tier || null,
       } : null,
       credits: {
         balance: creditRow?.balance ?? 0,
@@ -159,6 +176,10 @@ router.post('/api/billing/checkout', async (req, res) => {
   const userId = req.user?.id;
   if (!userId || userId === 'anonymous') {
     return res.status(401).json({ error: 'Auth required' });
+  }
+
+  if (!rateLimitOk(userId)) {
+    return res.status(429).json({ error: 'Too many checkout attempts. Wait a minute and try again.' });
   }
 
   const { plan, boost = false } = req.body || {};

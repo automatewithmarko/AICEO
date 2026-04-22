@@ -1,5 +1,6 @@
 import { hasFeature } from '../services/plans.js';
 import { hasCredits, deductCredits } from '../services/credits.js';
+import { supabase } from '../services/storage.js';
 
 /**
  * Feature gate middleware.
@@ -50,6 +51,22 @@ export function requireCredits(action) {
     if (!userId || userId === 'anonymous') {
       return res.status(401).json({ error: 'Authentication required' });
     }
+
+    // Disputed accounts are frozen until the chargeback resolves —
+    // no paid actions until it's cleared. Cheap upfront query.
+    try {
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('disputed')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (sub?.disputed) {
+        return res.status(402).json({
+          error: 'Account is on hold pending a chargeback. Contact support@aiceo.com.',
+          disputed: true,
+        });
+      }
+    } catch { /* on read failure, fall through to normal flow */ }
 
     try {
       const result = await deductCredits(userId, action);

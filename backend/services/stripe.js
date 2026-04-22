@@ -26,7 +26,11 @@ export function stripe() {
   if (_client) return _client;
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error('STRIPE_SECRET_KEY not set');
-  _client = new Stripe(key, { apiVersion: API_VERSION });
+  // 10s timeout on any single Stripe API call. Stripe's webhook delivery
+  // times out at 30s, so a hung call would otherwise burn the whole
+  // budget while we wait. Default httpClient retries once on 5xx, so
+  // worst-case is ~20s — still well under the webhook ceiling.
+  _client = new Stripe(key, { apiVersion: API_VERSION, timeout: 10000, maxNetworkRetries: 1 });
   return _client;
 }
 

@@ -240,6 +240,15 @@ export default function Billing() {
           <span>Checkout cancelled. Nothing was charged.</span>
         </div>
       )}
+      {subscription?.disputed && (
+        <div className="billing-banner billing-banner--warning">
+          <AlertTriangle size={16} />
+          <span>
+            A chargeback is in progress on your account. Some features are paused until this is resolved.
+            Email support@aiceo.com to get back online.
+          </span>
+        </div>
+      )}
       {subscription?.status === 'past_due' && (
         <div className="billing-banner billing-banner--warning">
           <AlertTriangle size={16} />

@@ -8,7 +8,7 @@ import * as whop from '../services/integrations/whop.js';
 import * as shopify from '../services/integrations/shopify.js';
 import * as kajabi from '../services/integrations/kajabi.js';
 import * as gohighlevel from '../services/integrations/gohighlevel.js';
-import { refillMonthlyCredits, addCredits } from '../services/credits.js';
+import { refillMonthlyCredits, addCredits, revokeCredits } from '../services/credits.js';
 
 const router = Router();
 
@@ -187,7 +187,13 @@ router.post('/api/webhooks/stripe', async (req, res) => {
             .eq('id', plan)
             .single();
           const seed = planRow?.credits_per_month || 500;
-          await addCredits(userId, seed, 'monthly_refill', { stripe_event_id: event.id });
+          // session.invoice is set after Stripe finalises the first invoice —
+          // pass it through so a future refund of this charge can find this
+          // exact credit deposit.
+          await addCredits(userId, seed, 'monthly_refill', {
+            stripe_event_id: event.id,
+            stripe_invoice_id: session.invoice || null,
+          });
           console.log(`[webhook/stripe] Seeded ${seed} credits for user ${userId} (plan=${plan}, tier=${tier})`);
         } catch (seedErr) {
           console.error(`[webhook/stripe] Initial credit seed failed: ${seedErr.message}`);
@@ -265,7 +271,10 @@ router.post('/api/webhooks/stripe', async (req, res) => {
         }
 
         try {
-          const refillResult = await refillMonthlyCredits(userId, { stripe_event_id: event.id });
+          const refillResult = await refillMonthlyCredits(userId, {
+            stripe_event_id: event.id,
+            stripe_invoice_id: obj.id, // invoice.paid → obj is the invoice
+          });
           if (refillResult.success) {
             console.log(`[webhook/stripe] Credits refilled: user=${userId} balance=${refillResult.newBalance}`);
           } else {
@@ -273,6 +282,105 @@ router.post('/api/webhooks/stripe', async (req, res) => {
           }
         } catch (err) {
           console.error(`[webhook/stripe] Refill failed: user=${userId} err=${err.message}`);
+        }
+        break;
+      }
+
+      // ── Refund issued (full or partial) → pro-rate credit revocation ──
+      case 'charge.refunded': {
+        if (!userId) break;
+        const charge = obj;
+        const totalAmount = charge.amount;
+        const refundedAmount = charge.amount_refunded;
+        if (!totalAmount || !refundedAmount) break;
+        const refundFraction = refundedAmount / totalAmount;
+        const invoiceId = charge.invoice || null;
+
+        // Find the credit deposit tied to this charge's invoice.
+        let depositRow = null;
+        if (invoiceId) {
+          const { data } = await supabase
+            .from('credit_transactions')
+            .select('amount, reason')
+            .eq('user_id', userId)
+            .eq('stripe_invoice_id', invoiceId)
+            .gt('amount', 0)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          depositRow = data;
+        }
+
+        // Revoke amount = (deposit credits) * (refund fraction).
+        // If we can't find the deposit (older deposits before we tracked
+        // invoice ids, or non-subscription refunds), fall back to the
+        // user's plan monthly allocation × fraction.
+        let revokeAmt = 0;
+        if (depositRow) {
+          revokeAmt = Math.ceil(depositRow.amount * refundFraction);
+        } else {
+          const { data: sub } = await supabase
+            .from('subscriptions')
+            .select('plan')
+            .eq('user_id', userId)
+            .maybeSingle();
+          if (sub?.plan) {
+            const { data: planRow } = await supabase
+              .from('plans')
+              .select('credits_per_month')
+              .eq('id', sub.plan)
+              .maybeSingle();
+            if (planRow?.credits_per_month) {
+              revokeAmt = Math.ceil(planRow.credits_per_month * refundFraction);
+            }
+          }
+        }
+
+        if (revokeAmt > 0) {
+          await revokeCredits(userId, revokeAmt, 'refund_revocation', {
+            stripe_event_id: event.id,
+            stripe_invoice_id: invoiceId,
+          });
+          console.log(`[webhook/stripe] Refund: user=${userId} fraction=${(refundFraction * 100).toFixed(0)}% revoked=${revokeAmt} cr`);
+        } else {
+          console.log(`[webhook/stripe] Refund: user=${userId} fraction=${(refundFraction * 100).toFixed(0)}% revoked=0 (no matching deposit + no plan)`);
+        }
+        break;
+      }
+
+      // ── Chargeback opened → freeze the account ──
+      case 'charge.dispute.created': {
+        if (!userId) break;
+        const dispRes = await supabase
+          .from('subscriptions')
+          .update({ disputed: true, updated_at: new Date().toISOString() })
+          .eq('user_id', userId);
+        if (dispRes.error) {
+          console.error(`[webhook/stripe] dispute set FAILED: ${dispRes.error.message}`);
+          throw new Error(`dispute set: ${dispRes.error.message}`);
+        }
+        console.log(`[webhook/stripe] Dispute opened: user=${userId} charge=${obj.charge} reason=${obj.reason}`);
+        break;
+      }
+
+      // ── Chargeback resolved → unfreeze if we won ──
+      case 'charge.dispute.closed': {
+        if (!userId) break;
+        // Outcome: 'won' = merchant kept the funds → unfreeze.
+        // 'lost' = funds returned to cardholder → keep frozen, also revoke
+        //   credits for the disputed charge (treat like a refund).
+        // 'warning_closed' / 'warning_needs_response' → no money movement
+        //   yet; leave the freeze on until resolved.
+        const won = obj.status === 'won';
+        if (won) {
+          const upd = await supabase
+            .from('subscriptions')
+            .update({ disputed: false, updated_at: new Date().toISOString() })
+            .eq('user_id', userId);
+          if (upd.error) throw new Error(`dispute clear: ${upd.error.message}`);
+          console.log(`[webhook/stripe] Dispute WON: user=${userId} — unfroze account`);
+        } else {
+          console.log(`[webhook/stripe] Dispute closed (status=${obj.status}): user=${userId} — keeping freeze`);
         }
         break;
       }

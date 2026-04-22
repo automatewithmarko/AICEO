@@ -168,11 +168,78 @@ export async function addCredits(userId, amount, reason, opts = {}) {
   // Log transaction (with optional Stripe event linkage for audit trail)
   const txRow = { user_id: userId, amount, reason };
   if (opts.stripe_event_id) txRow.stripe_event_id = opts.stripe_event_id;
+  if (opts.stripe_invoice_id) txRow.stripe_invoice_id = opts.stripe_invoice_id;
   await supabase.from('credit_transactions').insert(txRow);
 
   console.log(`[credits] Added ${amount} to user ${userId} for ${reason}. New balance: ${newBalance}`);
 
   return { success: true, newBalance };
+}
+
+/**
+ * Revoke (subtract) credits without erroring on insufficient balance.
+ * Used for refunds — if the user already spent the credits, we deduct
+ * what's left and floor at zero rather than going negative.
+ *
+ * Why this is separate from deductCredits: deductCredits is for usage
+ * (which must error on insufficient balance to prevent over-use),
+ * whereas revoke is for after-the-fact corrections (refunds, disputes).
+ *
+ * @param {string} userId
+ * @param {number} amount - positive integer (credits to revoke)
+ * @param {string} reason - e.g. 'refund_revocation'
+ * @param {object} [opts]
+ * @param {string} [opts.stripe_event_id] - dedupe for retries
+ * @param {string} [opts.stripe_invoice_id] - link to original deposit
+ */
+export async function revokeCredits(userId, amount, reason, opts = {}) {
+  if (amount <= 0) throw new Error('Amount must be positive');
+
+  // Idempotency guard: same Stripe event should never revoke twice.
+  if (opts.stripe_event_id) {
+    const { data: dupe } = await supabase
+      .from('credit_transactions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('stripe_event_id', opts.stripe_event_id)
+      .maybeSingle();
+    if (dupe) {
+      const { data: row } = await supabase
+        .from('credits')
+        .select('balance')
+        .eq('user_id', userId)
+        .single();
+      console.log(`[credits] Skipping duplicate revoke for event ${opts.stripe_event_id}`);
+      return { success: true, newBalance: row?.balance ?? 0, duplicate: true };
+    }
+  }
+
+  const { data: existing } = await supabase
+    .from('credits')
+    .select('balance')
+    .eq('user_id', userId)
+    .single();
+
+  const currentBalance = existing?.balance ?? 0;
+  // Cap at current balance — we don't go negative even if the refund is
+  // larger than what's left (the user already spent some).
+  const actualRevoked = Math.min(amount, currentBalance);
+  const newBalance = currentBalance - actualRevoked;
+
+  if (existing) {
+    await supabase
+      .from('credits')
+      .update({ balance: newBalance })
+      .eq('user_id', userId);
+  }
+
+  const txRow = { user_id: userId, amount: -actualRevoked, reason };
+  if (opts.stripe_event_id) txRow.stripe_event_id = opts.stripe_event_id;
+  if (opts.stripe_invoice_id) txRow.stripe_invoice_id = opts.stripe_invoice_id;
+  await supabase.from('credit_transactions').insert(txRow);
+
+  console.log(`[credits] Revoked ${actualRevoked} (asked ${amount}) from user ${userId} for ${reason}. New balance: ${newBalance}`);
+  return { success: true, newBalance, revoked: actualRevoked, requested: amount };
 }
 
 /**
