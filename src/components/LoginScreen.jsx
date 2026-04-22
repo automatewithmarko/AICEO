@@ -218,49 +218,19 @@ export default function LoginScreen() {
               </div>
             </div>
 
-            <div className="plan-cards">
-              <div className="plan-card">
-                <div className="plan-name">Starter</div>
-                <div className="plan-price">
-                  <span className="price-amount">$97</span>
-                  <span className="price-period">/month</span>
-                </div>
-                <ul className="plan-features">
-                  <li>Access to AI CEO platform</li>
-                  <li>Content generation</li>
-                  <li>Marketing automation</li>
-                  <li>Basic analytics</li>
-                </ul>
-                <button
-                  className="btn-primary btn-plan"
-                  onClick={() => handleSignup('Starter')}
-                  disabled={submitting || !email || !password}
-                >
-                  {submitting ? 'Creating...' : 'Get Started'}
-                </button>
-              </div>
-              <div className="plan-card plan-card--featured">
-                <div className="plan-popular">Most Popular</div>
-                <div className="plan-name">Growth</div>
-                <div className="plan-price">
-                  <span className="price-amount">$297</span>
-                  <span className="price-period">/month</span>
-                </div>
-                <ul className="plan-features">
-                  <li>Everything in Starter</li>
-                  <li>Advanced sales tools</li>
-                  <li>Priority support</li>
-                  <li>Unlimited content credits</li>
-                </ul>
-                <button
-                  className="btn-primary btn-plan"
-                  onClick={() => handleSignup('Growth')}
-                  disabled={submitting || !email || !password}
-                >
-                  {submitting ? 'Creating...' : 'Get Started'}
-                </button>
-              </div>
-            </div>
+            {/* Account-only step. No plan choice here — once the account is
+                created and the email is confirmed, PlanSelector takes over
+                with the real plans + live Stripe Checkout. */}
+            <button
+              className="btn-primary btn-plan btn-plan--full"
+              onClick={() => handleSignup(null)}
+              disabled={submitting || !email || !password || !name}
+            >
+              {submitting ? 'Creating account…' : 'Create account'}
+            </button>
+            <p className="login-subnote">
+              You'll choose your plan and complete checkout right after.
+            </p>
             <p className="login-switch">
               Already have an account?{' '}
               <button className="link-btn" onClick={resetToLogin}>

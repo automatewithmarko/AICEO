@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { Check, Crown, Star, X } from 'lucide-react';
+import { Check, Crown, Star, Sparkles, Loader2 } from 'lucide-react';
+import { createCheckoutSession } from '../lib/api';
 import './PlanSelector.css';
 
 const PLANS = [
   {
     id: 'complete',
     name: 'The Complete Platform',
-    setup: 1999,
-    monthly: '99–199',
+    setup: 1997,
+    monthlyStandard: 99,
+    monthlyBoost: 199,
     credits: 500,
     recommended: false,
     features: [
@@ -27,8 +29,9 @@ const PLANS = [
     id: 'diamond',
     name: 'Run Your Business From One Platform',
     badge: 'Diamond',
-    setup: 2999,
-    monthly: '99–199',
+    setup: 2997,
+    monthlyStandard: 99,
+    monthlyBoost: 199,
     credits: 600,
     recommended: true,
     features: [
@@ -47,12 +50,25 @@ const PLANS = [
 ];
 
 export default function PlanSelector() {
-  const [selected, setSelected] = useState(null); // null | 'complete' | 'diamond'
-  const [showContact, setShowContact] = useState(false);
+  const [boost, setBoost] = useState(false);
+  const [acting, setActing] = useState(null); // plan id being checked out
+  const [error, setError] = useState('');
 
-  const handleGetStarted = (planId) => {
-    setSelected(planId);
-    setShowContact(true);
+  const handleGetStarted = async (planId) => {
+    setError('');
+    setActing(planId);
+    try {
+      const { url } = await createCheckoutSession({ plan: planId, boost });
+      if (url) {
+        window.location.assign(url);
+      } else {
+        setError('Could not start checkout. Please try again.');
+        setActing(null);
+      }
+    } catch (err) {
+      setError(err.message || 'Could not start checkout. Please try again.');
+      setActing(null);
+    }
   };
 
   return (
@@ -62,101 +78,110 @@ export default function PlanSelector() {
           <img src="/favicon.png" alt="AICEO" className="plan-selector-logo" />
           <h1 className="plan-selector-title">Choose Your Plan</h1>
           <p className="plan-selector-subtitle">
-            Select the plan that fits your business. You can upgrade anytime.
+            Select the plan that fits your business. You can switch any time after checkout.
           </p>
+
+          {/* Standard / Boost tier toggle */}
+          <div className="plan-selector-toggle">
+            <button
+              type="button"
+              className={`plan-selector-toggle-tab ${!boost ? 'plan-selector-toggle-tab--active' : ''}`}
+              onClick={() => setBoost(false)}
+            >
+              Standard
+            </button>
+            <button
+              type="button"
+              className={`plan-selector-toggle-tab ${boost ? 'plan-selector-toggle-tab--active' : ''}`}
+              onClick={() => setBoost(true)}
+            >
+              <Sparkles size={13} /> With Boost
+            </button>
+          </div>
         </div>
+
+        {error && <div className="plan-selector-error">{error}</div>}
 
         <div className="plan-selector-cards">
-          {PLANS.map((plan) => (
-            <div
-              key={plan.id}
-              className={`plan-card ${plan.recommended ? 'plan-card--recommended' : ''} ${selected === plan.id ? 'plan-card--selected' : ''}`}
-            >
-              {plan.recommended && (
-                <div className="plan-card-badge">
-                  <Crown size={12} />
-                  <span>Recommended</span>
-                </div>
-              )}
-
-              <div className="plan-card-header">
-                <h2 className="plan-card-name">{plan.name}</h2>
-                {plan.badge && (
-                  <span className="plan-card-tier">
-                    <Star size={12} />
-                    {plan.badge}
-                  </span>
-                )}
-              </div>
-
-              <div className="plan-card-pricing">
-                <div className="plan-card-setup">
-                  <span className="plan-card-dollar">$</span>
-                  <span className="plan-card-amount">{plan.setup.toLocaleString()}</span>
-                  <span className="plan-card-label">setup</span>
-                </div>
-                <div className="plan-card-monthly">
-                  + ${plan.monthly}/mo
-                </div>
-              </div>
-
-              <div className="plan-card-credits">
-                <span className="plan-card-credits-number">{plan.credits}</span>
-                <span className="plan-card-credits-label">credits / month</span>
-              </div>
-
-              <ul className="plan-card-features">
-                {plan.features.map((feat, i) => (
-                  <li key={i} className="plan-card-feature">
-                    {i === 0 && plan.id === 'diamond' ? (
-                      <span className="plan-card-feature-highlight">{feat}</span>
-                    ) : (
-                      <>
-                        <Check size={14} className="plan-card-check" />
-                        <span>{feat}</span>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-
-              <button
-                className={`plan-card-cta ${plan.recommended ? 'plan-card-cta--primary' : ''}`}
-                onClick={() => handleGetStarted(plan.id)}
+          {PLANS.map((plan) => {
+            const monthly = boost ? plan.monthlyBoost : plan.monthlyStandard;
+            const busy = acting === plan.id;
+            return (
+              <div
+                key={plan.id}
+                className={`plan-card ${plan.recommended ? 'plan-card--recommended' : ''}`}
               >
-                Get Started
-              </button>
-            </div>
-          ))}
+                {plan.recommended && (
+                  <div className="plan-card-badge">
+                    <Crown size={12} />
+                    <span>Recommended</span>
+                  </div>
+                )}
+
+                <div className="plan-card-header">
+                  <h2 className="plan-card-name">{plan.name}</h2>
+                  {plan.badge && (
+                    <span className="plan-card-tier">
+                      <Star size={12} />
+                      {plan.badge}
+                    </span>
+                  )}
+                </div>
+
+                <div className="plan-card-pricing">
+                  <div className="plan-card-setup">
+                    <span className="plan-card-dollar">$</span>
+                    <span className="plan-card-amount">{plan.setup.toLocaleString()}</span>
+                    <span className="plan-card-label">setup</span>
+                  </div>
+                  <div className="plan-card-monthly">
+                    + ${monthly}/mo
+                    {boost && <span className="plan-card-boost-tag"> · Boost</span>}
+                  </div>
+                </div>
+
+                <div className="plan-card-credits">
+                  <span className="plan-card-credits-number">{plan.credits}</span>
+                  <span className="plan-card-credits-label">credits / month</span>
+                </div>
+
+                <ul className="plan-card-features">
+                  {plan.features.map((feat, i) => (
+                    <li key={i} className="plan-card-feature">
+                      {i === 0 && plan.id === 'diamond' ? (
+                        <span className="plan-card-feature-highlight">{feat}</span>
+                      ) : (
+                        <>
+                          <Check size={14} className="plan-card-check" />
+                          <span>{feat}</span>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+
+                <button
+                  className={`plan-card-cta ${plan.recommended ? 'plan-card-cta--primary' : ''}`}
+                  onClick={() => handleGetStarted(plan.id)}
+                  disabled={busy || !!acting}
+                >
+                  {busy ? (
+                    <><Loader2 size={14} className="plan-selector-spinner" /> Starting checkout…</>
+                  ) : (
+                    'Get Started'
+                  )}
+                </button>
+              </div>
+            );
+          })}
         </div>
 
-        {/* Contact modal */}
-        {showContact && (
-          <div className="plan-contact-overlay" onClick={() => setShowContact(false)}>
-            <div className="plan-contact-modal" onClick={(e) => e.stopPropagation()}>
-              <button className="plan-contact-close" onClick={() => setShowContact(false)}>
-                <X size={18} />
-              </button>
-              <div className="plan-contact-content">
-                <h3 className="plan-contact-title">
-                  Get started with {selected === 'diamond' ? 'Diamond' : 'Complete'}
-                </h3>
-                <p className="plan-contact-text">
-                  Contact us to set up your account and get started with your plan.
-                </p>
-                <a
-                  href="mailto:support@aiceo.com?subject=Plan%20Setup%20Request"
-                  className="plan-contact-email"
-                >
-                  support@aiceo.com
-                </a>
-                <p className="plan-contact-note">
-                  We will get back to you within 24 hours to complete your setup.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+        <p className="plan-selector-footnote">
+          Need a custom setup or coached onboarding?{' '}
+          <a href="mailto:support@aiceo.com?subject=Coached%20Onboarding%20Request">
+            Talk to our team
+          </a>
+        </p>
       </div>
     </div>
   );

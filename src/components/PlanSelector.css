@@ -375,3 +375,81 @@
     font-size: 32px;
   }
 }
+
+/* ── Standard / Boost toggle in the header ── */
+.plan-selector-toggle {
+  display: inline-flex;
+  margin-top: 18px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  gap: 2px;
+}
+
+.plan-selector-toggle-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 7px 16px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.plan-selector-toggle-tab:hover {
+  color: #fff;
+}
+
+.plan-selector-toggle-tab--active {
+  background: #fff;
+  color: var(--text-primary, #1a1a2e);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Inline error from failed checkout call */
+.plan-selector-error {
+  max-width: 720px;
+  margin: 0 auto 20px;
+  padding: 12px 16px;
+  background: rgba(220, 38, 38, 0.12);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  border-radius: 10px;
+  color: #fee2e2;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+
+/* "Talk to our team" link below the cards */
+.plan-selector-footnote {
+  text-align: center;
+  margin-top: 28px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.plan-selector-footnote a {
+  color: #fff;
+  text-decoration: underline;
+  font-weight: 500;
+}
+
+.plan-selector-footnote a:hover {
+  color: var(--brand-red, #e91a44);
+}
+
+/* Spinner inside the CTA */
+.plan-selector-spinner {
+  animation: planSelectorSpin 1s linear infinite;
+}
+
+@keyframes planSelectorSpin {
+  to { transform: rotate(360deg); }
+}
