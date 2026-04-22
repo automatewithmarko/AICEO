@@ -377,14 +377,16 @@
 }
 
 /* ── Standard / Boost toggle in the header ── */
+/* Backdrop is light (#f5f5f7) so all colors are dark-on-light. */
 .plan-selector-toggle {
   display: inline-flex;
-  margin-top: 18px;
-  padding: 3px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  margin-top: 22px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid var(--border-light, #e5e7eb);
   border-radius: 10px;
   gap: 2px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .plan-selector-toggle-tab {
@@ -396,21 +398,25 @@
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.7);
-  padding: 7px 16px;
+  color: var(--text-secondary, #6b7280);
+  padding: 8px 18px;
   border-radius: 7px;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, box-shadow 0.15s;
 }
 
 .plan-selector-toggle-tab:hover {
-  color: #fff;
+  color: var(--text-primary, #1a1a2e);
 }
 
 .plan-selector-toggle-tab--active {
-  background: #fff;
-  color: var(--text-primary, #1a1a2e);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background: var(--brand-red, #e91a44);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(233, 26, 68, 0.25);
+}
+
+.plan-selector-toggle-tab--active:hover {
+  color: #fff;
 }
 
 /* Inline error from failed checkout call */
@@ -418,10 +424,10 @@
   max-width: 720px;
   margin: 0 auto 20px;
   padding: 12px 16px;
-  background: rgba(220, 38, 38, 0.12);
-  border: 1px solid rgba(220, 38, 38, 0.4);
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.25);
   border-radius: 10px;
-  color: #fee2e2;
+  color: #b91c1c;
   font-size: 13px;
   font-weight: 500;
   text-align: center;
@@ -430,19 +436,29 @@
 /* "Talk to our team" link below the cards */
 .plan-selector-footnote {
   text-align: center;
-  margin-top: 28px;
+  margin-top: 32px;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--text-secondary, #6b7280);
 }
 
 .plan-selector-footnote a {
-  color: #fff;
+  color: var(--brand-red, #e91a44);
   text-decoration: underline;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .plan-selector-footnote a:hover {
+  color: var(--brand-red-hover, #c71538);
+}
+
+/* Boost tag on the monthly price line */
+.plan-card-boost-tag {
+  font-weight: 700;
   color: var(--brand-red, #e91a44);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  margin-left: 4px;
 }
 
 /* Spinner inside the CTA */
@@ -452,4 +468,31 @@
 
 @keyframes planSelectorSpin {
   to { transform: rotate(360deg); }
+}
+
+/* Test/QA plan card — visually distinct so no real user mistakes it */
+.plan-card--test {
+  border-style: dashed;
+  border-color: #d97706;
+  background: #fffbeb;
+}
+
+.plan-card--test:hover {
+  border-color: #b45309;
+  box-shadow: 0 4px 20px rgba(217, 119, 6, 0.12);
+}
+
+.plan-card--test .plan-card-name {
+  color: #92400e;
+}
+
+.plan-card--test .plan-card-credits-number {
+  color: #b45309;
+}
+
+/* CTA grid: 3 cards on desktop when the test plan is shown */
+@media (min-width: 980px) {
+  .plan-selector-cards--three {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }

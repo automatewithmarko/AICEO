@@ -121,14 +121,14 @@ export default function PlanSelector() {
 
         {error && <div className="plan-selector-error">{error}</div>}
 
-        <div className="plan-selector-cards">
+        <div className={`plan-selector-cards ${PLANS.length >= 3 ? 'plan-selector-cards--three' : ''}`}>
           {PLANS.map((plan) => {
             const monthly = boost ? plan.monthlyBoost : plan.monthlyStandard;
             const busy = acting === plan.id;
             return (
               <div
                 key={plan.id}
-                className={`plan-card ${plan.recommended ? 'plan-card--recommended' : ''}`}
+                className={`plan-card ${plan.recommended ? 'plan-card--recommended' : ''} ${plan.testOnly ? 'plan-card--test' : ''}`}
               >
                 {plan.recommended && (
                   <div className="plan-card-badge">

@@ -1181,14 +1181,30 @@ export async function getCreditCosts() {
 // caller should redirect the browser to (window.location.href = url).
 export async function createCheckoutSession({ plan, boost = false }) {
   const headers = await getAuthHeaders();
+  // If the user has no auth token at all, fail fast with a clear message
+  // instead of letting the backend reject with the generic "Auth required".
+  if (!headers.Authorization) {
+    throw new Error('Your session expired. Please sign in again.');
+  }
   const res = await fetch(`${API_URL}/api/billing/checkout`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ plan, boost }),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Checkout failed' }));
-    throw new Error(err.error || 'Checkout failed');
+    // Surface the real backend error rather than the generic fallback so
+    // the UI can show useful messages like "No Stripe price configured…"
+    // or "Your session expired".
+    let body = null;
+    try { body = await res.json(); } catch { /* non-JSON */ }
+    const message = body?.error
+      || (res.status === 401 ? 'Your session expired. Please sign in again.'
+        : res.status === 502 ? 'Server is restarting. Try again in a moment.'
+        : `Checkout failed (HTTP ${res.status}).`);
+    const err = new Error(message);
+    err.status = res.status;
+    err.body = body;
+    throw err;
   }
   return res.json();
 }
