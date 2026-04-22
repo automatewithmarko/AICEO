@@ -117,22 +117,49 @@ export async function addCredits(userId, amount, reason, opts = {}) {
     }
   }
 
-  // Upsert: create row with default + amount, or increment existing
+  // Upsert: create row with default + amount, or increment existing.
   const { data: existing } = await supabase
     .from('credits')
     .select('balance')
     .eq('user_id', userId)
     .single();
 
-  let newBalance;
+  let newBalance = (existing?.balance || 0) + amount;
+
+  // Rollover cap on monthly_refill only. Without this, credits grow
+  // unbounded for users who don't use them — at cancellation time you'd
+  // owe a large refund proportional to a balance that was never meant
+  // to accumulate. Cap at 2× the user's monthly allocation so they get
+  // some carry-over goodwill without it spiraling.
+  if (reason === 'monthly_refill') {
+    const { data: sub } = await supabase
+      .from('subscriptions')
+      .select('plan')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (sub?.plan) {
+      const { data: planRow } = await supabase
+        .from('plans')
+        .select('credits_per_month')
+        .eq('id', sub.plan)
+        .maybeSingle();
+      const monthly = planRow?.credits_per_month;
+      if (monthly && monthly > 0) {
+        const cap = monthly * 2;
+        if (newBalance > cap) {
+          console.log(`[credits] Rollover cap hit for user ${userId}: ${newBalance} → ${cap} (plan=${sub.plan}, monthly=${monthly})`);
+          newBalance = cap;
+        }
+      }
+    }
+  }
+
   if (existing) {
-    newBalance = existing.balance + amount;
     await supabase
       .from('credits')
       .update({ balance: newBalance })
       .eq('user_id', userId);
   } else {
-    newBalance = amount;
     await supabase
       .from('credits')
       .insert({ user_id: userId, balance: newBalance });

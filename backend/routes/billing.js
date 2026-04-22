@@ -185,16 +185,40 @@ router.post('/api/billing/checkout', async (req, res) => {
 
     const origin = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:5173';
 
+    // ── Setup fee: charge once, on the user's first-ever checkout ──
+    // Detection: profiles.stripe_customer_id is the canonical "this user
+    // has paid us before" flag. It's set by the webhook on the very first
+    // successful checkout. If it's null, this is their first-ever checkout
+    // and we attach the one-time setup Price as a second line item.
+    // (Stripe puts the recurring item on the subscription and the one-time
+    // item on the first invoice — same Checkout, same card swipe.)
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('stripe_customer_id')
+      .eq('id', userId)
+      .maybeSingle();
+    const isFirstCheckout = !profile?.stripe_customer_id;
+
+    const lineItems = [{ price: priceId, quantity: 1 }];
+    let attachedSetupPrice = null;
+    if (isFirstCheckout) {
+      const setupPriceId = getStripePriceId(plan, { setup: true });
+      if (setupPriceId) {
+        lineItems.push({ price: setupPriceId, quantity: 1 });
+        attachedSetupPrice = setupPriceId;
+      }
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      line_items: [{ price: priceId, quantity: 1 }],
+      line_items: lineItems,
       success_url: `${origin}/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/billing?checkout=cancelled`,
       customer: existingSub?.stripe_customer_id || undefined,
       customer_email: existingSub?.stripe_customer_id ? undefined : email,
       // Metadata flows into the webhook. user_id is the source of truth —
       // email-based resolution is only a last-ditch fallback there.
-      metadata: { user_id: userId, plan, boost: String(boost) },
+      metadata: { user_id: userId, plan, boost: String(boost), setup_attached: String(!!attachedSetupPrice) },
       subscription_data: {
         metadata: { user_id: userId, plan, boost: String(boost) },
       },
@@ -202,8 +226,12 @@ router.post('/api/billing/checkout', async (req, res) => {
     }, {
       // Stable idempotency key for a 10-minute window so double-clicks
       // collapse to one session. Past that, user can legitimately retry.
-      idempotencyKey: `checkout:${userId}:${plan}:${boost ? 'b' : 's'}:${Math.floor(Date.now() / 600000)}`,
+      // Setup status in the key so a user who somehow flips state mid-window
+      // doesn't get a stale session served back.
+      idempotencyKey: `checkout:${userId}:${plan}:${boost ? 'b' : 's'}:${attachedSetupPrice ? 'setup' : 'nosetup'}:${Math.floor(Date.now() / 600000)}`,
     });
+
+    console.log(`[billing/checkout] user=${userId} plan=${plan} tier=${boost ? 'boost' : 'standard'} setup=${attachedSetupPrice ? 'YES' : 'no'} session=${session.id}`);
 
     res.json({ url: session.url, session_id: session.id });
   } catch (err) {
@@ -254,6 +282,10 @@ router.post('/api/billing/portal', async (req, res) => {
     const portal = await stripe.billingPortal.sessions.create({
       customer: customerId,
       return_url: `${origin}/billing`,
+    }, {
+      // Same 10-minute idempotency window as checkout so refresh-spam
+      // doesn't generate dozens of portal sessions.
+      idempotencyKey: `portal:${userId}:${Math.floor(Date.now() / 600000)}`,
     });
 
     res.json({ url: portal.url });

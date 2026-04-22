@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { CreditCard, Zap, Calendar, Check, Receipt, ArrowUpRight, Loader2, TrendingUp, ExternalLink, Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { CreditCard, Zap, Calendar, Check, Receipt, ArrowUpRight, Loader2, TrendingUp, ExternalLink, Sparkles, AlertTriangle, Clock } from 'lucide-react';
 import { getBillingPlan, getBillingCredits, getAvailablePlans, getCreditCosts, createCheckoutSession, createBillingPortalSession } from '../lib/api';
 import './Pages.css';
 import './Billing.css';
@@ -117,18 +117,57 @@ export default function Billing() {
   }, []);
 
   // If the user just came back from Stripe Checkout, the Stripe webhook
-  // may still be in-flight when they land here. Show a confirmation
-  // banner + strip the ?checkout=... params from the URL.
+  // may still be in-flight when they land here. Show a banner and poll
+  // /api/billing/plan until the new subscription shows up (or until we
+  // give up). This replaces the old "fingers crossed" banner that left
+  // users staring at stale plan data.
   const [checkoutReturn, setCheckoutReturn] = useState(null);
+  const [settling, setSettling] = useState(false);
+  const planAtLandRef = useRef(null);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const status = params.get('checkout');
-    if (status) {
-      setCheckoutReturn(status);
-      // Clean the URL so a refresh doesn't re-show the banner.
-      const clean = window.location.pathname;
-      window.history.replaceState({}, '', clean);
-    }
+    if (!status) return;
+    setCheckoutReturn(status);
+    // Snapshot whatever plan id the page loaded with — we'll consider
+    // the webhook "settled" when this changes (or first appears).
+    planAtLandRef.current = planData?.plan?.id || null;
+    // Clean the URL so a refresh doesn't re-show the banner.
+    const clean = window.location.pathname;
+    window.history.replaceState({}, '', clean);
+    if (status !== 'success') return;
+
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 15; // 15 × 2s = 30s ceiling
+    setSettling(true);
+
+    const poll = async () => {
+      if (cancelled) return;
+      attempts += 1;
+      try {
+        const fresh = await getBillingPlan();
+        if (cancelled) return;
+        const freshPlanId = fresh?.plan?.id || null;
+        const freshStatus = fresh?.subscription?.status || null;
+        const settled = freshPlanId
+          && freshPlanId !== planAtLandRef.current
+          && ['active', 'trialing', 'canceling'].includes(freshStatus);
+        if (settled || attempts >= maxAttempts) {
+          setPlanData(fresh);
+          // Refresh credits too — webhook seeds them on activation
+          getBillingCredits().then((cd) => { if (!cancelled) setCreditData(cd || null); }).catch(() => {});
+          setSettling(false);
+          return;
+        }
+      } catch { /* keep polling */ }
+      setTimeout(poll, 2000);
+    };
+    setTimeout(poll, 1500); // give the webhook a head start
+
+    return () => { cancelled = true; };
+    // We deliberately don't depend on planData so polling starts once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const currentPlan = planData?.plan || null;
@@ -163,15 +202,50 @@ export default function Billing() {
     <div className="page-container">
       <h1 className="page-title">Billing & Credits</h1>
 
-      {checkoutReturn === 'success' && (
+      {/* Settling = webhook is in-flight, plan hasn't changed yet */}
+      {settling && (
+        <div className="billing-banner billing-banner--success">
+          <Loader2 size={16} className="billing-spinner" />
+          <span>Activating your subscription… this usually takes a few seconds.</span>
+        </div>
+      )}
+      {/* Settled = polling found the new plan */}
+      {checkoutReturn === 'success' && !settling && (
         <div className="billing-banner billing-banner--success">
           <Check size={16} />
-          <span>Thanks — your subscription is being activated. Plan details refresh in a moment.</span>
+          <span>You're all set — welcome to {currentPlan?.display_name || 'AICEO'}.</span>
         </div>
       )}
       {checkoutReturn === 'cancelled' && (
         <div className="billing-banner billing-banner--info">
           <span>Checkout cancelled. Nothing was charged.</span>
+        </div>
+      )}
+
+      {/* past_due — payment failed, sub still alive but at risk */}
+      {subscription?.status === 'past_due' && (
+        <div className="billing-banner billing-banner--warning">
+          <AlertTriangle size={16} />
+          <span>
+            Your last payment didn't go through. Update your payment method to keep your subscription active.
+          </span>
+          <button className="billing-banner-btn" onClick={handleManage} disabled={acting === 'portal'}>
+            {acting === 'portal' ? 'Opening…' : 'Update payment'}
+          </button>
+        </div>
+      )}
+
+      {/* canceling — user cancelled but still has access until period end */}
+      {subscription?.status === 'canceling' && (
+        <div className="billing-banner billing-banner--info">
+          <Clock size={16} />
+          <span>
+            Your subscription is set to cancel{subscription.current_period_end ? ` on ${fmtDate(subscription.current_period_end)}` : ''}.
+            You'll keep full access until then.
+          </span>
+          <button className="billing-banner-btn" onClick={handleManage} disabled={acting === 'portal'}>
+            {acting === 'portal' ? 'Opening…' : 'Reactivate'}
+          </button>
         </div>
       )}
 
