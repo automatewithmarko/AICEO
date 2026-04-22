@@ -3549,17 +3549,26 @@ export default function Content() {
   // is restored from local storage (avoids the race where the first fetch
   // hits the backend as anonymous and gets empty arrays back).
   useEffect(() => {
-    if (!user) return;
+    console.log('[Content/ctx] useEffect fired, user:', user?.id || user?.email || user);
+    if (!user) { console.log('[Content/ctx] No user yet — skipping fetch'); return; }
     let cancelled = false;
     const fmt = (d) => { try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } };
+    console.log('[Content/ctx] Fetching context sidebar data...');
     Promise.all([
-      getTemplates('newsletter').catch(() => ({ templates: [] })),
-      getEmails({ limit: 20 }).catch(() => ({ emails: [] })),
-      getSalesCalls().catch(() => ({ calls: [] })),
-      getContentItems().catch(() => ({ items: [] })),
-      getProducts().catch(() => ({ products: [] })),
+      getTemplates('newsletter').catch((e) => { console.error('[Content/ctx] getTemplates failed:', e.message); return { templates: [] }; }),
+      getEmails({ limit: 20 }).catch((e) => { console.error('[Content/ctx] getEmails failed:', e.message); return { emails: [] }; }),
+      getSalesCalls().catch((e) => { console.error('[Content/ctx] getSalesCalls failed:', e.message); return { calls: [] }; }),
+      getContentItems().catch((e) => { console.error('[Content/ctx] getContentItems failed:', e.message); return { items: [] }; }),
+      getProducts().catch((e) => { console.error('[Content/ctx] getProducts failed:', e.message); return { products: [] }; }),
     ]).then(([nlRes, emRes, clRes, ctRes, prRes]) => {
-      if (cancelled) return;
+      if (cancelled) { console.log('[Content/ctx] Cancelled — skipping setState'); return; }
+      console.log('[Content/ctx] Results:', {
+        newsletters: (nlRes.templates || []).length,
+        emails: (emRes.emails || []).length,
+        calls: (clRes.calls || []).length,
+        content: (ctRes.items || []).length,
+        products: (prRes.products || []).length,
+      });
       setContentCtxCategories([
         {
           id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png',
@@ -3584,7 +3593,7 @@ export default function Content() {
       ]);
     });
     return () => { cancelled = true; };
-  }, [user]);
+  }, [user?.id]);
 
   const toggleContentCtxItem = (id) => {
     setContentSelectedCtx((prev) => {
@@ -3710,17 +3719,28 @@ export default function Content() {
   );
 
   // ── Session persistence ──
-  // Load sessions list on mount
+  // Load sessions list on mount and auto-restore the most recent session
+  // so uploaded context (photos, docs, social URLs) survives page refresh.
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session?.user) return;
       const { data } = await supabase
         .from('content_sessions')
-        .select('id, title, platform, updated_at')
+        .select('id, title, platform, messages, updated_at')
         .eq('user_id', session.user.id)
         .order('updated_at', { ascending: false })
         .limit(50);
-      if (data) setSessions(data);
+      if (data) {
+        setSessions(data.map(({ messages: _m, ...rest }) => rest));
+        // Auto-load the most recent session so sidebar context is restored
+        const latest = data[0];
+        if (latest && !sessionIdRef.current) {
+          sessionIdRef.current = latest.id;
+          setSessionId(latest.id);
+          setSelectedPlatform(latest.platform || 'instagram');
+          if (latest.messages?.length) setMessages(latest.messages);
+        }
+      }
     });
   }, []);
 
@@ -3815,11 +3835,7 @@ export default function Content() {
       .eq('id', id)
       .single();
     if (error || !data) return;
-    // Clear session-scoped sidebar uploads (photos, docs, URLs).
-    // Context selections are global — NOT cleared on session switch.
-    setPhotos([]);
-    setDocuments([]);
-    setSocialUrls([]);
+    // Uploads and context selections are global — NOT cleared on session switch.
     ensureSessionPromiseRef.current = null;
     sessionIdRef.current = data.id;
     setSessionId(data.id);
@@ -3836,10 +3852,7 @@ export default function Content() {
     ensureSessionPromiseRef.current = null;
     setSessionId(null);
     setMessages([]);
-    setPhotos([]);
-    setDocuments([]);
-    setSocialUrls([]);
-    // Context selections are global — NOT cleared on new conversation.
+    // Uploads and context selections are global — NOT cleared on new conversation.
     setCurrentQuestion(null);
     setShowSessions(false);
     setLinkedinPreview(null);
@@ -5334,16 +5347,14 @@ export default function Content() {
     return () => document.removeEventListener('paste', handler);
   }, [docHover, handleDocPaste]);
 
-  // Load saved content items from DB, scoped to the active session.
-  // A null sessionId (fresh "New conversation") means empty sidebar — items
-  // get created once the user uploads something (ensureSession creates the
-  // session, upload tags items with its id).
+  // Load ALL saved content items for this user (global, not session-scoped).
+  // Uploaded photos, docs, and social URLs persist across all chats.
   useEffect(() => {
-    if (!sessionId) return;
+    if (!user) return;
     let cancelled = false;
-    getContentItems(sessionId).then(({ items }) => {
+    getContentItems().then(({ items }) => {
       if (cancelled) return;
-      console.log('[Content] Loaded content items for session', sessionId, items?.length, items?.map(i => ({ type: i.type, url: i.url?.slice(0, 60) })));
+      console.log('[Content] Loaded content items (global):', items?.length, items?.map(i => ({ type: i.type, url: i.url?.slice(0, 60) })));
       if (!items?.length) return;
       const savedPhotos = [];
       const savedDocs = [];
@@ -5395,7 +5406,7 @@ export default function Content() {
       });
     }).catch((err) => { console.error('[Content] Failed to load content items:', err); });
     return () => { cancelled = true; };
-  }, [sessionId]);
+  }, [user?.id]);
 
   // ── Shared sidebar/sheet content ──
   const contextContent = (isSheet) => (
@@ -6540,7 +6551,7 @@ export default function Content() {
           <div className="content-input-wrapper">
             <div className="content-input-top-row">
               <div className="content-ctx-anchor" ref={contentCtxRef}>
-                <button className="content-ctx-trigger" onClick={() => { setContentCtxMenuOpen((v) => !v); setContentHoveredCat(null); }}>
+                <button className="content-ctx-trigger" onClick={() => { console.log('[Content/ctx] Add Context clicked, categories:', contentCtxCategories.map(c => `${c.id}:${c.items.length}`).join(', ')); setContentCtxMenuOpen((v) => !v); setContentHoveredCat(null); }}>
                   <Plus size={13} /> Add Context
                 </button>
                 {contentCtxMenuOpen && (

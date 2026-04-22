@@ -7,7 +7,7 @@ const router = Router();
 
 const GEMINI_MODEL_FAST = 'gemini-3.1-flash-image-preview';
 const GEMINI_MODEL_PRO = 'gemini-3-pro-image-preview'; // Best text rendering + reasoning
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_BASE = (process.env.MENTOR_BASE_URL || 'https://platform.thementorprogram.xyz') + '/api/v1beta';
 const GEMINI_TIMEOUT_MS = 90_000; // 90s for fast model
 const GEMINI_PRO_TIMEOUT_MS = 120_000; // 120s for pro model (more thinking time)
 
@@ -33,8 +33,8 @@ const supabase = createClient(
 );
 
 function getApiKey() {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error('GEMINI_API_KEY not configured');
+  const key = process.env.MENTOR_API_KEY;
+  if (!key) throw new Error('MENTOR_API_KEY not configured');
   return key;
 }
 
