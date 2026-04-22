@@ -6,6 +6,25 @@ import { stripe as getStripe, getStripePriceId } from '../services/stripe.js';
 
 const router = Router();
 
+// Resolve the origin to use in Stripe success/cancel redirects.
+//
+// Trust order:
+//   1. FRONTEND_URL env (set by ops, source of truth).
+//   2. In dev only (NODE_ENV !== 'production'), fall back to the request's
+//      Origin header so localhost development works out of the box.
+//   3. In prod, refuse to fall back to Origin — that header is attacker-
+//      controllable on a CSRF-style request and we don't want a checkout
+//      session redirecting users to evil.com.
+function resolveFrontendOrigin(req) {
+  if (process.env.FRONTEND_URL) return process.env.FRONTEND_URL;
+  if (process.env.NODE_ENV !== 'production') {
+    return req.headers.origin || 'http://localhost:5173';
+  }
+  // Last resort in prod — surface a clear error rather than a silent
+  // fallback to a wrong domain.
+  throw new Error('FRONTEND_URL env not set — refusing to construct redirect URL in production.');
+}
+
 // ─── GET /api/billing/plan — user's current plan, features, credits ───
 router.get('/api/billing/plan', async (req, res) => {
   const userId = req.user?.id;
@@ -183,7 +202,7 @@ router.post('/api/billing/checkout', async (req, res) => {
     const { data: authData } = await supabase.auth.admin.getUserById(userId);
     const email = authData?.user?.email;
 
-    const origin = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:5173';
+    const origin = resolveFrontendOrigin(req);
 
     // ── Setup fee: charge once, on the user's first-ever checkout ──
     // Detection: profiles.stripe_customer_id is the canonical "this user
@@ -277,7 +296,7 @@ router.post('/api/billing/portal', async (req, res) => {
     }
 
     const stripe = getStripe();
-    const origin = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:5173';
+    const origin = resolveFrontendOrigin(req);
 
     const portal = await stripe.billingPortal.sessions.create({
       customer: customerId,

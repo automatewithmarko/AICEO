@@ -215,6 +215,9 @@ export async function refillMonthlyCredits(userId, opts = {}) {
     .eq('id', sub.plan)
     .single();
 
+  if (!planRow?.credits_per_month) {
+    console.warn(`[credits] refillMonthlyCredits: no credits_per_month for plan="${sub.plan}" — falling back to 500. Add the plan row.`);
+  }
   const creditsToAdd = planRow?.credits_per_month || 500;
 
   return addCredits(userId, creditsToAdd, 'monthly_refill', opts);

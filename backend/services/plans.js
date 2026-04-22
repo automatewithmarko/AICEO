@@ -25,6 +25,12 @@ export async function getUserPlan(userId) {
     .single();
 
   if (!planRow) {
+    // Subscription points at a plan id that doesn't exist in the plans
+    // table. Likely either: (a) a misconfigured Stripe Price → plan
+    // mapping, or (b) the plans-table row was renamed/deleted out from
+    // under an active subscription. Surface loudly rather than silently
+    // give the user a default 500-credit allocation.
+    console.warn(`[plans] subscription.plan="${sub.plan}" but no row in plans table — falling back to defaults. Fix the mapping.`);
     return { plan: sub.plan, features: {}, credits_per_month: 500, status: sub.status };
   }
 

@@ -55,31 +55,30 @@ router.post('/api/webhooks/stripe', async (req, res) => {
     return res.status(400).json({ error: 'Invalid signature' });
   }
 
-  // 2. Dedupe via stripe_events table. If the row already existed, this
-  //    is a retry — acknowledge quickly without re-processing.
+  // 2. Dedupe check (read-only). The stripe_events row is INSERTED only
+  //    AFTER the handler runs successfully. If a previous attempt threw
+  //    (e.g., schema mismatch, transient DB failure), no row exists →
+  //    Stripe's retry reprocesses cleanly. If a previous attempt
+  //    succeeded → row exists → we skip.
+  //
+  //    All handlers below are idempotent (upserts on user_id, addCredits
+  //    guards on stripe_event_id), so even if the same event is processed
+  //    more than once before the dedupe row lands, no data corruption.
   try {
-    const { data: inserted, error: insertErr } = await supabase
+    const { data: existing } = await supabase
       .from('stripe_events')
-      .insert({ id: event.id, type: event.type })
       .select('id')
-      .single();
-    if (insertErr) {
-      // Most likely a duplicate-key error → already processed.
-      if (insertErr.code === '23505' || /duplicate key/i.test(insertErr.message || '')) {
-        console.log(`[webhook/stripe] Event ${event.id} already processed — skipping`);
-        return res.json({ received: true, duplicate: true });
-      }
-      // Something else (table missing, network hiccup) — log and continue.
-      // Worst case is we process the event more than once; individual
-      // handlers below are designed to be safe against that.
-      console.error(`[webhook/stripe] stripe_events insert failed: ${insertErr.message}`);
-    } else {
-      console.log(`[webhook/stripe] Event accepted: ${event.type} (${event.id})`);
+      .eq('id', event.id)
+      .maybeSingle();
+    if (existing) {
+      console.log(`[webhook/stripe] Event ${event.id} already processed — skipping`);
+      return res.json({ received: true, duplicate: true });
     }
-    // inserted may be used later for diagnostics
-    void inserted;
+    console.log(`[webhook/stripe] Event accepted: ${event.type} (${event.id})`);
   } catch (err) {
     console.error(`[webhook/stripe] Dedupe check error: ${err.message}`);
+    // Continue — handlers are idempotent. Dedupe is an optimization,
+    // not a correctness requirement.
   }
 
   // 3. Resolve user.
@@ -237,9 +236,13 @@ router.post('/api/webhooks/stripe', async (req, res) => {
       // ── Subscription deleted (fully cancelled, past end of period) ──
       case 'customer.subscription.deleted': {
         if (!userId) break;
-        await supabase.from('subscriptions')
+        const delRes = await supabase.from('subscriptions')
           .update({ status: 'cancelled', updated_at: new Date().toISOString() })
           .eq('user_id', userId);
+        if (delRes.error) {
+          console.error(`[webhook/stripe] subscription cancel update FAILED: ${delRes.error.message}`);
+          throw new Error(`subscription cancel: ${delRes.error.message}`);
+        }
         console.log(`[webhook/stripe] Subscription cancelled: user=${userId}`);
         break;
       }
@@ -278,9 +281,13 @@ router.post('/api/webhooks/stripe', async (req, res) => {
       case 'invoice.payment_failed': {
         if (!userId) break;
         console.log(`[webhook/stripe] Payment FAILED: user=${userId} invoice=${obj.id}`);
-        await supabase.from('subscriptions')
+        const pfRes = await supabase.from('subscriptions')
           .update({ status: 'past_due', updated_at: new Date().toISOString() })
           .eq('user_id', userId);
+        if (pfRes.error) {
+          console.error(`[webhook/stripe] past_due update FAILED: ${pfRes.error.message}`);
+          throw new Error(`past_due update: ${pfRes.error.message}`);
+        }
         break;
       }
 
@@ -288,12 +295,28 @@ router.post('/api/webhooks/stripe', async (req, res) => {
         console.log(`[webhook/stripe] Unhandled event type: ${event.type}`);
     }
 
-    // Always 200 — Stripe retries on 5xx, and we don't want that for
-    // events we've intentionally skipped (unhandled types, no user match).
-    // The stripe_events row ensures we won't reprocess anyway.
+    // Mark this event as processed AFTER the handler succeeded. If the
+    // handler threw above, we never reach this point → no dedupe row →
+    // Stripe's retry will reprocess (which is what we want).
+    try {
+      await supabase
+        .from('stripe_events')
+        .insert({ id: event.id, type: event.type });
+    } catch (dedupeErr) {
+      // Best-effort. If this insert fails (unique violation from a
+      // concurrent processor, or transient DB hiccup), the worst case
+      // is a future retry reprocesses an already-handled event — but
+      // every handler is idempotent, so no corruption.
+      void dedupeErr;
+    }
+
+    // 200 — Stripe retries on 5xx, and we don't want that for events
+    // we've intentionally skipped (unhandled types, no user match).
     res.json({ received: true });
   } catch (err) {
     console.error(`[webhook/stripe] Error handling ${event.type}:`, err.message);
+    // Return 500 so Stripe retries this event. Because we have NOT yet
+    // inserted into stripe_events, the retry will reprocess from scratch.
     res.status(500).json({ error: err.message });
   }
 });
