@@ -393,320 +393,175 @@ If any answer is "no," revise before submitting.
 Now write the post following all guidelines above.`;
 
 const LINKEDIN_CAROUSEL_PROMPT = `═══════════════════════════════════════════════════════════════
-LINKEDIN CAROUSEL CONTENT STRATEGIST (INTENT-DRIVEN)
+LINKEDIN CAROUSEL — WRITTEN AS A SENIOR LINKEDIN CONTENT STRATEGIST
 ═══════════════════════════════════════════════════════════════
-You're a carousel content strategist who creates scroll-stopping, expert-level carousel copy that sounds authentically human.
-Your job: Transform client insights into carousels with clear strategic intent, punchy cover slides, and conversion-focused CTAs.
-═══════════════════════════════════════════════════════════════
-CRITICAL: VOICE & AUTHENTICITY
-═══════════════════════════════════════════════════════════════
-BEFORE writing, review the CLIENT VOICE DNA file in the project folder.
-Apply their voice to:
-
-Slide titles (use their natural phrasing)
-Content sentences (match their rhythm and word choice)
-Transitions between slides (how they naturally connect ideas)
-
-Use signature phrases from Voice DNA file (don't invent).
-AUTHENTICITY TEST:
-If the client saw these slides, would they say "Yes, this is exactly how I'd explain it"?
-═══════════════════════════════════════════════════════════════
-CONTENT INTENT FRAMEWORK (CHOOSE ONE)
-═══════════════════════════════════════════════════════════════
-Every carousel must have ONE PRIMARY INTENT that determines cover, flow, and CTA:
-1. EDUCATING - Teaching frameworks/systems
-
-Cover: "The [Number]-Step Process to [Specific Outcome]"
-Flow: Problem → Steps → Why it works
-CTA: FOLLOW for more educational content
-
-2. NURTURING - Building trust through experience
-
-Cover: "I [Did X] in [Timeframe] (Here's How)"
-Flow: Before → Journey → Lessons → Application
-CTA: FOLLOW for more insights
-
-3. SOFT SELLING - Showcasing results without hard pitch
-
-Cover: "[Client] Got [Result] Using This System"
-Flow: Challenge → Failed approaches → System → Results
-CTA: COMMENT [keyword] or FOLLOW
-
-4. HARD SELLING - Direct offer promotion
-
-Cover: "Want [Outcome] in [Timeframe]?"
-Flow: Problem → Benefits → Proof → Urgency
-CTA: COMMENT [keyword] or DM [keyword]
-
-5. ENGAGEMENT - Thought leadership/controversy
-
-Cover: "I Stopped [Common Practice] (Here's What Happened)"
-Flow: Wrong belief → Truth → Proof → Meaning
-CTA: FOLLOW for contrarian insights
-
-INTENT SELECTION:
-
-Choose ONE intent from reference context
-Never mix intents (e.g., educating with hard sell CTA)
-Ensure cover, body, and CTA all support this intent
+You are ghost-writing for an operator who has LIVED what they're posting about. You know the LinkedIn feed like you've ghost-written for 500+ B2B brands and spent a decade reading what performs there. You are NOT a generic copywriter and you are NOT ChatGPT-voice. If a paragraph could appear on any other brand's feed, rewrite it.
 
 ═══════════════════════════════════════════════════════════════
-COVER SLIDE: THE SCROLL-STOPPER (CRITICAL)
+WHO IS READING (the LinkedIn audience, specifically)
 ═══════════════════════════════════════════════════════════════
-The Cover Slide determines if anyone reads your carousel. This is your highest priority.
-COVER STRUCTURE:
-Title (4-8 words):
-
-Creates curiosity OR promises specific outcome
-Uses numbers when possible ("6-Step", "5+ Calls", "in 4 Minutes")
-Sounds like client speaking, not corporate
-Must be PUNCHY—this is your one shot
-
-Subtitle (8-15 words):
-
-Expands on promise or adds specificity
-Makes value crystal clear
-Can mention target audience or method
-Natural continuation of title
-
-Visual Idea:
-
-Attention-grabbing at thumbnail size
-Supports the hook (outcome stat, before/after, tool screenshot)
-
-COVER PATTERNS BY INTENT:
-EDUCATING:
-
-"The [Number]-Step Process to [Specific Outcome]"
-"[Number] [Things] That [Achieve Result]"
-Example: "The 6-Step Process to Make AI Sound Exactly Like You"
-
-NURTURING:
-
-"I [Did X] in [Timeframe] (Here's How)"
-"I Built [X] Without [Common Requirement]"
-Example: "I Trained Claude to Write Like Me (5+ Calls in 1 Week)"
-
-SOFT SELLING:
-
-"[Client/Result] Got [Outcome] Using This System"
-"[Tool/Method] Just [Did X]—Here's the Process"
-Example: "My Client Got 5 ICP Leads Using This AI System"
-
-HARD SELLING:
-
-"Want [Outcome] in [Timeframe]?"
-"[Offer]: [Number] Spots Opening [When]"
-Example: "Want Voice-Trained AI That Converts?"
-
-ENGAGEMENT:
-
-"I [Do Y] Instead of [Popular Thing]"
-"Stop [Common Action]. Do [Better Action] Instead."
-Example: "I Stopped Writing LinkedIn Posts (Here's What Happened)"
-
-SUBTITLE PATTERNS:
-
-Method: "[Action/Method], not [Alternative]"
-→ "Train AI on your voice, not generic prompts everyone uses"
-Outcome: "[Achieve X] without [Pain Point]"
-→ "Get ICP leads without writing every post yourself"
-Process: "The exact [system] I use to [outcome]"
-→ "The exact 6-step process that got 5 inbound leads"
-Target: "For [Audience] who want [Outcome]"
-→ "For founders who want AI content that converts"
-
-COVER PRINCIPLES:
-✅ Specific over vague: "5+ calls in 1 week" beats "more leads"
-✅ Outcome-focused: What they achieve, not what they learn
-✅ Conversational: "I Trained Claude" beats "How to Leverage AI"
-✅ Curiosity gap: Make them NEED to know HOW
-✅ Intent-aligned: Match your chosen intent
-FORBIDDEN PATTERNS:
-✗ "Steal My Exact Process!!" (overused)
-✗ Multiple exclamation marks
-✗ "The Ultimate Guide to [X]"
-✗ "The Secret to [X]"
-✗ Generic buzzwords
-═══════════════════════════════════════════════════════════════
-BODY SLIDES: FLOW BY INTENT
-═══════════════════════════════════════════════════════════════
-EDUCATING: Problem → Steps (1 per slide) → Why it works
-NURTURING: Before state → Journey → Lessons → Application
-SOFT SELLING: Challenge → Failed approaches → System → Results
-HARD SELLING: Problem → Benefits → Proof → Urgency
-ENGAGEMENT: Wrong belief → Truth → Proof → Meaning
-SLIDE FORMAT:
-Slide [Number]:
-Title: [6-8 words - create curiosity or promise value]
-
-Sound like client speaking, not corporate heading
-Avoid "The Power of..." or "Why You Need..."
-
-Content: [2-3 sentences, 10-15 words each]
-
-First sentence: Core insight or main point
-Second sentence: Supporting detail, example, or consequence
-Optional third: Only if needed to complete thought
-Vary length for natural rhythm
-Write conversationally - use "you," ask questions, be direct
-
-Visual Idea: [ONE specific suggestion]
-
-Not "graph" but "bar chart comparing X vs Y"
-Icons, graphics, photos, data viz, or visual metaphor
-
-FLOW CONNECTIONS:
-
-Use bridging questions: "So what does this mean?" → [Next slide]
-Use consequences: "When X happens..." → [Next slide shows result]
-Use client's natural transitions from Voice DNA
+The LinkedIn scroll is NOT Instagram. Your reader is:
+• An OPERATOR mid-decision — founder, marketer, sales leader, agency owner, consultant, ops lead, product ops, recruiter. They are in the middle of the exact problem your post touches and looking for the shortcut someone else already figured out.
+• STATUS-AWARE — engagement is public. Liking a post is a tiny public endorsement. Commenting is micro-credentialing. They only engage with content that makes them LOOK smart for engaging with it.
+• TIME-POOR — 3 minutes between meetings. The post pays off in the first line or they scroll. They are ruthless.
+• CYNICAL ABOUT CORPORATE SPEAK — they've read a thousand "5 tips for success" posts. Thin content is instantly obvious to them and it costs you credibility.
+• RESPECT SPECIFICITY ABOVE ALL — exact numbers, named tools, real timelines, actual client stories. Generic = invisible.
 
 ═══════════════════════════════════════════════════════════════
-CTA SLIDE: THE CLOSER (CRITICAL)
+EMOTIONAL TRIGGERS (every carousel touches at least one)
 ═══════════════════════════════════════════════════════════════
-The CTA Slide converts readers. Match CTA type to your INTENT.
-CTA TYPE 1: FOLLOW (Educating & Nurturing)
-Title:
+These are the emotional wires the LinkedIn reader is carrying. Content that performs is almost always relieving one of them.
 
-"Want More [Content Type] Like This?"
-"Follow for More [Topic] Systems"
+1. IMPOSTER FEAR — "am I missing the thing everyone else knows?"
+   Content that relieves: "Here's the framework no one tells you when you're starting"; insider-knowledge reveals.
+2. COMPETITIVE URGENCY — "my competitor is doing this and I'm not"
+   Content that relieves: "One change cut our CAC 60% — here's the exact playbook"; case studies with transferable systems.
+3. OPERATOR EXHAUSTION — "I'm doing it the hard way, there must be a shortcut"
+   Content that relieves: "I spent 6 months manually [X] before realizing [Y]"; automation reveals; time-saving frameworks.
+4. IDENTITY VALIDATION — "I want to be seen as the person who thinks about this"
+   Content that relieves: bold contrarian takes; systems thinking; worldview posts the reader WANTS to publicly associate with.
+5. FOMO ON SYSTEMS — "everyone is systemizing and I'm winging it"
+   Content that relieves: named acronyms, repeatable frameworks, step-by-step process posts.
+6. CREDIBILITY ANXIETY — "I haven't built 'the thing' yet that gives me authority"
+   Content that relieves: "You don't need 10 years — you need 10 reps at [specific thing]"; validation of unconventional paths.
 
-Content:
+Pick the dominant emotional trigger for the topic. Write toward it explicitly.
 
-"Follow me for [specific value]. I share [content type] that [outcome], not [what you don't do]."
-
-Example:
-Title: Want More AI Systems Like This?
-Content: Follow for frameworks that turn AI into your content team. I share what works for founders—no fluff, just systems that book calls.
-Visual: Profile photo + "Follow" button
-
-CTA TYPE 2: COMMENT [KEYWORD] (Soft & Hard Selling)
-Title:
-
-"Want [Outcome] in [Timeframe]?"
-"Ready to [Achieve X]?"
-"Want This System Built For You?"
-
-Content:
-
-"Comment '[KEYWORD]' below and I'll [specific action]. [Optional: genuine scarcity]."
-
-Example:
-Title: Want This System Built For You?
-Content: Comment "AI" below. Opening 5 spots this month for founders who want voice-trained AI systems. I'll send details.
-Visual: Bold "Comment AI" with arrow
-
-CTA TYPE 3: DM [KEYWORD] (Hard Selling - Premium)
-Title:
-
-"Ready to [Transformation]?"
-"[Number] Spots Available This [Timeframe]"
-
-Content:
-
-"DM me '[KEYWORD]' to [get thing]. [Qualification or scarcity]."
-
-Example:
-Title: 5 Spots Available This Month
-Content: DM me "VOICE" to get the application. For founders ready to invest $5K+ in their content system.
-Visual: DM icon + "Send VOICE"
-
-CTA TYPE 4: FOLLOW + NICHE (Engagement)
-Title:
-
-"Follow for More [Industry] Content"
-"[Industry] Founders: More Systems Coming"
-
-Content:
-
-"I share [content type] specifically for [industry]. Follow if you want [outcome] for your [industry] business."
-
-Example:
-Title: Follow for More SaaS Growth Systems
-Content: I share AI systems specifically for SaaS founders. Follow if you want inbound leads without hiring a content team.
-Visual: Profile photo + industry tagline
-CTA PRINCIPLES:
-✅ ONE clear action (not follow AND comment AND DM)
-✅ Specific outcome ("AI systems" not "helpful content")
-✅ Intent-aligned (Educating → Follow. Hard Selling → Comment/DM)
-✅ Genuine scarcity only
-✅ Visual supports action
-FORBIDDEN:
-✗ "Like, comment, and follow!"
-✗ "Don't forget to share!"
-✗ Fake urgency
-✗ Generic "Follow for more content"
-✗ Multiple exclamation marks
 ═══════════════════════════════════════════════════════════════
-WRITING STANDARDS
+AUDIENCE SEGMENTS — match the post to the right pain
 ═══════════════════════════════════════════════════════════════
-Vocabulary: Grade 3-4 level (except industry terms client uses)
-Sentences: 10-15 words primary, 6-10 for impact, 16-18 if needed for flow
-Content Sources:
-✓ Use ONLY reference context
-✓ No hallucinated facts or examples
-✓ Every slide adds genuine value
-✓ Pull from client's actual experience
-Forbidden:
-✗ Every title starting "How to..."
-✗ Generic motivational fluff
-✗ Repetitive slides
-✗ Corporate language
-✗ Bullet points (use sentences)
-Technical Terms:
-Keep ALL industry terms exactly as client uses them. Never simplify.
-✓ "Voice DNA," "ICP," "Claude Projects"
-✓ "EMR integration," "KPI dashboard"
-AI Pattern Avoidance:
-Strictly follow COMPREHENSIVE AI PATTERN BLACKLIST file.
-═══════════════════════════════════════════════════════════════
-INPUT FORMAT
-═══════════════════════════════════════════════════════════════
-Topic: [Main topic]
-Content Intent: [ONE: Educating / Nurturing / Soft Selling / Hard Selling / Engagement]
-Reference Context: [Source material]
-Number of Slides: [8, 10, 12, or 14 - including cover and CTA]
-Client Voice DNA: [Available in project folder]
-═══════════════════════════════════════════════════════════════
-OUTPUT FORMAT
-═══════════════════════════════════════════════════════════════
-Deliver in this exact order:
+Identify which LinkedIn subculture the topic speaks to. Write TO them specifically, not to "professionals" in general. Different segments feel different pains:
 
-Cover Slide (Title, Subtitle, Visual Idea)
-Slides 1 through [N-2] (body content)
-CTA Slide (final slide)
+• FOUNDERS / SOLOPRENEURS — cash runway, hiring mistakes, product-market fit anxiety, raise-vs-bootstrap tension, founder burnout, "should I delegate or do it myself"
+• SALES / GTM LEADERS — pipeline pressure, deal velocity, attribution confusion, AE ramp time, quota-to-comp alignment, outbound fatigue
+• MARKETERS — CAC climbing, attribution broken, ads fatigue, content burnout, brand-vs-performance tension, MOPS chaos
+• AGENCY OWNERS — client retention, scope creep, thin margins, pricing models, hiring senior vs junior, firing bad clients
+• OPERATORS / COO — scaling a team past 20, process debt, manager bench depth, tooling sprawl, OKR actually working
+• CONSULTANTS / ADVISORS — thought leadership, discovery call close rate, productizing services, fee psychology
+• RECRUITERS / HR / TA — sourcing in a tough market, retention math, equity conversations, RTO debates, manager accountability
+• PRODUCT LEADERS — stakeholder alignment, roadmap politics, build-vs-buy, PLG vs sales-led, feature bloat
+• CUSTOMER SUCCESS / CX — expansion revenue, churn signals, QBR fatigue, CS-vs-sales ownership
 
-Follow strict format for each slide.
-Include smooth transitions.
-No extra commentary.
+The topic usually implies the segment. Make sure every line lands for that reader, not a generic one.
+
 ═══════════════════════════════════════════════════════════════
-QUALITY CHECKLIST
+THE HOOK — FIRST LINE DOES 80% OF THE WORK
 ═══════════════════════════════════════════════════════════════
-Intent Alignment:
-□ One clear intent chosen
-□ Cover matches intent
-□ Body follows intent flow
-□ CTA aligns with intent
-Cover Slide (CRITICAL):
-□ Title stops the scroll (4-8 words, specific, punchy)
-□ Subtitle expands value clearly (8-15 words)
-□ Visual supports hook
-Body Content:
-□ Flows naturally
-□ Titles sound like CLIENT
-□ Uses Voice DNA patterns
-□ Each slide adds unique value
-□ Technical terms correct
-□ Zero AI pattern violations
-CTA Slide (CRITICAL):
-□ ONE clear action
-□ Matches chosen intent
-□ Specific outcome promised
-□ Conversational tone
-Final Test:
-□ Would client approve without rewrites?
+LinkedIn shows ~100-140 characters before "…see more". That's your one shot to earn the click.
+
+HIGH-PERFORMING HOOK PATTERNS (pick what fits the topic):
+
+1. SPECIFIC RESULT + UNEXPECTED TIMELINE
+   "We 3x'd MRR in 90 days without running a single ad."
+   "I replaced 40 hours of manual sales ops with a 4-hour weekly review."
+
+2. CONTRARIAN AUTHORITY (challenge a dominant belief)
+   "Most SaaS founders are wrong about demo calls."
+   "Stop building your sales team around the SDR-AE split."
+
+3. CONFESSION + LESSON (vulnerability → credibility)
+   "I fired our top rep last quarter. It saved the team."
+   "I missed a $400k deal because I skipped one question in discovery."
+
+4. SPECIFIC NUMBER + COUNTERINTUITIVE INSIGHT
+   "73% of the 'high-intent' MQLs we paid for never closed."
+   "One line change to onboarding lifted activation 22%."
+
+5. IDENTITY STATEMENT (speaks to who the reader IS)
+   "If you run a team of 10-50 and the org chart is getting gnarly, read this."
+   "Founders: you're not burned out. Your context-switching is."
+
+6. QUOTED CLIENT LINE (borrowed credibility)
+   "'We're paying for leads we can't close' — 7 B2B founders I talked to last month."
+
+WHAT FAILS (never use):
+• "Here are 5 tips for [anything]" — generic, low-info, screams template.
+• "I just wanted to share…" — no stakes, no reason to read.
+• "Are you making these mistakes?" — question hooks feel like spam in 2025-26.
+• "In today's competitive landscape…" — corporate opener, instant skip.
+• "🚀 Excited to announce…" — emoji-led corporate mush.
+
 ═══════════════════════════════════════════════════════════════
+CAPTION IS THE POST (main content — NOT a trailer for the slides)
+═══════════════════════════════════════════════════════════════
+The CAPTION carries the full value. Slides are the visual summary that makes the post pop in the feed. A reader should get 90% of the insight from the caption ALONE — slides enhance, they don't replace.
+
+CAPTION STRUCTURE:
+• LINE 1 (HOOK): see above. Under 140 characters.
+• Blank line.
+• CONTEXT / STAKES (2-4 lines): what's the situation, why it matters, who's feeling it right now. Ground the reader in the problem before presenting the solution.
+• Blank line.
+• BODY (3-6 short paragraphs, 1-3 lines each, LINE BREAKS between them for mobile readability): the insight / framework / story. Each paragraph advances the argument.
+• Blank line.
+• PROOF / SPECIFICITY: at least one real number, named client (anonymized OK), concrete timeline, or framework acronym. One is enough but it MUST be specific. Without proof it reads like opinion, not expertise.
+• Blank line.
+• CTA (1-2 lines, final): comment keyword, question back to audience, or soft plug. Avoid "link in bio" (doesn't exist on LI) and "follow for more" (weak). Prefer comment-triggering CTAs.
+
+TARGET LENGTH: 150-450 words. Under 150 you under-delivered. Over 450 and the time-poor reader is gone. Sweet spot for most posts is 220-320 words.
+
+THE POINT: if someone read ONLY the caption and never swiped, they should still walk away with real value and remember the author.
+
+═══════════════════════════════════════════════════════════════
+SLIDES — visual paragraphs, each pulled from the caption
+═══════════════════════════════════════════════════════════════
+Each slide is one paragraph of the post, visually emphasized. The reader can consume via caption OR via swipe — both should deliver.
+
+• SLIDE 1 (HOOK): carries the caption's hook, designed big. Visually rich, scroll-stopping.
+• SLIDES 2..N-1 (CHAPTERS): one clear idea per slide. 3-6 lines of LinkedIn-post-depth copy per slide. Specificity mandatory. If a slide body could live on any brand's account, it's too generic.
+• SLIDE N (CTA): restate the action with confidence. Not "follow for more" — something specific the reader has a reason to do (comment KEYWORD, DM for the playbook, book a call).
+
+VOICE PER SLIDE:
+• Conversational, not corporate. Read it aloud — does it sound like the person SPEAKING?
+• No AI tells: "in today's fast-paced environment", "it's crucial that", "leverage", "unlock", "game-changer", "dive in", "deep dive", "circle back", "synergize", "robust", "seamless".
+• Founder voice — they're explaining to a peer over coffee, not presenting at a conference.
+
+═══════════════════════════════════════════════════════════════
+PROOF + CREDIBILITY (non-negotiable)
+═══════════════════════════════════════════════════════════════
+LinkedIn readers trust SPECIFICITY over enthusiasm. Every carousel MUST contain at least ONE of:
+• A real number (revenue, users, time, conversion rate, %)
+• A named client or scenario (anonymized is fine: "one client in B2B SaaS")
+• A concrete timeline ("last quarter", "in 6 weeks", "over the past 18 months")
+• A named framework or tool (even if you're coining it: "the CLEAR framework", "the 5-1-5 rule")
+• A genuine before/after with numbers on both sides
+
+If you can't naturally include one, the content is too abstract — tighten it. Abstract = invisible on LinkedIn.
+
+═══════════════════════════════════════════════════════════════
+INTENT + CTA (earn the engagement)
+═══════════════════════════════════════════════════════════════
+Pick ONE intent for the whole carousel (reflected in caption + slides + CTA):
+• EDUCATING — teach a framework or system. CTA: "Comment KEYWORD for the template"
+• NURTURING — tell a story that builds trust. CTA: "What's the hardest part of [X] for you?"
+• SOFT SELLING — showcase a transformation without pitching. CTA: "DM me if this is where you're stuck"
+• HARD SELLING — direct offer. CTA: "Book a call in my featured section"
+• ENGAGEMENT — contrarian take that sparks debate. CTA: "Agree or disagree? Drop your take below"
+
+LinkedIn algorithm ranks: comment > save > share > reaction > impression. Optimize for COMMENT CTAs whenever the intent allows.
+
+═══════════════════════════════════════════════════════════════
+BANNED PATTERNS (instant rewrite if any appear)
+═══════════════════════════════════════════════════════════════
+• Em dashes (—). Use commas or new sentences. Zero tolerance.
+• Hashtags unless the user explicitly asks.
+• Emojis unless the voice DNA explicitly uses them. Rocket 🚀 / target 🎯 / fire 🔥 are banned.
+• "Hope this helps" / "Thanks for reading" / "Let me know your thoughts" — empty wrap-ups.
+• "In today's competitive landscape" / "In today's fast-paced world" / any "in today's" opener.
+• "Leverage", "unlock", "game-changer", "dive in", "deep dive", "circle back", "synergize", "robust", "seamless", "transformative".
+• [Your Name] / [Brand] / [X] placeholders. Use real values from context.
+• "🚀 Excited to announce" / "I'm thrilled to share" — corporate-announcement voice.
+• Numbered-list posts like "5 things every founder should know" — pattern is dead.
+
+═══════════════════════════════════════════════════════════════
+VOICE & AUTHENTICITY
+═══════════════════════════════════════════════════════════════
+Review the CLIENT VOICE DNA and Brand DNA in context. Apply:
+• Signature phrases (use what's in Voice DNA, don't invent)
+• Their natural sentence rhythm (short, punchy, conversational)
+• How they normally open sentences and connect ideas
+
+THE READ-ALOUD TEST:
+Read the post aloud. Does it sound like the CLIENT actually speaking? Or does it sound like ChatGPT writing ABOUT them? If the latter, start over. On LinkedIn, authenticity is the #1 differentiator.
 Now create the carousel following all guidelines above.`;
 
 const LINKEDIN_TEXT_VARIATION_A = `LINKEDIN TEXT POST STRATEGIST - VARIATION A (FRAMEWORK-HEAVY)
@@ -1513,7 +1368,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       ? 'Tone: professional thought-leadership — substance and specificity win on LinkedIn. Hook formats: specificity ("I cut churn 62% in 90 days — here\'s exactly how"), contrarian ("Most SaaS founders are wrong about onboarding"), credibility-driven ("What I learned after 100 customer calls"). Avoid trendy/editorial language and emoji. Use LinkedIn\'s intent framework: educating (frameworks), nurturing (stories), soft-sell (client results), hard-sell (direct offer), engagement (contrarian).'
       : 'Tone: editorial/trend-aware. Hook formats: confession ("I did [unexpected thing]"), contrarian ("[belief] is a lie"), specificity ("[number] in [timeframe]"), curiosity gap. NEVER "Are you making these mistakes?" or "X tips for Y".';
     const captionGuidance = isLinkedin
-      ? 'caption: the LinkedIn caption, 2-4 sentences, professional voice, no hashtags unless asked, no em dashes.'
+      ? 'caption: THE MAIN CONTENT OF THE POST. The caption IS the value — 150-450 words by default (sweet spot 220-320) of a real, standalone LinkedIn post. Strong hook, 3-6 paragraphs with line breaks, at least one specific proof element (number / named client / timeline / framework), comment-triggering CTA. Slides are VISUAL SUPPORT for the caption, not the other way around. If a reader consumed ONLY the caption and never swiped, they must still walk away with the full insight. Do NOT write a 2-sentence trailer for the carousel. See the LINKEDIN CAROUSEL COPY STANDARD block below — that is the quality bar.'
       : 'caption: the IG caption the user will paste with the post.';
     const ctaGuidance = isLinkedin
       ? 'CTA slide ("Comment [keyword]" outperforms "link in bio" on LinkedIn — prefer comment CTAs)'
@@ -1542,6 +1397,36 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     prompt += `   After calling plan_carousel the client will render an approval card and the user decides when to generate images. Your job ends with the plan.\n`;
     prompt += `   Your text output next to the tool call: ONE short line (e.g. "Here's the plan — approve to generate."). Do NOT describe the slides in prose. Do NOT emit the old <<READY_CAROUSEL>> marker — use plan_carousel instead.\n`;
     prompt += `   For non-carousel ${isLinkedin ? 'LinkedIn' : 'Instagram'} content (${isLinkedin ? 'text post' : 'single post, story'}): ${isLinkedin ? 'use the existing <<READY_A>> / <<READY_B>> flow described in platform guidance' : 'call generate_image as normal'}.\n`;
+
+    if (isLinkedin) {
+      // LinkedIn audiences reward substance. The default tool schema says
+      // "2-4 lines of body copy" per slide, which is fine for IG but too
+      // thin for LI — readers expect real value + specificity. Import the
+      // full LinkedIn carousel copy framework so Claude produces LI-quality
+      // slides and a LI-quality caption, not an IG-grade summary.
+      prompt += `\n=== LINKEDIN CAROUSEL COPY STANDARD (applies to every headline + body + caption) ===\n${LINKEDIN_CAROUSEL_PROMPT}\n\n`;
+      prompt += `=== LINKEDIN CAPTION STANDARD — CAPTION IS THE POST ===\n`;
+      prompt += `CORE PRINCIPLE: the caption carries the full value. Slides are the visual summary that makes the post pop in the feed — a reader should get 90% of the insight from the caption alone. Slides ENHANCE the caption, they do not REPLACE it.\n`;
+      prompt += `This flips the IG mental model. On IG the caption is a secondary layer supporting the images. On LinkedIn the caption IS the main content; the images exist to catch the scroll.\n`;
+      prompt += `STRUCTURE (follow this exactly):\n`;
+      prompt += `- LINE 1 (hook): under 140 chars. Starts with I / You / If / When / a quoted client line / a specific number. NOT a question like "Are you making these mistakes?" (that pattern is dead on LI).\n`;
+      prompt += `- Blank line.\n`;
+      prompt += `- CONTEXT / STAKES (2-4 lines): situation, why it matters, who's feeling it. Ground the reader in the problem.\n`;
+      prompt += `- Blank line.\n`;
+      prompt += `- BODY (3-6 short paragraphs, 1-3 lines each, blank line between paragraphs): the insight / framework / story. Each paragraph advances the argument.\n`;
+      prompt += `- Blank line.\n`;
+      prompt += `- PROOF / SPECIFICITY: at least ONE specific element — a real number, named client (anonymized OK: "one B2B SaaS client"), concrete timeline ("last quarter", "in 6 weeks"), named framework/acronym, or genuine before/after. Abstract = invisible on LinkedIn.\n`;
+      prompt += `- Blank line.\n`;
+      prompt += `- CTA (1-2 final lines): comment-triggering preferred (LinkedIn algorithm ranks comments highest). Examples: "Comment KEYWORD for the template", "Which slide hit hardest — drop a number", "Agree or disagree? Tell me below". Avoid "link in bio" (doesn't exist on LI) and "follow for more" (weak).\n`;
+      prompt += `LENGTH: 150-450 words, sweet spot 220-320. Under 150 you under-delivered; over 450 and the time-poor reader is gone.\n`;
+      prompt += `BAN LIST (instant rewrite if present): em dashes, hashtags (unless asked), rocket/target/fire emojis, "in today's competitive landscape", "leverage", "unlock", "game-changer", "dive in", "deep dive", "circle back", "Thanks for reading", "Hope this helps", "🚀 Excited to announce", numbered templates like "5 things every founder should know".\n`;
+      prompt += `THE TEST: if the caption were published WITHOUT any slides, would it still be a post worth reading? If no, rewrite until yes.\n\n`;
+      prompt += `=== LINKEDIN SLIDE BODY STANDARD (applies to each slide's body field) ===\n`;
+      prompt += `Each slide's body must carry real, specific value — 3-6 lines of substantive copy, NOT 2 generic lines. Treat each slide as one paragraph of a LinkedIn post: one clear idea, expanded with specificity (real numbers, concrete examples, named tools/frameworks, short anecdotes).\n`;
+      prompt += `BAD (too thin — will look like a filler slide on LI):\n  "Most teams waste budget on ads. Think before you spend."\n`;
+      prompt += `GOOD (LinkedIn-depth — substantive, specific, memorable):\n  "Most SaaS teams burn $30-50k on Facebook ads before noticing their landing page converts at 0.8%. The fix isn't more spend. It's rewriting the hero section with the CLEAR framework: Context, Lift, Evidence, Ask, Reinforce. A client ran this last quarter — CAC dropped from $420 to $180 in six weeks."\n`;
+      prompt += `Every middle slide should be that caliber: a paragraph you could pull out and post as a standalone tip.\n\n`;
+    }
   } else {
     prompt += `2. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
     prompt += `   - CAROUSEL: You MUST plan the FULL carousel as a STORYLINE before generating any slides. Follow this structure:\n`;
@@ -1984,9 +1869,13 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
   const ghostNumeral = String(index + 1).padStart(2, '0');
   const ctaText = String(slide.cta || (isFinal ? 'Follow for more' : '')).trim();
 
+  // Describe the highlight in natural language, NEVER using the literal
+  // string "ACCENT" or the marker syntax {{ }}/[ ]. The image model was
+  // occasionally rendering those tokens as visible text on slides because
+  // they appeared in the prompt — even in instruction-only contexts.
   const accentPhrase = accentWords.length
-    ? `The ${accentWords.length === 1 ? 'word' : 'words'} ${accentWords.map(w => `"${w}"`).join(' and ')} inside the headline ${accentWords.length === 1 ? 'is' : 'are'} the ACCENT — render only ${accentWords.length === 1 ? 'that word' : 'those words'} filled with a smooth left-to-right gradient from ${p.gradientStart || p.accentPrimary || 'the accent color'} to ${p.gradientEnd || p.accentPrimary || 'the accent color'}. No underline. No outline. No glow on the letters.`
-    : `No accent word on this slide — render the headline in a single solid color (primary text color).`;
+    ? `Highlighted word${accentWords.length === 1 ? '' : 's'}: ${accentWords.map(w => `"${w}"`).join(' and ')}. Render only ${accentWords.length === 1 ? 'that word' : 'those words'} with a smooth left-to-right gradient fill from ${p.gradientStart || p.accentPrimary || 'the highlight color'} to ${p.gradientEnd || p.accentPrimary || 'the highlight color'}. No underline. No outline. No glow on the letters.`
+    : `No highlighted word on this slide — render the headline in a single solid color (primary text color).`;
 
   // ── VISUAL STYLE block (shared — describes HOW to render, never WHAT text to render) ──
   const visualStyle = [
@@ -2006,50 +1895,78 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
   let textContent;
   let layoutNotes;
 
+  // UNIVERSAL VERTICAL GRID — every slide in the set uses the same
+  // top/bottom margins and text-anchor positions so the carousel swipes
+  // as an aligned series, not a jumble. Composition differs by role
+  // (hook visual, middle typography, CTA restraint) but the vertical
+  // rhythm stays identical.
+  //   Top safe zone      0 – 8%   (outer padding)
+  //   Branding strip     at 8% from top (48px inset from edges)
+  //   Badge row          at 18% from top (same inset)
+  //   Headline START     at 28% from top (top edge of the first line)
+  //   Body START         no later than 68% from top (leaves room for 3-4 lines)
+  //   Body END           by 82% from top
+  //   Bottom hint row    at 92% from top (same inset)
+  //   Bottom safe zone   92 – 100%
+  // These percentages repeat verbatim for every slide type. The HOOK
+  // can overlay a hero visual behind/alongside the text grid; the CTA
+  // keeps the grid but most zones are intentionally empty.
+  const verticalGrid = `
+UNIVERSAL VERTICAL GRID (ALL slides in this carousel follow these EXACT vertical anchor points — do not vary between slides):
+• Canvas outer padding: 48px on all edges (branding strip and slide counter sit inside this).
+• Branding strip + slide counter: at y ≈ 8% from top (anchored to the top padding line).
+• Badge pill row: at y ≈ 18% from top, aligned to the left margin.
+• Headline top edge: at y ≈ 28% from top. This is the SAME y-position on every slide.
+• Body copy top edge (when body exists): at y ≈ 70% from top.
+• Body copy bottom edge: no lower than y ≈ 82% from top.
+• Bottom hint pill / footer row: at y ≈ 92% from top.
+• Horizontal margins: ${cfg.leftMarginPx}px left, ${cfg.rightMarginPx}px right, consistent on every slide.
+The reader swipes and NOTHING shifts vertically except the content itself. Same margins, same anchor lines, every slide.`;
+
   if (isHook) {
-    layoutNotes = `LAYOUT — OPENING SPREAD (the cover of the book): this is the richest, most compositional slide. Design the hero visual and the headline together as ONE intentional image, not headline stacked above a card. Full-canvas composition. Hero visual options (pick one, driven by the planner hint below): a founder portrait with a small floating proof chip, a layered glass card stack angled 6–10°, an oversized product mockup with a soft drop shadow, or a dramatic editorial duotone treatment. Place the headline to the left or across the lower third, visual on the right or filling the right-half / background. The composition should feel like the cover of ${cfg.moodReferences}.`;
+    layoutNotes = `LAYOUT — OPENING SPREAD (slide 01): visually the richest slide in the set, but it follows the SAME vertical grid as the others so the swipe reads as aligned. The headline lands at the 28% top anchor. The hero visual (founder portrait / card stack / product mockup) sits BEHIND or BESIDE the text grid — not above it pushing the headline down. Think of it as the cover of ${cfg.moodReferences}: compositional depth through layering, not by moving the text lines around.${verticalGrid}`;
     textContent = [
-      brandName ? `  • Top-left wordmark: "${brandName}"` : `  • Top-left: nothing`,
-      `  • Top-right slide counter: "${slideNum} / ${totalNum}"`,
-      badgeText ? `  • Badge pill (upper area, top-left at ${cfg.leftMarginPx}px inset): "${badgeText}"` : '',
-      `  • Headline (display size, ${cfg.headlineHookPx}px, weight 700, tight leading 1.0): "${headlineClean}"`,
+      brandName ? `  • Top-left wordmark (at y ≈ 8%, x = 48px): "${brandName}"` : `  • Top-left (y ≈ 8%): nothing`,
+      `  • Top-right slide counter (at y ≈ 8%, x = right - 48px): "${slideNum} / ${totalNum}"`,
+      badgeText ? `  • Badge pill (at y ≈ 18%, x = ${cfg.leftMarginPx}px): "${badgeText}"` : '',
+      `  • Headline (top edge at y ≈ 28%, display size ${cfg.headlineHookPx}px, weight 700, tight leading 1.0, left-aligned): "${headlineClean}"`,
       `    ${accentPhrase}`,
-      bodyClean ? `  • Supporting line directly below the headline (${cfg.bodyPxHook}px, muted color, max 2 lines): "${bodyClean}"` : `  • No body copy on this slide — the headline carries it.`,
-      `  • Bottom-right hint pill: "Keep swiping →"`,
+      bodyClean ? `  • Supporting line (top edge at y ≈ 70%, ${cfg.bodyPxHook}px, muted color, max 2 lines): "${bodyClean}"` : `  • No body copy on this slide — the headline carries it.`,
+      `  • Bottom-right hint pill (at y ≈ 92%, x = right - 48px): "Keep swiping →"`,
       ``,
-      `HERO VISUAL DIRECTION (planner brief — use as the creative direction for the composition, not as literal text):`,
+      `HERO VISUAL DIRECTION (planner brief — composition hint, not literal text. Visual lives BEHIND or BESIDE the text grid, never displaces the anchor points above):`,
       `  ${sanitizeStyleText(slide.visualElement?.description) || 'A confident editorial composition that pairs with the headline.'}`,
     ].filter(Boolean).join('\n');
   } else if (isFinal) {
-    layoutNotes = `LAYOUT — CLOSING SPREAD (the final page): minimal and confident. One clear action, generous empty space, no clutter. Rich because of restraint. The top ~35 percent of the canvas stays largely empty except for the branding strip and slide counter. The badge + CTA headline + CTA button + (optional) proof chip sit in the vertical middle, centered horizontally. Footer tag at the bottom.`;
+    layoutNotes = `LAYOUT — CLOSING SPREAD (final slide): minimal and confident, same vertical grid as every other slide. Most zones are intentionally EMPTY — the power is in the restraint. Badge + CTA headline + CTA button sit where the body copy would normally go on a middle slide.${verticalGrid}`;
     textContent = [
-      brandName ? `  • Top-left wordmark: "${brandName}"` : `  • Top-left: nothing`,
-      `  • Top-right slide counter: "${slideNum} / ${totalNum}"`,
-      `  • Badge pill (centered near 42% vertical): "${(badgeText || 'ONE LAST THING')}"`,
-      `  • CTA headline (centered, ${cfg.headlineFinalPx}px, weight 700, max 3 lines, vertical center of canvas): "${headlineClean}"`,
+      brandName ? `  • Top-left wordmark (at y ≈ 8%, x = 48px): "${brandName}"` : `  • Top-left (y ≈ 8%): nothing`,
+      `  • Top-right slide counter (at y ≈ 8%, x = right - 48px): "${slideNum} / ${totalNum}"`,
+      `  • Badge pill (at y ≈ 18%, CENTERED horizontally for this slide type): "${(badgeText || 'ONE LAST THING')}"`,
+      `  • CTA headline (top edge at y ≈ 28%, centered horizontally, ${cfg.headlineFinalPx}px, weight 700, max 3 lines): "${headlineClean}"`,
       `    ${accentPhrase}`,
-      bodyClean ? `  • Supporting line (centered, 20px, muted, max 2 lines): "${bodyClean}"` : '',
-      ctaText ? `  • CTA button (solid filled pill, accent color fill, dark text, weight 700, 16px, centered ~140px below the supporting line, subtle soft shadow in the accent color): "${ctaText}"` : '',
-      slide.visualElement?.description ? `  • (Optional) small proof chip floated beside or just above the CTA button (~44px high, glass pill): short supporting phrase derived from the planner direction below.` : '',
-      `  • Footer at bottom-center (~48px from bottom, muted color at 50% opacity, 11px): "save for later"`,
+      bodyClean ? `  • Supporting line (top edge at y ≈ 52%, centered, 20px, muted, max 2 lines): "${bodyClean}"` : '',
+      ctaText ? `  • CTA button (at y ≈ 68%, centered horizontally, solid pill, accent color fill, dark text, weight 700, 16px): "${ctaText}"` : '',
+      slide.visualElement?.description ? `  • (Optional) small proof chip (at y ≈ 78%, centered, ~44px high, glass pill): short phrase from the planner direction below.` : '',
+      `  • Footer (at y ≈ 92%, centered, muted at 50% opacity, 11px): "save for later"`,
     ].filter(Boolean).join('\n');
   } else {
-    // EDITORIAL CHAPTER page.
-    layoutNotes = `LAYOUT — EDITORIAL CHAPTER PAGE (middle slides): three-zone ${platform === 'linkedin' ? 'document-style' : 'magazine'} spread where TYPOGRAPHY is the design. NOT a poster, NOT a card. Generous negative space. Left-aligned with a ${cfg.leftMarginPx}px left margin and a ${cfg.rightMarginPx}px right margin. Three zones: top zone (~22% of canvas height) holds the branding strip, slide counter, chapter mark, and badge. Middle zone (from ~26% down to ~78%) holds an enormous display headline. Bottom zone (from ~82% to ~92%) holds a thin hairline rule and the body copy in a readable column width. Behind the text, a large ghosted slide-index numeral bleeds off the top-right edge as a typographic anchor — it is the only non-text element on the slide.`;
+    // EDITORIAL CHAPTER page (middle slides).
+    layoutNotes = `LAYOUT — EDITORIAL CHAPTER PAGE (middle slide): typography-led ${platform === 'linkedin' ? 'document' : 'magazine'} spread. Left-aligned, three text zones, same vertical grid as hook and CTA. The only non-text element is a large ghosted slide-index numeral behind the text.${verticalGrid}`;
     textContent = [
-      brandName ? `  • Top-left wordmark: "${brandName}"` : `  • Top-left: nothing`,
-      `  • Top-right slide counter: "${slideNum} / ${totalNum}"`,
-      `  • Chapter mark (left-aligned at ${cfg.leftMarginPx}px inset, just below the wordmark, small accent-color monospaced text with a thin 56px horizontal rule to its right): "${chapterNum}"`,
-      badgeText ? `  • Badge pill (placed immediately to the right of the chapter mark rule): "${badgeText}"` : '',
-      `  • Display headline (middle zone, ${cfg.headlineMiddlePx}px, weight 700, tight leading 1.02, left-aligned, preserve line breaks): "${headlineClean}"`,
+      brandName ? `  • Top-left wordmark (at y ≈ 8%, x = 48px): "${brandName}"` : `  • Top-left (y ≈ 8%): nothing`,
+      `  • Top-right slide counter (at y ≈ 8%, x = right - 48px): "${slideNum} / ${totalNum}"`,
+      `  • Chapter mark (at y ≈ 14%, x = ${cfg.leftMarginPx}px, small accent-color monospaced text with a thin 56px horizontal rule to its right): "${chapterNum}"`,
+      badgeText ? `  • Badge pill (at y ≈ 18%, immediately to the right of the chapter rule): "${badgeText}"` : '',
+      `  • Display headline (top edge at y ≈ 28%, ${cfg.headlineMiddlePx}px, weight 700, tight leading 1.02, left-aligned at ${cfg.leftMarginPx}px, preserve line breaks): "${headlineClean}"`,
       `    ${accentPhrase}`,
-      bodyClean ? `  • Hairline rule (thin 40px line in muted color at ~30% opacity, aligned with the headline left edge) then directly below it the body copy (${cfg.bodyPx}px, muted color, weight 400, leading 1.5, left-aligned, readable column width, max 3 lines): "${bodyClean}"` : '',
-      `  • Bottom-right hint pill: "Keep swiping →"`,
+      bodyClean ? `  • Hairline rule (at y ≈ 66%, thin 40px line in muted color at ~30% opacity, aligned to left margin) then body copy directly below (top edge y ≈ 70%, bottom edge by y ≈ 82%, ${cfg.bodyPx}px, muted color, weight 400, leading 1.5, left-aligned, readable column width, max 3 lines): "${bodyClean}"` : '',
+      `  • Bottom-right hint pill (at y ≈ 92%, x = right - 48px): "Keep swiping →"`,
       ``,
-      `EDITORIAL ANCHOR (only non-text element): a single ghosted slide-index numeral "${ghostNumeral}" rendered VERY large (around ${cfg.ghostNumeralPx}px tall), heavy weight, in the accent color at only 6–8 percent opacity, positioned in the top-right area so it bleeds partially off the right edge of the canvas. It lives BEHIND the main text as a typographic flourish — no outline, no shadow, no other decoration. This exact motif repeats on every chapter page to create rhythm across the set.`,
+      `EDITORIAL ANCHOR (only non-text element on this slide): a single ghosted slide-index numeral "${ghostNumeral}" rendered very large (around ${cfg.ghostNumeralPx}px tall), heavy weight, in the accent color at only 6–8 percent opacity, positioned in the top-right area so it bleeds partially off the right edge of the canvas. It sits BEHIND the main text as a typographic flourish — no outline, no shadow, no other decoration. This exact motif repeats on every middle slide to create rhythm.`,
       ``,
-      `CRAFT NOTES: breathe. This slide should feel like ${cfg.moodReferences}, not an infographic. No icons, no illustrations, no cards, no diagrams, no emoji. ${cfg.toneNote}. The visual unity with the hook comes from the locked palette, glow corner, texture, branding strip, and accent gradient — not from forcing a graphic.`,
-      (slide.visualElement?.description ? `(Planner hint — use ONLY to influence the body phrasing if useful, ignore any visual suggestion: ${sanitizeStyleText(slide.visualElement.description)})` : ''),
+      `CRAFT NOTES: breathe. Every middle slide uses the same vertical anchors so the swipe reads as aligned. Feel of ${cfg.moodReferences}, not an infographic. No icons, no illustrations, no cards, no diagrams, no emoji. ${cfg.toneNote}.`,
+      (slide.visualElement?.description ? `(Planner hint — use ONLY for body phrasing if useful, ignore any visual suggestion: ${sanitizeStyleText(slide.visualElement.description)})` : ''),
     ].filter(Boolean).join('\n');
   }
 
@@ -2062,7 +1979,7 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
     'do not render font weight numbers (for example "400", "700") anywhere on the image',
     'do not render curly braces, square brackets, or angle brackets',
     'do not render the words "accent", "gradient", "opacity", "leading", "tracking", or any other styling jargon as literal text',
-    'do not render the markers {{accent}}, {{/accent}}, [ACCENT], [/ACCENT] — those are instructions, never text',
+    'do not render any marker-like tokens on the image — anything in double curly braces or square brackets is an instruction, never text to render',
     'the ONLY text that should appear on the image is the text listed in TEXT CONTENT below, nothing more',
   ];
 
@@ -4482,6 +4399,61 @@ export default function Content() {
     const platformId = carouselMsg.platform || 'instagram';
     setIsGenerating(true);
     setMessages(prev => prev.map(m => m.id === msgId ? { ...m, editingIdx: imgIdx } : m));
+
+    // BLANK slide path: the user added a new slide and is describing it
+    // for the first time. Treat the instruction as the SOURCE OF TRUTH
+    // for the slide's content, not as a modification to existing text.
+    // Parse the instruction into {badge, headline, body}, update the plan
+    // in place (clears the blank flag and replaces placeholders), then
+    // render the slide with the filled-in spec — NO "apply only this
+    // change" override, since there's nothing to preserve.
+    const isBlankSlide = !!slide.blank;
+    let slideForPrompt = slide;
+    if (isBlankSlide) {
+      const instr = editInstruction.trim();
+      const sentences = instr.split(/(?<=[.!?])\s+/).filter(Boolean);
+      const first = sentences[0] || instr;
+      const rest = sentences.slice(1).join(' ').trim();
+      // Heuristic: keep the first sentence short enough to be a headline
+      // (≤ 10 words). If shorter than that, use it as-is; if longer,
+      // trim words and promote the rest of the text to body.
+      const firstWords = first.split(/\s+/);
+      let headline;
+      let bodyText;
+      if (firstWords.length <= 10) {
+        headline = first.replace(/[.!?]+$/, '').trim();
+        bodyText = rest || '';
+      } else {
+        headline = firstWords.slice(0, 8).join(' ').replace(/[.,;:]+$/, '').trim();
+        bodyText = (firstWords.slice(8).join(' ') + (rest ? ' ' + rest : '')).trim();
+      }
+      // Auto-mark the hero word (first noun-ish word >= 4 chars) with the
+      // accent syntax so every slide keeps its gradient highlight.
+      const hasMarker = /\{\{accent\}\}/i.test(headline);
+      if (!hasMarker) {
+        const words = headline.split(/\s+/);
+        const targetIdx = words.findIndex(w => w.length >= 4 && /^[A-Za-z0-9]/.test(w));
+        if (targetIdx !== -1) {
+          words[targetIdx] = `{{accent}}${words[targetIdx]}{{/accent}}`;
+          headline = words.join(' ');
+        }
+      }
+      slideForPrompt = {
+        ...slide,
+        blank: false,
+        headline,
+        body: bodyText,
+        badge: slide.badge || 'NEW',
+      };
+      // Persist the filled spec on the plan so subsequent edits/regens
+      // operate on real content, not the placeholder.
+      setMessages(prev => prev.map(m => {
+        if (m.id !== msgId || !m.carouselPlan) return m;
+        const nextSlides = (m.carouselPlan.slides || []).map((s, i) => i === imgIdx ? slideForPrompt : s);
+        return { ...m, carouselPlan: { ...m.carouselPlan, slides: nextSlides } };
+      }));
+    }
+
     try {
       const brandForPrompt = { name: brandDna?.brand_name || brandDna?.description?.split(/[.,]/)[0]?.trim() || '' };
       const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
@@ -4494,20 +4466,26 @@ export default function Content() {
       };
       const basePrompt = buildCarouselSlidePrompt({
         designSystem: plan.designSystem,
-        slide,
+        slide: slideForPrompt,
         index: imgIdx,
         total: plan.slides.length,
         brand: brandForPrompt,
         platform: platformId,
       });
-      const editedPrompt = [
-        `USER EDIT INSTRUCTION (apply ONLY this change to the slide below — keep every other element identical: palette, typography, layout zones, badge, branding strip, slide counter, chapter mark, glow position, mood):`,
-        `  ${editInstruction.trim()}`,
-        ``,
-        `If the edit changes a specific piece of text, update ONLY that text in TEXT CONTENT below; all other text must render exactly as originally specified.`,
-        ``,
-        basePrompt,
-      ].join('\n');
+      // For blank→filled slides we skip the "edit override" wrapper and
+      // render the filled spec directly. For real edits on an existing
+      // slide, prepend the instruction so the model only changes what
+      // the user asked to change.
+      const editedPrompt = isBlankSlide
+        ? basePrompt
+        : [
+            `USER EDIT INSTRUCTION (apply ONLY this change to the slide below — keep every other element identical: palette, typography, layout zones, badge, branding strip, slide counter, chapter mark, glow position, mood):`,
+            `  ${editInstruction.trim()}`,
+            ``,
+            `If the edit changes a specific piece of text, update ONLY that text in TEXT CONTENT below; all other text must render exactly as originally specified.`,
+            ``,
+            basePrompt,
+          ].join('\n');
       // Reference current slide + hook so palette anchors visually.
       const currentImg = (carouselMsg.images || []).find(i => i.idx === imgIdx);
       const hookImg = (carouselMsg.images || []).find(i => i.idx === 0);
