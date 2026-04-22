@@ -1869,9 +1869,13 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
   const ghostNumeral = String(index + 1).padStart(2, '0');
   const ctaText = String(slide.cta || (isFinal ? 'Follow for more' : '')).trim();
 
+  // Describe the highlight in natural language, NEVER using the literal
+  // string "ACCENT" or the marker syntax {{ }}/[ ]. The image model was
+  // occasionally rendering those tokens as visible text on slides because
+  // they appeared in the prompt — even in instruction-only contexts.
   const accentPhrase = accentWords.length
-    ? `The ${accentWords.length === 1 ? 'word' : 'words'} ${accentWords.map(w => `"${w}"`).join(' and ')} inside the headline ${accentWords.length === 1 ? 'is' : 'are'} the ACCENT — render only ${accentWords.length === 1 ? 'that word' : 'those words'} filled with a smooth left-to-right gradient from ${p.gradientStart || p.accentPrimary || 'the accent color'} to ${p.gradientEnd || p.accentPrimary || 'the accent color'}. No underline. No outline. No glow on the letters.`
-    : `No accent word on this slide — render the headline in a single solid color (primary text color).`;
+    ? `Highlighted word${accentWords.length === 1 ? '' : 's'}: ${accentWords.map(w => `"${w}"`).join(' and ')}. Render only ${accentWords.length === 1 ? 'that word' : 'those words'} with a smooth left-to-right gradient fill from ${p.gradientStart || p.accentPrimary || 'the highlight color'} to ${p.gradientEnd || p.accentPrimary || 'the highlight color'}. No underline. No outline. No glow on the letters.`
+    : `No highlighted word on this slide — render the headline in a single solid color (primary text color).`;
 
   // ── VISUAL STYLE block (shared — describes HOW to render, never WHAT text to render) ──
   const visualStyle = [
@@ -1891,50 +1895,78 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
   let textContent;
   let layoutNotes;
 
+  // UNIVERSAL VERTICAL GRID — every slide in the set uses the same
+  // top/bottom margins and text-anchor positions so the carousel swipes
+  // as an aligned series, not a jumble. Composition differs by role
+  // (hook visual, middle typography, CTA restraint) but the vertical
+  // rhythm stays identical.
+  //   Top safe zone      0 – 8%   (outer padding)
+  //   Branding strip     at 8% from top (48px inset from edges)
+  //   Badge row          at 18% from top (same inset)
+  //   Headline START     at 28% from top (top edge of the first line)
+  //   Body START         no later than 68% from top (leaves room for 3-4 lines)
+  //   Body END           by 82% from top
+  //   Bottom hint row    at 92% from top (same inset)
+  //   Bottom safe zone   92 – 100%
+  // These percentages repeat verbatim for every slide type. The HOOK
+  // can overlay a hero visual behind/alongside the text grid; the CTA
+  // keeps the grid but most zones are intentionally empty.
+  const verticalGrid = `
+UNIVERSAL VERTICAL GRID (ALL slides in this carousel follow these EXACT vertical anchor points — do not vary between slides):
+• Canvas outer padding: 48px on all edges (branding strip and slide counter sit inside this).
+• Branding strip + slide counter: at y ≈ 8% from top (anchored to the top padding line).
+• Badge pill row: at y ≈ 18% from top, aligned to the left margin.
+• Headline top edge: at y ≈ 28% from top. This is the SAME y-position on every slide.
+• Body copy top edge (when body exists): at y ≈ 70% from top.
+• Body copy bottom edge: no lower than y ≈ 82% from top.
+• Bottom hint pill / footer row: at y ≈ 92% from top.
+• Horizontal margins: ${cfg.leftMarginPx}px left, ${cfg.rightMarginPx}px right, consistent on every slide.
+The reader swipes and NOTHING shifts vertically except the content itself. Same margins, same anchor lines, every slide.`;
+
   if (isHook) {
-    layoutNotes = `LAYOUT — OPENING SPREAD (the cover of the book): this is the richest, most compositional slide. Design the hero visual and the headline together as ONE intentional image, not headline stacked above a card. Full-canvas composition. Hero visual options (pick one, driven by the planner hint below): a founder portrait with a small floating proof chip, a layered glass card stack angled 6–10°, an oversized product mockup with a soft drop shadow, or a dramatic editorial duotone treatment. Place the headline to the left or across the lower third, visual on the right or filling the right-half / background. The composition should feel like the cover of ${cfg.moodReferences}.`;
+    layoutNotes = `LAYOUT — OPENING SPREAD (slide 01): visually the richest slide in the set, but it follows the SAME vertical grid as the others so the swipe reads as aligned. The headline lands at the 28% top anchor. The hero visual (founder portrait / card stack / product mockup) sits BEHIND or BESIDE the text grid — not above it pushing the headline down. Think of it as the cover of ${cfg.moodReferences}: compositional depth through layering, not by moving the text lines around.${verticalGrid}`;
     textContent = [
-      brandName ? `  • Top-left wordmark: "${brandName}"` : `  • Top-left: nothing`,
-      `  • Top-right slide counter: "${slideNum} / ${totalNum}"`,
-      badgeText ? `  • Badge pill (upper area, top-left at ${cfg.leftMarginPx}px inset): "${badgeText}"` : '',
-      `  • Headline (display size, ${cfg.headlineHookPx}px, weight 700, tight leading 1.0): "${headlineClean}"`,
+      brandName ? `  • Top-left wordmark (at y ≈ 8%, x = 48px): "${brandName}"` : `  • Top-left (y ≈ 8%): nothing`,
+      `  • Top-right slide counter (at y ≈ 8%, x = right - 48px): "${slideNum} / ${totalNum}"`,
+      badgeText ? `  • Badge pill (at y ≈ 18%, x = ${cfg.leftMarginPx}px): "${badgeText}"` : '',
+      `  • Headline (top edge at y ≈ 28%, display size ${cfg.headlineHookPx}px, weight 700, tight leading 1.0, left-aligned): "${headlineClean}"`,
       `    ${accentPhrase}`,
-      bodyClean ? `  • Supporting line directly below the headline (${cfg.bodyPxHook}px, muted color, max 2 lines): "${bodyClean}"` : `  • No body copy on this slide — the headline carries it.`,
-      `  • Bottom-right hint pill: "Keep swiping →"`,
+      bodyClean ? `  • Supporting line (top edge at y ≈ 70%, ${cfg.bodyPxHook}px, muted color, max 2 lines): "${bodyClean}"` : `  • No body copy on this slide — the headline carries it.`,
+      `  • Bottom-right hint pill (at y ≈ 92%, x = right - 48px): "Keep swiping →"`,
       ``,
-      `HERO VISUAL DIRECTION (planner brief — use as the creative direction for the composition, not as literal text):`,
+      `HERO VISUAL DIRECTION (planner brief — composition hint, not literal text. Visual lives BEHIND or BESIDE the text grid, never displaces the anchor points above):`,
       `  ${sanitizeStyleText(slide.visualElement?.description) || 'A confident editorial composition that pairs with the headline.'}`,
     ].filter(Boolean).join('\n');
   } else if (isFinal) {
-    layoutNotes = `LAYOUT — CLOSING SPREAD (the final page): minimal and confident. One clear action, generous empty space, no clutter. Rich because of restraint. The top ~35 percent of the canvas stays largely empty except for the branding strip and slide counter. The badge + CTA headline + CTA button + (optional) proof chip sit in the vertical middle, centered horizontally. Footer tag at the bottom.`;
+    layoutNotes = `LAYOUT — CLOSING SPREAD (final slide): minimal and confident, same vertical grid as every other slide. Most zones are intentionally EMPTY — the power is in the restraint. Badge + CTA headline + CTA button sit where the body copy would normally go on a middle slide.${verticalGrid}`;
     textContent = [
-      brandName ? `  • Top-left wordmark: "${brandName}"` : `  • Top-left: nothing`,
-      `  • Top-right slide counter: "${slideNum} / ${totalNum}"`,
-      `  • Badge pill (centered near 42% vertical): "${(badgeText || 'ONE LAST THING')}"`,
-      `  • CTA headline (centered, ${cfg.headlineFinalPx}px, weight 700, max 3 lines, vertical center of canvas): "${headlineClean}"`,
+      brandName ? `  • Top-left wordmark (at y ≈ 8%, x = 48px): "${brandName}"` : `  • Top-left (y ≈ 8%): nothing`,
+      `  • Top-right slide counter (at y ≈ 8%, x = right - 48px): "${slideNum} / ${totalNum}"`,
+      `  • Badge pill (at y ≈ 18%, CENTERED horizontally for this slide type): "${(badgeText || 'ONE LAST THING')}"`,
+      `  • CTA headline (top edge at y ≈ 28%, centered horizontally, ${cfg.headlineFinalPx}px, weight 700, max 3 lines): "${headlineClean}"`,
       `    ${accentPhrase}`,
-      bodyClean ? `  • Supporting line (centered, 20px, muted, max 2 lines): "${bodyClean}"` : '',
-      ctaText ? `  • CTA button (solid filled pill, accent color fill, dark text, weight 700, 16px, centered ~140px below the supporting line, subtle soft shadow in the accent color): "${ctaText}"` : '',
-      slide.visualElement?.description ? `  • (Optional) small proof chip floated beside or just above the CTA button (~44px high, glass pill): short supporting phrase derived from the planner direction below.` : '',
-      `  • Footer at bottom-center (~48px from bottom, muted color at 50% opacity, 11px): "save for later"`,
+      bodyClean ? `  • Supporting line (top edge at y ≈ 52%, centered, 20px, muted, max 2 lines): "${bodyClean}"` : '',
+      ctaText ? `  • CTA button (at y ≈ 68%, centered horizontally, solid pill, accent color fill, dark text, weight 700, 16px): "${ctaText}"` : '',
+      slide.visualElement?.description ? `  • (Optional) small proof chip (at y ≈ 78%, centered, ~44px high, glass pill): short phrase from the planner direction below.` : '',
+      `  • Footer (at y ≈ 92%, centered, muted at 50% opacity, 11px): "save for later"`,
     ].filter(Boolean).join('\n');
   } else {
-    // EDITORIAL CHAPTER page.
-    layoutNotes = `LAYOUT — EDITORIAL CHAPTER PAGE (middle slides): three-zone ${platform === 'linkedin' ? 'document-style' : 'magazine'} spread where TYPOGRAPHY is the design. NOT a poster, NOT a card. Generous negative space. Left-aligned with a ${cfg.leftMarginPx}px left margin and a ${cfg.rightMarginPx}px right margin. Three zones: top zone (~22% of canvas height) holds the branding strip, slide counter, chapter mark, and badge. Middle zone (from ~26% down to ~78%) holds an enormous display headline. Bottom zone (from ~82% to ~92%) holds a thin hairline rule and the body copy in a readable column width. Behind the text, a large ghosted slide-index numeral bleeds off the top-right edge as a typographic anchor — it is the only non-text element on the slide.`;
+    // EDITORIAL CHAPTER page (middle slides).
+    layoutNotes = `LAYOUT — EDITORIAL CHAPTER PAGE (middle slide): typography-led ${platform === 'linkedin' ? 'document' : 'magazine'} spread. Left-aligned, three text zones, same vertical grid as hook and CTA. The only non-text element is a large ghosted slide-index numeral behind the text.${verticalGrid}`;
     textContent = [
-      brandName ? `  • Top-left wordmark: "${brandName}"` : `  • Top-left: nothing`,
-      `  • Top-right slide counter: "${slideNum} / ${totalNum}"`,
-      `  • Chapter mark (left-aligned at ${cfg.leftMarginPx}px inset, just below the wordmark, small accent-color monospaced text with a thin 56px horizontal rule to its right): "${chapterNum}"`,
-      badgeText ? `  • Badge pill (placed immediately to the right of the chapter mark rule): "${badgeText}"` : '',
-      `  • Display headline (middle zone, ${cfg.headlineMiddlePx}px, weight 700, tight leading 1.02, left-aligned, preserve line breaks): "${headlineClean}"`,
+      brandName ? `  • Top-left wordmark (at y ≈ 8%, x = 48px): "${brandName}"` : `  • Top-left (y ≈ 8%): nothing`,
+      `  • Top-right slide counter (at y ≈ 8%, x = right - 48px): "${slideNum} / ${totalNum}"`,
+      `  • Chapter mark (at y ≈ 14%, x = ${cfg.leftMarginPx}px, small accent-color monospaced text with a thin 56px horizontal rule to its right): "${chapterNum}"`,
+      badgeText ? `  • Badge pill (at y ≈ 18%, immediately to the right of the chapter rule): "${badgeText}"` : '',
+      `  • Display headline (top edge at y ≈ 28%, ${cfg.headlineMiddlePx}px, weight 700, tight leading 1.02, left-aligned at ${cfg.leftMarginPx}px, preserve line breaks): "${headlineClean}"`,
       `    ${accentPhrase}`,
-      bodyClean ? `  • Hairline rule (thin 40px line in muted color at ~30% opacity, aligned with the headline left edge) then directly below it the body copy (${cfg.bodyPx}px, muted color, weight 400, leading 1.5, left-aligned, readable column width, max 3 lines): "${bodyClean}"` : '',
-      `  • Bottom-right hint pill: "Keep swiping →"`,
+      bodyClean ? `  • Hairline rule (at y ≈ 66%, thin 40px line in muted color at ~30% opacity, aligned to left margin) then body copy directly below (top edge y ≈ 70%, bottom edge by y ≈ 82%, ${cfg.bodyPx}px, muted color, weight 400, leading 1.5, left-aligned, readable column width, max 3 lines): "${bodyClean}"` : '',
+      `  • Bottom-right hint pill (at y ≈ 92%, x = right - 48px): "Keep swiping →"`,
       ``,
-      `EDITORIAL ANCHOR (only non-text element): a single ghosted slide-index numeral "${ghostNumeral}" rendered VERY large (around ${cfg.ghostNumeralPx}px tall), heavy weight, in the accent color at only 6–8 percent opacity, positioned in the top-right area so it bleeds partially off the right edge of the canvas. It lives BEHIND the main text as a typographic flourish — no outline, no shadow, no other decoration. This exact motif repeats on every chapter page to create rhythm across the set.`,
+      `EDITORIAL ANCHOR (only non-text element on this slide): a single ghosted slide-index numeral "${ghostNumeral}" rendered very large (around ${cfg.ghostNumeralPx}px tall), heavy weight, in the accent color at only 6–8 percent opacity, positioned in the top-right area so it bleeds partially off the right edge of the canvas. It sits BEHIND the main text as a typographic flourish — no outline, no shadow, no other decoration. This exact motif repeats on every middle slide to create rhythm.`,
       ``,
-      `CRAFT NOTES: breathe. This slide should feel like ${cfg.moodReferences}, not an infographic. No icons, no illustrations, no cards, no diagrams, no emoji. ${cfg.toneNote}. The visual unity with the hook comes from the locked palette, glow corner, texture, branding strip, and accent gradient — not from forcing a graphic.`,
-      (slide.visualElement?.description ? `(Planner hint — use ONLY to influence the body phrasing if useful, ignore any visual suggestion: ${sanitizeStyleText(slide.visualElement.description)})` : ''),
+      `CRAFT NOTES: breathe. Every middle slide uses the same vertical anchors so the swipe reads as aligned. Feel of ${cfg.moodReferences}, not an infographic. No icons, no illustrations, no cards, no diagrams, no emoji. ${cfg.toneNote}.`,
+      (slide.visualElement?.description ? `(Planner hint — use ONLY for body phrasing if useful, ignore any visual suggestion: ${sanitizeStyleText(slide.visualElement.description)})` : ''),
     ].filter(Boolean).join('\n');
   }
 
@@ -1947,7 +1979,7 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
     'do not render font weight numbers (for example "400", "700") anywhere on the image',
     'do not render curly braces, square brackets, or angle brackets',
     'do not render the words "accent", "gradient", "opacity", "leading", "tracking", or any other styling jargon as literal text',
-    'do not render the markers {{accent}}, {{/accent}}, [ACCENT], [/ACCENT] — those are instructions, never text',
+    'do not render any marker-like tokens on the image — anything in double curly braces or square brackets is an instruction, never text to render',
     'the ONLY text that should appear on the image is the text listed in TEXT CONTENT below, nothing more',
   ];
 
@@ -4367,6 +4399,61 @@ export default function Content() {
     const platformId = carouselMsg.platform || 'instagram';
     setIsGenerating(true);
     setMessages(prev => prev.map(m => m.id === msgId ? { ...m, editingIdx: imgIdx } : m));
+
+    // BLANK slide path: the user added a new slide and is describing it
+    // for the first time. Treat the instruction as the SOURCE OF TRUTH
+    // for the slide's content, not as a modification to existing text.
+    // Parse the instruction into {badge, headline, body}, update the plan
+    // in place (clears the blank flag and replaces placeholders), then
+    // render the slide with the filled-in spec — NO "apply only this
+    // change" override, since there's nothing to preserve.
+    const isBlankSlide = !!slide.blank;
+    let slideForPrompt = slide;
+    if (isBlankSlide) {
+      const instr = editInstruction.trim();
+      const sentences = instr.split(/(?<=[.!?])\s+/).filter(Boolean);
+      const first = sentences[0] || instr;
+      const rest = sentences.slice(1).join(' ').trim();
+      // Heuristic: keep the first sentence short enough to be a headline
+      // (≤ 10 words). If shorter than that, use it as-is; if longer,
+      // trim words and promote the rest of the text to body.
+      const firstWords = first.split(/\s+/);
+      let headline;
+      let bodyText;
+      if (firstWords.length <= 10) {
+        headline = first.replace(/[.!?]+$/, '').trim();
+        bodyText = rest || '';
+      } else {
+        headline = firstWords.slice(0, 8).join(' ').replace(/[.,;:]+$/, '').trim();
+        bodyText = (firstWords.slice(8).join(' ') + (rest ? ' ' + rest : '')).trim();
+      }
+      // Auto-mark the hero word (first noun-ish word >= 4 chars) with the
+      // accent syntax so every slide keeps its gradient highlight.
+      const hasMarker = /\{\{accent\}\}/i.test(headline);
+      if (!hasMarker) {
+        const words = headline.split(/\s+/);
+        const targetIdx = words.findIndex(w => w.length >= 4 && /^[A-Za-z0-9]/.test(w));
+        if (targetIdx !== -1) {
+          words[targetIdx] = `{{accent}}${words[targetIdx]}{{/accent}}`;
+          headline = words.join(' ');
+        }
+      }
+      slideForPrompt = {
+        ...slide,
+        blank: false,
+        headline,
+        body: bodyText,
+        badge: slide.badge || 'NEW',
+      };
+      // Persist the filled spec on the plan so subsequent edits/regens
+      // operate on real content, not the placeholder.
+      setMessages(prev => prev.map(m => {
+        if (m.id !== msgId || !m.carouselPlan) return m;
+        const nextSlides = (m.carouselPlan.slides || []).map((s, i) => i === imgIdx ? slideForPrompt : s);
+        return { ...m, carouselPlan: { ...m.carouselPlan, slides: nextSlides } };
+      }));
+    }
+
     try {
       const brandForPrompt = { name: brandDna?.brand_name || brandDna?.description?.split(/[.,]/)[0]?.trim() || '' };
       const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
@@ -4379,20 +4466,26 @@ export default function Content() {
       };
       const basePrompt = buildCarouselSlidePrompt({
         designSystem: plan.designSystem,
-        slide,
+        slide: slideForPrompt,
         index: imgIdx,
         total: plan.slides.length,
         brand: brandForPrompt,
         platform: platformId,
       });
-      const editedPrompt = [
-        `USER EDIT INSTRUCTION (apply ONLY this change to the slide below — keep every other element identical: palette, typography, layout zones, badge, branding strip, slide counter, chapter mark, glow position, mood):`,
-        `  ${editInstruction.trim()}`,
-        ``,
-        `If the edit changes a specific piece of text, update ONLY that text in TEXT CONTENT below; all other text must render exactly as originally specified.`,
-        ``,
-        basePrompt,
-      ].join('\n');
+      // For blank→filled slides we skip the "edit override" wrapper and
+      // render the filled spec directly. For real edits on an existing
+      // slide, prepend the instruction so the model only changes what
+      // the user asked to change.
+      const editedPrompt = isBlankSlide
+        ? basePrompt
+        : [
+            `USER EDIT INSTRUCTION (apply ONLY this change to the slide below — keep every other element identical: palette, typography, layout zones, badge, branding strip, slide counter, chapter mark, glow position, mood):`,
+            `  ${editInstruction.trim()}`,
+            ``,
+            `If the edit changes a specific piece of text, update ONLY that text in TEXT CONTENT below; all other text must render exactly as originally specified.`,
+            ``,
+            basePrompt,
+          ].join('\n');
       // Reference current slide + hook so palette anchors visually.
       const currentImg = (carouselMsg.images || []).find(i => i.idx === imgIdx);
       const hookImg = (carouselMsg.images || []).find(i => i.idx === 0);
