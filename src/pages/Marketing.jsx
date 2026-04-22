@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Mail, Send, Users, BarChart3, Megaphone, Inbox, FileText, PenTool, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader } from 'lucide-react';
+import { Mail, Send, Users, BarChart3, Megaphone, Inbox, FileText, PenTool, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2 } from 'lucide-react';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
@@ -1172,6 +1172,18 @@ function ToolTab({ config, activeTool, brandDna }) {
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [importTemplateOpen, setImportTemplateOpen] = useState(false);
 
+  // ── Chat history / sessions (per-tool) ──
+  const [sessionId, setSessionId] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [showSessions, setShowSessions] = useState(false);
+  const [renamingSessionId, setRenamingSessionId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const saveTimer = useRef(null);
+  const sessionIdRef = useRef(null);
+  const customTitleIdsRef = useRef(new Set());
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+
   const splitRef = useRef(null);
   const contextRef = useRef(null);
   const dragging = useRef(false);
@@ -1188,6 +1200,136 @@ function ToolTab({ config, activeTool, brandDna }) {
   const skipIframeWriteRef = useRef(false);
 
   const chatStarted = chatMessages.length > 0;
+
+  // ── Load session list for this tool ──
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session?.user) return;
+      const { data } = await supabase
+        .from('marketing_sessions')
+        .select('id, title, tool, updated_at')
+        .eq('user_id', session.user.id)
+        .eq('tool', activeTool)
+        .order('updated_at', { ascending: false })
+        .limit(50);
+      if (data) setSessions(data);
+    });
+    // Reset session-scoped state whenever the active tool changes
+    // (each tab owns its own session id). The ToolTab uses
+    // key={activeTool} in the parent so this effectively runs once
+    // per mount, but safer to include the dep.
+  }, [activeTool]);
+
+  // ── Debounced auto-save — persist chat + canvas + frames ──
+  useEffect(() => {
+    if (chatMessages.length === 0 && !canvasHtml && storyFrames.length === 0) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      const userId = session.user.id;
+      const firstUser = chatMessages.find((m) => m.role === 'user');
+      const title = firstUser?.text?.slice(0, 80) || firstUser?.content?.slice(0, 80) || 'New conversation';
+      const payload = {
+        messages: chatMessages,
+        canvas_html: canvasHtml || null,
+        story_frames: storyFrames.length ? storyFrames : null,
+        updated_at: new Date().toISOString(),
+      };
+      if (sessionIdRef.current) {
+        const id = sessionIdRef.current;
+        const isCustom = customTitleIdsRef.current.has(id);
+        const finalPayload = isCustom ? payload : { ...payload, title };
+        await supabase.from('marketing_sessions').update(finalPayload).eq('id', id);
+        setSessions((prev) => prev.map((s) =>
+          s.id === id ? { ...s, title: isCustom ? s.title : title, updated_at: payload.updated_at } : s
+        ));
+      } else {
+        const { data, error } = await supabase.from('marketing_sessions').insert({
+          user_id: userId,
+          tool: activeTool,
+          title,
+          ...payload,
+        }).select('id, title, tool, updated_at').single();
+        if (!error && data) {
+          sessionIdRef.current = data.id;
+          setSessionId(data.id);
+          setSessions((prev) => [data, ...prev.filter((s) => s.id !== data.id)]);
+        }
+      }
+    }, 1200);
+    return () => clearTimeout(saveTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatMessages, canvasHtml, storyFrames, activeTool]);
+
+  // ── Session lifecycle handlers ──
+  const loadSession = useCallback(async (id) => {
+    const { data, error } = await supabase
+      .from('marketing_sessions')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (error || !data) return;
+    sessionIdRef.current = data.id;
+    setSessionId(data.id);
+    setChatMessages(data.messages || []);
+    // ApiMessages mirror chatMessages but without UI-only fields; rebuild.
+    setMessages((data.messages || []).map((m) => ({ role: m.role, content: m.text || m.content || '' })));
+    setCanvasHtml(data.canvas_html || '');
+    setStoryFrames(Array.isArray(data.story_frames) ? data.story_frames : []);
+    setCurrentQuestion(null);
+    setCustomTyping(false);
+    setCustomText('');
+    setShowSessions(false);
+  }, []);
+
+  const newConversation = useCallback(() => {
+    sessionIdRef.current = null;
+    setSessionId(null);
+    setChatMessages([]);
+    setMessages([]);
+    setCanvasHtml('');
+    setStoryFrames([]);
+    setCurrentQuestion(null);
+    setCustomTyping(false);
+    setCustomText('');
+    setShowSessions(false);
+  }, []);
+
+  const startRenameSession = useCallback((s, e) => {
+    e?.stopPropagation?.();
+    setRenamingSessionId(s.id);
+    setRenameDraft(s.title || '');
+  }, []);
+  const cancelRenameSession = useCallback(() => {
+    setRenamingSessionId(null);
+    setRenameDraft('');
+  }, []);
+  const commitRenameSession = useCallback(async () => {
+    const id = renamingSessionId;
+    if (!id) return;
+    const next = renameDraft.trim() || 'Untitled conversation';
+    const current = sessions.find((s) => s.id === id);
+    if (current && current.title === next) { cancelRenameSession(); return; }
+    customTitleIdsRef.current.add(id);
+    setSessions((prev) => prev.map((s) => s.id === id ? { ...s, title: next } : s));
+    setRenamingSessionId(null);
+    setRenameDraft('');
+    await supabase.from('marketing_sessions').update({ title: next }).eq('id', id);
+  }, [renamingSessionId, renameDraft, sessions, cancelRenameSession]);
+
+  const requestDeleteSession = useCallback((id, e) => {
+    e?.stopPropagation?.();
+    setConfirmDeleteId(id);
+  }, []);
+  const confirmDeleteSession = useCallback(async () => {
+    const id = confirmDeleteId;
+    if (!id) return;
+    setConfirmDeleteId(null);
+    await supabase.from('marketing_sessions').delete().eq('id', id);
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+    if (sessionIdRef.current === id) newConversation();
+  }, [confirmDeleteId, newConversation]);
 
   // Cycle generating status text
   useEffect(() => {
@@ -2141,6 +2283,31 @@ function ToolTab({ config, activeTool, brandDna }) {
       {/* Left  -  chat area */}
       <div className="mkt-split-left" style={{ flex: `0 0 ${splitPercent}%` }}>
 
+        {/* Top bar — Previous conversations button + New. Matches
+            the Content tab pattern so users have consistent access
+            to session history across the app. */}
+        <div className="mkt-chat-topbar">
+          <button
+            type="button"
+            className="mkt-prev-convos"
+            onClick={() => setShowSessions((v) => !v)}
+            title="Previous conversations"
+          >
+            <History size={16} />
+            <span>Previous conversations</span>
+          </button>
+          {chatStarted && (
+            <button
+              type="button"
+              className="mkt-new-convo"
+              onClick={newConversation}
+              title="Start a new conversation"
+            >
+              <Plus size={14} /> New
+            </button>
+          )}
+        </div>
+
         {/* Ghost cards + CTA (shown when no chat) */}
         {!chatStarted && (
           <div className="mkt-split-left-bg">
@@ -2625,6 +2792,87 @@ function ToolTab({ config, activeTool, brandDna }) {
     <SendNewsletterModal open={sendModalOpen} onClose={() => setSendModalOpen(false)} canvasHtml={canvasHtml} />
     <SaveTemplateModal open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} canvasHtml={canvasHtml} activeTool={activeTool} />
     <ImportTemplateModal open={importTemplateOpen} onClose={() => setImportTemplateOpen(false)} activeTool={activeTool} onImport={(html) => setCanvasHtml(html)} />
+
+    {/* Sessions overlay + panel */}
+    {showSessions && (
+      <>
+        <div className="mkt-sessions-backdrop" onClick={() => setShowSessions(false)} />
+        <div className="mkt-sessions-panel">
+          <div className="mkt-sessions-header">
+            <span>Conversations</span>
+            <button className="mkt-sessions-new" onClick={newConversation} title="New conversation">
+              <Plus size={14} /> New
+            </button>
+          </div>
+          <div className="mkt-sessions-list">
+            {sessions.length === 0 && (
+              <div className="mkt-sessions-empty">No past conversations yet for {config.label || activeTool}</div>
+            )}
+            {sessions.map((s) => {
+              const isRenaming = renamingSessionId === s.id;
+              return (
+                <div
+                  key={s.id}
+                  className={`mkt-sessions-item ${s.id === sessionId ? 'mkt-sessions-item--active' : ''}`}
+                  onClick={() => { if (!isRenaming) loadSession(s.id); }}
+                >
+                  <div className="mkt-sessions-item-info">
+                    {isRenaming ? (
+                      <input
+                        autoFocus
+                        className="mkt-sessions-item-rename"
+                        value={renameDraft}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); commitRenameSession(); }
+                          else if (e.key === 'Escape') { e.preventDefault(); cancelRenameSession(); }
+                        }}
+                        onBlur={commitRenameSession}
+                        maxLength={120}
+                      />
+                    ) : (
+                      <span className="mkt-sessions-item-title">{s.title}</span>
+                    )}
+                    <span className="mkt-sessions-item-meta">
+                      {new Date(s.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                  {!isRenaming && (
+                    <button className="mkt-sessions-item-rename-btn" onClick={(e) => startRenameSession(s, e)} title="Rename">
+                      <Pencil size={12} />
+                    </button>
+                  )}
+                  <button className="mkt-sessions-item-delete" onClick={(e) => requestDeleteSession(s.id, e)} title="Delete">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </>
+    )}
+
+    {/* Delete confirmation */}
+    {confirmDeleteId && (() => {
+      const target = sessions.find((s) => s.id === confirmDeleteId);
+      return (
+        <div className="mkt-confirm-backdrop" onClick={() => setConfirmDeleteId(null)}>
+          <div className="mkt-confirm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="mkt-confirm-icon"><Trash2 size={20} /></div>
+            <div className="mkt-confirm-title">Delete this conversation?</div>
+            <div className="mkt-confirm-desc">
+              {target ? `"${target.title}" will be permanently removed.` : 'This conversation will be permanently removed.'}
+            </div>
+            <div className="mkt-confirm-actions">
+              <button className="mkt-confirm-btn mkt-confirm-btn--cancel" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
+              <button className="mkt-confirm-btn mkt-confirm-btn--danger" onClick={confirmDeleteSession} autoFocus>Delete</button>
+            </div>
+          </div>
+        </div>
+      );
+    })()}
   </>
   );
 }
