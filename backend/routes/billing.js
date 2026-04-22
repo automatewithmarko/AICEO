@@ -152,17 +152,24 @@ router.post('/api/billing/checkout', async (req, res) => {
     });
   }
 
-  // Guard: reject if user already has an active/canceling subscription.
-  // Plan changes on an existing sub must go through the Customer Portal
-  // where Stripe handles proration, immediate/delayed switch, and keeps
-  // a single subscription object alive.
+  // Guard: reject if user already has a REAL Stripe-backed active sub.
+  // Plan changes on those must go through the Customer Portal so Stripe
+  // handles proration cleanly. Phantom rows (created by legacy signup
+  // flows / triggers, no stripe_subscription_id) are not real and must
+  // NOT block a fresh checkout — otherwise new users see "Checkout
+  // failed" forever because of an empty-shell subscription row that
+  // was never paid for.
   const { data: existingSub } = await supabase
     .from('subscriptions')
-    .select('status, stripe_customer_id')
+    .select('status, stripe_subscription_id, stripe_customer_id')
     .eq('user_id', userId)
     .maybeSingle();
 
-  if (existingSub && ['active', 'canceling', 'trialing', 'past_due'].includes(existingSub.status)) {
+  const hasRealActiveSub = existingSub
+    && existingSub.stripe_subscription_id
+    && ['active', 'canceling', 'trialing', 'past_due'].includes(existingSub.status);
+
+  if (hasRealActiveSub) {
     return res.status(409).json({
       error: 'You already have an active subscription. Use the billing portal to switch plans.',
       use_portal: true,

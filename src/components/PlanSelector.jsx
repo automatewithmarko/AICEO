@@ -47,6 +47,25 @@ const PLANS = [
       'Priority support',
     ],
   },
+  // Internal QA plan — shown so the team can validate the full real-money
+  // flow on a $1 charge instead of $99. Remove this entry (and the matching
+  // plans-table row + Stripe product) before public launch.
+  {
+    id: 'test',
+    name: '🧪 Test Plan (Internal QA)',
+    setup: 2,
+    monthlyStandard: 1,
+    monthlyBoost: 1,
+    credits: 10,
+    recommended: false,
+    testOnly: true,
+    features: [
+      'For team testing only — DO NOT BUY',
+      'Validates the full Stripe checkout flow',
+      'Charges your card $1/mo + $2 setup',
+      'Refundable from the Stripe dashboard',
+    ],
+  },
 ];
 
 export default function PlanSelector() {
