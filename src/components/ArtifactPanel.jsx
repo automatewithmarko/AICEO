@@ -1121,14 +1121,65 @@ function HtmlRenderer({ content, iframeRef, editMapRef, skipIframeWriteRef }) {
 }
 
 function ContentPostRenderer({ content, images }) {
+  const list = Array.isArray(images) ? images : [];
+  const total = list.length;
+  const [index, setIndex] = useState(Math.max(0, total - 1));
+  const prevTotalRef = useRef(total);
+
+  useEffect(() => {
+    if (total > prevTotalRef.current) setIndex(total - 1);
+    if (index > total - 1) setIndex(Math.max(0, total - 1));
+    prevTotalRef.current = total;
+  }, [total, index]);
+
+  const active = total > 0 ? list[Math.min(index, total - 1)] : null;
+
   return (
     <div className="ap-content-post">
-      {images?.length > 0 && (
-        <div className="ap-post-images">
-          {images.map((img, i) => <img key={i} src={img.src} alt="" className="ap-post-image" />)}
+      {total > 0 && (
+        <div className="ap-post-viewer">
+          <div className="ap-post-stage">
+            {active && <img src={active.src} alt="" className="ap-post-image" />}
+          </div>
+          {total > 1 && (
+            <div className="ap-post-controls">
+              <button
+                type="button"
+                className="ap-post-nav"
+                onClick={() => setIndex((i) => (i - 1 + total) % total)}
+                aria-label="Previous image"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <span className="ap-post-counter">{index + 1} / {total}</span>
+              <button
+                type="button"
+                className="ap-post-nav"
+                onClick={() => setIndex((i) => (i + 1) % total)}
+                aria-label="Next image"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
+          {total > 1 && (
+            <div className="ap-post-thumbs">
+              {list.map((img, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className={`ap-post-thumb ${i === index ? 'is-active' : ''}`}
+                  onClick={() => setIndex(i)}
+                  aria-label={`Show image ${i + 1}`}
+                >
+                  <img src={img.src} alt="" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
-      <div className="ap-post-text">{content}</div>
+      {content && <div className="ap-post-text">{content}</div>}
     </div>
   );
 }
