@@ -506,14 +506,34 @@ ${prompt}`;
       }
     }
 
-    console.log(`[generate/image] Generated image: ${imageData ? 'yes' : 'no'}, text: ${text.length} chars`);
+    const providerLabel = useDirectGemini ? 'GEMINI-DIRECT' : 'MENTOR';
+    console.log(`[generate/image] ${providerLabel} → image: ${imageData ? 'yes' : 'no'}, text: ${text.length} chars`);
+
+    // Fail loudly when the upstream returns 200 but no image — most likely
+    // policy block (promptFeedback.blockReason) or a SAFETY/MAX_TOKENS finish.
+    // Log the full diagnostic trail and return a useful 422 instead of {image: null}.
+    if (!imageData) {
+      const promptFb = result.promptFeedback;
+      const finishReason = result.candidates?.[0]?.finishReason;
+      const safetyRatings = result.candidates?.[0]?.safetyRatings;
+      console.warn(`[generate/image] ${providerLabel} returned NO IMAGE`);
+      console.warn(`  finishReason: ${finishReason || '<none>'}`);
+      console.warn(`  promptFeedback: ${promptFb ? JSON.stringify(promptFb) : '<none>'}`);
+      console.warn(`  safetyRatings: ${safetyRatings ? JSON.stringify(safetyRatings) : '<none>'}`);
+      console.warn(`  candidates: ${result.candidates?.length || 0}, parts: ${responseParts.length}`);
+      console.warn(`  text returned: ${text ? `"${text.slice(0, 300)}"` : '<empty>'}`);
+      console.warn(`  full response (first 1500 chars): ${JSON.stringify(result).slice(0, 1500)}`);
+
+      const blockReason = promptFb?.blockReason;
+      const errMsg = blockReason
+        ? `Image blocked by ${providerLabel} (${blockReason}). Try a different prompt or remove brand reference photos.`
+        : `${providerLabel} returned no image (finishReason: ${finishReason || 'none'}). Model may have refused.`;
+      return res.status(422).json({ error: errMsg, providerLabel, finishReason, blockReason, text: text || null });
+    }
 
     res.json({
       text: text || null,
-      image: imageData ? {
-        data: imageData,
-        mimeType: imageMimeType,
-      } : null,
+      image: { data: imageData, mimeType: imageMimeType },
     });
   } catch (err) {
     const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
