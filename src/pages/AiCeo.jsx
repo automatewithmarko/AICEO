@@ -975,6 +975,14 @@ export default function AiCeo() {
                   if (isMobileRef.current) setMobileArtifactOpen(true);
                   return newArt;
                 });
+                // Flag the assistant message so the "Open preview" artifact
+                // card renders — gives the user a way back to the image
+                // panel after they close it.
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantMsgId
+                    ? { ...m, hasArtifact: true, artifactTitle: 'Open preview', artifactType: 'content_post' }
+                    : m
+                ));
               }
             } catch (e) {
               console.error('Image gen error:', e);
