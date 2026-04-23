@@ -1205,57 +1205,98 @@ function ToolTab({ config, activeTool, brandDna }) {
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session?.user) return;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('marketing_sessions')
         .select('id, title, tool, updated_at')
         .eq('user_id', session.user.id)
         .eq('tool', activeTool)
         .order('updated_at', { ascending: false })
         .limit(50);
+      if (error) {
+        console.warn('[marketing] sessions list failed:', error.message || error);
+        return;
+      }
       if (data) setSessions(data);
     });
-    // Reset session-scoped state whenever the active tool changes
-    // (each tab owns its own session id). The ToolTab uses
-    // key={activeTool} in the parent so this effectively runs once
-    // per mount, but safer to include the dep.
   }, [activeTool]);
+
+  // Strip UI-only fields before persisting so we don't balloon the
+  // jsonb column with base64 image dataUrls (one upload can blow the
+  // row past the 1MB sweet spot) and so we don't have to serialize
+  // transient flags like isStatus/loading.
+  const sanitizeMessagesForSave = useCallback((list) => {
+    return (list || [])
+      .filter((m) => !m.isStatus)
+      .map((m) => {
+        const out = { id: m.id, role: m.role, text: m.text || m.content || '' };
+        if (Array.isArray(m.images) && m.images.length) {
+          out.images = m.images.map((img) => ({
+            id: img.id,
+            name: img.name,
+            type: img.type,
+            // Don't persist the raw base64 dataUrl — it's gigantic and
+            // the file is already ephemeral. Keep just the metadata so
+            // the UI can re-render a placeholder on reload.
+          }));
+        }
+        return out;
+      });
+  }, []);
 
   // ── Debounced auto-save — persist chat + canvas + frames ──
   useEffect(() => {
     if (chatMessages.length === 0 && !canvasHtml && storyFrames.length === 0) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) return;
-      const userId = session.user.id;
-      const firstUser = chatMessages.find((m) => m.role === 'user');
-      const title = firstUser?.text?.slice(0, 80) || firstUser?.content?.slice(0, 80) || 'New conversation';
-      const payload = {
-        messages: chatMessages,
-        canvas_html: canvasHtml || null,
-        story_frames: storyFrames.length ? storyFrames : null,
-        updated_at: new Date().toISOString(),
-      };
-      if (sessionIdRef.current) {
-        const id = sessionIdRef.current;
-        const isCustom = customTitleIdsRef.current.has(id);
-        const finalPayload = isCustom ? payload : { ...payload, title };
-        await supabase.from('marketing_sessions').update(finalPayload).eq('id', id);
-        setSessions((prev) => prev.map((s) =>
-          s.id === id ? { ...s, title: isCustom ? s.title : title, updated_at: payload.updated_at } : s
-        ));
-      } else {
-        const { data, error } = await supabase.from('marketing_sessions').insert({
-          user_id: userId,
-          tool: activeTool,
-          title,
-          ...payload,
-        }).select('id, title, tool, updated_at').single();
-        if (!error && data) {
-          sessionIdRef.current = data.id;
-          setSessionId(data.id);
-          setSessions((prev) => [data, ...prev.filter((s) => s.id !== data.id)]);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) return;
+        const userId = session.user.id;
+        const cleanMessages = sanitizeMessagesForSave(chatMessages);
+        // Skip if the only "content" is a status bubble that got filtered out.
+        if (cleanMessages.length === 0 && !canvasHtml && storyFrames.length === 0) return;
+        const firstUser = cleanMessages.find((m) => m.role === 'user');
+        const title = firstUser?.text?.slice(0, 80) || 'New conversation';
+        const payload = {
+          messages: cleanMessages,
+          canvas_html: canvasHtml || null,
+          story_frames: storyFrames.length ? storyFrames : null,
+          updated_at: new Date().toISOString(),
+        };
+        if (sessionIdRef.current) {
+          const id = sessionIdRef.current;
+          const isCustom = customTitleIdsRef.current.has(id);
+          const finalPayload = isCustom ? payload : { ...payload, title };
+          const { error: updErr } = await supabase
+            .from('marketing_sessions')
+            .update(finalPayload)
+            .eq('id', id)
+            .eq('user_id', userId);
+          if (updErr) {
+            console.error('[marketing] session update failed:', updErr.message || updErr);
+            return;
+          }
+          setSessions((prev) => prev.map((s) =>
+            s.id === id ? { ...s, title: isCustom ? s.title : title, updated_at: payload.updated_at } : s
+          ));
+        } else {
+          const { data, error: insErr } = await supabase
+            .from('marketing_sessions')
+            .insert({ user_id: userId, tool: activeTool, title, ...payload })
+            .select('id, title, tool, updated_at')
+            .single();
+          if (insErr) {
+            console.error('[marketing] session insert failed:', insErr.message || insErr);
+            return;
+          }
+          if (data) {
+            sessionIdRef.current = data.id;
+            setSessionId(data.id);
+            setSessions((prev) => [data, ...prev.filter((s) => s.id !== data.id)]);
+          }
         }
+      } catch (err) {
+        console.error('[marketing] autosave threw:', err?.message || err);
       }
     }, 1200);
     return () => clearTimeout(saveTimer.current);

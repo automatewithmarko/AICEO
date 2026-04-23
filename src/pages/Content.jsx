@@ -486,29 +486,48 @@ CAPTION IS THE POST (main content — NOT a trailer for the slides)
 ═══════════════════════════════════════════════════════════════
 The CAPTION carries the full value. Slides are the visual summary that makes the post pop in the feed. A reader should get 90% of the insight from the caption ALONE — slides enhance, they don't replace.
 
-CAPTION STRUCTURE:
-• LINE 1 (HOOK): see above. Under 140 characters.
-• Blank line.
-• CONTEXT / STAKES (2-4 lines): what's the situation, why it matters, who's feeling it right now. Ground the reader in the problem before presenting the solution.
-• Blank line.
-• BODY (3-6 short paragraphs, 1-3 lines each, LINE BREAKS between them for mobile readability): the insight / framework / story. Each paragraph advances the argument.
-• Blank line.
-• PROOF / SPECIFICITY: at least one real number, named client (anonymized OK), concrete timeline, or framework acronym. One is enough but it MUST be specific. Without proof it reads like opinion, not expertise.
-• Blank line.
-• CTA (1-2 lines, final): comment keyword, question back to audience, or soft plug. Avoid "link in bio" (doesn't exist on LI) and "follow for more" (weak). Prefer comment-triggering CTAs.
+FORMATTING RULE (READ CAREFULLY — this is how LinkedIn text scans):
+• MAXIMUM 1–3 sentences per paragraph. Usually 1–2. Never more than 3.
+• Single-sentence paragraphs are POWERFUL. Use them often, especially for the hook, punchlines, and CTAs.
+• BLANK LINE between every paragraph. White space is oxygen on mobile.
+• Sentences should be SHORT. Break long thoughts across lines — a new line is free.
+• Never write a wall of text. If a paragraph has 4+ sentences, split it.
+• This is a LinkedIn POST, not an essay or blog article. It reads like someone talking to you.
 
-TARGET LENGTH: 150-450 words. Under 150 you under-delivered. Over 450 and the time-poor reader is gone. Sweet spot for most posts is 220-320 words.
+CAPTION STRUCTURE:
+• LINE 1 (HOOK): under 140 characters. Its own paragraph.
+• Blank line.
+• CONTEXT / STAKES: 1–2 short paragraphs (1–2 sentences each), blank line between them. Ground the reader in the problem.
+• Blank line.
+• BODY: 3–6 short paragraphs, each 1–3 sentences, BLANK LINE BETWEEN EACH. One idea per paragraph. The argument advances paragraph-by-paragraph, not all crammed into one block.
+• Blank line.
+• PROOF / SPECIFICITY: at least one real number / named client (anonymized OK) / concrete timeline / framework acronym. Lives in its own paragraph for emphasis. Without proof it reads like opinion, not expertise.
+• Blank line.
+• CTA: 1–2 lines, its own paragraph. Comment-triggering preferred. Avoid "link in bio" and "follow for more".
+
+TARGET LENGTH: 150–450 words. Sweet spot 220–320. Formatted with 6–10 paragraph breaks so the post LOOKS like a LinkedIn post on mobile, not a wall of text.
+
+WALL-OF-TEXT TEST: before submitting the caption, count the paragraph breaks. Fewer than 5 = too dense. Fewer than 8 for a 300-word post = still too dense. Add more breaks.
 
 THE POINT: if someone read ONLY the caption and never swiped, they should still walk away with real value and remember the author.
 
 ═══════════════════════════════════════════════════════════════
 SLIDES — visual paragraphs, each pulled from the caption
 ═══════════════════════════════════════════════════════════════
-Each slide is one paragraph of the post, visually emphasized. The reader can consume via caption OR via swipe — both should deliver.
+Each slide is one idea, visually emphasized. The reader can consume via caption OR via swipe — both should deliver.
 
 • SLIDE 1 (HOOK): carries the caption's hook, designed big. Visually rich, scroll-stopping.
-• SLIDES 2..N-1 (CHAPTERS): one clear idea per slide. 3-6 lines of LinkedIn-post-depth copy per slide. Specificity mandatory. If a slide body could live on any brand's account, it's too generic.
+• SLIDES 2..N-1 (CHAPTERS): one idea per slide, written as SCANNABLE SENTENCES — not a paragraph. 3–5 short lines, each line a short sentence or two on its own. Use line breaks to separate thoughts, the way a tweet does. Specificity mandatory.
 • SLIDE N (CTA): restate the action with confidence. Not "follow for more" — something specific the reader has a reason to do (comment KEYWORD, DM for the playbook, book a call).
+
+SLIDE BODY FORMAT (how to write the body field):
+• Break the copy into short lines with \\n between them. Each line is one idea or one sentence.
+• NOT a paragraph. If the body looks like prose, rewrite it as broken-up sentences.
+• Max 3–5 lines per slide. Each line max ~12 words.
+• Example of GOOD slide body:
+    "Most SaaS teams burn $30–50k on Facebook ads.\\nMeanwhile their landing page converts at 0.8%.\\n\\nThe fix isn't more spend.\\nIt's rewriting the hero with the CLEAR framework.\\n\\nOne client ran this last quarter.\\nCAC dropped from $420 to $180 in six weeks."
+• Example of BAD slide body (paragraph-style — DO NOT do this):
+    "Most SaaS teams burn $30-50k on Facebook ads before noticing their landing page converts at 0.8%. The fix isn't more spend, it's rewriting the hero with the CLEAR framework. A client ran this last quarter and their CAC dropped from $420 to $180."
 
 VOICE PER SLIDE:
 • Conversational, not corporate. Read it aloud — does it sound like the person SPEAKING?
@@ -1408,24 +1427,47 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       prompt += `=== LINKEDIN CAPTION STANDARD — CAPTION IS THE POST ===\n`;
       prompt += `CORE PRINCIPLE: the caption carries the full value. Slides are the visual summary that makes the post pop in the feed — a reader should get 90% of the insight from the caption alone. Slides ENHANCE the caption, they do not REPLACE it.\n`;
       prompt += `This flips the IG mental model. On IG the caption is a secondary layer supporting the images. On LinkedIn the caption IS the main content; the images exist to catch the scroll.\n`;
+      prompt += `\n`;
+      prompt += `FORMATTING RULE (critical — this is how LinkedIn text scans on mobile):\n`;
+      prompt += `- MAX 1-3 sentences per paragraph. Usually 1-2. Never more than 3.\n`;
+      prompt += `- Single-sentence paragraphs are POWERFUL. Use them freely — for the hook, for punchlines, for CTAs.\n`;
+      prompt += `- BLANK LINE between every paragraph. White space is oxygen on mobile.\n`;
+      prompt += `- Short sentences. Break long thoughts across lines.\n`;
+      prompt += `- Never a wall of text. If a paragraph runs past 3 sentences, split it.\n`;
+      prompt += `- Target: 6-10 paragraph breaks in a 250-word post.\n`;
+      prompt += `\n`;
       prompt += `STRUCTURE (follow this exactly):\n`;
-      prompt += `- LINE 1 (hook): under 140 chars. Starts with I / You / If / When / a quoted client line / a specific number. NOT a question like "Are you making these mistakes?" (that pattern is dead on LI).\n`;
+      prompt += `- LINE 1 (hook): under 140 chars, its own paragraph. Starts with I / You / If / When / a quoted client line / a specific number. NOT a question like "Are you making these mistakes?" (that pattern is dead on LI).\n`;
       prompt += `- Blank line.\n`;
-      prompt += `- CONTEXT / STAKES (2-4 lines): situation, why it matters, who's feeling it. Ground the reader in the problem.\n`;
+      prompt += `- CONTEXT / STAKES (1-2 short paragraphs): situation, why it matters, who's feeling it.\n`;
       prompt += `- Blank line.\n`;
-      prompt += `- BODY (3-6 short paragraphs, 1-3 lines each, blank line between paragraphs): the insight / framework / story. Each paragraph advances the argument.\n`;
+      prompt += `- BODY (3-6 short paragraphs of 1-3 sentences each, BLANK LINE between each): the insight / framework / story. One idea per paragraph. The argument advances paragraph-by-paragraph, not all crammed in one block.\n`;
       prompt += `- Blank line.\n`;
-      prompt += `- PROOF / SPECIFICITY: at least ONE specific element — a real number, named client (anonymized OK: "one B2B SaaS client"), concrete timeline ("last quarter", "in 6 weeks"), named framework/acronym, or genuine before/after. Abstract = invisible on LinkedIn.\n`;
+      prompt += `- PROOF / SPECIFICITY: at least ONE specific element — a real number, named client (anonymized OK: "one B2B SaaS client"), concrete timeline ("last quarter", "in 6 weeks"), named framework/acronym, or genuine before/after. Its own paragraph for emphasis.\n`;
       prompt += `- Blank line.\n`;
-      prompt += `- CTA (1-2 final lines): comment-triggering preferred (LinkedIn algorithm ranks comments highest). Examples: "Comment KEYWORD for the template", "Which slide hit hardest — drop a number", "Agree or disagree? Tell me below". Avoid "link in bio" (doesn't exist on LI) and "follow for more" (weak).\n`;
+      prompt += `- CTA (1-2 lines, its own paragraph): comment-triggering preferred (LinkedIn algorithm ranks comments highest). Examples: "Comment KEYWORD for the template", "Which slide hit hardest — drop a number", "Agree or disagree? Tell me below". Avoid "link in bio" (doesn't exist on LI) and "follow for more" (weak).\n`;
       prompt += `LENGTH: 150-450 words, sweet spot 220-320. Under 150 you under-delivered; over 450 and the time-poor reader is gone.\n`;
       prompt += `BAN LIST (instant rewrite if present): em dashes, hashtags (unless asked), rocket/target/fire emojis, "in today's competitive landscape", "leverage", "unlock", "game-changer", "dive in", "deep dive", "circle back", "Thanks for reading", "Hope this helps", "🚀 Excited to announce", numbered templates like "5 things every founder should know".\n`;
+      prompt += `WALL-OF-TEXT TEST: before submitting, count the line breaks in the caption. If your 250-word caption has fewer than 6 blank-line paragraph breaks, rewrite it. The caption must LOOK like a LinkedIn post on mobile, not an essay.\n`;
       prompt += `THE TEST: if the caption were published WITHOUT any slides, would it still be a post worth reading? If no, rewrite until yes.\n\n`;
       prompt += `=== LINKEDIN SLIDE BODY STANDARD (applies to each slide's body field) ===\n`;
-      prompt += `Each slide's body must carry real, specific value — 3-6 lines of substantive copy, NOT 2 generic lines. Treat each slide as one paragraph of a LinkedIn post: one clear idea, expanded with specificity (real numbers, concrete examples, named tools/frameworks, short anecdotes).\n`;
-      prompt += `BAD (too thin — will look like a filler slide on LI):\n  "Most teams waste budget on ads. Think before you spend."\n`;
-      prompt += `GOOD (LinkedIn-depth — substantive, specific, memorable):\n  "Most SaaS teams burn $30-50k on Facebook ads before noticing their landing page converts at 0.8%. The fix isn't more spend. It's rewriting the hero section with the CLEAR framework: Context, Lift, Evidence, Ask, Reinforce. A client ran this last quarter — CAC dropped from $420 to $180 in six weeks."\n`;
-      prompt += `Every middle slide should be that caliber: a paragraph you could pull out and post as a standalone tip.\n\n`;
+      prompt += `Each slide's body must carry real, specific value with LinkedIn-caliber substance. But write it as SCANNABLE SENTENCES, not a paragraph. The body field should use \\n (line breaks) to separate thoughts — one idea per line, the way a tweet reads.\n`;
+      prompt += `\n`;
+      prompt += `FORMAT:\n`;
+      prompt += `- Break the copy into 3-5 short lines. Each line is one sentence or one short thought.\n`;
+      prompt += `- Use \\n between lines. Use \\n\\n (blank line) between groups of related lines.\n`;
+      prompt += `- NOT a paragraph. If the body reads as prose, rewrite it with line breaks.\n`;
+      prompt += `- Max ~12 words per line. If a line is longer, split it.\n`;
+      prompt += `- Specificity mandatory: at least one number, named tool, timeline, or framework per middle slide.\n`;
+      prompt += `\n`;
+      prompt += `GOOD slide body (scannable, line-broken — DO THIS):\n`;
+      prompt += `  "Most SaaS teams burn $30-50k on Facebook ads.\\nMeanwhile their landing page converts at 0.8%.\\n\\nThe fix isn't more spend.\\nIt's rewriting the hero with the CLEAR framework.\\n\\nOne client ran this last quarter.\\nCAC dropped from $420 to $180 in six weeks."\n`;
+      prompt += `\n`;
+      prompt += `BAD slide body (paragraph-style — NEVER do this):\n`;
+      prompt += `  "Most SaaS teams burn $30-50k on Facebook ads before noticing their landing page converts at 0.8%. The fix isn't more spend, it's rewriting the hero with the CLEAR framework. A client ran this last quarter and their CAC dropped from $420 to $180 in six weeks."\n`;
+      prompt += `\n`;
+      prompt += `BAD slide body (too thin — NEVER do this):\n`;
+      prompt += `  "Most teams waste budget on ads. Think before you spend."\n\n`;
     }
   } else {
     prompt += `2. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
