@@ -104,6 +104,21 @@ export default function AiCeo() {
   const [hoveredCat, setHoveredCat] = useState(null);
   const [selectedCtxItems, setSelectedCtxItems] = useState(new Set());
   const [researchMode, setResearchMode] = useState(false);
+  // ── TEMP DEBUG ── A/B image-gen provider toggle. 'mentor' = current (gateway),
+  // 'gemini' = direct Google API. Persisted to localStorage so it survives reloads
+  // during testing. Delete this state + the toggle UI + the .provider arg below
+  // once we've decided which provider stays.
+  const [imgProvider, setImgProvider] = useState(() => {
+    if (typeof window === 'undefined') return 'mentor';
+    return localStorage.getItem('aiceo_img_provider') || 'mentor';
+  });
+  // Mirror to a ref so sendToAI's deep-closure handlers always read the
+  // current value without rebuilding the whole sendToAI useCallback.
+  const imgProviderRef = useRef('mentor');
+  useEffect(() => {
+    imgProviderRef.current = imgProvider;
+    if (typeof window !== 'undefined') localStorage.setItem('aiceo_img_provider', imgProvider);
+  }, [imgProvider]);
   const [searchStatus, setSearchStatus] = useState(null); // null | 'searching' | 'writing'
   const [currentQuestion, setCurrentQuestion] = useState(null); // { question, options }
   const [customTyping, setCustomTyping] = useState(false);
@@ -965,7 +980,8 @@ export default function AiCeo() {
           }
           if (name === 'generate_image') {
             try {
-              const result = await generateImage(args.prompt, 'general', null);
+              // TEMP DEBUG: forward the chat's chosen image-gen provider.
+              const result = await generateImage(args.prompt, 'general', null, null, { provider: imgProviderRef.current });
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                 setArtifact(prev => {
@@ -1176,6 +1192,60 @@ export default function AiCeo() {
             <History size={18} />
             <span className="ceo-prev-convos-label">Previous conversations</span>
           </button>
+
+          {/* ── TEMP DEBUG: image-gen provider A/B toggle ──
+              Lets us verify whether silent image failures are a Mentor
+              gateway issue or a Gemini policy issue. Persisted to
+              localStorage. Delete this block + the imgProvider state +
+              the .provider arg in the generate_image handler once we've
+              decided which provider stays. */}
+          <div
+            style={{
+              display: 'inline-flex',
+              gap: 6,
+              alignItems: 'center',
+              margin: '0 12px',
+              padding: '4px 8px',
+              background: 'rgba(255,200,0,0.15)',
+              border: '1px dashed rgba(200,150,0,0.5)',
+              borderRadius: 8,
+              fontSize: 11,
+              fontFamily: 'monospace',
+            }}
+            title="TEMPORARY — A/B switch between Mentor gateway and direct Gemini API for image generation."
+          >
+            <span style={{ color: '#a16207', fontWeight: 600 }}>img:</span>
+            <button
+              onClick={() => setImgProvider('mentor')}
+              style={{
+                background: imgProvider === 'mentor' ? '#a16207' : 'transparent',
+                color: imgProvider === 'mentor' ? '#fff' : '#a16207',
+                border: '1px solid #a16207',
+                borderRadius: 4,
+                padding: '2px 8px',
+                fontSize: 11,
+                fontFamily: 'monospace',
+                cursor: 'pointer',
+              }}
+            >
+              mentor
+            </button>
+            <button
+              onClick={() => setImgProvider('gemini')}
+              style={{
+                background: imgProvider === 'gemini' ? '#a16207' : 'transparent',
+                color: imgProvider === 'gemini' ? '#fff' : '#a16207',
+                border: '1px solid #a16207',
+                borderRadius: 4,
+                padding: '2px 8px',
+                fontSize: 11,
+                fontFamily: 'monospace',
+                cursor: 'pointer',
+              }}
+            >
+              gemini
+            </button>
+          </div>
 
           {/* Sessions overlay + panel */}
           {showSessions && (

@@ -8,6 +8,11 @@ const router = Router();
 const GEMINI_MODEL_FAST = 'gemini-3.1-flash-image-preview';
 const GEMINI_MODEL_PRO = 'gemini-3-pro-image-preview'; // Best text rendering + reasoning
 const GEMINI_BASE = (process.env.MENTOR_BASE_URL || 'https://platform.thementorprogram.xyz') + '/api/v1beta';
+// ── TEMP DEBUG ── A/B-test endpoint for going direct to Google's Gemini API
+// instead of through the Mentor gateway. Used by the temporary "Image gen
+// provider" toggle in the AI CEO chat header. Delete this constant + every
+// `provider === 'gemini'` branch once we know which one we're keeping.
+const GEMINI_DIRECT_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const GEMINI_TIMEOUT_MS = 90_000; // 90s for fast model
 const GEMINI_PRO_TIMEOUT_MS = 120_000; // 120s for pro model (more thinking time)
 
@@ -35,6 +40,14 @@ const supabase = createClient(
 function getApiKey() {
   const key = process.env.MENTOR_API_KEY;
   if (!key) throw new Error('MENTOR_API_KEY not configured');
+  return key;
+}
+
+// ── TEMP DEBUG ── pull the direct-Gemini key when the request asks for it.
+// Delete with the rest of the provider-switch code.
+function getGeminiDirectKey() {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error('GEMINI_API_KEY not configured (needed for direct provider)');
   return key;
 }
 
@@ -288,7 +301,12 @@ async function getCachedBrandData(userId) {
 
 // ─── Image generation ───
 router.post('/api/generate/image', requireCredits('image_generation'), async (req, res) => {
-  const { prompt, platform, brandData, referenceImages } = req.body;
+  // TEMP DEBUG: `provider` lets the AI CEO chat A/B between the Mentor
+  // gateway (default) and direct Gemini, to confirm whether silent image
+  // failures are a Mentor proxy issue or a Gemini policy issue. Remove
+  // this field + all branches once we've decided which provider stays.
+  const { prompt, platform, brandData, referenceImages, provider } = req.body;
+  const useDirectGemini = provider === 'gemini';
   if (!prompt) {
     return res.status(400).json({ error: 'prompt is required' });
   }
@@ -449,8 +467,14 @@ ${prompt}`;
       requestBody.tools = [{ google_search: {} }];
     }
 
+    // TEMP DEBUG: route to direct Gemini when the chat asked for it,
+    // otherwise default to the Mentor gateway path used everywhere else.
+    const baseForCall = useDirectGemini ? GEMINI_DIRECT_BASE : GEMINI_BASE;
+    const keyForCall = useDirectGemini ? getGeminiDirectKey() : apiKey;
+    console.log(`[generate/image] Provider: ${useDirectGemini ? 'GEMINI-DIRECT' : 'MENTOR'} (base=${baseForCall})`);
+
     const geminiRes = await fetch(
-      `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
+      `${baseForCall}/models/${model}:generateContent?key=${keyForCall}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -461,7 +485,7 @@ ${prompt}`;
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
-      console.log(`[generate/image] Gemini error: ${geminiRes.status} ${errText}`);
+      console.log(`[generate/image] ${useDirectGemini ? 'GEMINI-DIRECT' : 'MENTOR'} error: ${geminiRes.status} ${errText}`);
       return res.status(geminiRes.status).json({ error: errText });
     }
 
