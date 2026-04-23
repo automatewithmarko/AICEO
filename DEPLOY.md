@@ -43,10 +43,17 @@ git commit -m "…"
 git push origin dev
 
 # 3. deploy backend to Railway dev env — REQUIRED on every dev push
+#    ⚠️ MUST run from REPO ROOT, not from backend/. The aiceo-backend
+#    Railway service has Root Directory = "backend" configured, so the
+#    uploaded snapshot has to contain a top-level `backend/` directory.
+#    Running `railway up` from inside `backend/` produces a snapshot
+#    without that subdirectory and fails with:
+#       "Could not find root directory: backend"
+cd <repo-root>                  # NOT cd backend/
 railway status                  # confirm active env
 railway environment dev
 railway service aiceo-backend
-railway up --detach             # uploads local tree and deploys to dev env
+railway up --detach             # uploads repo tree (incl. backend/) and deploys to dev
 # Leave the CLI parked on `dev` afterwards. Default state is dev, not
 # production — this is the safety posture. Production deploys require
 # the user to explicitly switch envs; Claude never switches to prod.
@@ -68,6 +75,7 @@ git push origin main
 # 2. Netlify will auto-deploy main → aiceoproduction.netlify.app (frontend).
 # 3. Railway production backend stays on the OLD version until the user
 #    explicitly deploys it themselves. The user runs:
+#       cd <repo-root>            # NOT backend/ — Railway "Root Directory" is set to backend
 #       railway environment production
 #       railway service aiceo-backend
 #       railway up --detach
