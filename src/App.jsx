@@ -58,6 +58,8 @@ function App() {
         <Route path="/outlier-detector" element={<OutlierDetector />} />
         <Route path="/content-calendar" element={<ContentCalendar />} />
         <Route path="/marketing" element={<Marketing />} />
+        <Route path="/marketing/:tool" element={<Marketing />} />
+        <Route path="/marketing/:tool/:sessionId" element={<Marketing />} />
         <Route path="/inbox" element={<Inbox />} />
         <Route path="/sales" element={<Sales />} />
         <Route path="/products" element={<Products />} />
