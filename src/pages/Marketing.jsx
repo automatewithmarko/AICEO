@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Mail, Send, Users, BarChart3, Megaphone, Inbox, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2 } from 'lucide-react';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -1094,7 +1095,8 @@ function ImportTemplateModal({ open, onClose, activeTool, onImport }) {
   );
 }
 
-function ToolTab({ config, activeTool, brandDna }) {
+function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
+  const navigate = useNavigate();
   // Existing state
   const [chatInput, setChatInput] = useState('');
   const [splitPercent, setSplitPercent] = useState(50);
@@ -1263,37 +1265,32 @@ function ToolTab({ config, activeTool, brandDna }) {
           story_frames: storyFrames.length ? storyFrames : null,
           updated_at: new Date().toISOString(),
         };
-        if (sessionIdRef.current) {
-          const id = sessionIdRef.current;
-          const isCustom = customTitleIdsRef.current.has(id);
-          const finalPayload = isCustom ? payload : { ...payload, title };
-          const { error: updErr } = await supabase
-            .from('marketing_sessions')
-            .update(finalPayload)
-            .eq('id', id)
-            .eq('user_id', userId);
-          if (updErr) {
-            console.error('[marketing] session update failed:', updErr.message || updErr);
-            return;
-          }
-          setSessions((prev) => prev.map((s) =>
-            s.id === id ? { ...s, title: isCustom ? s.title : title, updated_at: payload.updated_at } : s
-          ));
-        } else {
-          const { data, error: insErr } = await supabase
-            .from('marketing_sessions')
-            .insert({ user_id: userId, tool: activeTool, title, ...payload })
-            .select('id, title, tool, updated_at')
-            .single();
-          if (insErr) {
-            console.error('[marketing] session insert failed:', insErr.message || insErr);
-            return;
-          }
-          if (data) {
-            sessionIdRef.current = data.id;
-            setSessionId(data.id);
-            setSessions((prev) => [data, ...prev.filter((s) => s.id !== data.id)]);
-          }
+        // sessionId is always set (newConversation + URL sync both pre-mint
+        // the uuid). Use upsert so the first save creates the row and
+        // subsequent saves update it — no separate insert/update branches.
+        const id = sessionIdRef.current;
+        if (!id) return;
+        const isCustom = customTitleIdsRef.current.has(id);
+        const finalPayload = isCustom
+          ? { id, user_id: userId, tool: activeTool, ...payload }
+          : { id, user_id: userId, tool: activeTool, title, ...payload };
+        const { data, error: upErr } = await supabase
+          .from('marketing_sessions')
+          .upsert(finalPayload, { onConflict: 'id' })
+          .select('id, title, tool, updated_at')
+          .single();
+        if (upErr) {
+          console.error('[marketing] session upsert failed:', upErr.message || upErr);
+          return;
+        }
+        if (data) {
+          setSessions((prev) => {
+            const existing = prev.find((s) => s.id === data.id);
+            if (existing) {
+              return prev.map((s) => s.id === data.id ? { ...s, title: isCustom ? s.title : data.title, updated_at: data.updated_at } : s);
+            }
+            return [data, ...prev];
+          });
         }
       } catch (err) {
         console.error('[marketing] autosave threw:', err?.message || err);
@@ -1304,13 +1301,25 @@ function ToolTab({ config, activeTool, brandDna }) {
   }, [chatMessages, canvasHtml, storyFrames, activeTool]);
 
   // ── Session lifecycle handlers ──
-  const loadSession = useCallback(async (id) => {
+  const loadSession = useCallback(async (id, { navigateToUrl = true } = {}) => {
     const { data, error } = await supabase
       .from('marketing_sessions')
       .select('*')
       .eq('id', id)
       .single();
-    if (error || !data) return;
+    if (error || !data) {
+      // Session doesn't exist (e.g. URL to a deleted session) — treat as a
+      // fresh conversation with this id so the user lands somewhere sane.
+      // Mirrors AiCeo's behaviour.
+      sessionIdRef.current = id;
+      setSessionId(id);
+      setChatMessages([]);
+      setMessages([]);
+      setCanvasHtml('');
+      setStoryFrames([]);
+      setCurrentQuestion(null);
+      return;
+    }
     sessionIdRef.current = data.id;
     setSessionId(data.id);
     setChatMessages(data.messages || []);
@@ -1322,11 +1331,18 @@ function ToolTab({ config, activeTool, brandDna }) {
     setCustomTyping(false);
     setCustomText('');
     setShowSessions(false);
-  }, []);
+    if (navigateToUrl) navigate(`/marketing/${activeTool}/${data.id}`, { replace: true });
+  }, [activeTool, navigate]);
 
   const newConversation = useCallback(() => {
-    sessionIdRef.current = null;
-    setSessionId(null);
+    // Mint the session uuid up front — mirrors AiCeo. This way the URL and any
+    // backend calls (artifact_versions, file-based edits) all agree from turn
+    // zero instead of waiting for the first autosave ~1.2s later.
+    const newId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `mkt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    sessionIdRef.current = newId;
+    setSessionId(newId);
     setChatMessages([]);
     setMessages([]);
     setCanvasHtml('');
@@ -1335,7 +1351,8 @@ function ToolTab({ config, activeTool, brandDna }) {
     setCustomTyping(false);
     setCustomText('');
     setShowSessions(false);
-  }, []);
+    navigate(`/marketing/${activeTool}/${newId}`, { replace: true });
+  }, [activeTool, navigate]);
 
   const startRenameSession = useCallback((s, e) => {
     e?.stopPropagation?.();
@@ -1371,6 +1388,22 @@ function ToolTab({ config, activeTool, brandDna }) {
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (sessionIdRef.current === id) newConversation();
   }, [confirmDeleteId, newConversation]);
+
+  // ── URL -> session sync ──
+  // When the :sessionId route param changes (direct URL, back/forward, refresh),
+  // load that session. When missing on mount, mint a fresh one so the URL and
+  // any backend calls (artifact_versions, file-based edits) agree from turn 0.
+  // Mirrors AiCeo.jsx.
+  useEffect(() => {
+    if (urlSessionId) {
+      if (urlSessionId !== sessionIdRef.current) {
+        loadSession(urlSessionId, { navigateToUrl: false });
+      }
+    } else if (!sessionIdRef.current) {
+      newConversation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSessionId]);
 
   // Cycle generating status text
   useEffect(() => {
@@ -2940,9 +2973,28 @@ function ToolTab({ config, activeTool, brandDna }) {
   );
 }
 
+const VALID_TOOLS = ['newsletter', 'landing', 'squeeze', 'story', 'leadmagnet', 'dm'];
+
 export default function Marketing() {
-  const [activeTab, setActiveTab] = useState('newsletter');
+  const { tool: urlTool, sessionId: urlSessionId } = useParams();
+  const navigate = useNavigate();
   const [brandDna, setBrandDna] = useState(null);
+
+  // URL is source of truth for which tool is active. If URL has no tool,
+  // default to newsletter and redirect so the URL stays honest.
+  const activeTab = VALID_TOOLS.includes(urlTool) ? urlTool : 'newsletter';
+  useEffect(() => {
+    if (!urlTool) {
+      navigate('/marketing/newsletter', { replace: true });
+    } else if (!VALID_TOOLS.includes(urlTool)) {
+      // Unknown tool in URL (typo, renamed tool) — redirect to newsletter.
+      navigate('/marketing/newsletter', { replace: true });
+    }
+  }, [urlTool, navigate]);
+
+  const handleTabClick = useCallback((tabId) => {
+    navigate(`/marketing/${tabId}`);
+  }, [navigate]);
 
   // Load Brand DNA once on mount
   useEffect(() => {
@@ -2971,7 +3023,7 @@ export default function Marketing() {
             <button
               key={tab.id}
               className={`marketing-tab ${activeTab === tab.id ? 'marketing-tab--active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabClick(tab.id)}
             >
               {tab.label}
             </button>
@@ -2979,7 +3031,13 @@ export default function Marketing() {
         )}
       </div>
       <div className="marketing-content">
-        <ToolTab config={TOOL_CONFIGS[activeTab]} activeTool={activeTab} brandDna={brandDna} key={activeTab} />
+        <ToolTab
+          config={TOOL_CONFIGS[activeTab]}
+          activeTool={activeTab}
+          brandDna={brandDna}
+          urlSessionId={urlSessionId}
+          key={activeTab}
+        />
       </div>
     </div>
   );
