@@ -1811,8 +1811,10 @@ function ToolTab({ config, activeTool, brandDna }) {
       if (abortRef.current) abortRef.current.abort();
     }, 180_000);
 
-    // Detect edit mode  -  canvas exists and not first message
-    const isEdit = canvasHtml && !isFirstMessage;
+    // Edit mode = we already have a canvas from a prior turn. canvasHtml is
+    // set only AFTER a successful generation, so empty canvas ⇒ first turn,
+    // any populated canvas ⇒ subsequent turn ⇒ edit.
+    const isEdit = !!canvasHtml;
 
     try {
       let fullContent = '';
