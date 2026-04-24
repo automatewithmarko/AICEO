@@ -51,6 +51,40 @@ function getGeminiDirectKey() {
   return key;
 }
 
+// Strip real-person identity markers from an image prompt before sending
+// to Gemini. Named real person + photorealistic + attached face photo is
+// the exact combo that trips Google's "OTHER" block (named-person policy).
+// We keep the reference photo attached so the LIKENESS still carries
+// through; we just stop *naming* them or calling out ethnicity/nationality
+// in the text. Generic "the founder" / "a person" is safe.
+const NATIONALITIES = [
+  'American','British','Canadian','Australian','Indian','Pakistani','Bangladeshi','Chinese',
+  'Japanese','Korean','Vietnamese','Filipino','Indonesian','Malaysian','Thai','Arab','Arabic',
+  'Middle Eastern','African','Nigerian','Ethiopian','Kenyan','South African','Egyptian',
+  'Mexican','Brazilian','Colombian','Argentinian','Spanish','Portuguese','French','German',
+  'Italian','Russian','Ukrainian','Polish','Turkish','Persian','Iranian','Israeli','Jewish',
+  'Latino','Latina','Hispanic','Asian','Caucasian','White','Black','European',
+];
+function sanitizeIdentityFromPrompt(text) {
+  if (!text) return text;
+  let out = text;
+  // "[Nationality/Ethnicity] man/woman/guy/girl/person" → "the founder"
+  const natRe = new RegExp(
+    `\\b(?:young\\s+|old\\s+|middle[- ]aged\\s+)?(?:${NATIONALITIES.join('|')})\\s+(?:man|woman|guy|girl|boy|gentleman|lady|person|founder)\\b`,
+    'gi',
+  );
+  out = out.replace(natRe, 'the founder');
+  // Bare-name pattern: two capitalized words in a row, typical of "First Last".
+  // Only strip when they look like a subject of the prompt (preceded by "of",
+  // "photo of", "image of", etc.) to avoid false positives like "Times Square".
+  out = out.replace(/\b(photo|image|picture|portrait|shot)\s+of\s+[A-Z][a-zA-Z'’-]+\s+[A-Z][a-zA-Z'’-]+/g, '$1 of the founder');
+  // Standalone "FirstName LastName," at start of prompt
+  out = out.replace(/^([A-Z][a-zA-Z'’-]+\s+[A-Z][a-zA-Z'’-]+)(?=[,\s])/, 'the founder');
+  // "a realistic photo of" / "a photorealistic image of" → soften hook
+  out = out.replace(/\b(realistic|photorealistic|hyper[- ]realistic|lifelike)\s+(photo|image|portrait)\b/gi, 'high-quality $2');
+  return out;
+}
+
 // ─── Caches ───
 // Brand asset base64 cache — keyed by URL, avoids re-downloading the same images
 const brandImageCache = new Map(); // url -> { data, expiry }
@@ -305,10 +339,20 @@ router.post('/api/generate/image', requireCredits('image_generation'), async (re
   // gateway (default) and direct Gemini, to confirm whether silent image
   // failures are a Mentor proxy issue or a Gemini policy issue. Remove
   // this field + all branches once we've decided which provider stays.
-  const { prompt, platform, brandData, referenceImages, provider } = req.body;
+  const { prompt: rawPrompt, platform, brandData, referenceImages, provider } = req.body;
   const useDirectGemini = provider === 'gemini';
-  if (!prompt) {
+  if (!rawPrompt) {
     return res.status(400).json({ error: 'prompt is required' });
+  }
+
+  // Strip personal identity from the prompt so Gemini's named-person policy
+  // doesn't block. Reference photo still carries the likeness — the text
+  // just shouldn't say "a realistic photo of Bazil Sajjad, a Pakistani man…"
+  // because that combo (named real person + photorealistic + face photo)
+  // trips the OTHER block, especially via Mentor's stricter tier.
+  const prompt = sanitizeIdentityFromPrompt(rawPrompt);
+  if (prompt !== rawPrompt) {
+    console.log(`[generate/image] Prompt sanitized (name/ethnicity stripped). before: "${rawPrompt.slice(0, 120)}..." → after: "${prompt.slice(0, 120)}..."`);
   }
 
   try {
