@@ -1229,6 +1229,17 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
   const sanitizeMessagesForSave = useCallback((list) => {
     return (list || [])
       .filter((m) => !m.isStatus)
+      // Drop assistant bubbles that have no text AND no images. These come
+      // from streams that were aborted mid-turn — if we persist them,
+      // loadSession re-hydrates the empty-content assistant, sendMessage
+      // forwards it to Anthropic, and Anthropic 400s with "assistant
+      // message must not be empty". User messages can never be empty
+      // (sendMessage requires text.trim()), so no role-specific check needed.
+      .filter((m) => {
+        const text = m.text || m.content || '';
+        const hasImages = Array.isArray(m.images) && m.images.length > 0;
+        return text.trim().length > 0 || hasImages;
+      })
       .map((m) => {
         const out = { id: m.id, role: m.role, text: m.text || m.content || '' };
         if (Array.isArray(m.images) && m.images.length) {
@@ -1322,9 +1333,17 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     }
     sessionIdRef.current = data.id;
     setSessionId(data.id);
-    setChatMessages(data.messages || []);
+    // Belt for old sessions saved before the empty-message filter: skip any
+    // empty-content assistants so a legacy aborted-turn row can't poison
+    // the next orchestrate call with an empty assistant that Anthropic 400s on.
+    const safeMessages = (data.messages || []).filter((m) => {
+      const text = m.text || m.content || '';
+      const hasImages = Array.isArray(m.images) && m.images.length > 0;
+      return text.trim().length > 0 || hasImages;
+    });
+    setChatMessages(safeMessages);
     // ApiMessages mirror chatMessages but without UI-only fields; rebuild.
-    setMessages((data.messages || []).map((m) => ({ role: m.role, content: m.text || m.content || '' })));
+    setMessages(safeMessages.map((m) => ({ role: m.role, content: m.text || m.content || '' })));
     setCanvasHtml(data.canvas_html || '');
     setStoryFrames(Array.isArray(data.story_frames) ? data.story_frames : []);
     setCurrentQuestion(null);
@@ -1858,6 +1877,15 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     try {
       let fullContent = '';
       let editHandled = false;
+      // Surface server-side errors that arrive as SSE 'error' events
+      // (e.g. upstream Anthropic abort, model timeout). streamFromBackend
+      // routes these through onError but resolves normally on [DONE],
+      // so without a flag the caller can't distinguish "completed cleanly
+      // with empty content" from "server aborted mid-turn". The former
+      // is a rare but valid no-op; the latter must NOT be persisted as
+      // an empty assistant message (Anthropic 400s on empty assistants
+      // in subsequent turns).
+      let streamError = null;
 
       await streamFromBackend('/api/orchestrate', {
         messages: newMessages,
@@ -1937,11 +1965,29 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         onSearchStatus: setSearchStatus,
         onError: (error) => {
           console.error('[marketing] Agent error:', error);
+          streamError = error || 'Upstream error';
         },
       }, abortRef.current.signal);
 
       // Remove status messages
       setChatMessages((prev) => prev.filter((m) => !m.isStatus));
+
+      // If the backend streamed an error event (e.g. upstream LLM aborted),
+      // treat the whole turn as failed: do NOT push anything to `messages`
+      // (an empty or partial assistant would poison the next turn) and
+      // surface a visible error message in the chat.
+      if (streamError && !editHandled) {
+        const msg = /abort/i.test(String(streamError))
+          ? "The model stopped responding mid-reply. Try again."
+          : /empty/i.test(String(streamError))
+          ? "The previous turn sent an empty message to the model. Start a new conversation to reset context."
+          : `Something went wrong on the model side: ${String(streamError).slice(0, 160)}`;
+        setChatMessages((prev) => [
+          ...prev.filter((m) => !m.isStatus),
+          { id: `msg-${Date.now()}-srverr`, role: 'assistant', text: msg },
+        ]);
+        return;
+      }
 
       // If the backend handled this as a file-based edit, we're done
       if (editHandled) {
@@ -1949,6 +1995,18 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       } else {
         // Parse the final response
         const parsed = tryParseAIResponse(fullContent);
+        // Guard: never persist an empty assistant into `messages`. An empty
+        // content field gets forwarded to Anthropic on the next turn, which
+        // rejects with 400 "assistant message must not be empty" and then
+        // the whole session is stuck. If the stream closed cleanly with no
+        // content AND no canvas update, surface a retry message instead.
+        if (!fullContent || !fullContent.trim()) {
+          setChatMessages((prev) => [
+            ...prev.filter((m) => !m.isStatus),
+            { id: `msg-${Date.now()}-empty`, role: 'assistant', text: "The AI didn't produce a response. Please try again." },
+          ]);
+          return;
+        }
         const assistantMsg = { role: 'assistant', content: fullContent };
         setMessages((prev) => [...prev, assistantMsg]);
 
