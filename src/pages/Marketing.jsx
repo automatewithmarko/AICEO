@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Mail, Send, Users, BarChart3, Megaphone, Inbox, FileText, PenTool, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2 } from 'lucide-react';
+import { Mail, Send, Users, BarChart3, Megaphone, Inbox, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2 } from 'lucide-react';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
-import { generateImage, uploadImageToStorage, deployToNetlify, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate } from '../lib/api';
 import AutomationGraph from '../components/AutomationGraph';
+import NetlifyDeployButton from '../components/NetlifyDeployButton';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
@@ -1166,8 +1167,7 @@ function ToolTab({ config, activeTool, brandDna }) {
   const [bsTemplates, setBsTemplates] = useState([]);
   const [bsTemplatesLoading, setBsTemplatesLoading] = useState(false);
   const [dmGraphData, setDmGraphData] = useState(null); // { nodes, edges }
-  const [deploying, setDeploying] = useState(false);
-  const [deployResult, setDeployResult] = useState(null); // { url, site_name }
+  const [deployResult, setDeployResult] = useState(null); // { url, site_name } — set by <NetlifyDeployButton onDeployed>, used for "Redeploy" label + banner
   const [sendModalOpen, setSendModalOpen] = useState(false);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [importTemplateOpen, setImportTemplateOpen] = useState(false);
@@ -2264,29 +2264,6 @@ function ToolTab({ config, activeTool, brandDna }) {
     navigator.clipboard.writeText(canvasHtml);
   };
 
-  const handleNetlifyDeploy = async () => {
-    if (!canvasHtml || deploying) return;
-    setDeploying(true);
-    setDeployResult(null);
-    try {
-      const result = await deployToNetlify(canvasHtml);
-      setDeployResult(result);
-      setChatMessages((prev) => [...prev, {
-        id: `msg-${Date.now()}-deploy`,
-        role: 'assistant',
-        text: `Deployed to Netlify! Your page is live at ${result.url}`,
-      }]);
-    } catch (err) {
-      setChatMessages((prev) => [...prev, {
-        id: `msg-${Date.now()}-deploy-err`,
-        role: 'assistant',
-        text: `Deploy failed: ${err.message}`,
-      }]);
-    } finally {
-      setDeploying(false);
-    }
-  };
-
   // Cleanup abort on unmount
   useEffect(() => {
     return () => {
@@ -2381,8 +2358,6 @@ function ToolTab({ config, activeTool, brandDna }) {
             <GhostCard className="mkt-ghost--4" icon={<BarChart3 size={18} />} lines={['95%', '60%', '80%']} />
             <GhostCard className="mkt-ghost--5" icon={<Megaphone size={18} />} lines={['75%', '50%', '65%']} />
             <GhostCard className="mkt-ghost--6" icon={<Inbox size={18} />} lines={['85%', '55%', '70%']} />
-            <GhostCard className="mkt-ghost--7" icon={<FileText size={18} />} lines={['60%', '90%', '45%']} />
-            <GhostCard className="mkt-ghost--8" icon={<PenTool size={18} />} lines={['75%', '65%', '85%']} />
             <div className="mkt-center-cta">
               <img src="/our-square-logo.png" alt="Logo" className="mkt-center-logo" />
               <p className="mkt-center-text">
@@ -2726,14 +2701,28 @@ function ToolTab({ config, activeTool, brandDna }) {
                     )}
                   </div>
                 ) : action.isNetlifyDeploy ? (
-                  <button
+                  <NetlifyDeployButton
                     key={i}
-                    className={`mkt-canvas-btn mkt-canvas-btn--netlify${deploying ? ' mkt-canvas-btn--loading' : ''}`}
-                    onClick={handleNetlifyDeploy}
-                    disabled={!canvasHtml || deploying}
-                  >
-                    {deploying ? 'Deploying...' : deployResult ? 'Redeploy' : 'Deploy to Netlify'}
-                  </button>
+                    getHtml={() => canvasHtml}
+                    titleHint={config.label || activeTool}
+                    disabled={!canvasHtml}
+                    className="mkt-canvas-btn mkt-canvas-btn--netlify"
+                    label={deployResult ? 'Redeploy' : 'Deploy to Netlify'}
+                    loadingLabel="Deploying..."
+                    onDeployed={(url) => {
+                      setDeployResult({ url });
+                      setChatMessages((prev) => [...prev, {
+                        id: `msg-${Date.now()}-deploy`,
+                        role: 'assistant',
+                        text: `Deployed to Netlify! Your page is live at ${url}`,
+                      }]);
+                    }}
+                    onError={(msg) => setChatMessages((prev) => [...prev, {
+                      id: `msg-${Date.now()}-deploy-err`,
+                      role: 'assistant',
+                      text: `Deploy failed: ${msg}`,
+                    }])}
+                  />
                 ) : (
                   <button
                     key={i}
