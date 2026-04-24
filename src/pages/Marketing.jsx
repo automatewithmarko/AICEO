@@ -2068,14 +2068,37 @@ function ToolTab({ config, activeTool, brandDna }) {
       } // end !editHandled
     } catch (err) {
       if (err.name !== 'AbortError') {
+        let errText = 'Something went wrong. Please try again.';
+        if (err.code === 'STREAM_TIMEOUT' || err.message === 'STREAM_TIMEOUT' || err.message?.includes('idle')) {
+          errText = "The AI didn't respond within 90 seconds. The model may be overloaded — please try again.";
+        } else if (err.message?.includes('402') || err.message?.toLowerCase().includes('credits') || err.message?.toLowerCase().includes('insufficient')) {
+          errText = "You're out of credits. Top up in Billing to keep going.";
+        }
         setChatMessages((prev) => [
           ...prev.filter((m) => !m.isStatus),
-          { id: `msg-${Date.now()}-err`, role: 'assistant', text: 'Something went wrong. Please try again.' },
+          { id: `msg-${Date.now()}-err`, role: 'assistant', text: errText },
         ]);
       }
     } finally {
       clearTimeout(timeoutId);
       setIsGenerating(false);
+      // Safety net (ported from Content.jsx): the stream can close cleanly
+      // without the backend ever emitting a file_update / edit_summary /
+      // agent_chunk that we know how to render. Without this, the UI sits
+      // on the rotating "thinking / analyzing…" loader forever because the
+      // spinner ends but no assistant bubble ever lands for this turn.
+      // If we reach here and the chat still has no non-status assistant
+      // message for this turn, surface an explicit "no response" line so
+      // the user can retry instead of staring at an empty thread.
+      setChatMessages((prev) => {
+        const cleaned = prev.filter((m) => !m.isStatus);
+        const last = cleaned[cleaned.length - 1];
+        if (last?.role === 'assistant') return cleaned;
+        return [
+          ...cleaned,
+          { id: `msg-${Date.now()}-noresp`, role: 'assistant', text: "The AI didn't produce a response. Please try again." },
+        ];
+      });
     }
   }, [messages, isGenerating, selectedItems, uploadedFiles, canvasHtml, config, activeTool, brandDna, researchMode]);
 
