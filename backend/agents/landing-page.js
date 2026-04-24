@@ -891,6 +891,10 @@ export default {
   provider: 'anthropic',
   model: 'claude-sonnet-4-20250514',
   maxTokens: 16000,
+  // Large landing-page HTML generations can go >60s before Anthropic emits
+  // the first token (long system prompt + brand context + multi-turn
+  // history). Bump the stream-idle watchdog so we don't abort mid-reply.
+  streamIdleTimeoutMs: 180_000,
   externalUrl: process.env.LANDING_AGENT_URL || 'https://landing-page-agent-production-b414.up.railway.app',
 
   buildSystemPrompt(brandDna) {
