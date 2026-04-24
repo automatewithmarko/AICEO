@@ -1975,13 +1975,18 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       // If the backend streamed an error event (e.g. upstream LLM aborted),
       // treat the whole turn as failed: do NOT push anything to `messages`
       // (an empty or partial assistant would poison the next turn) and
-      // surface a visible error message in the chat.
+      // surface a user-friendly message in the chat.
       if (streamError && !editHandled) {
-        const msg = /abort/i.test(String(streamError))
-          ? "The model stopped responding mid-reply. Try again."
-          : /empty/i.test(String(streamError))
-          ? "The previous turn sent an empty message to the model. Start a new conversation to reset context."
-          : `Something went wrong on the model side: ${String(streamError).slice(0, 160)}`;
+        const raw = String(streamError);
+        const msg = /idle for \d+s|stream idle|aborted/i.test(raw)
+          ? "The AI took too long to reply and I stopped waiting. It's usually a hiccup on the model's side — please try again. If this keeps happening, start a new conversation."
+          : /empty|must not be empty|position \d+ with role/i.test(raw)
+          ? "This conversation picked up a bad message earlier and the model won't accept it. Please click \"New\" to start fresh — your drafts in the canvas are saved."
+          : /rate.?limit|429/i.test(raw)
+          ? "We're being rate-limited by the model right now. Give it a minute and try again."
+          : /402|credits|insufficient/i.test(raw)
+          ? "You're out of credits. Top up in Billing to keep going."
+          : "Something went wrong on the model's side. Please try again.";
         setChatMessages((prev) => [
           ...prev.filter((m) => !m.isStatus),
           { id: `msg-${Date.now()}-srverr`, role: 'assistant', text: msg },
@@ -2210,10 +2215,15 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       } // end !editHandled
     } catch (err) {
       if (err.name !== 'AbortError') {
+        const raw = err.message || '';
         let errText = 'Something went wrong. Please try again.';
-        if (err.code === 'STREAM_TIMEOUT' || err.message === 'STREAM_TIMEOUT' || err.message?.includes('idle')) {
-          errText = "The AI didn't respond within 90 seconds. The model may be overloaded — please try again.";
-        } else if (err.message?.includes('402') || err.message?.toLowerCase().includes('credits') || err.message?.toLowerCase().includes('insufficient')) {
+        if (err.code === 'STREAM_TIMEOUT' || raw === 'STREAM_TIMEOUT' || /idle|Connection idle/i.test(raw)) {
+          errText = "The AI took too long to reply and I stopped waiting. It's usually a hiccup on the model's side — please try again.";
+        } else if (/empty|must not be empty|position \d+ with role/i.test(raw)) {
+          errText = "This conversation picked up a bad message earlier and the model won't accept it. Please click \"New\" to start fresh — your drafts in the canvas are saved.";
+        } else if (/rate.?limit|429/i.test(raw)) {
+          errText = "We're being rate-limited by the model right now. Give it a minute and try again.";
+        } else if (/402|credits|insufficient/i.test(raw)) {
           errText = "You're out of credits. Top up in Billing to keep going.";
         }
         setChatMessages((prev) => [
@@ -2425,9 +2435,8 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       {/* Left  -  chat area */}
       <div className="mkt-split-left" style={{ flex: `0 0 ${splitPercent}%` }}>
 
-        {/* Top bar — Previous conversations button + New. Matches
-            the Content tab pattern so users have consistent access
-            to session history across the app. */}
+        {/* Floating top bar — always visible (position:absolute, high z-index)
+            so Previous Conversations access never disappears when a chat opens. */}
         <div className="mkt-chat-topbar">
           <button
             type="button"
