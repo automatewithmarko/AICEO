@@ -1816,6 +1816,12 @@ function ToolTab({ config, activeTool, brandDna }) {
     // any populated canvas ⇒ subsequent turn ⇒ edit.
     const isEdit = !!canvasHtml;
 
+    // Unique per-turn assistant message id so the backend can tag file-based
+    // edits, artifact versions, and logs against the specific chat turn.
+    // Mirrors AiCeo's pattern. sessionId comes from the current marketing
+    // session (or null on the very first turn before autosave mints one).
+    const assistantMsgId = `msg-${Date.now()}-ai`;
+
     try {
       let fullContent = '';
       let editHandled = false;
@@ -1825,6 +1831,8 @@ function ToolTab({ config, activeTool, brandDna }) {
         mode: 'direct',
         agent: activeTool,
         searchMode: researchMode,
+        sessionId: sessionIdRef.current || null,
+        assistantMsgId,
         ...(isEdit ? { currentHtml: canvasHtml, editInstruction: text.trim() } : {}),
       }, {
         onAgentChunk: (_agentName, chunk) => {
