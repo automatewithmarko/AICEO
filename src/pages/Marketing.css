@@ -1712,6 +1712,34 @@
   background: rgba(0, 0, 0, 0.75);
 }
 
+/* Story replace-with-upload button — sits just below the pencil edit btn */
+.sp-replace-btn {
+  position: absolute;
+  top: 64px;
+  right: 8px;
+  z-index: 9;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.sp-phone:hover .sp-replace-btn {
+  opacity: 1;
+}
+
+.sp-replace-btn:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
 /* Story edit input bar */
 .sp-edit-bar {
   position: absolute;
@@ -2658,10 +2686,13 @@
   color: var(--brand-red);
 }
 
-/* ── Chat history — sticky top bar (always visible, in flex flow) ── */
+/* ── Chat history — sticky top bar (always visible, in flex flow) ──
+   z-index 30 sits ABOVE .marketing-tab--active (z:3) and the global app
+   .topbar (z:20) so the chrome-tab bleed (margin-bottom: -1px) and any
+   floating mobile header cannot overlap the Previous Conversations button. */
 .mkt-chat-topbar {
   position: relative;
-  z-index: 10;
+  z-index: 30;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -2670,6 +2701,10 @@
   padding: 10px 16px;
   background: #fff;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  /* Solid background + subtle drop shadow so the topbar reads as its own
+     surface even when the active chrome tab visually merges with the
+     content area below. */
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
 }
 .mkt-prev-convos {
   display: inline-flex;
