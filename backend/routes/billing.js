@@ -96,11 +96,23 @@ router.get('/api/billing/plan', async (req, res) => {
         // Funnel state — drives which onboarding screen App.jsx renders.
         // null on fresh signups, set by webhook (setup) and POST
         // /meeting/booked (meeting). Legacy users were backfilled in the
-        // add_funnel_state_columns migration.
+        // add_funnel_state_columns + expand_funnel_backfill migrations.
         setup_paid_at: sub.setup_paid_at || null,
         meeting_booked_at: sub.meeting_booked_at || null,
-        has_active_monthly: !!sub.stripe_subscription_id
-          && ['active', 'canceling', 'trialing', 'past_due'].includes(sub.status),
+        // Funnel-done flag. Two cases:
+        //   1. Real Stripe-backed monthly sub is live (the post-funnel
+        //      steady state for any new customer).
+        //   2. Legacy "grandfather" — status='active' row that predates
+        //      the funnel and was backfilled by the migration. May lack
+        //      stripe_subscription_id (phantom rows from the old
+        //      AuthContext.signup) but the user still expects "I had a
+        //      plan" to mean "let me into the app".
+        // Mid-funnel users have status='setup_paid' and therefore don't
+        // match either branch — they continue through the steps.
+        has_active_monthly:
+          (!!sub.stripe_subscription_id
+            && ['active', 'canceling', 'trialing', 'past_due'].includes(sub.status))
+          || (sub.status === 'active' && !!sub.setup_paid_at),
       } : null,
       credits: {
         balance: creditRow?.balance ?? 0,
