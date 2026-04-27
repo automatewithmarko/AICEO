@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Mail, Send, Users, BarChart3, Megaphone, Inbox, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2 } from 'lucide-react';
+import { Mail, Send, Users, BarChart3, Megaphone, Inbox, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2, Upload } from 'lucide-react';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
@@ -128,6 +128,7 @@ RULES FOR STORY SEQUENCES:
     emptyText: 'Your story sequence will appear here',
     readyText: 'Your story sequence is ready! Check the canvas on the right.',
     canvasActions: [
+      { label: 'Upload Images', style: 'outline', isUploadStoryImages: true },
       { label: 'Download All', style: 'outline' },
       { label: 'Schedule Stories', style: 'primary' },
     ],
@@ -331,11 +332,13 @@ function GhostCard({ icon, lines, className }) {
 // Context categories are now fetched dynamically inside ToolTab
 
 // ── Story Sequence Phone Viewer ──
-function StoryPhoneViewer({ frames, onEditFrame }) {
+function StoryPhoneViewer({ frames, onEditFrame, onReorderFrames }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [editingIdx, setEditingIdx] = useState(null);
   const [editPrompt, setEditPrompt] = useState('');
+  const [dragIdx, setDragIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
   const timerRef = useRef(null);
   const touchStartRef = useRef(null);
   const DURATION = 5000;
@@ -424,12 +427,12 @@ function StoryPhoneViewer({ frames, onEditFrame }) {
           </button>
         )}
 
-        {/* Edit button  -  top right */}
+        {/* Edit button (AI re-draw via prompt)  -  top right */}
         {frame.imageSrc && !frame.loading && !frame.editing && onEditFrame && (
           <button
             className="sp-edit-btn"
             onClick={(e) => { e.stopPropagation(); setEditingIdx(activeIndex); setEditPrompt(''); }}
-            title="Edit this frame"
+            title="Edit this frame with a prompt"
           >
             <Pencil size={14} />
           </button>
@@ -481,6 +484,50 @@ function StoryPhoneViewer({ frames, onEditFrame }) {
           </div>
         )}
       </div>
+
+      {/* Thumbnail strip — click to navigate, drag-and-drop to reorder. */}
+      {total > 1 && onReorderFrames && (
+        <div className="sp-thumbs">
+          {frames.map((f, i) => (
+            <div
+              key={i}
+              className={`sp-thumb${i === activeIndex ? ' sp-thumb--active' : ''}${dragOverIdx === i && dragIdx !== null && dragIdx !== i ? ' sp-thumb--drop' : ''}`}
+              draggable
+              onClick={() => setActiveIndex(i)}
+              onDragStart={(e) => {
+                setDragIdx(i);
+                // Firefox needs effectAllowed + setData for drag to fire.
+                e.dataTransfer.effectAllowed = 'move';
+                try { e.dataTransfer.setData('text/plain', String(i)); } catch { /* ignore */ }
+              }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverIdx(i); }}
+              onDragLeave={() => setDragOverIdx((cur) => (cur === i ? null : cur))}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragIdx === null || dragIdx === i) { setDragIdx(null); setDragOverIdx(null); return; }
+                onReorderFrames(dragIdx, i);
+                // Keep the user's selection on the dragged frame after the move.
+                setActiveIndex(i);
+                setDragIdx(null);
+                setDragOverIdx(null);
+              }}
+              onDragEnd={() => { setDragIdx(null); setDragOverIdx(null); }}
+              title={`Frame ${i + 1}${f.caption ? ' — ' + f.caption : ''}`}
+            >
+              {f.imageSrc ? (
+                <img src={f.imageSrc} alt="" className="sp-thumb-img" />
+              ) : f.error ? (
+                <div className="sp-thumb-placeholder sp-thumb-placeholder--err">!</div>
+              ) : (
+                <div className="sp-thumb-placeholder">
+                  <span className="mkt-msg-dots"><span /><span /><span /></span>
+                </div>
+              )}
+              <span className="sp-thumb-num">{i + 1}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2352,6 +2399,39 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     }
   }, [storyFrames]);
 
+  // Append uploaded image files as new story frames. No AI involvement —
+  // each file becomes its own frame at the end of the sequence with an
+  // empty caption (user can re-edit later via the pencil button).
+  const storyUploadInputRef = useRef(null);
+  const handleUploadStoryImages = useCallback((files) => {
+    const list = Array.from(files || []).filter((f) => f && f.type.startsWith('image/'));
+    if (list.length === 0) return;
+    Promise.all(list.map((file) => new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    }))).then((dataUrls) => {
+      const newFrames = dataUrls
+        .filter(Boolean)
+        .map((dataUrl) => ({ title: '', caption: '', image_prompt: '', imageSrc: dataUrl, loading: false }));
+      if (newFrames.length === 0) return;
+      setStoryFrames((prev) => [...prev, ...newFrames]);
+    });
+  }, []);
+
+  // Reorder story frames by moving frame at fromIdx into toIdx position.
+  // Used by the thumbnail drag-and-drop in StoryPhoneViewer.
+  const handleReorderStoryFrames = useCallback((fromIdx, toIdx) => {
+    setStoryFrames((prev) => {
+      if (fromIdx < 0 || toIdx < 0 || fromIdx >= prev.length || toIdx >= prev.length || fromIdx === toIdx) return prev;
+      const next = prev.slice();
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  }, []);
+
   const handleCopyCode = () => {
     if (!canvasHtml) return;
     navigator.clipboard.writeText(canvasHtml);
@@ -2833,6 +2913,29 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
                       text: `Deploy failed: ${msg}`,
                     }])}
                   />
+                ) : action.isUploadStoryImages ? (
+                  <span key={i} className="mkt-canvas-upload-anchor">
+                    <button
+                      className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
+                      onClick={() => storyUploadInputRef.current?.click()}
+                      title="Upload one or more images as new story frames"
+                    >
+                      <Upload size={14} />
+                      {action.label}
+                    </button>
+                    <input
+                      ref={storyUploadInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const files = e.target.files;
+                        e.target.value = ''; // allow re-picking the same files
+                        handleUploadStoryImages(files);
+                      }}
+                    />
+                  </span>
                 ) : (
                   <button
                     key={i}
@@ -2877,7 +2980,11 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
             sandbox="allow-same-origin allow-scripts"
           />
           {config.canvasEmptyType === 'story-sequence' && storyFrames.length > 0 && (
-            <StoryPhoneViewer frames={storyFrames} onEditFrame={handleEditStoryFrame} />
+            <StoryPhoneViewer
+              frames={storyFrames}
+              onEditFrame={handleEditStoryFrame}
+              onReorderFrames={handleReorderStoryFrames}
+            />
           )}
           {config.canvasEmptyType === 'story-sequence' && storyFrames.length === 0 && !canvasHtml && (
             <div className="mkt-canvas-empty mkt-canvas-empty--story">
