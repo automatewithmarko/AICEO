@@ -185,27 +185,41 @@ export default function OnboardingFunnel() {
     return 'setup';
   }, [sub]);
 
-  if (stepKey === 'done') return null;
+  // Only return null when we're CERTAIN the user is past the funnel —
+  // i.e. stepKey says done AND we're not still polling for a post-
+  // checkout state update. While polling, sub may still be the stale
+  // pre-payment snapshot from AuthContext, and rendering null there
+  // would briefly expose the dashboard underneath even though the
+  // user just paid setup and is about to be routed to the booking
+  // step. Keep the funnel mounted (with a loading banner) until
+  // polling settles.
+  if (stepKey === 'done' && !loadingState) return null;
 
   return (
     <div className="of-backdrop">
       <div className="of-stepper">
-        <Stepper current={stepKey} />
-        {loadingState && (
-          <div className="of-banner">
-            <Loader2 size={16} className="of-spinner" />
-            <span>Finalising your last payment… this usually takes a few seconds.</span>
+        <Stepper current={loadingState ? 'setup' : stepKey} />
+        {loadingState ? (
+          <div className="of-finalising">
+            <Loader2 size={28} className="of-spinner" />
+            <h2 className="of-finalising-title">Finalising your last payment…</h2>
+            <p className="of-finalising-sub">
+              This usually takes a few seconds. Please don't close this tab.
+            </p>
           </div>
-        )}
-        {stepKey === 'setup' && <SetupPlanPicker />}
-        {stepKey === 'meeting' && (
-          <BookingPage
-            plan={sub?.plan || 'complete'}
-            onBooked={(updatedSub) => setSub(updatedSub)}
-          />
-        )}
-        {stepKey === 'monthly' && (
-          <MonthlySubPicker plan={sub?.plan || 'complete'} />
+        ) : (
+          <>
+            {stepKey === 'setup' && <SetupPlanPicker />}
+            {stepKey === 'meeting' && (
+              <BookingPage
+                plan={sub?.plan || 'complete'}
+                onBooked={(updatedSub) => setSub(updatedSub)}
+              />
+            )}
+            {stepKey === 'monthly' && (
+              <MonthlySubPicker plan={sub?.plan || 'complete'} />
+            )}
+          </>
         )}
       </div>
     </div>

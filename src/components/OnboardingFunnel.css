@@ -504,6 +504,43 @@
   color: var(--brand-red-hover, #c71538);
 }
 
+/* ── Full-screen "Finalising your last payment" view ──
+   Shown while the funnel polls /api/billing/plan after a Stripe
+   checkout return. Replaces the step UI entirely so the user can't
+   accidentally interact with stale state, and prevents the dashboard
+   from flashing through if the funnel briefly thinks the user is
+   "done" against pre-payment AuthContext data. */
+.of-finalising {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  text-align: center;
+  padding: 40px 20px;
+  gap: 16px;
+}
+
+.of-finalising .of-spinner {
+  color: var(--brand-red, #e91a44);
+}
+
+.of-finalising-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #1a1a2e;
+  margin: 12px 0 0;
+  letter-spacing: -0.3px;
+}
+
+.of-finalising-sub {
+  font-size: 14px;
+  color: #6b7280;
+  max-width: 360px;
+  margin: 0;
+  line-height: 1.5;
+}
+
 /* ── Banner shown while polling after Stripe checkout return ── */
 .of-banner {
   display: flex;
