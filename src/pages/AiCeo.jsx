@@ -104,6 +104,21 @@ export default function AiCeo() {
   const [hoveredCat, setHoveredCat] = useState(null);
   const [selectedCtxItems, setSelectedCtxItems] = useState(new Set());
   const [researchMode, setResearchMode] = useState(false);
+  // ── TEMP DEBUG ── A/B image-gen provider toggle. 'mentor' = current (gateway),
+  // 'gemini' = direct Google API. Persisted to localStorage so it survives reloads
+  // during testing. Delete this state + the toggle UI + the .provider arg below
+  // once we've decided which provider stays.
+  const [imgProvider, setImgProvider] = useState(() => {
+    if (typeof window === 'undefined') return 'mentor';
+    return localStorage.getItem('aiceo_img_provider') || 'mentor';
+  });
+  // Mirror to a ref so sendToAI's deep-closure handlers always read the
+  // current value without rebuilding the whole sendToAI useCallback.
+  const imgProviderRef = useRef('mentor');
+  useEffect(() => {
+    imgProviderRef.current = imgProvider;
+    if (typeof window !== 'undefined') localStorage.setItem('aiceo_img_provider', imgProvider);
+  }, [imgProvider]);
   const [searchStatus, setSearchStatus] = useState(null); // null | 'searching' | 'writing'
   const [currentQuestion, setCurrentQuestion] = useState(null); // { question, options }
   const [customTyping, setCustomTyping] = useState(false);
@@ -531,6 +546,13 @@ export default function AiCeo() {
     const assistantMsgId = `msg-${Date.now()}-ai`;
     setMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', content: '', hasArtifact: false }]);
 
+    // TEMP DEBUG — track which tools actually fired this turn so we can
+    // detect when the orchestrator wrote text claiming an image but never
+    // emitted a generate_image tool call (the silent-image bug).
+    const firedTools = [];
+    const turnStart = Date.now();
+    console.log(`[AiCeo] ▶ turn start — provider=${imgProviderRef.current}, msgId=${assistantMsgId}`);
+
     try {
       const abort = new AbortController();
       abortRef.current = abort;
@@ -949,6 +971,8 @@ export default function AiCeo() {
         },
         // Direct tool calls (create_artifact, generate_image)
         onToolCall: async (name, args) => {
+          firedTools.push(name);
+          console.log(`[AiCeo] 🔧 tool_call: ${name}`, args);
           if (name === 'create_artifact') {
             setArtifact({
               id: Date.now(),
@@ -964,8 +988,12 @@ export default function AiCeo() {
             ));
           }
           if (name === 'generate_image') {
+            const provider = imgProviderRef.current;
+            console.log(`[AiCeo] 🖼  generate_image START — provider=${provider}, prompt="${(args.prompt || '').slice(0, 120)}..."`);
             try {
-              const result = await generateImage(args.prompt, 'general', null);
+              // TEMP DEBUG: forward the chat's chosen image-gen provider.
+              const result = await generateImage(args.prompt, 'general', null, null, { provider });
+              console.log(`[AiCeo] 🖼  generate_image RESULT — image: ${!!result.image}, text: ${result.text ? `"${result.text.slice(0, 100)}"` : '<none>'}`, result);
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                 setArtifact(prev => {
@@ -975,9 +1003,17 @@ export default function AiCeo() {
                   if (isMobileRef.current) setMobileArtifactOpen(true);
                   return newArt;
                 });
+                // Flag the assistant message so the "Open preview" artifact
+                // card renders — gives the user a way back to the image
+                // panel after they close it.
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantMsgId
+                    ? { ...m, hasArtifact: true, artifactTitle: 'Open preview', artifactType: 'content_post' }
+                    : m
+                ));
               }
             } catch (e) {
-              console.error('Image gen error:', e);
+              console.error(`[AiCeo] 🖼  generate_image ERROR — provider=${provider}:`, e);
             }
           }
         },
@@ -1036,6 +1072,31 @@ export default function AiCeo() {
         pendingImagesRef.current = [];
         await Promise.allSettled(pending);
       }
+
+      // TEMP DEBUG — turn-end summary + hallucination detector. If the
+      // assistant's text mentions an image but generate_image never fired,
+      // the orchestrator hallucinated the tool call. Surface a warning to
+      // the user inline and shout in the console so we can grep it.
+      let finalContent = '';
+      setMessages(prev => {
+        const m = prev.find((x) => x.id === assistantMsgId);
+        finalContent = m?.content || '';
+        return prev;
+      });
+      const elapsed = Date.now() - turnStart;
+      console.log(`[AiCeo] ◀ turn end — ${elapsed}ms, tools=[${firedTools.join(', ') || 'none'}], textLen=${finalContent.length}`);
+      const imageWords = /(image panel|image is ready|generated (the |an? )?image|here'?s your image|made you (an? )?image|check the (image|panel|canvas)|image attached|image below)/i;
+      const claimedImage = imageWords.test(finalContent);
+      const actuallyMade = firedTools.includes('generate_image');
+      if (claimedImage && !actuallyMade) {
+        console.warn(`[AiCeo] ⚠️ HALLUCINATED IMAGE — assistant text claims an image but generate_image was never called. provider=${imgProviderRef.current}. Text: "${finalContent.slice(0, 300)}"`);
+        setMessages(prev => prev.map(m =>
+          m.id === assistantMsgId
+            ? { ...m, content: (m.content || '') + '\n\n_[debug: model claimed it generated an image but never called the tool — try again or switch provider]_' }
+            : m
+        ));
+      }
+
       askUserFiredRef.current = false;
       setIsGenerating(false);
     }
@@ -1158,6 +1219,63 @@ export default function AiCeo() {
       </div>
     );
   }
+
+  // ── TEMP DEBUG: image-gen provider toggle (mentor vs direct Gemini) ──
+  // Compact pill that lives in the input toolbar next to "Research".
+  // Persists in localStorage. Delete this + imgProvider state + the
+  // .provider arg in generate_image once we've decided which provider stays.
+  const imgProviderToggle = (
+    <div
+      className="ceo-imgprov-toggle"
+      title="Image-gen provider (debug A/B): Mentor gateway vs direct Google Gemini"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '2px 4px 2px 8px',
+        background: 'rgba(255,200,0,0.10)',
+        border: '1px dashed rgba(200,150,0,0.45)',
+        borderRadius: 999,
+        fontSize: 11,
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        lineHeight: 1,
+      }}
+    >
+      <span style={{ color: '#a16207', fontWeight: 600 }}>img</span>
+      <button
+        type="button"
+        onClick={() => setImgProvider('mentor')}
+        style={{
+          background: imgProvider === 'mentor' ? '#a16207' : 'transparent',
+          color: imgProvider === 'mentor' ? '#fff' : '#a16207',
+          border: 0,
+          borderRadius: 999,
+          padding: '2px 8px',
+          fontSize: 11,
+          fontFamily: 'inherit',
+          cursor: 'pointer',
+        }}
+      >
+        mentor
+      </button>
+      <button
+        type="button"
+        onClick={() => setImgProvider('gemini')}
+        style={{
+          background: imgProvider === 'gemini' ? '#a16207' : 'transparent',
+          color: imgProvider === 'gemini' ? '#fff' : '#a16207',
+          border: 0,
+          borderRadius: 999,
+          padding: '2px 8px',
+          fontSize: 11,
+          fontFamily: 'inherit',
+          cursor: 'pointer',
+        }}
+      >
+        gemini
+      </button>
+    </div>
+  );
 
   // ── Render ──
   return (
@@ -1339,6 +1457,7 @@ export default function AiCeo() {
                     >
                       <Globe size={13} /> Research
                     </button>
+                    {imgProviderToggle}
                     {selectedCtxItems.size > 0 && (
                       <div className="ceo-ctx-pills">
                         {getSelectedCtxDetails().map((item) => (
@@ -1576,6 +1695,7 @@ export default function AiCeo() {
                     >
                       <Globe size={13} /> Research
                     </button>
+                    {imgProviderToggle}
                     {selectedCtxItems.size > 0 && (
                       <div className="ceo-ctx-pills">
                         {getSelectedCtxDetails().map((item) => (

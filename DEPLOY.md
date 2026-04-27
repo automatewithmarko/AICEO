@@ -21,7 +21,7 @@ Future Claude instances (and humans): these rules exist to keep production safe 
 ## Hard rules (do not violate without explicit user request)
 
 1. **Never push to `main`.** Push to `dev` only. Promote to `main` only when the user explicitly says *"merge"*, *"promote"*, *"ship to main"*, *"release"*, *"deploy frontend"*, or similar. (Pushing to `main` triggers a Netlify rebuild of the production frontend.)
-2. **Claude DOES auto-deploy backend to the Railway `dev` environment after every commit to `dev`.** Standard flow after a commit: `git push origin dev` → `railway environment dev` → `railway service aiceo-backend` → `railway up --detach` → `railway environment production` (reset). This keeps the dev backend in sync with the dev branch so the user can test against `aiceo-backend-dev.up.railway.app` without an extra step.
+2. **Claude DOES auto-deploy backend to the Railway `dev` environment after every commit to `dev`.** Standard flow after a commit: `git push origin dev` → confirm CLI is on `dev` (it should be — that's the default resting state, see rule 4) → `railway up --detach`. Keeps `aiceo-backend-dev` in sync with `origin/dev`. Claude does NOT switch envs after the deploy; the CLI stays on `dev`.
 3. **Claude NEVER runs `railway up` against the `production` environment.** Production backend deploys are CLI-only and only the user runs that command. Even if the user says "merge to main," Claude only does the git merge — it does NOT deploy backend to prod.
 4. **Always verify the active Railway environment before `railway up`.** Run `railway status` first. If it says `Environment: production`, switch with `railway environment dev` BEFORE deploying. The CLI's default resting state is `dev`, not `production` — leave it there. A stray command will hit dev (safe) rather than prod (dangerous). The user explicitly switches to production themselves when they deploy.
 5. **Pushing to `main` does NOT auto-deploy Railway production.** It only triggers Netlify's prod frontend rebuild. Backend prod stays on its previous version until the user explicitly runs `railway up` with the production env active themselves.
@@ -43,10 +43,17 @@ git commit -m "…"
 git push origin dev
 
 # 3. deploy backend to Railway dev env — REQUIRED on every dev push
+#    ⚠️ MUST run from REPO ROOT, not from backend/. The aiceo-backend
+#    Railway service has Root Directory = "backend" configured, so the
+#    uploaded snapshot has to contain a top-level `backend/` directory.
+#    Running `railway up` from inside `backend/` produces a snapshot
+#    without that subdirectory and fails with:
+#       "Could not find root directory: backend"
+cd <repo-root>                  # NOT cd backend/
 railway status                  # confirm active env
 railway environment dev
 railway service aiceo-backend
-railway up --detach             # uploads local tree and deploys to dev env
+railway up --detach             # uploads repo tree (incl. backend/) and deploys to dev
 # Leave the CLI parked on `dev` afterwards. Default state is dev, not
 # production — this is the safety posture. Production deploys require
 # the user to explicitly switch envs; Claude never switches to prod.
@@ -68,6 +75,7 @@ git push origin main
 # 2. Netlify will auto-deploy main → aiceoproduction.netlify.app (frontend).
 # 3. Railway production backend stays on the OLD version until the user
 #    explicitly deploys it themselves. The user runs:
+#       cd <repo-root>            # NOT backend/ — Railway "Root Directory" is set to backend
 #       railway environment production
 #       railway service aiceo-backend
 #       railway up --detach

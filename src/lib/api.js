@@ -878,11 +878,13 @@ export async function deleteEmail(id) {
 
 // ─── Image Generation (Nano Banana 2) ───
 
-export async function generateImage(prompt, platform, brandData, referenceImages) {
+export async function generateImage(prompt, platform, brandData, referenceImages, opts = {}) {
   const headers = await getAuthHeaders();
   const body = { prompt, platform, brandData };
   // Include previous images as reference when regenerating
   if (referenceImages?.length) body.referenceImages = referenceImages;
+  // TEMP DEBUG — image-gen provider toggle ('mentor' default | 'gemini' direct)
+  if (opts.provider) body.provider = opts.provider;
   const res = await fetch(`${API_URL}/api/generate/image`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },

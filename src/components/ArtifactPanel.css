@@ -515,7 +515,12 @@
 
 /* ── Content Post ── */
 .ap-content-post {
-  padding: 24px;
+  padding: 20px;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .ap-content-caption {
@@ -536,6 +541,117 @@
   width: 100%;
   border-radius: 12px;
   object-fit: cover;
+}
+
+/* One-at-a-time image viewer for generated images */
+.ap-post-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.ap-post-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0b0b0c;
+  border-radius: 12px;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.ap-post-image {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 8px;
+  display: block;
+}
+
+.ap-post-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.ap-post-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--border, rgba(0,0,0,0.12));
+  background: var(--bg-secondary, #fff);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+.ap-post-nav:hover {
+  background: var(--bg-hover, rgba(0,0,0,0.05));
+}
+
+.ap-post-nav:active {
+  transform: scale(0.96);
+}
+
+.ap-post-counter {
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+  text-align: center;
+}
+
+.ap-post-thumbs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.ap-post-thumb {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.ap-post-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ap-post-thumb.is-active {
+  border-color: var(--accent, #6366f1);
+}
+
+.ap-post-thumb:hover {
+  transform: translateY(-1px);
+}
+
+.ap-post-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
 }
 
 /* ── Code ── */

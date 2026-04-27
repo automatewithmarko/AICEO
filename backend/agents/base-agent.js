@@ -1,7 +1,8 @@
 // Generic LLM streaming executor  -  supports Anthropic and XAI providers
 
-const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
-const XAI_API = 'https://api.x.ai/v1/chat/completions';
+const MENTOR_BASE = process.env.MENTOR_BASE_URL || 'https://platform.thementorprogram.xyz';
+const ANTHROPIC_API = `${MENTOR_BASE}/api/v1/messages`;
+const XAI_API = `${MENTOR_BASE}/api/v1/chat/completions`;
 
 // Watchdog for upstream LLM streams. If no chunk arrives within idleMs we
 // abort the upstream connection and throw. Prevents the server from hanging
@@ -23,10 +24,10 @@ async function readWithIdleTimeout(reader, controller, idleMs = STREAM_IDLE_TIME
   }
 }
 
-// Stream from Anthropic Claude API
+// Stream from Anthropic Claude API (via Mentor gateway)
 async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal }) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+  const apiKey = process.env.MENTOR_API_KEY;
+  if (!apiKey) throw new Error('MENTOR_API_KEY not configured');
 
   // Convert to Anthropic format (separate system from user/assistant)
   const anthropicMessages = messages
@@ -102,10 +103,10 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
   return fullContent;
 }
 
-// Stream from XAI Grok API (OpenAI-compatible)
+// Stream from XAI Grok API via Mentor (OpenAI-compatible)
 async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onChunk, onToolCalls, abortSignal }) {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) throw new Error('XAI_API_KEY not configured');
+  const apiKey = process.env.MENTOR_API_KEY;
+  if (!apiKey) throw new Error('MENTOR_API_KEY not configured');
 
   const body = {
     model: model || 'grok-4-1-fast-non-reasoning',
@@ -199,10 +200,10 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
   return { content: fullContent, toolCalls: calls };
 }
 
-// Stream from XAI Responses API with web_search
+// Stream from XAI Responses API with web_search (via Mentor gateway)
 async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSearchStatus, onSearchResult, abortSignal }) {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) throw new Error('XAI_API_KEY not configured');
+  const apiKey = process.env.MENTOR_API_KEY;
+  if (!apiKey) throw new Error('MENTOR_API_KEY not configured');
 
   if (onSearchStatus) onSearchStatus('searching');
 
@@ -214,7 +215,7 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
     else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
   }
 
-  const res = await fetch('https://api.x.ai/v1/responses', {
+  const res = await fetch(`${MENTOR_BASE}/api/v1/responses`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -381,8 +382,8 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
 // Execute Anthropic Claude with tool_use loop (non-streaming for speed)
 // Used for file-based editing  -  Claude calls replace_text/replace_section tools
 export async function executeAnthropicWithTools({ systemPrompt, messages, tools, maxTokens, onToolCall, onText, abortSignal }) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+  const apiKey = process.env.MENTOR_API_KEY;
+  if (!apiKey) throw new Error('MENTOR_API_KEY not configured');
 
   let conversationMessages = messages
     .filter(m => m.role === 'user' || m.role === 'assistant')
