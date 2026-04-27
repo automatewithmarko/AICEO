@@ -80,9 +80,21 @@ router.get('/:id', async (req, res) => {
 // POST /api/meetings — Create meeting + dispatch notetaker bot
 router.post('/', async (req, res) => {
   const userId = req.user.id;
-  const { meeting_url, title, bot_name, template, scheduled_at } = req.body;
+  const { meeting_url, title, bot_name, template, scheduled_at, bot_avatar_b64, bot_avatar_mime } = req.body;
 
   if (!meeting_url) return res.status(400).json({ error: 'meeting_url is required' });
+
+  // Validate avatar payload — Recall accepts JPEG/PNG up to ~1MB encoded.
+  // Base64 inflates ~33%, so cap raw base64 string length around 1.4MB.
+  if (bot_avatar_b64) {
+    if (typeof bot_avatar_b64 !== 'string' || bot_avatar_b64.length > 1_400_000) {
+      return res.status(400).json({ error: 'Bot avatar too large. Use an image under 1MB.' });
+    }
+    const mime = (bot_avatar_mime || '').toLowerCase();
+    if (mime && !mime.startsWith('image/jpeg') && !mime.startsWith('image/png')) {
+      return res.status(400).json({ error: 'Bot avatar must be a JPEG or PNG image.' });
+    }
+  }
 
   const platform = detectPlatform(meeting_url);
 
@@ -111,6 +123,7 @@ router.post('/', async (req, res) => {
       userId,
       meetingId: meeting.id,
       joinAt: scheduled_at || undefined,
+      botAvatar: bot_avatar_b64 ? { b64: bot_avatar_b64, mime: bot_avatar_mime } : undefined,
     });
 
     // Update with bot ID

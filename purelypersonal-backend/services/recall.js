@@ -36,7 +36,7 @@ async function recallFetch(path, options = {}) {
   return res.json();
 }
 
-export async function createBot(meetingUrl, { botName, userId, meetingId, joinAt } = {}) {
+export async function createBot(meetingUrl, { botName, userId, meetingId, joinAt, botAvatar } = {}) {
   const body = {
     meeting_url: meetingUrl,
     bot_name: botName || 'PurelyPersonal Notetaker',
@@ -64,12 +64,21 @@ export async function createBot(meetingUrl, { botName, userId, meetingId, joinAt
     },
   };
 
-  // Set bot display image
-  if (botAvatarB64) {
+  // Set bot display image — user-provided avatar takes priority over default
+  let avatarB64 = null;
+  let avatarKind = 'jpeg';
+  if (botAvatar?.b64) {
+    avatarB64 = botAvatar.b64;
+    avatarKind = (botAvatar.mime || '').toLowerCase().includes('png') ? 'png' : 'jpeg';
+  } else if (botAvatarB64) {
+    avatarB64 = botAvatarB64;
+  }
+
+  if (avatarB64) {
     body.automatic_video_output = {
       in_call_recording: {
-        kind: 'jpeg',
-        b64_data: botAvatarB64,
+        kind: avatarKind,
+        b64_data: avatarB64,
       },
     };
   }
