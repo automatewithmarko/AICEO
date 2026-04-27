@@ -4,10 +4,10 @@
 const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
 const MICROSOFT_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
 
-// Scopes needed for IMAP + SMTP access
+// Scopes needed for IMAP + SMTP access (per Microsoft docs)
 const SCOPES = [
-  'https://outlook.office365.com/IMAP.AccessAsUser.All',
-  'https://outlook.office365.com/SMTP.Send',
+  'https://outlook.office.com/IMAP.AccessAsUser.All',
+  'https://outlook.office.com/SMTP.Send',
   'offline_access',       // needed for refresh_token
   'openid',
   'email',
