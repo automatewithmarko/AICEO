@@ -420,12 +420,16 @@ function InstallmentsView({ planId, acting, error, onBack, onPick }) {
 
       <div className="of-cards of-cards--three">
         {INSTALLMENT_OPTIONS.map((opt) => {
-          // extraPerMonth applies to EACH instalment, so total extra is
-          // extraPerMonth × count. Per-payment is (base + per-month-fee)
-          // divided by N (which simplifies to base/N + per-month-fee).
-          const totalExtra = opt.extraPerMonth * opt.count;
-          const total = plan.setup + totalExtra;
-          const perInstallment = total / opt.count;
+          // extraPerMonth applies to EACH instalment. We round the
+          // per-payment amount to whole dollars (Stripe charges in
+          // cents but customers want round numbers); the displayed
+          // total is derived from the rounded payment × count so the
+          // arithmetic is internally consistent. Total extra fee is
+          // the round-trip difference vs base.
+          const rawPerInstallment = (plan.setup + opt.extraPerMonth * opt.count) / opt.count;
+          const perInstallment = Math.round(rawPerInstallment);
+          const total = perInstallment * opt.count;
+          const totalExtra = total - plan.setup;
           const busyKey = `${planId}:${opt.key}`;
           const busy = acting === busyKey;
 
