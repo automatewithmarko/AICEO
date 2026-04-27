@@ -231,6 +231,80 @@
   background: var(--brand-red-light);
 }
 
+/* Sidebar / sheet drop overlay — auto-routes images to photos, files to docs */
+.content-sidebar {
+  position: relative;
+}
+
+.content-sidebar--dragover {
+  background: var(--brand-red-light);
+}
+
+.context-sheet-body {
+  position: relative;
+}
+
+.cs-drop-overlay {
+  position: absolute;
+  inset: 6px;
+  border: 2px dashed var(--brand-red);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--brand-red-light) 92%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 20;
+  animation: cs-drop-overlay-pop 120ms ease-out;
+}
+
+@keyframes cs-drop-overlay-pop {
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.cs-drop-overlay-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 20px;
+  text-align: center;
+}
+
+.cs-drop-overlay-icon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--brand-red);
+}
+
+.cs-drop-overlay-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--brand-red);
+  letter-spacing: -0.01em;
+}
+
+.cs-drop-overlay-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 220px;
+  line-height: 1.4;
+}
+
+/* Collapsed sidebar: shrink the overlay text gracefully */
+.content-sidebar:not(.content-sidebar--open) .cs-drop-overlay-hint {
+  display: none;
+}
+.content-sidebar:not(.content-sidebar--open) .cs-drop-overlay-title {
+  font-size: 11px;
+}
+.content-sidebar:not(.content-sidebar--open) .cs-drop-overlay-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
 .cs-upload-icon {
   color: var(--text-muted);
   flex-shrink: 0;

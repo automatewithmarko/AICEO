@@ -3482,8 +3482,7 @@ export default function Content() {
   const [socialInput, setSocialInput] = useState('');
   const [photoHover, setPhotoHover] = useState(false);
   const [docHover, setDocHover] = useState(false);
-  const [photoDragOver, setPhotoDragOver] = useState(false);
-  const [docDragOver, setDocDragOver] = useState(false);
+  const [sidebarDragOver, setSidebarDragOver] = useState(false);
   const [tooltip, setTooltip] = useState({ text: '', x: 0, y: 0, visible: false });
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const [contentResearchMode, setContentResearchMode] = useState(false);
@@ -3578,6 +3577,8 @@ export default function Content() {
   const docInputRef = useRef(null);
   const socialZoneRef = useRef(null);
   const contentCtxRef = useRef(null);
+  const sidebarDragCounter = useRef(0);
+  const sheetDragCounter = useRef(0);
 
   const [contentCtxCategories, setContentCtxCategories] = useState([
     { id: 'newsletters', label: 'Past Newsletters', iconSrc: '/icon-marketing.png', items: [] },
@@ -5231,14 +5232,57 @@ export default function Content() {
     });
   }, []);
 
-  const handleDrop = useCallback((e, accept) => {
-    e.preventDefault();
-    const files = Array.from(e.dataTransfer.files).filter((f) => {
-      if (accept === 'image/*') return f.type.startsWith('image/');
-      return /\.(pdf|doc|docx|txt)$/i.test(f.name);
-    });
-    if (files.length) addDocuments(files);
-  }, [addDocuments]);
+  // Container-level drag handlers — drop ANYWHERE on the context panel and
+  // auto-route by mime type. dragCounterRef handles child-element flicker
+  // (dragenter/leave fire when crossing nested element boundaries).
+  const isFileDrag = (e) => {
+    const types = e.dataTransfer?.types;
+    if (!types) return false;
+    return Array.from(types).includes('Files');
+  };
+
+  const makeContainerDragHandlers = useCallback((counterRef, setDragOver, onEnterExtra) => ({
+    onDragEnter: (e) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      counterRef.current += 1;
+      if (counterRef.current === 1) {
+        setDragOver(true);
+        onEnterExtra?.();
+      }
+    },
+    onDragOver: (e) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    },
+    onDragLeave: (e) => {
+      if (!isFileDrag(e)) return;
+      counterRef.current = Math.max(0, counterRef.current - 1);
+      if (counterRef.current === 0) setDragOver(false);
+    },
+    onDrop: (e) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      counterRef.current = 0;
+      setDragOver(false);
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (!files.length) return;
+      const images = files.filter((f) => f.type.startsWith('image/'));
+      const others = files.filter((f) => !f.type.startsWith('image/'));
+      if (images.length) addPhotos(images);
+      if (others.length) addDocuments(others);
+    },
+  }), [addPhotos, addDocuments]);
+
+  const sidebarDragHandlers = useMemo(
+    () => makeContainerDragHandlers(sidebarDragCounter, setSidebarDragOver, () => setSidebarOpen(true)),
+    [makeContainerDragHandlers]
+  );
+  const sheetDragHandlers = useMemo(
+    () => makeContainerDragHandlers(sheetDragCounter, setSidebarDragOver),
+    [makeContainerDragHandlers]
+  );
 
   // Paste handlers
   const handleImagePaste = useCallback((e) => {
@@ -5479,18 +5523,10 @@ export default function Content() {
       />
       {photos.length < 4 && (
         <div
-          className={`cs-upload-zone cs-upload-zone--expanded ${photoDragOver ? 'cs-upload-zone--dragover' : ''} ${photoHover ? 'cs-upload-zone--hover' : ''}`}
+          className={`cs-upload-zone cs-upload-zone--expanded ${photoHover ? 'cs-upload-zone--hover' : ''}`}
           onClick={() => photoInputRef.current?.click()}
           onMouseEnter={() => setPhotoHover(true)}
           onMouseLeave={() => setPhotoHover(false)}
-          onDragOver={(e) => { e.preventDefault(); setPhotoDragOver(true); }}
-          onDragLeave={() => setPhotoDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setPhotoDragOver(false);
-            const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'));
-            if (files.length) addPhotos(files);
-          }}
         >
           <Image size={20} className="cs-upload-icon" />
           <span className="cs-upload-label cs-upload-label--show">Add reference photos</span>
@@ -5547,13 +5583,10 @@ export default function Content() {
         }}
       />
       <div
-        className={`cs-upload-zone cs-upload-zone--expanded ${docDragOver ? 'cs-upload-zone--dragover' : ''} ${docHover ? 'cs-upload-zone--hover' : ''}`}
+        className={`cs-upload-zone cs-upload-zone--expanded ${docHover ? 'cs-upload-zone--hover' : ''}`}
         onClick={() => docInputRef.current?.click()}
         onMouseEnter={() => setDocHover(true)}
         onMouseLeave={() => setDocHover(false)}
-        onDragOver={(e) => { e.preventDefault(); setDocDragOver(true); }}
-        onDragLeave={() => setDocDragOver(false)}
-        onDrop={(e) => { handleDrop(e, 'docs'); setDocDragOver(false); }}
       >
         <FileText size={20} className="cs-upload-icon" />
         <span className="cs-upload-label cs-upload-label--show">Add documents</span>
@@ -5717,9 +5750,22 @@ export default function Content() {
     <div className="content-page">
       {/* Content Sidebar (desktop only) */}
       <aside
-        className={`content-sidebar ${sidebarOpen ? 'content-sidebar--open' : ''}`}
+        className={`content-sidebar ${sidebarOpen ? 'content-sidebar--open' : ''} ${sidebarDragOver ? 'content-sidebar--dragover' : ''}`}
         onClick={!sidebarOpen ? openSidebar : undefined}
+        {...sidebarDragHandlers}
       >
+        {sidebarDragOver && (
+          <div className="cs-drop-overlay">
+            <div className="cs-drop-overlay-inner">
+              <div className="cs-drop-overlay-icon">
+                <Image size={28} />
+                <FileText size={28} />
+              </div>
+              <div className="cs-drop-overlay-title">Drop to add</div>
+              <div className="cs-drop-overlay-hint">Images become reference photos · Files become documents</div>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <div className="cs-header">
           {sidebarOpen ? (
@@ -5771,18 +5817,10 @@ export default function Content() {
           />
           {photos.length < 4 && (
             <div
-              className={`cs-upload-zone ${photoDragOver ? 'cs-upload-zone--dragover' : ''} ${photoHover ? 'cs-upload-zone--hover' : ''}`}
+              className={`cs-upload-zone ${photoHover ? 'cs-upload-zone--hover' : ''}`}
               onClick={() => { if (sidebarOpen) photoInputRef.current?.click(); }}
               onMouseEnter={() => setPhotoHover(true)}
               onMouseLeave={() => setPhotoHover(false)}
-              onDragOver={(e) => { e.preventDefault(); setPhotoDragOver(true); }}
-              onDragLeave={() => setPhotoDragOver(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setPhotoDragOver(false);
-                const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'));
-                if (files.length) addPhotos(files);
-              }}
             >
               <Image size={20} className="cs-upload-icon" />
               <span className="cs-upload-label">Add reference photos</span>
@@ -5834,13 +5872,10 @@ export default function Content() {
             }}
           />
           <div
-            className={`cs-upload-zone ${docDragOver ? 'cs-upload-zone--dragover' : ''} ${docHover ? 'cs-upload-zone--hover' : ''}`}
+            className={`cs-upload-zone ${docHover ? 'cs-upload-zone--hover' : ''}`}
             onClick={() => { if (sidebarOpen) docInputRef.current?.click(); }}
             onMouseEnter={() => setDocHover(true)}
             onMouseLeave={() => setDocHover(false)}
-            onDragOver={(e) => { e.preventDefault(); setDocDragOver(true); }}
-            onDragLeave={() => setDocDragOver(false)}
-            onDrop={(e) => { handleDrop(e, 'docs'); setDocDragOver(false); }}
           >
             <FileText size={20} className="cs-upload-icon" />
             <span className="cs-upload-label">Add documents</span>
@@ -6050,7 +6085,22 @@ export default function Content() {
         <div className="context-sheet-handle" onClick={() => { setContextSheetOpen(false); setShowPasteBtn(false); }}>
           <div className="context-sheet-bar" />
         </div>
-        <div className="context-sheet-body">
+        <div
+          className={`context-sheet-body ${sidebarDragOver ? 'context-sheet-body--dragover' : ''}`}
+          {...sheetDragHandlers}
+        >
+          {sidebarDragOver && (
+            <div className="cs-drop-overlay">
+              <div className="cs-drop-overlay-inner">
+                <div className="cs-drop-overlay-icon">
+                  <Image size={28} />
+                  <FileText size={28} />
+                </div>
+                <div className="cs-drop-overlay-title">Drop to add</div>
+                <div className="cs-drop-overlay-hint">Images become reference photos · Files become documents</div>
+              </div>
+            </div>
+          )}
           {contextContent(true)}
         </div>
       </div>
