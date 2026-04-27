@@ -524,6 +524,27 @@ function StoryPhoneViewer({ frames, onEditFrame, onReorderFrames }) {
                 </div>
               )}
               <span className="sp-thumb-num">{i + 1}</span>
+              {/* Click-to-reorder arrows — work alongside drag-and-drop. */}
+              <button
+                type="button"
+                className="sp-thumb-reorder sp-thumb-reorder--left"
+                disabled={i === 0}
+                onClick={(e) => { e.stopPropagation(); if (i > 0) { onReorderFrames(i, i - 1); setActiveIndex(i - 1); } }}
+                title="Move left"
+                aria-label="Move frame left"
+              >
+                <ChevronRight size={12} style={{ transform: 'rotate(180deg)' }} />
+              </button>
+              <button
+                type="button"
+                className="sp-thumb-reorder sp-thumb-reorder--right"
+                disabled={i === total - 1}
+                onClick={(e) => { e.stopPropagation(); if (i < total - 1) { onReorderFrames(i, i + 1); setActiveIndex(i + 1); } }}
+                title="Move right"
+                aria-label="Move frame right"
+              >
+                <ChevronRight size={12} />
+              </button>
             </div>
           ))}
         </div>
