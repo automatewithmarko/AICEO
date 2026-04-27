@@ -134,9 +134,12 @@ router.get('/api/email-accounts/outlook/auth', async (req, res) => {
     return res.status(500).json({ error: 'Microsoft OAuth is not configured on the server' });
   }
 
-  // State = userId:random (we verify userId on callback)
-  const state = `${userId}:${crypto.randomBytes(16).toString('hex')}`;
-  const url = buildAuthUrl(state);
+  // Frontend passes its origin so redirect comes back to the right place
+  const origin = req.query.origin || process.env.FRONTEND_URL;
+
+  // State = userId:origin:random (we verify userId on callback)
+  const state = `${userId}:${Buffer.from(origin).toString('base64')}:${crypto.randomBytes(16).toString('hex')}`;
+  const url = buildAuthUrl(state, origin);
   res.json({ url, state });
 });
 
@@ -153,8 +156,17 @@ router.post('/api/email-accounts/outlook/callback', async (req, res) => {
     return res.status(403).json({ error: 'State mismatch' });
   }
 
+  // Extract origin from state (userId:base64origin:random)
+  let origin;
   try {
-    const tokens = await exchangeCode(code);
+    const parts = state.split(':');
+    if (parts.length >= 3) {
+      origin = Buffer.from(parts[1], 'base64').toString();
+    }
+  } catch {}
+
+  try {
+    const tokens = await exchangeCode(code, origin);
     const { email, name } = decodeIdToken(tokens.id_token || '');
 
     if (!email) {

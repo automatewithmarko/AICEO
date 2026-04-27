@@ -865,8 +865,11 @@ export default function Settings() {
                       <Mail size={15} />
                       <div className="settings-email-account-info">
                         <span className="settings-email-account-address">{acc.email}</span>
-                        {acc.display_name && <span className="settings-email-account-name">{acc.display_name}</span>}
-                        {acc.auth_type === 'oauth' && <span style={{ fontSize: 10, opacity: 0.5, marginLeft: 4 }}>OAuth</span>}
+                        <span className="settings-email-account-name">
+                          {acc.display_name ? `${acc.display_name} · ` : ''}
+                          {acc.provider === 'outlook' ? 'Outlook' : acc.provider === 'gmail' ? 'Gmail' : 'IMAP'}
+                          {acc.auth_type === 'oauth' ? ' (OAuth)' : ''}
+                        </span>
                       </div>
                       <button
                         className="settings-btn settings-btn--danger settings-btn--sm"

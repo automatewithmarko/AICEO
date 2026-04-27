@@ -713,7 +713,8 @@ export async function addEmailAccount(data) {
 
 export async function getOutlookAuthUrl() {
   const headers = await getAuthHeaders();
-  const res = await fetch(`${API_URL}/api/email-accounts/outlook/auth`, { headers });
+  const origin = encodeURIComponent(window.location.origin);
+  const res = await fetch(`${API_URL}/api/email-accounts/outlook/auth?origin=${origin}`, { headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Failed to start Outlook OAuth' }));
     throw new Error(err.error);

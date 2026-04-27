@@ -22,20 +22,21 @@ function getClientSecret() {
   return process.env.MICROSOFT_CLIENT_SECRET;
 }
 
-function getRedirectUri() {
-  const base = process.env.FRONTEND_URL || 'http://localhost:5173';
+function getRedirectUri(origin) {
+  const base = origin || process.env.FRONTEND_URL || 'http://localhost:5173';
   return `${base}/settings/outlook/callback`;
 }
 
 /**
  * Build the Microsoft OAuth authorization URL.
  * `state` should be a signed/opaque token tying the request to the user session.
+ * `origin` is the frontend origin so the redirect comes back to the right place.
  */
-export function buildAuthUrl(state) {
+export function buildAuthUrl(state, origin) {
   const params = new URLSearchParams({
     client_id: getClientId(),
     response_type: 'code',
-    redirect_uri: getRedirectUri(),
+    redirect_uri: getRedirectUri(origin),
     response_mode: 'query',
     scope: SCOPES.join(' '),
     state,
@@ -47,12 +48,12 @@ export function buildAuthUrl(state) {
 /**
  * Exchange an authorization code for access + refresh tokens.
  */
-export async function exchangeCode(code) {
+export async function exchangeCode(code, origin) {
   const body = new URLSearchParams({
     client_id: getClientId(),
     client_secret: getClientSecret(),
     code,
-    redirect_uri: getRedirectUri(),
+    redirect_uri: getRedirectUri(origin),
     grant_type: 'authorization_code',
     scope: SCOPES.join(' '),
   });

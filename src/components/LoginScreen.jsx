@@ -26,11 +26,11 @@ export default function LoginScreen() {
     }
   };
 
-  const handleSignup = async (plan, onboardingType) => {
+  const handleSignup = async (plan) => {
     setError('');
     setSubmitting(true);
     try {
-      await signup(email, password, plan, name, onboardingType);
+      await signup(email, password, plan, name);
       setConfirmEmail(true);
     } catch (err) {
       setError(err.message);
@@ -250,7 +250,7 @@ export default function LoginScreen() {
             </button>
             <h2 className="login-heading">Coached Onboarding</h2>
             <p className="login-subtext">
-              Create your account, then select a plan — your private 1-on-1 setup call is included with every plan
+              Get your AI CEO set up by the experts
             </p>
 
             <div className="signup-fields">
@@ -291,8 +291,12 @@ export default function LoginScreen() {
             </div>
 
             <div className="coached-card">
+              <div className="coached-price">
+                <span className="price-amount">$5,987</span>
+                <span className="price-label">one-time</span>
+              </div>
               <div className="coached-details">
-                <h3>Included With Your Plan</h3>
+                <h3>Private 1-on-1 Setup Call</h3>
                 <p>
                   Get on a private one-on-one call with either <strong>Marko</strong> or{' '}
                   <strong>Danny</strong> to get complete guidance setting up your
@@ -300,6 +304,7 @@ export default function LoginScreen() {
                   business.
                 </p>
                 <ul className="coached-includes">
+                  <li>Full platform access (Growth plan included)</li>
                   <li>Private setup call with Marko or Danny</li>
                   <li>Custom AI CEO configuration for your business</li>
                   <li>Revenue-maximizing strategy session</li>
@@ -308,14 +313,11 @@ export default function LoginScreen() {
               </div>
               <button
                 className="btn-primary btn-coached"
-                onClick={() => handleSignup(null, 'coached')}
-                disabled={submitting || !email || !password || !name}
+                onClick={() => handleSignup('Coached')}
+                disabled={submitting || !email || !password}
               >
-                {submitting ? 'Creating account…' : 'Create account'}
+                {submitting ? 'Creating...' : 'Purchase and book the call'}
               </button>
-              <p className="login-subnote">
-                You'll choose your plan and complete checkout right after.
-              </p>
             </div>
             <p className="login-switch">
               Already have an account?{' '}
