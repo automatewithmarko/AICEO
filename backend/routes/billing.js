@@ -360,7 +360,12 @@ router.post('/api/billing/portal', async (req, res) => {
 // rather than charging twice.
 // ──────────────────────────────────────────────────────────────────────
 
-const PLAN_IDS = ['complete', 'diamond'];
+// Plan IDs accepted by the new funnel. 'test' is gated by the frontend
+// VITE_SHOW_TEST_PLAN env var so prod users never see it; the backend
+// accepts it unconditionally because all that gating it server-side
+// would buy us is preventing internal QA from running through the
+// $2 / $1 Stripe Price chain.
+const PLAN_IDS = ['complete', 'diamond', 'test'];
 
 function isValidPlan(p) {
   return typeof p === 'string' && PLAN_IDS.includes(p);

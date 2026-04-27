@@ -1,8 +1,9 @@
 /* OnboardingFunnel — full-screen overlay shown until setup → meeting →
-   monthly is fully completed. Backdrop matches PlanSelector (light grey)
-   and cards reuse the rounded-white-card vocabulary. The checkout CTA
-   stands apart from the brand-red theme on purpose: solid black for
-   maximum contrast and a clear "this triggers a charge" signal. */
+   monthly is fully completed. Backdrop matches PlanSelector (light grey),
+   cards reuse the rounded-white-card vocabulary, and CTAs use the brand
+   red so the in-app screens feel like the rest of the product. The
+   sharp-contrast checkout look lives on the Stripe-hosted page itself
+   (configured via Stripe Dashboard → Settings → Branding), not here. */
 
 .of-backdrop {
   position: fixed;
@@ -56,8 +57,8 @@
 }
 
 .of-step-dot--active {
-  background: #0a0a0a;
-  border-color: #0a0a0a;
+  background: var(--brand-red, #e91a44);
+  border-color: var(--brand-red, #e91a44);
   color: #fff;
 }
 
@@ -134,6 +135,16 @@
 .of-cards--two { grid-template-columns: 1fr 1fr; }
 .of-cards--one { grid-template-columns: minmax(280px, 480px); justify-content: center; }
 
+/* When the QA test plan is enabled (VITE_SHOW_TEST_PLAN=true) we render
+   3 cards on desktop. Mobile stays single-column via the responsive
+   block at the bottom of this file. */
+@media (min-width: 980px) {
+  .of-cards--three { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 979px) {
+  .of-cards--three { grid-template-columns: 1fr 1fr; }
+}
+
 /* Card (white, rounded — matches the existing PlanSelector visual). */
 .of-card {
   background: #fff;
@@ -150,14 +161,30 @@
 }
 
 .of-card--recommended {
-  border-color: #1a1a2e;
-  box-shadow: 0 4px 24px rgba(10, 10, 30, 0.08);
+  border-color: var(--brand-red, #e91a44);
+  box-shadow: 0 4px 24px rgba(233, 26, 68, 0.1);
 }
 
 .of-card--recommended:hover {
-  border-color: #0a0a0a;
-  box-shadow: 0 8px 32px rgba(10, 10, 30, 0.12);
+  border-color: var(--brand-red, #e91a44);
+  box-shadow: 0 8px 32px rgba(233, 26, 68, 0.15);
 }
+
+/* QA test plan — visually distinct so no real user mistakes it for a
+   real plan. Dashed amber border + cream background, matches the
+   pattern used in the previous PlanSelector. */
+.of-card--test {
+  border-style: dashed;
+  border-color: #d97706;
+  background: #fffbeb;
+}
+
+.of-card--test:hover {
+  border-color: #b45309;
+  box-shadow: 0 4px 20px rgba(217, 119, 6, 0.12);
+}
+
+.of-card--test .of-card-name { color: #92400e; }
 
 .of-card-badge {
   position: absolute;
@@ -167,7 +194,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: #0a0a0a;
+  background: var(--brand-red, #e91a44);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -176,6 +203,10 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
   white-space: nowrap;
+}
+
+.of-card-badge--test {
+  background: #d97706;
 }
 
 .of-card-head {
@@ -264,46 +295,55 @@
 
 .of-card-feature-highlight {
   font-weight: 700;
-  color: #0a0a0a;
+  color: var(--brand-red, #e91a44);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
 
-/* ── CTA (solid black for sharp contrast on the checkout step) ──
-   Deliberately NOT theme-coloured — this button takes money from the
-   user and must look like a deliberate action, distinct from the rest
-   of the brand-red UI. */
+/* ── CTA — brand-red primary, white-bg secondary ──
+   In-app screens stay on brand. The sharp-contrast "checkout" look
+   lives on the Stripe-hosted page, not here. */
 .of-cta {
   width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 14px 22px;
+  padding: 13px 20px;
   border-radius: 12px;
   font-size: 14px;
   font-weight: 700;
-  border: none;
+  border: 1.5px solid transparent;
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
   font-family: inherit;
 }
 
-.of-cta--checkout {
-  background: #0a0a0a;
+.of-cta--primary {
+  background: var(--brand-red, #e91a44);
+  border-color: var(--brand-red, #e91a44);
   color: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
-.of-cta--checkout:not(:disabled):hover {
-  background: #000;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
-  transform: translateY(-1px);
+.of-cta--primary:not(:disabled):hover {
+  background: var(--brand-red-hover, #c71538);
+  border-color: var(--brand-red-hover, #c71538);
 }
 
-.of-cta--checkout:not(:disabled):active {
-  transform: translateY(0);
+.of-cta--secondary {
+  background: #fff;
+  border-color: #e5e7eb;
+  color: #1a1a2e;
+}
+
+.of-cta--secondary:not(:disabled):hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+.of-cta:not(:disabled):active {
+  transform: scale(0.98);
 }
 
 .of-cta:disabled {

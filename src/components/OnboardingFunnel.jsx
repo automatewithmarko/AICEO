@@ -22,7 +22,7 @@ import {
 } from '../lib/api';
 import './OnboardingFunnel.css';
 
-const SETUP_PLANS = [
+const BASE_SETUP_PLANS = [
   {
     id: 'complete',
     name: 'The Complete Platform',
@@ -62,9 +62,34 @@ const SETUP_PLANS = [
   },
 ];
 
+// Internal QA plan — only rendered when VITE_SHOW_TEST_PLAN=true so a real
+// end-user on production never sees this card. Set the env var on dev /
+// staging Netlify when QAing the full Stripe flow end-to-end. Linked to
+// real (live-mode) $2 setup + $1/mo Stripe Prices via the
+// STRIPE_PRICE_TEST_SETUP and STRIPE_PRICE_TEST_STANDARD env vars on
+// the backend.
+const TEST_PLAN = {
+  id: 'test',
+  name: 'Test Plan (Internal QA)',
+  setup: 2,
+  recommended: false,
+  testOnly: true,
+  features: [
+    'For team testing only — DO NOT BUY',
+    'Validates the full Stripe checkout flow',
+    'Charges your card $2 setup + $1/mo',
+    'Refundable from the Stripe dashboard',
+  ],
+};
+
+const SETUP_PLANS = import.meta.env.VITE_SHOW_TEST_PLAN === 'true'
+  ? [...BASE_SETUP_PLANS, TEST_PLAN]
+  : BASE_SETUP_PLANS;
+
 const MONTHLY_BY_PLAN = {
   complete: { label: 'The Complete Platform', monthly: 99 },
   diamond: { label: 'Diamond', monthly: 199 },
+  test: { label: 'Test Plan', monthly: 1 },
 };
 
 function getCalendlyUrl(plan) {
@@ -231,18 +256,26 @@ function SetupPlanPicker() {
 
       {error && <div className="of-error">{error}</div>}
 
-      <div className="of-cards of-cards--two">
+      <div className={`of-cards ${SETUP_PLANS.length >= 3 ? 'of-cards--three' : 'of-cards--two'}`}>
         {SETUP_PLANS.map((plan) => {
           const busy = acting === plan.id;
+          const cardLabel = plan.id === 'diamond' ? 'Diamond'
+            : plan.id === 'test' ? 'Test'
+            : 'Complete';
           return (
             <div
               key={plan.id}
-              className={`of-card${plan.recommended ? ' of-card--recommended' : ''}`}
+              className={`of-card${plan.recommended ? ' of-card--recommended' : ''}${plan.testOnly ? ' of-card--test' : ''}`}
             >
               {plan.recommended && (
                 <div className="of-card-badge">
                   <Crown size={12} />
                   <span>Recommended</span>
+                </div>
+              )}
+              {plan.testOnly && (
+                <div className="of-card-badge of-card-badge--test">
+                  <span>QA only</span>
                 </div>
               )}
 
@@ -279,14 +312,14 @@ function SetupPlanPicker() {
 
               <button
                 type="button"
-                className="of-cta of-cta--checkout"
+                className={`of-cta ${plan.recommended ? 'of-cta--primary' : 'of-cta--secondary'}`}
                 onClick={() => handlePick(plan.id)}
                 disabled={busy || !!acting}
               >
                 {busy ? (
                   <><Loader2 size={14} className="of-spinner" /> Starting checkout…</>
                 ) : (
-                  <>Continue with {plan.id === 'diamond' ? 'Diamond' : 'Complete'} <ArrowRight size={14} /></>
+                  <>Continue with {cardLabel} <ArrowRight size={14} /></>
                 )}
               </button>
             </div>
@@ -357,7 +390,7 @@ function BookingPage({ plan, onBooked }) {
       <div className="of-confirm-row">
         <button
           type="button"
-          className="of-cta of-cta--checkout"
+          className="of-cta of-cta--primary"
           onClick={handleConfirm}
           disabled={confirming}
         >
@@ -444,7 +477,7 @@ function MonthlySubPicker({ plan }) {
 
           <button
             type="button"
-            className="of-cta of-cta--checkout"
+            className="of-cta of-cta--primary"
             onClick={handleStart}
             disabled={acting}
           >
