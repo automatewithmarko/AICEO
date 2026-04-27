@@ -449,6 +449,98 @@ router.post('/api/billing/checkout/setup', async (req, res) => {
   }
 });
 
+// ─── POST /api/billing/checkout/installment — split the setup fee ───
+// Body: { plan: 'complete'|'diamond', installment: '2x'|'3x'|'6x' }
+//
+// The user is paying the setup fee over N monthly payments instead of
+// in one shot. Each variant is a recurring Stripe Price configured by
+// the merchant at STRIPE_PRICE_<PLAN>_INSTALL_<KEY>; we just route to it
+// and let Stripe collect the cycles. The webhook treats the FIRST
+// successful invoice exactly like a lump-sum setup payment so the user
+// gets access to step B (book the call) immediately.
+//
+// 'test' plan deliberately does not support instalments — keeps the QA
+// flow tight.
+const INSTALLMENT_KEYS = ['2x', '3x', '6x'];
+
+router.post('/api/billing/checkout/installment', async (req, res) => {
+  const userId = req.user?.id;
+  if (!userId || userId === 'anonymous') {
+    return res.status(401).json({ error: 'Auth required' });
+  }
+  if (!rateLimitOk(userId)) {
+    return res.status(429).json({ error: 'Too many checkout attempts. Wait a minute and try again.' });
+  }
+
+  const { plan, installment } = req.body || {};
+  if (!plan || plan === 'test' || !['complete', 'diamond'].includes(plan)) {
+    return res.status(400).json({ error: 'plan must be one of: complete, diamond' });
+  }
+  if (!INSTALLMENT_KEYS.includes(installment)) {
+    return res.status(400).json({ error: `installment must be one of: ${INSTALLMENT_KEYS.join(', ')}` });
+  }
+
+  // Stripe Price ID for the (plan, installment) combo. Merchant configures
+  // each as a recurring monthly price with `cancel_at_period_end` or a
+  // subscription schedule limiting it to N cycles.
+  const envKey = `STRIPE_PRICE_${plan.toUpperCase()}_INSTALL_${installment.toUpperCase()}`;
+  const priceId = process.env[envKey];
+  if (!priceId) {
+    return res.status(400).json({
+      error: `No Stripe instalment price configured for ${plan}/${installment}. Set ${envKey} in env.`,
+    });
+  }
+
+  // Block repeats — same idempotency rule as /checkout/setup.
+  const { data: existingSub } = await supabase
+    .from('subscriptions')
+    .select('plan, status, setup_paid_at, meeting_booked_at, stripe_subscription_id, stripe_customer_id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (existingSub?.setup_paid_at) {
+    return res.status(409).json({
+      error: 'Setup fee already paid for this account.',
+      already_paid: true,
+      next_step: existingSub.meeting_booked_at
+        ? (existingSub.stripe_subscription_id ? 'done' : 'monthly')
+        : 'meeting',
+    });
+  }
+
+  try {
+    const stripe = getStripe();
+    const { data: authData } = await supabase.auth.admin.getUserById(userId);
+    const email = authData?.user?.email;
+    const origin = resolveFrontendOrigin(req);
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${origin}/billing?checkout=setup_success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/billing?checkout=cancelled`,
+      customer: existingSub?.stripe_customer_id || undefined,
+      customer_email: existingSub?.stripe_customer_id ? undefined : email,
+      // step='installment' branches the webhook so it treats this like a
+      // setup payment (sets setup_paid_at, sends booking email) instead
+      // of a regular monthly subscription activation.
+      metadata: { user_id: userId, plan, step: 'installment', installment },
+      subscription_data: {
+        metadata: { user_id: userId, plan, step: 'installment', installment },
+      },
+      allow_promotion_codes: true,
+    }, {
+      idempotencyKey: `install-checkout:${userId}:${plan}:${installment}:${Math.floor(Date.now() / 600000)}`,
+    });
+
+    console.log(`[billing/checkout/installment] user=${userId} plan=${plan} install=${installment} session=${session.id}`);
+    res.json({ url: session.url, session_id: session.id });
+  } catch (err) {
+    console.error('[billing/checkout/installment]', err.message);
+    res.status(500).json({ error: 'Failed to start instalment checkout. Try again in a moment.' });
+  }
+});
+
 // ─── POST /api/billing/meeting/booked — confirm the user picked a time ───
 // Body: {} (no payload — user is identified via auth token)
 // Idempotent: returns 200 whether this is the first time or a re-confirmation.

@@ -410,6 +410,100 @@
   text-align: center;
 }
 
+/* ── Secondary link under the primary CTA ──
+   Used for "Choose a different payment plan" on the plan cards. Looks
+   like an underlined link, not a button — keeps the visual hierarchy
+   focused on Get Started. */
+.of-link-btn {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 6px 4px;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #6b7280);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.of-link-btn:hover {
+  color: var(--brand-red, #e91a44);
+}
+
+.of-link-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── "← Back to plans" link inside the instalments view header ── */
+.of-back-link {
+  display: inline-block;
+  margin-bottom: 18px;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #6b7280);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.of-back-link:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-primary, #1a1a2e);
+}
+
+/* Small grey tag inside the card head, e.g. "2X" / "3X" / "6X". */
+.of-card-installment-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary, #6b7280);
+  background: #f3f4f6;
+  padding: 3px 10px;
+  border-radius: 6px;
+  letter-spacing: 0.4px;
+}
+
+.of-card-feature-mute {
+  color: #9ca3af;
+  font-weight: 400;
+}
+
+.of-installments-foot {
+  text-align: center;
+  margin-top: 28px;
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.of-link-btn-inline {
+  display: inline;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--brand-red, #e91a44);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.of-link-btn-inline:hover {
+  color: var(--brand-red-hover, #c71538);
+}
+
 /* ── Banner shown while polling after Stripe checkout return ── */
 .of-banner {
   display: flex;

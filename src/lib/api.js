@@ -1243,6 +1243,13 @@ export async function createSetupCheckoutSession({ plan }) {
   return postJsonOrThrow('/api/billing/checkout/setup', { plan });
 }
 
+// Pay the setup fee in instalments. Body: { plan, installment: '2x'|'3x'|'6x' }.
+// Returns { url } — Stripe Checkout for a recurring price the merchant
+// configured at STRIPE_PRICE_<PLAN>_INSTALL_<KEY>.
+export async function createInstallmentCheckoutSession({ plan, installment }) {
+  return postJsonOrThrow('/api/billing/checkout/installment', { plan, installment });
+}
+
 // Confirm the user picked a meeting time on Calendly. Idempotent — calling
 // it twice is a no-op success.
 export async function confirmMeetingBooked() {

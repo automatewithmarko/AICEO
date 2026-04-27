@@ -19,6 +19,7 @@ import {
   createSetupCheckoutSession,
   createMonthlyCheckoutSession,
   confirmMeetingBooked,
+  createInstallmentCheckoutSession,
 } from '../lib/api';
 import './OnboardingFunnel.css';
 
@@ -91,6 +92,24 @@ const MONTHLY_BY_PLAN = {
   diamond: { label: 'Diamond', monthly: 199 },
   test: { label: 'Test Plan', monthly: 1 },
 };
+
+// Installment options. The "extra" is the merchant fee tacked onto the
+// base setup so the customer pays a bit more for the convenience of
+// splitting. Each option maps to a Stripe Price the merchant configures
+// at STRIPE_PRICE_<PLAN>_INSTALL_<KEY> (see backend .env.example).
+const INSTALLMENT_OPTIONS = [
+  { key: '2x', count: 2, extra: 50, label: '2 payments' },
+  { key: '3x', count: 3, extra: 75, label: '3 payments' },
+  { key: '6x', count: 6, extra: 100, label: '6 payments' },
+];
+
+function formatMoney(amount) {
+  // Drop the .00 on whole-dollar amounts; show 2 decimals otherwise.
+  const fixed = amount.toFixed(2);
+  return fixed.endsWith('.00')
+    ? Math.round(amount).toLocaleString()
+    : Number(fixed).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 function getCalendlyUrl(plan) {
   // One env var per plan, with a generic fallback. Empty string is treated
@@ -217,21 +236,24 @@ function Stepper({ current }) {
 }
 
 // ─── Step A: pick a setup plan ───
+// Has two sub-views:
+//   default    → list of plans (Complete / Diamond [+ Test])
+//   instalments→ 3 instalment options for the previously-clicked plan
 function SetupPlanPicker() {
   const [acting, setActing] = useState(null);
   const [error, setError] = useState('');
+  // null = plan grid; otherwise the plan id whose instalments are shown
+  const [installPlan, setInstallPlan] = useState(null);
 
-  const handlePick = async (planId) => {
+  const handlePickLumpSum = async (planId) => {
     setError('');
     setActing(planId);
     try {
       const { url, next_step } = await createSetupCheckoutSession({ plan: planId });
       if (url) {
         window.location.assign(url);
-        return; // browser leaves
+        return;
       }
-      // Edge case: backend says we already paid setup. Reload the funnel
-      // state so we render the next step.
       if (next_step && next_step !== 'setup') {
         window.location.reload();
         return;
@@ -243,6 +265,42 @@ function SetupPlanPicker() {
       setActing(null);
     }
   };
+
+  const handlePickInstallment = async (planId, installmentKey) => {
+    setError('');
+    setActing(`${planId}:${installmentKey}`);
+    try {
+      const { url, next_step } = await createInstallmentCheckoutSession({
+        plan: planId,
+        installment: installmentKey,
+      });
+      if (url) {
+        window.location.assign(url);
+        return;
+      }
+      if (next_step && next_step !== 'setup') {
+        window.location.reload();
+        return;
+      }
+      setError('Could not start checkout. Please try again.');
+      setActing(null);
+    } catch (err) {
+      setError(err.message || 'Could not start checkout. Please try again.');
+      setActing(null);
+    }
+  };
+
+  if (installPlan) {
+    return (
+      <InstallmentsView
+        planId={installPlan}
+        acting={acting}
+        error={error}
+        onBack={() => { setError(''); setInstallPlan(null); }}
+        onPick={handlePickInstallment}
+      />
+    );
+  }
 
   return (
     <>
@@ -259,9 +317,6 @@ function SetupPlanPicker() {
       <div className={`of-cards ${SETUP_PLANS.length >= 3 ? 'of-cards--three' : 'of-cards--two'}`}>
         {SETUP_PLANS.map((plan) => {
           const busy = acting === plan.id;
-          const cardLabel = plan.id === 'diamond' ? 'Diamond'
-            : plan.id === 'test' ? 'Test'
-            : 'Complete';
           return (
             <div
               key={plan.id}
@@ -313,19 +368,123 @@ function SetupPlanPicker() {
               <button
                 type="button"
                 className={`of-cta ${plan.recommended ? 'of-cta--primary' : 'of-cta--secondary'}`}
-                onClick={() => handlePick(plan.id)}
+                onClick={() => handlePickLumpSum(plan.id)}
                 disabled={busy || !!acting}
               >
                 {busy ? (
                   <><Loader2 size={14} className="of-spinner" /> Starting checkout…</>
                 ) : (
-                  <>Continue with {cardLabel} <ArrowRight size={14} /></>
+                  <>Get Started <ArrowRight size={14} /></>
+                )}
+              </button>
+
+              {/* Test plan has no instalment route — keep QA flow tight. */}
+              {!plan.testOnly && (
+                <button
+                  type="button"
+                  className="of-link-btn"
+                  onClick={() => setInstallPlan(plan.id)}
+                  disabled={!!acting}
+                >
+                  Choose a different payment plan
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// ─── Step A — sub-view: pick an instalment plan for a given setup tier ───
+function InstallmentsView({ planId, acting, error, onBack, onPick }) {
+  const plan = SETUP_PLANS.find((p) => p.id === planId);
+  if (!plan) return null;
+
+  return (
+    <>
+      <header className="of-header">
+        <button type="button" className="of-back-link" onClick={onBack}>
+          ← Back to plans
+        </button>
+        <h1 className="of-title">Pay in installments</h1>
+        <p className="of-subtitle">
+          Split your <strong>{plan.name}</strong> setup over multiple payments. Choose the cadence that works best for you.
+        </p>
+      </header>
+
+      {error && <div className="of-error">{error}</div>}
+
+      <div className="of-cards of-cards--three">
+        {INSTALLMENT_OPTIONS.map((opt) => {
+          const total = plan.setup + opt.extra;
+          const perInstallment = total / opt.count;
+          const busyKey = `${planId}:${opt.key}`;
+          const busy = acting === busyKey;
+          const recommended = opt.key === '3x'; // middle option highlighted as the "balanced" pick
+
+          return (
+            <div
+              key={opt.key}
+              className={`of-card${recommended ? ' of-card--recommended' : ''}`}
+            >
+              {recommended && (
+                <div className="of-card-badge">
+                  <Crown size={12} />
+                  <span>Most popular</span>
+                </div>
+              )}
+
+              <div className="of-card-head">
+                <h2 className="of-card-name">{opt.label}</h2>
+                <span className="of-card-installment-tag">{opt.key.toUpperCase()}</span>
+              </div>
+
+              <div className="of-card-pricing">
+                <span className="of-card-dollar">$</span>
+                <span className="of-card-amount">{formatMoney(perInstallment)}</span>
+                <span className="of-card-label">/ payment</span>
+              </div>
+
+              <ul className="of-card-features">
+                <li className="of-card-feature">
+                  <Check size={14} className="of-card-check" />
+                  <span>{opt.count} monthly payments of ${formatMoney(perInstallment)}</span>
+                </li>
+                <li className="of-card-feature">
+                  <Check size={14} className="of-card-check" />
+                  <span>${formatMoney(total)} total <span className="of-card-feature-mute">(${plan.setup.toLocaleString()} + ${opt.extra} fee)</span></span>
+                </li>
+                <li className="of-card-feature">
+                  <Check size={14} className="of-card-check" />
+                  <span>Full access starts with your first payment</span>
+                </li>
+              </ul>
+
+              <button
+                type="button"
+                className={`of-cta ${recommended ? 'of-cta--primary' : 'of-cta--secondary'}`}
+                onClick={() => onPick(planId, opt.key)}
+                disabled={busy || !!acting}
+              >
+                {busy ? (
+                  <><Loader2 size={14} className="of-spinner" /> Starting checkout…</>
+                ) : (
+                  <>Get Started <ArrowRight size={14} /></>
                 )}
               </button>
             </div>
           );
         })}
       </div>
+
+      <p className="of-installments-foot">
+        Prefer to pay in one go?{' '}
+        <button type="button" className="of-link-btn-inline" onClick={onBack}>
+          Pay the ${plan.setup.toLocaleString()} setup fee in full instead
+        </button>.
+      </p>
     </>
   );
 }
