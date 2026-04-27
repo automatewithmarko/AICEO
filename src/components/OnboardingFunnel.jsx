@@ -134,8 +134,9 @@ export default function OnboardingFunnel() {
   useEffect(() => { setSub(planData?.subscription || null); }, [planData]);
 
   // After returning from Stripe Checkout (success URL has ?checkout=…)
-  // poll the billing endpoint until the new state shows up. Webhooks
-  // typically settle in 1–4 seconds.
+  // poll the billing endpoint until the new funnel state shows up.
+  // Webhooks typically settle in 1–4 seconds; we give them up to a
+  // minute before we stop polling.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const status = params.get('checkout');
@@ -143,7 +144,7 @@ export default function OnboardingFunnel() {
 
     let cancelled = false;
     let attempts = 0;
-    const maxAttempts = 15; // 15 × 2s = 30s
+    const maxAttempts = 30; // 30 × 2s = 60s
     setLoadingState(true);
     const poll = async () => {
       if (cancelled) return;
@@ -152,16 +153,16 @@ export default function OnboardingFunnel() {
         const fresh = await getBillingPlan();
         if (cancelled) return;
         const freshSub = fresh?.subscription || null;
-        // Settled = either setup_paid_at appeared (after setup checkout)
-        // or has_active_monthly is true (after monthly checkout).
-        const settled = !!freshSub?.setup_paid_at && (
-          status === 'setup_success' ||
-          status === 'success' ? !!freshSub.has_active_monthly : true
-        );
+        // Per-status settle conditions. Earlier version used a single
+        // expression with a precedence bug that made setup_success
+        // never settle until the maxAttempts ceiling — fixed.
+        const settled =
+          (status === 'setup_success' && !!freshSub?.setup_paid_at) ||
+          (status === 'success' && !!freshSub?.has_active_monthly);
         if (settled || attempts >= maxAttempts) {
           setSub(freshSub);
           setLoadingState(false);
-          // Also refresh AuthContext so other parts of the app see the
+          // Refresh AuthContext so other parts of the app see the
           // new plan without a full reload.
           refreshUser?.().catch(() => {});
           // Strip the ?checkout= param so a refresh doesn't re-trigger.
