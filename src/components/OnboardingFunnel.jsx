@@ -28,7 +28,7 @@ const BASE_SETUP_PLANS = [
     id: 'complete',
     name: 'The Complete Platform',
     setup: 1997,
-    recommended: false,
+    recommended: true,
     features: [
       'CRM with AI enrichment',
       'Content creation (all platforms)',
@@ -47,7 +47,7 @@ const BASE_SETUP_PLANS = [
     name: 'Run Your Business From One Platform',
     badge: 'Diamond',
     setup: 2997,
-    recommended: true,
+    recommended: false,
     features: [
       'Everything in Complete, plus:',
       'AI CEO unified chat',
@@ -93,14 +93,16 @@ const MONTHLY_BY_PLAN = {
   test: { label: 'Test Plan', monthly: 1 },
 };
 
-// Installment options. The "extra" is the merchant fee tacked onto the
-// base setup so the customer pays a bit more for the convenience of
-// splitting. Each option maps to a Stripe Price the merchant configures
-// at STRIPE_PRICE_<PLAN>_INSTALL_<KEY> (see backend .env.example).
+// Installment options. extraPerMonth is the merchant fee added to EACH
+// monthly payment (not the total) — so for 2x at $50/mo extra the
+// customer pays an additional $100 on top of the base setup, for 6x at
+// $100/mo extra they pay an additional $600 on top. Each option maps
+// to a Stripe Price the merchant configures at
+// STRIPE_PRICE_<PLAN>_INSTALL_<KEY> (see backend .env.example).
 const INSTALLMENT_OPTIONS = [
-  { key: '2x', count: 2, extra: 50, label: '2 payments' },
-  { key: '3x', count: 3, extra: 75, label: '3 payments' },
-  { key: '6x', count: 6, extra: 100, label: '6 payments' },
+  { key: '2x', count: 2, extraPerMonth: 50, label: '2 payments' },
+  { key: '3x', count: 3, extraPerMonth: 75, label: '3 payments' },
+  { key: '6x', count: 6, extraPerMonth: 100, label: '6 payments' },
 ];
 
 function formatMoney(amount) {
@@ -418,24 +420,17 @@ function InstallmentsView({ planId, acting, error, onBack, onPick }) {
 
       <div className="of-cards of-cards--three">
         {INSTALLMENT_OPTIONS.map((opt) => {
-          const total = plan.setup + opt.extra;
+          // extraPerMonth applies to EACH instalment, so total extra is
+          // extraPerMonth × count. Per-payment is (base + per-month-fee)
+          // divided by N (which simplifies to base/N + per-month-fee).
+          const totalExtra = opt.extraPerMonth * opt.count;
+          const total = plan.setup + totalExtra;
           const perInstallment = total / opt.count;
           const busyKey = `${planId}:${opt.key}`;
           const busy = acting === busyKey;
-          const recommended = opt.key === '3x'; // middle option highlighted as the "balanced" pick
 
           return (
-            <div
-              key={opt.key}
-              className={`of-card${recommended ? ' of-card--recommended' : ''}`}
-            >
-              {recommended && (
-                <div className="of-card-badge">
-                  <Crown size={12} />
-                  <span>Most popular</span>
-                </div>
-              )}
-
+            <div key={opt.key} className="of-card">
               <div className="of-card-head">
                 <h2 className="of-card-name">{opt.label}</h2>
                 <span className="of-card-installment-tag">{opt.key.toUpperCase()}</span>
@@ -454,7 +449,7 @@ function InstallmentsView({ planId, acting, error, onBack, onPick }) {
                 </li>
                 <li className="of-card-feature">
                   <Check size={14} className="of-card-check" />
-                  <span>${formatMoney(total)} total <span className="of-card-feature-mute">(${plan.setup.toLocaleString()} + ${opt.extra} fee)</span></span>
+                  <span>${formatMoney(total)} total <span className="of-card-feature-mute">(${plan.setup.toLocaleString()} + ${formatMoney(totalExtra)} fee)</span></span>
                 </li>
                 <li className="of-card-feature">
                   <Check size={14} className="of-card-check" />
@@ -464,7 +459,7 @@ function InstallmentsView({ planId, acting, error, onBack, onPick }) {
 
               <button
                 type="button"
-                className={`of-cta ${recommended ? 'of-cta--primary' : 'of-cta--secondary'}`}
+                className="of-cta of-cta--secondary"
                 onClick={() => onPick(planId, opt.key)}
                 disabled={busy || !!acting}
               >
