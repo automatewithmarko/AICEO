@@ -97,7 +97,11 @@
   border-bottom: none;
   border-left: none;
   border-radius: 0;
+  /* column flex so .mkt-chat-topbar (first child) stacks ABOVE .mkt-split.
+     Topbar is now a sibling of the split panes — nothing inside the split
+     can displace or cover it. */
   display: flex;
+  flex-direction: column;
   min-height: 0;
 }
 
@@ -108,10 +112,7 @@
   min-height: 0;
 }
 
-/* Left panel — dotted grid background.
-   padding-top makes room for the absolute-positioned .mkt-chat-topbar
-   that floats over the chat (so loader / messages / chrome-tab bleed can
-   never displace it). Tweak both numbers together if topbar height changes. */
+/* Left panel — dotted grid background. */
 .mkt-split-left {
   flex: 1;
   display: flex;
@@ -120,7 +121,6 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding-top: 48px;
 }
 
 .mkt-split-left-bg {
@@ -2748,17 +2748,15 @@
   color: var(--brand-red);
 }
 
-/* ── Chat history — floating top bar (always visible, never displaced) ──
-   Pinned absolute to the top of .mkt-split-left so chat-load layout
-   reflows, image-gen renders, story sequences appearing, and the active
-   chrome tab's 1px bleed CANNOT push or cover it. .mkt-split-left has a
-   matching padding-top so the chat content below never sits under it. */
+/* ── Chat history top bar — sibling of .mkt-split inside .marketing-content ──
+   Lives directly under the chrome tabs row. Because it's OUTSIDE the
+   split panes, no chat-state reflow inside .mkt-split-left can displace
+   it, and the chrome-tab z:3 bleed can't cover it (z:30 + flex-shrink:0
+   keeps the topbar stably above). */
 .mkt-chat-topbar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  position: relative;
   z-index: 30;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;

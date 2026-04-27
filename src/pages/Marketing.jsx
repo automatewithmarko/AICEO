@@ -2399,26 +2399,59 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     }
   }, [storyFrames]);
 
-  // Append uploaded image files as new story frames. No AI involvement —
-  // each file becomes its own frame at the end of the sequence with an
-  // empty caption (user can re-edit later via the pencil button).
+  // Append uploaded image files as new story frames. Each file is uploaded
+  // to Supabase storage so the frame's imageSrc is a real URL — not an
+  // in-memory base64 dataURL. Without this, "uploaded" frames vanished on
+  // refresh (the autosave row would balloon with base64 and Supabase would
+  // reject or silently truncate the jsonb), and they couldn't be referenced
+  // by Gemini for downstream regeneration.
+  //
+  // Optimistic flow:
+  //   1. Show each new frame with a temporary base64 dataURL + loading=true
+  //   2. Upload to storage in parallel
+  //   3. Swap each frame's imageSrc to the real https URL when its upload resolves
+  //   4. On upload failure, mark that specific frame as error (keeps the others)
   const storyUploadInputRef = useRef(null);
   const handleUploadStoryImages = useCallback((files) => {
     const list = Array.from(files || []).filter((f) => f && f.type.startsWith('image/'));
     if (list.length === 0) return;
-    Promise.all(list.map((file) => new Promise((resolve) => {
+
+    const startIdx = storyFrames.length;
+    const placeholders = list.map(() => ({ title: '', caption: '', image_prompt: '', imageSrc: null, loading: true, uploading: true }));
+    setStoryFrames((prev) => [...prev, ...placeholders]);
+
+    list.forEach((file, i) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
-      reader.onerror = () => resolve(null);
+      reader.onload = async () => {
+        const result = typeof reader.result === 'string' ? reader.result : '';
+        const commaIdx = result.indexOf(',');
+        if (commaIdx === -1) {
+          setStoryFrames((prev) => prev.map((f, idx) => idx === startIdx + i ? { ...f, loading: false, uploading: false, error: true } : f));
+          return;
+        }
+        const base64 = result.slice(commaIdx + 1);
+        const mimeMatch = result.match(/^data:([^;]+);/);
+        const mimeType = mimeMatch?.[1] || file.type || 'image/png';
+        // Show preview immediately while upload runs in background
+        setStoryFrames((prev) => prev.map((f, idx) => idx === startIdx + i ? { ...f, imageSrc: result, loading: false } : f));
+        try {
+          const uploaded = await uploadImageToStorage(base64, mimeType);
+          if (uploaded?.url) {
+            setStoryFrames((prev) => prev.map((f, idx) => idx === startIdx + i ? { ...f, imageSrc: uploaded.url, uploading: false } : f));
+          } else {
+            setStoryFrames((prev) => prev.map((f, idx) => idx === startIdx + i ? { ...f, uploading: false, error: true } : f));
+          }
+        } catch (err) {
+          console.error('[story-upload]', file.name, err.message);
+          setStoryFrames((prev) => prev.map((f, idx) => idx === startIdx + i ? { ...f, uploading: false, error: true } : f));
+        }
+      };
+      reader.onerror = () => {
+        setStoryFrames((prev) => prev.map((f, idx) => idx === startIdx + i ? { ...f, loading: false, uploading: false, error: true } : f));
+      };
       reader.readAsDataURL(file);
-    }))).then((dataUrls) => {
-      const newFrames = dataUrls
-        .filter(Boolean)
-        .map((dataUrl) => ({ title: '', caption: '', image_prompt: '', imageSrc: dataUrl, loading: false }));
-      if (newFrames.length === 0) return;
-      setStoryFrames((prev) => [...prev, ...newFrames]);
     });
-  }, []);
+  }, [storyFrames.length]);
 
   // Reorder story frames by moving frame at fromIdx into toIdx position.
   // Used by the thumbnail drag-and-drop in StoryPhoneViewer.
@@ -2511,33 +2544,34 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
 
   return (
   <>
+    {/* Top bar — sibling of .mkt-split (NOT inside .mkt-split-left). Lives
+        directly under the chrome tabs in the column-flex parent so chat-load
+        layout reflow inside the split panes can never displace or cover it. */}
+    <div className="mkt-chat-topbar">
+      <button
+        type="button"
+        className="mkt-prev-convos"
+        onClick={() => setShowSessions((v) => !v)}
+        title="Previous conversations"
+      >
+        <History size={16} />
+        <span>Previous conversations</span>
+      </button>
+      {chatStarted && (
+        <button
+          type="button"
+          className="mkt-new-convo"
+          onClick={newConversation}
+          title="Start a new conversation"
+        >
+          <Plus size={14} /> New
+        </button>
+      )}
+    </div>
+
     <div className="mkt-split" ref={splitRef}>
       {/* Left  -  chat area */}
       <div className="mkt-split-left" style={{ flex: `0 0 ${splitPercent}%` }}>
-
-        {/* Floating top bar — always visible (position:absolute, high z-index)
-            so Previous Conversations access never disappears when a chat opens. */}
-        <div className="mkt-chat-topbar">
-          <button
-            type="button"
-            className="mkt-prev-convos"
-            onClick={() => setShowSessions((v) => !v)}
-            title="Previous conversations"
-          >
-            <History size={16} />
-            <span>Previous conversations</span>
-          </button>
-          {chatStarted && (
-            <button
-              type="button"
-              className="mkt-new-convo"
-              onClick={newConversation}
-              title="Start a new conversation"
-            >
-              <Plus size={14} /> New
-            </button>
-          )}
-        </div>
 
         {/* Ghost cards + CTA (shown when no chat) */}
         {!chatStarted && (
