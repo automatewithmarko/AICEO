@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
-import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap } from 'lucide-react';
+import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap, Paperclip, Image as ImageIcon } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts } from '../lib/api';
@@ -11,6 +11,8 @@ import { useAuth } from '../context/AuthContext';
 import Paywall from '../components/Paywall';
 import '../components/Paywall.css';
 import ArtifactPanel from '../components/ArtifactPanel';
+import ChatDropOverlay from '../components/ChatDropOverlay';
+import { useChatFileDropZone } from '../hooks/useChatFileDropZone';
 import './AiCeo.css';
 
 // CEO prompt and tools are now handled server-side via /api/orchestrate
@@ -115,6 +117,12 @@ export default function AiCeo() {
   const [renameDraft, setRenameDraft] = useState('');
   const [creditsDepleted, setCreditsDepleted] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  // Files attached to the next outbound message. Same shape Marketing
+  // uses so the two pages can converge on a shared helper later.
+  // Images keep a data URL for preview; documents keep their text
+  // content so the AI orchestrator can reference it inline.
+  const [attachedFiles, setAttachedFiles] = useState([]);
+  const fileInputRef = useRef(null);
   // Track sessions whose title the user manually edited so the autosave
   // doesn't keep clobbering it with the derived "first user message" title.
   const customTitleIdsRef = useRef(new Set());
@@ -219,10 +227,68 @@ export default function AiCeo() {
   // Build context string to inject into messages for the AI
   const buildCeoContextString = () => {
     const items = getSelectedCtxDetails();
-    if (items.length === 0) return '';
-    const parts = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? `  -  ${i.date}` : ''}`);
-    return `[CONTEXT  -  The user has selected the following items for reference:\n${parts.join('\n')}\nPrioritize this context when responding. Use it to inform your suggestions, decisions, and any generated content.]\n\n`;
+    const parts = [];
+    if (items.length > 0) {
+      const lines = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? `  -  ${i.date}` : ''}`);
+      parts.push(`[CONTEXT  -  The user has selected the following items for reference:\n${lines.join('\n')}\nPrioritize this context when responding. Use it to inform your suggestions, decisions, and any generated content.]`);
+    }
+    if (attachedFiles.length > 0) {
+      const images = attachedFiles.filter((f) => f.type === 'image');
+      const docs = attachedFiles.filter((f) => f.type === 'document');
+      if (images.length > 0) {
+        // Images aren't sent to the orchestrator yet (no vision support
+        // in this path); just tell the AI they exist so it can ask
+        // follow-up questions or reference them in suggestions.
+        parts.push(`[ATTACHED IMAGES  -  The user attached ${images.length} image(s): ${images.map((i) => `"${i.name}"`).join(', ')}.]`);
+      }
+      if (docs.length > 0) {
+        parts.push(`[ATTACHED DOCUMENTS  -  The user attached ${docs.length} document(s) as additional context. Use the text content where relevant:\n${docs.map((d) => `- "${d.name}":\n${(d.textContent || '').slice(0, 3000)}`).join('\n\n')}\n]`);
+      }
+    }
+    if (parts.length === 0) return '';
+    return parts.join('\n\n') + '\n\n';
   };
+
+  // Read FileList / File[] into local state. Images get a data URL
+  // (for preview), documents get text content (sent to the AI as
+  // context). Same ingest shape Marketing uses, by design, so a
+  // shared helper can replace both call sites later.
+  const ingestFiles = useCallback((fileLike) => {
+    const files = Array.from(fileLike || []);
+    files.forEach((file) => {
+      const id = `file-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const isImage = file.type.startsWith('image/');
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setAttachedFiles((prev) => [...prev, {
+          id,
+          name: file.name,
+          size: file.size,
+          ...(isImage
+            ? { type: 'image', dataUrl: ev.target.result }
+            : { type: 'document', textContent: ev.target.result }),
+        }]);
+      };
+      if (isImage) reader.readAsDataURL(file);
+      else reader.readAsText(file);
+    });
+  }, []);
+
+  const removeAttachedFile = useCallback((id) => {
+    setAttachedFiles((prev) => prev.filter((f) => f.id !== id));
+  }, []);
+
+  const handleFileInputChange = (e) => {
+    ingestFiles(e.target.files);
+    e.target.value = '';
+  };
+
+  // Window-level drag-and-drop. Drop a file anywhere on the AI CEO
+  // page to attach it to the next message — same as Marketing /
+  // Content. The Paperclip button is just a manual fallback.
+  const { dragging: filesDragging } = useChatFileDropZone({
+    onFiles: ingestFiles,
+  });
 
   // Click outside context menu
   useEffect(() => {
@@ -1082,11 +1148,16 @@ export default function AiCeo() {
     const updated = [...messages, userMsg];
     setMessages(updated);
     setInput('');
+    // Drop the staged attachments — they've been folded into the
+    // outbound message via buildCeoContextString. Keeping them around
+    // would silently re-attach the same files to the next message.
+    setAttachedFiles([]);
     // Reset textarea height
     const textarea = document.querySelector('.ceo-input-area--bottom .ceo-input');
     if (textarea) textarea.style.height = 'auto';
     sendToAI(updated);
-  }, [input, isGenerating, messages, sendToAI, selectedCtxItems, ceoContextCategories]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input, isGenerating, messages, sendToAI, selectedCtxItems, ceoContextCategories, attachedFiles]);
 
   const handleStarter = useCallback((text) => {
     if (isGenerating) return;
@@ -1096,8 +1167,10 @@ export default function AiCeo() {
     const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: userContent };
     const updated = [userMsg];
     setMessages(updated);
+    setAttachedFiles([]);
     sendToAI(updated);
-  }, [isGenerating, sendToAI, selectedCtxItems, ceoContextCategories]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGenerating, sendToAI, selectedCtxItems, ceoContextCategories, attachedFiles]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1170,6 +1243,10 @@ export default function AiCeo() {
   // ── Render ──
   return (
     <div className="ceo-page">
+      {/* Window-level drag-and-drop overlay. Visible while a file
+          is being dragged over the page; drop wires straight into
+          the same ingestFiles() the paperclip button uses. */}
+      <ChatDropOverlay visible={filesDragging} hint="Drop to attach to your next message — images preview, documents are added as context." />
       <div
         className={`ceo-split ${dragging ? 'ceo-split--dragging' : ''}`}
         ref={splitRef}
@@ -1360,6 +1437,23 @@ export default function AiCeo() {
                       </div>
                     )}
                   </div>
+                  {attachedFiles.length > 0 && (
+                    <div className="ceo-attached-files">
+                      {attachedFiles.map((f) => (
+                        <span key={f.id} className={`ceo-attached-pill ceo-attached-pill--${f.type}`}>
+                          {f.type === 'image' && f.dataUrl ? (
+                            <img src={f.dataUrl} alt={f.name} className="ceo-attached-thumb" />
+                          ) : (
+                            <FileText size={14} className="ceo-attached-icon" />
+                          )}
+                          <span className="ceo-attached-name" title={f.name}>{f.name}</span>
+                          <button className="ceo-attached-x" onClick={() => removeAttachedFile(f.id)} title="Remove">
+                            <X size={11} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="ceo-input-bottom-row">
                     <textarea
                       ref={inputRef}
@@ -1372,6 +1466,21 @@ export default function AiCeo() {
                       rows={3}
                     />
                     <div className="ceo-input-actions">
+                      <button
+                        className="ceo-attach-btn"
+                        onClick={() => fileInputRef.current?.click()}
+                        title="Attach files"
+                      >
+                        <Paperclip size={18} />
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        accept="image/*,.pdf,.txt,.doc,.docx,.md,.csv,.json"
+                        onChange={handleFileInputChange}
+                        style={{ display: 'none' }}
+                      />
                       <button
                         className={`ceo-voice-btn ${isListening ? 'ceo-voice-btn--active' : ''}`}
                         onClick={toggleVoice}
@@ -1597,6 +1706,23 @@ export default function AiCeo() {
                       </div>
                     )}
                   </div>
+                  {attachedFiles.length > 0 && (
+                    <div className="ceo-attached-files">
+                      {attachedFiles.map((f) => (
+                        <span key={f.id} className={`ceo-attached-pill ceo-attached-pill--${f.type}`}>
+                          {f.type === 'image' && f.dataUrl ? (
+                            <img src={f.dataUrl} alt={f.name} className="ceo-attached-thumb" />
+                          ) : (
+                            <FileText size={14} className="ceo-attached-icon" />
+                          )}
+                          <span className="ceo-attached-name" title={f.name}>{f.name}</span>
+                          <button className="ceo-attached-x" onClick={() => removeAttachedFile(f.id)} title="Remove">
+                            <X size={11} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="ceo-input-bottom-row">
                     <textarea
                       className="ceo-input"
@@ -1608,6 +1734,21 @@ export default function AiCeo() {
                       rows={1}
                     />
                     <div className="ceo-input-actions">
+                      <button
+                        className="ceo-attach-btn"
+                        onClick={() => fileInputRef.current?.click()}
+                        title="Attach files"
+                      >
+                        <Paperclip size={18} />
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        accept="image/*,.pdf,.txt,.doc,.docx,.md,.csv,.json"
+                        onChange={handleFileInputChange}
+                        style={{ display: 'none' }}
+                      />
                       <button
                         className={`ceo-voice-btn ${isListening ? 'ceo-voice-btn--active' : ''}`}
                         onClick={toggleVoice}
