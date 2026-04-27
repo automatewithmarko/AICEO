@@ -4,7 +4,7 @@ import { Mail, Send, Users, BarChart3, Megaphone, Inbox, ArrowUp, ChevronDown, P
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
-import { generateImage, uploadImageToStorage, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate, createCalendarPost, publishCalendarPost } from '../lib/api';
 import AutomationGraph from '../components/AutomationGraph';
 import NetlifyDeployButton from '../components/NetlifyDeployButton';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
@@ -129,8 +129,8 @@ RULES FOR STORY SEQUENCES:
     readyText: 'Your story sequence is ready! Check the canvas on the right.',
     canvasActions: [
       { label: 'Upload Images', style: 'outline', isUploadStoryImages: true },
-      { label: 'Download All', style: 'outline' },
-      { label: 'Schedule Stories', style: 'primary' },
+      { label: 'Download All', style: 'outline', isDownloadAllStories: true },
+      { label: 'Schedule Stories', style: 'primary', isScheduleStories: true },
     ],
     canvasEmptyType: 'story-sequence',
   },
@@ -2496,6 +2496,146 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     });
   }, []);
 
+  // ── Story sequence: Download All as ZIP ──
+  // Mirrors the LinkedIn carousel ZIP downloader in Content.jsx — handles
+  // both data: URLs (fresh generation) and remote storage URLs (after upload),
+  // adds a captions.txt with the per-frame captions for context.
+  const [storyDownloading, setStoryDownloading] = useState(false);
+  const handleDownloadAllStories = useCallback(async () => {
+    if (storyDownloading || storyFrames.length === 0) return;
+    setStoryDownloading(true);
+    try {
+      const { default: JSZip } = await import('jszip');
+      const zip = new JSZip();
+      let added = 0;
+      for (let i = 0; i < storyFrames.length; i++) {
+        const f = storyFrames[i];
+        if (!f.imageSrc) continue;
+        const label = String(i + 1).padStart(2, '0');
+        try {
+          if (f.imageSrc.startsWith('data:')) {
+            const commaIdx = f.imageSrc.indexOf(',');
+            if (commaIdx === -1) continue;
+            const b64 = f.imageSrc.slice(commaIdx + 1);
+            const mime = (f.imageSrc.match(/^data:([^;]+);/) || [])[1] || 'image/png';
+            const ext = (mime.split('/')[1] || 'png').split('+')[0];
+            zip.file(`story-${label}.${ext}`, b64, { base64: true });
+            added++;
+          } else {
+            const res = await fetch(f.imageSrc, { mode: 'cors' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const ext = ((blob.type || 'image/png').split('/')[1] || 'png').split('+')[0];
+            zip.file(`story-${label}.${ext}`, blob);
+            added++;
+          }
+        } catch (err) {
+          console.warn(`[story-zip] frame ${i + 1} failed:`, err);
+        }
+      }
+      // Captions file for context — matches the LI/IG carousel pattern.
+      const captions = storyFrames
+        .map((f, i) => `Frame ${i + 1}${f.title ? ` — ${f.title}` : ''}${f.caption ? `: ${f.caption}` : ''}`)
+        .join('\n');
+      if (captions.trim()) zip.file('captions.txt', captions);
+      if (added === 0) throw new Error('No frames could be added — check your connection and try again.');
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.href = url;
+      a.download = `story-sequence-${ts}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (err) {
+      console.error('Story ZIP download failed:', err);
+      alert(err.message || 'Download failed.');
+    } finally {
+      setStoryDownloading(false);
+    }
+  }, [storyFrames, storyDownloading]);
+
+  // ── Story sequence: Schedule to content calendar ──
+  // Same data-URL → upload → calendar row pattern as the carousel scheduler.
+  // Stories don't have a per-platform editor in ContentCalendar yet, so the
+  // row is saved as content_type='story' and shows up as a generic calendar
+  // entry. publishCalendarPost wires through BooSend → Instagram when the
+  // user picks "Publish now".
+  const [storyScheduleOpen, setStoryScheduleOpen] = useState(false);
+  const [storyScheduleWhen, setStoryScheduleWhen] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(10, 0, 0, 0);
+    return d.toISOString().slice(0, 16);
+  });
+  const [storyScheduling, setStoryScheduling] = useState(false);
+  const [storyScheduleStatus, setStoryScheduleStatus] = useState(null); // 'saved' | 'published' | null
+
+  const handleOpenScheduleStories = useCallback(() => {
+    if (storyFrames.length === 0) return;
+    setStoryScheduleStatus(null);
+    setStoryScheduleOpen(true);
+  }, [storyFrames.length]);
+
+  const collectStoryMedia = useCallback(async () => {
+    const media = [];
+    for (const f of storyFrames) {
+      if (!f.imageSrc) continue;
+      let url = f.imageSrc;
+      if (url.startsWith('data:')) {
+        const commaIdx = url.indexOf(',');
+        const mimeMatch = url.match(/^data:([^;]+);/);
+        const base64 = url.slice(commaIdx + 1);
+        const mimeType = mimeMatch?.[1] || 'image/png';
+        try {
+          const uploaded = await uploadImageToStorage(base64, mimeType);
+          url = uploaded.url || uploaded.publicUrl || url;
+        } catch (err) {
+          console.warn('[story-schedule] upload failed for one frame:', err.message);
+          continue;
+        }
+      }
+      media.push({ type: 'image', url, caption: f.caption || '' });
+    }
+    return media;
+  }, [storyFrames]);
+
+  const saveStoriesToCalendar = useCallback(async (mode /* 'scheduled' | 'draft' | 'publish' */) => {
+    if (storyScheduling) return;
+    setStoryScheduling(true);
+    try {
+      const media = await collectStoryMedia();
+      if (!media.length) throw new Error('No frames to schedule');
+      const captionLines = storyFrames
+        .map((f, i) => f.caption ? `${i + 1}. ${f.caption}` : null)
+        .filter(Boolean);
+      const caption = captionLines.join('\n');
+      const { post } = await createCalendarPost({
+        platform: 'instagram',
+        caption,
+        content_type: 'story',
+        scheduled_at: mode === 'scheduled' ? new Date(storyScheduleWhen).toISOString() : null,
+        media,
+        status: mode === 'scheduled' ? 'scheduled' : 'draft',
+      });
+      if (mode === 'publish') {
+        await publishCalendarPost(post.id);
+        setStoryScheduleStatus('published');
+      } else {
+        setStoryScheduleStatus(mode === 'scheduled' ? 'scheduled' : 'saved');
+      }
+      setStoryScheduleOpen(false);
+      setTimeout(() => setStoryScheduleStatus(null), 4000);
+    } catch (err) {
+      console.error('Story calendar save failed:', err);
+      alert(err.message || 'Failed to save to calendar');
+    } finally {
+      setStoryScheduling(false);
+    }
+  }, [storyFrames, storyScheduling, storyScheduleWhen, collectStoryMedia]);
+
   const handleCopyCode = () => {
     if (!canvasHtml) return;
     navigator.clipboard.writeText(canvasHtml);
@@ -3006,6 +3146,26 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
                       }}
                     />
                   </span>
+                ) : action.isDownloadAllStories ? (
+                  <button
+                    key={i}
+                    className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
+                    onClick={handleDownloadAllStories}
+                    disabled={storyDownloading || storyFrames.length === 0}
+                    title={storyFrames.length === 0 ? 'Generate or upload story frames first' : 'Download all frames as a ZIP'}
+                  >
+                    {storyDownloading ? 'Zipping…' : action.label}
+                  </button>
+                ) : action.isScheduleStories ? (
+                  <button
+                    key={i}
+                    className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
+                    onClick={handleOpenScheduleStories}
+                    disabled={storyFrames.length === 0}
+                    title={storyFrames.length === 0 ? 'Generate or upload story frames first' : 'Schedule or publish to Instagram'}
+                  >
+                    {storyScheduleStatus === 'published' ? 'Published ✓' : storyScheduleStatus === 'scheduled' ? 'Scheduled ✓' : storyScheduleStatus === 'saved' ? 'Saved ✓' : action.label}
+                  </button>
                 ) : (
                   <button
                     key={i}
@@ -3132,6 +3292,45 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     <SendNewsletterModal open={sendModalOpen} onClose={() => setSendModalOpen(false)} canvasHtml={canvasHtml} />
     <SaveTemplateModal open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} canvasHtml={canvasHtml} activeTool={activeTool} />
     <ImportTemplateModal open={importTemplateOpen} onClose={() => setImportTemplateOpen(false)} activeTool={activeTool} onImport={(html) => setCanvasHtml(html)} />
+
+    {/* ── Schedule Stories modal — same Save-as-draft / Schedule / Publish-now
+        flow Content.jsx uses for carousels. */}
+    {storyScheduleOpen && (
+      <div className="mkt-modal-overlay" onClick={() => !storyScheduling && setStoryScheduleOpen(false)} role="dialog" aria-modal="true">
+        <div className="mkt-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="mkt-modal-header">
+            <span className="mkt-modal-title">Send story sequence to content calendar</span>
+            <button type="button" className="mkt-modal-close" onClick={() => !storyScheduling && setStoryScheduleOpen(false)} aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="mkt-modal-body">
+            <label className="mkt-modal-label">Schedule date/time</label>
+            <input
+              type="datetime-local"
+              className="mkt-modal-input"
+              value={storyScheduleWhen}
+              onChange={(e) => setStoryScheduleWhen(e.target.value)}
+              disabled={storyScheduling}
+            />
+            <div className="mkt-modal-hint">
+              "Publish now" posts immediately via your connected Instagram account. "Schedule" pins it to the chosen date. "Save as draft" parks it in the Content Calendar for later. {storyFrames.length} {storyFrames.length === 1 ? 'frame' : 'frames'} will be uploaded.
+            </div>
+          </div>
+          <div className="mkt-modal-footer">
+            <button type="button" className="mkt-modal-cancel" onClick={() => saveStoriesToCalendar('draft')} disabled={storyScheduling}>
+              Save as draft
+            </button>
+            <button type="button" className="mkt-modal-cancel" onClick={() => saveStoriesToCalendar('scheduled')} disabled={storyScheduling}>
+              Schedule
+            </button>
+            <button type="button" className="mkt-modal-save" onClick={() => saveStoriesToCalendar('publish')} disabled={storyScheduling}>
+              {storyScheduling ? 'Working…' : 'Publish now'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* Sessions overlay + panel */}
     {showSessions && (
