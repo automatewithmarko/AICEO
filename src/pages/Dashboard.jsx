@@ -168,6 +168,7 @@ export default function Dashboard() {
       setConnectedIntegrations(intMap);
 
       if (intMap.stripe?.is_active || intMap.whop?.is_active) steps.add(5);
+      if (intMap.gohighlevel?.is_active) steps.add(7);
       if (intMap.boosend?.is_active) steps.add(8);
 
       setCompletedSteps(steps);
