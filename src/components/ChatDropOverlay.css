@@ -1,0 +1,65 @@
+/* ChatDropOverlay — full-screen affordance shown while the user is
+   dragging files over the page. Visual language matches the rest of
+   the app: brand-red dashed border, white card, the same Upload icon
+   used elsewhere for file affordances. */
+
+.chat-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000; /* above content, below modals (9999) and funnel (also 9999) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(248, 248, 250, 0.85);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none; /* let the window handle drag/drop events */
+  animation: chatDropFadeIn 0.12s ease-out;
+}
+
+@keyframes chatDropFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.chat-drop-overlay-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 48px 56px;
+  background: #fff;
+  border: 2px dashed var(--brand-red, #e91a44);
+  border-radius: 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+  max-width: 440px;
+}
+
+.chat-drop-overlay-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(233, 26, 68, 0.08);
+  color: var(--brand-red, #e91a44);
+  margin-bottom: 4px;
+}
+
+.chat-drop-overlay-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #1a1a2e;
+  margin: 0;
+  letter-spacing: -0.3px;
+}
+
+.chat-drop-overlay-sub {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0;
+  line-height: 1.5;
+}

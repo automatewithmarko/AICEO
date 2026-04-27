@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Mail, Send, Users, BarChart3, Megaphone, Inbox, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2, Upload } from 'lucide-react';
+import ChatDropOverlay from '../components/ChatDropOverlay';
+import { useChatFileDropZone } from '../hooks/useChatFileDropZone';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
@@ -1832,8 +1834,12 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
   };
 
   // File upload handler
-  const handleFileUpload = (e) => {
-    const files = Array.from(e.target.files);
+  // Accepts a FileList / File[] directly so we can call it from both
+  // the paperclip <input onChange> AND the window-level drag-drop
+  // handler. Keeping it permissive means the same accept rules + size
+  // limits live in one place.
+  const ingestFiles = useCallback((fileLike) => {
+    const files = Array.from(fileLike || []);
     files.forEach((file) => {
       const id = `file-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const isImage = file.type.startsWith('image/');
@@ -1865,8 +1871,18 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         reader.readAsText(file);
       }
     });
+  }, []);
+
+  const handleFileUpload = (e) => {
+    ingestFiles(e.target.files);
     e.target.value = '';
   };
+
+  // Window-level drag-and-drop. Drop anywhere on the page to attach
+  // files to the current chat — same handler the paperclip uses.
+  const { dragging: filesDragging } = useChatFileDropZone({
+    onFiles: ingestFiles,
+  });
 
   const removeFile = (fileId) => {
     setUploadedFiles((prev) => prev.filter((f) => f.id !== fileId));
@@ -2715,6 +2731,10 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
 
   return (
   <>
+    {/* Window-level drag-and-drop overlay. Shown only while a file
+        drag is active anywhere on the page; the actual file ingestion
+        is wired up to the same path the paperclip uses. */}
+    <ChatDropOverlay visible={filesDragging} hint="Drop to add an image or document to your message." />
     {/* Top bar — sibling of .mkt-split (NOT inside .mkt-split-left). Lives
         directly under the chrome tabs in the column-flex parent so chat-load
         layout reflow inside the split panes can never displace or cover it. */}
