@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
-import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap, Paperclip, Image as ImageIcon } from 'lucide-react';
+import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap, Paperclip, Loader2, AlertCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles } from '../lib/api';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
 import { supabase } from '../lib/supabase';
@@ -232,47 +232,114 @@ export default function AiCeo() {
       const lines = items.map((i) => `${i.catLabel}: "${i.name}"${i.sub ? ` (${i.sub})` : ''}${i.date ? `  -  ${i.date}` : ''}`);
       parts.push(`[CONTEXT  -  The user has selected the following items for reference:\n${lines.join('\n')}\nPrioritize this context when responding. Use it to inform your suggestions, decisions, and any generated content.]`);
     }
-    if (attachedFiles.length > 0) {
-      const images = attachedFiles.filter((f) => f.type === 'image');
-      const docs = attachedFiles.filter((f) => f.type === 'document');
+    // Only fold READY attachments into the context. In-flight uploads
+    // (status='uploading') are blocked at sendMessage so the AI never
+    // sees them; errored uploads are also skipped.
+    const ready = attachedFiles.filter((f) => f.status === 'done');
+    if (ready.length > 0) {
+      const images = ready.filter((f) => f.type === 'image');
+      const docs = ready.filter((f) => f.type === 'document');
       if (images.length > 0) {
-        // Images aren't sent to the orchestrator yet (no vision support
-        // in this path); just tell the AI they exist so it can ask
-        // follow-up questions or reference them in suggestions.
-        parts.push(`[ATTACHED IMAGES  -  The user attached ${images.length} image(s): ${images.map((i) => `"${i.name}"`).join(', ')}.]`);
+        // The image is uploaded to Supabase storage by /api/upload —
+        // pass the public URL through to the orchestrator so a vision-
+        // capable downstream can fetch the actual pixels. Today the
+        // streaming path is text-only; we still hand off the URL so
+        // when vision is wired in, no UI change is needed.
+        parts.push(`[ATTACHED IMAGES  -  The user attached ${images.length} image(s):\n${images.map((i) => `- "${i.name}" → ${i.url || '(no url)'}`).join('\n')}\n]`);
       }
       if (docs.length > 0) {
-        parts.push(`[ATTACHED DOCUMENTS  -  The user attached ${docs.length} document(s) as additional context. Use the text content where relevant:\n${docs.map((d) => `- "${d.name}":\n${(d.textContent || '').slice(0, 3000)}`).join('\n\n')}\n]`);
+        // textContent here is the backend-extracted text from
+        // pdf-parse / mammoth (NOT the raw file bytes). This is the
+        // fix for the "PDF arrives as gibberish" bug — client-side
+        // readAsText on a PDF blob produced binary noise.
+        parts.push(`[ATTACHED DOCUMENTS  -  The user attached ${docs.length} document(s). Use the extracted text where relevant:\n${docs.map((d) => `- "${d.name}":\n${(d.textContent || '').slice(0, 5000)}`).join('\n\n')}\n]`);
       }
     }
     if (parts.length === 0) return '';
     return parts.join('\n\n') + '\n\n';
   };
 
-  // Read FileList / File[] into local state. Images get a data URL
-  // (for preview), documents get text content (sent to the AI as
-  // context). Same ingest shape Marketing uses, by design, so a
-  // shared helper can replace both call sites later.
-  const ingestFiles = useCallback((fileLike) => {
+  // Reserve a pill immediately for each picked / dropped file and
+  // upload them in parallel via /api/upload — the same backend path
+  // Content uses, with proper PDF text extraction (pdf-parse) and
+  // Supabase storage for images. Client-side FileReader was wrong:
+  // readAsText on a PDF returns binary garbage, and we never sent the
+  // image bytes anywhere so the AI only ever saw a filename.
+  //
+  // Each pill goes through statuses: 'uploading' → 'done' / 'error'.
+  // Images additionally show a local thumbnail (read via FileReader
+  // off the original File for instant preview) while the network
+  // upload runs in parallel — both arrive at status='done'.
+  const ingestFiles = useCallback(async (fileLike) => {
     const files = Array.from(fileLike || []);
-    files.forEach((file) => {
-      const id = `file-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const isImage = file.type.startsWith('image/');
+    if (files.length === 0) return;
+
+    const reservations = files.map((file) => ({
+      id: `file-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      file,
+      name: file.name,
+      size: file.size,
+      type: file.type.startsWith('image/') ? 'image' : 'document',
+      status: 'uploading',
+    }));
+
+    // Push pills first (drop the File ref so it doesn't sit in state).
+    // eslint-disable-next-line no-unused-vars
+    setAttachedFiles((prev) => [...prev, ...reservations.map(({ file: _file, ...rest }) => rest)]);
+
+    // Local thumbnail preview for images — runs in parallel with the
+    // actual backend upload so the user sees the pill immediately.
+    for (const res of reservations) {
+      if (res.type !== 'image') continue;
       const reader = new FileReader();
       reader.onload = (ev) => {
-        setAttachedFiles((prev) => [...prev, {
-          id,
-          name: file.name,
-          size: file.size,
-          ...(isImage
-            ? { type: 'image', dataUrl: ev.target.result }
-            : { type: 'document', textContent: ev.target.result }),
-        }]);
+        setAttachedFiles((prev) => prev.map((f) =>
+          f.id === res.id ? { ...f, dataUrl: ev.target?.result || null } : f,
+        ));
       };
-      if (isImage) reader.readAsDataURL(file);
-      else reader.readAsText(file);
-    });
+      reader.readAsDataURL(res.file);
+    }
+
+    try {
+      const { files: results } = await uploadContextFiles(reservations.map((r) => r.file));
+      setAttachedFiles((prev) => prev.map((item) => {
+        const ridx = reservations.findIndex((r) => r.id === item.id);
+        if (ridx === -1) return item;
+        const result = results?.[ridx];
+        if (!result || result.type === 'error') {
+          return {
+            ...item,
+            status: 'error',
+            errorMessage: result?.error || 'Upload failed',
+          };
+        }
+        // Backend types: 'photo' (image) | 'video' | 'document'
+        const isImage = result.type === 'photo';
+        return {
+          ...item,
+          status: 'done',
+          type: isImage ? 'image' : 'document',
+          url: result.url || null,
+          dbId: result.dbId || null,
+          // Backend pre-extracts text via pdf-parse / mammoth /
+          // plain-text reader — this is what the AI actually sees.
+          textContent: result.extractedText || null,
+          ...(result.transcript ? { transcript: result.transcript } : {}),
+        };
+      }));
+    } catch (err) {
+      setAttachedFiles((prev) => prev.map((item) =>
+        reservations.some((r) => r.id === item.id)
+          ? { ...item, status: 'error', errorMessage: err.message || 'Upload failed' }
+          : item,
+      ));
+    }
   }, []);
+
+  // True while at least one attachment is still being uploaded.
+  // Used to disable Send so the message can't go out before the AI
+  // gets the actual file contents.
+  const hasPendingUploads = attachedFiles.some((f) => f.status === 'uploading');
 
   const removeAttachedFile = useCallback((id) => {
     setAttachedFiles((prev) => prev.filter((f) => f.id !== id));
@@ -1140,6 +1207,9 @@ export default function AiCeo() {
   const sendMessage = useCallback(() => {
     const text = input.trim();
     if (!text || isGenerating) return;
+    // Don't send while an attachment is mid-upload — the AI would see
+    // the file as "in flight" / errored and miss the actual content.
+    if (attachedFiles.some((f) => f.status === 'uploading')) return;
     setCurrentQuestion(null);
     shouldScrollRef.current = true;
     const contextStr = buildCeoContextString();
@@ -1440,13 +1510,23 @@ export default function AiCeo() {
                   {attachedFiles.length > 0 && (
                     <div className="ceo-attached-files">
                       {attachedFiles.map((f) => (
-                        <span key={f.id} className={`ceo-attached-pill ceo-attached-pill--${f.type}`}>
-                          {f.type === 'image' && f.dataUrl ? (
-                            <img src={f.dataUrl} alt={f.name} className="ceo-attached-thumb" />
+                        <span
+                          key={f.id}
+                          className={`ceo-attached-pill ceo-attached-pill--${f.type} ${f.status === 'error' ? 'ceo-attached-pill--error' : ''} ${f.status === 'uploading' ? 'ceo-attached-pill--uploading' : ''}`}
+                          title={f.status === 'error' ? (f.errorMessage || 'Upload failed') : f.name}
+                        >
+                          {f.type === 'image' && (f.dataUrl || f.url) ? (
+                            <img src={f.dataUrl || f.url} alt={f.name} className="ceo-attached-thumb" />
                           ) : (
                             <FileText size={14} className="ceo-attached-icon" />
                           )}
-                          <span className="ceo-attached-name" title={f.name}>{f.name}</span>
+                          <span className="ceo-attached-name">{f.name}</span>
+                          {f.status === 'uploading' && (
+                            <Loader2 size={12} className="ceo-attached-spinner" />
+                          )}
+                          {f.status === 'error' && (
+                            <AlertCircle size={12} className="ceo-attached-err" />
+                          )}
                           <button className="ceo-attached-x" onClick={() => removeAttachedFile(f.id)} title="Remove">
                             <X size={11} />
                           </button>
@@ -1491,7 +1571,8 @@ export default function AiCeo() {
                       <button
                         className="ceo-send-btn"
                         onClick={sendMessage}
-                        disabled={!input.trim() || isGenerating}
+                        disabled={!input.trim() || isGenerating || hasPendingUploads}
+                        title={hasPendingUploads ? 'Wait for attachments to finish uploading' : 'Send'}
                       >
                         <Send size={18} />
                       </button>
@@ -1709,13 +1790,23 @@ export default function AiCeo() {
                   {attachedFiles.length > 0 && (
                     <div className="ceo-attached-files">
                       {attachedFiles.map((f) => (
-                        <span key={f.id} className={`ceo-attached-pill ceo-attached-pill--${f.type}`}>
-                          {f.type === 'image' && f.dataUrl ? (
-                            <img src={f.dataUrl} alt={f.name} className="ceo-attached-thumb" />
+                        <span
+                          key={f.id}
+                          className={`ceo-attached-pill ceo-attached-pill--${f.type} ${f.status === 'error' ? 'ceo-attached-pill--error' : ''} ${f.status === 'uploading' ? 'ceo-attached-pill--uploading' : ''}`}
+                          title={f.status === 'error' ? (f.errorMessage || 'Upload failed') : f.name}
+                        >
+                          {f.type === 'image' && (f.dataUrl || f.url) ? (
+                            <img src={f.dataUrl || f.url} alt={f.name} className="ceo-attached-thumb" />
                           ) : (
                             <FileText size={14} className="ceo-attached-icon" />
                           )}
-                          <span className="ceo-attached-name" title={f.name}>{f.name}</span>
+                          <span className="ceo-attached-name">{f.name}</span>
+                          {f.status === 'uploading' && (
+                            <Loader2 size={12} className="ceo-attached-spinner" />
+                          )}
+                          {f.status === 'error' && (
+                            <AlertCircle size={12} className="ceo-attached-err" />
+                          )}
                           <button className="ceo-attached-x" onClick={() => removeAttachedFile(f.id)} title="Remove">
                             <X size={11} />
                           </button>
@@ -1764,7 +1855,8 @@ export default function AiCeo() {
                         <button
                           className="ceo-send-btn"
                           onClick={sendMessage}
-                          disabled={!input.trim()}
+                          disabled={!input.trim() || hasPendingUploads}
+                          title={hasPendingUploads ? 'Wait for attachments to finish uploading' : 'Send'}
                         >
                           <Send size={18} />
                         </button>
