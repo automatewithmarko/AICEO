@@ -108,7 +108,10 @@
   min-height: 0;
 }
 
-/* Left panel — dotted grid background */
+/* Left panel — dotted grid background.
+   padding-top makes room for the absolute-positioned .mkt-chat-topbar
+   that floats over the chat (so loader / messages / chrome-tab bleed can
+   never displace it). Tweak both numbers together if topbar height changes. */
 .mkt-split-left {
   flex: 1;
   display: flex;
@@ -117,6 +120,7 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  padding-top: 48px;
 }
 
 .mkt-split-left-bg {
@@ -1712,32 +1716,90 @@
   background: rgba(0, 0, 0, 0.75);
 }
 
-/* Story replace-with-upload button — sits just below the pencil edit btn */
-.sp-replace-btn {
-  position: absolute;
-  top: 64px;
-  right: 8px;
-  z-index: 9;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  border: none;
+/* Story thumbnail strip — appears below the phone viewer, lets the user
+   click to navigate or drag to reorder frames. */
+.sp-thumbs {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.sp-thumb {
+  position: relative;
+  width: 56px;
+  height: 100px;
+  border-radius: 8px;
+  background: #1a1a1a;
+  overflow: hidden;
+  cursor: grab;
+  flex-shrink: 0;
+  border: 2px solid transparent;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.sp-thumb:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.sp-thumb:active {
+  cursor: grabbing;
+}
+
+.sp-thumb--active {
+  border-color: var(--brand-red, #e91a44);
+}
+
+/* Highlights the slot where a dragged thumbnail will land. */
+.sp-thumb--drop {
+  border-color: var(--brand-red, #e91a44);
+  border-style: dashed;
+  transform: translateY(-4px);
+}
+
+.sp-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+.sp-thumb-placeholder {
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.2s;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
 }
 
-.sp-phone:hover .sp-replace-btn {
-  opacity: 1;
+.sp-thumb-placeholder--err {
+  color: #ef4444;
+  font-weight: 700;
 }
 
-.sp-replace-btn:hover {
-  background: rgba(0, 0, 0, 0.75);
+.sp-thumb-num {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* Anchor span around the canvas-action upload button so the hidden file
+   input doesn't disrupt button alignment. */
+.mkt-canvas-upload-anchor {
+  display: inline-flex;
 }
 
 /* Story edit input bar */
@@ -2686,14 +2748,17 @@
   color: var(--brand-red);
 }
 
-/* ── Chat history — sticky top bar (always visible, in flex flow) ──
-   z-index 30 sits ABOVE .marketing-tab--active (z:3) and the global app
-   .topbar (z:20) so the chrome-tab bleed (margin-bottom: -1px) and any
-   floating mobile header cannot overlap the Previous Conversations button. */
+/* ── Chat history — floating top bar (always visible, never displaced) ──
+   Pinned absolute to the top of .mkt-split-left so chat-load layout
+   reflows, image-gen renders, story sequences appearing, and the active
+   chrome tab's 1px bleed CANNOT push or cover it. .mkt-split-left has a
+   matching padding-top so the chat content below never sits under it. */
 .mkt-chat-topbar {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   z-index: 30;
-  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2701,10 +2766,7 @@
   padding: 10px 16px;
   background: #fff;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  /* Solid background + subtle drop shadow so the topbar reads as its own
-     surface even when the active chrome tab visually merges with the
-     content area below. */
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }
 .mkt-prev-convos {
   display: inline-flex;
