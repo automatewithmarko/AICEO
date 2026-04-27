@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import LoginScreen from './components/LoginScreen';
-import PlanSelector from './components/PlanSelector';
+import OnboardingFunnel from './components/OnboardingFunnel';
 import Layout from './components/Layout';
 import AiCeo from './pages/AiCeo';
 import Dashboard from './pages/Dashboard';
@@ -46,7 +46,7 @@ function App() {
 
   return (
     <>
-    {!user.plan && <PlanSelector />}
+    <OnboardingFunnel />
     <Routes>
       <Route path="/shared/:token" element={<SharedMeeting />} />
       <Route path="/f/:slug" element={<FormPlayer />} />

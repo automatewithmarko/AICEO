@@ -150,8 +150,14 @@ export function AuthProvider({ children }) {
     if (error) throw error;
   };
 
-  const signup = async (email, password, plan, fullName) => {
-    const { data, error } = await supabase.auth.signUp({
+  const signup = async (email, password, _plan, fullName) => {
+    // The legacy signup wrote a phantom { plan, status:'active' } row into
+    // subscriptions BEFORE any payment. The new 4-step funnel can't tolerate
+    // that — it interpreted the phantom row as "user has a plan, skip the
+    // setup-fee gate". Signup now only creates the auth user; the
+    // subscription row is upserted by the Stripe webhook on the first
+    // checkout.session.completed (mode=payment) event.
+    const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -159,15 +165,6 @@ export function AuthProvider({ children }) {
       },
     });
     if (error) throw error;
-
-    // Create subscription record if plan selected and user confirmed
-    if (data.user && plan) {
-      await supabase.from('subscriptions').insert({
-        user_id: data.user.id,
-        plan: plan.toLowerCase(),
-        status: 'active',
-      });
-    }
   };
 
   const logout = async () => {

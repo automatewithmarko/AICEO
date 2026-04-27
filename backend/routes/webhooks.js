@@ -9,6 +9,7 @@ import * as shopify from '../services/integrations/shopify.js';
 import * as kajabi from '../services/integrations/kajabi.js';
 import * as gohighlevel from '../services/integrations/gohighlevel.js';
 import { refillMonthlyCredits, addCredits, revokeCredits } from '../services/credits.js';
+import { sendBookingInvite } from '../services/booking-email.js';
 
 const router = Router();
 
@@ -126,13 +127,78 @@ router.post('/api/webhooks/stripe', async (req, res) => {
     const obj = event.data?.object || {};
 
     switch (event.type) {
-      // ── Checkout completed → activate subscription + seed first-month credits ──
+      // ── Checkout completed → branch by session.mode ──
+      // mode='payment'  → one-time setup-fee checkout (new funnel)
+      // mode='subscription' → recurring monthly (both new funnel + legacy)
       case 'checkout.session.completed': {
         if (!userId) {
           console.log('[webhook/stripe] checkout.session.completed: no user match');
           break;
         }
         const session = obj;
+
+        // ── New funnel: setup fee paid ──
+        if (session.mode === 'payment' && session.metadata?.step === 'setup') {
+          const planFromMeta = session.metadata?.plan;
+          const validPlan = planFromMeta && ['complete', 'diamond'].includes(planFromMeta);
+          if (!validPlan) {
+            console.error(`[webhook/stripe] setup checkout completed without valid plan metadata (got "${planFromMeta}")`);
+            break;
+          }
+
+          const nowIso = new Date().toISOString();
+          // Upsert the funnel-state row. setup_paid_at + plan get set;
+          // status stays 'setup_paid' until the recurring subscription
+          // activates later (mode='subscription' branch).
+          const { error: upErr } = await supabase.from('subscriptions').upsert({
+            user_id: userId,
+            plan: planFromMeta,
+            tier: 'standard',
+            status: 'setup_paid',
+            stripe_customer_id: session.customer || null,
+            setup_paid_at: nowIso,
+            setup_checkout_session_id: session.id,
+            updated_at: nowIso,
+          }, { onConflict: 'user_id' });
+          if (upErr) {
+            console.error(`[webhook/stripe] setup_paid upsert FAILED: ${upErr.code} ${upErr.message}`);
+            throw new Error(`setup_paid upsert: ${upErr.message}`);
+          }
+
+          // Pin stripe_customer_id on the profile so subsequent events
+          // resolve via the O(1) profile lookup instead of metadata.
+          if (session.customer) {
+            await supabase.from('profiles')
+              .update({ stripe_customer_id: session.customer })
+              .eq('id', userId);
+          }
+
+          // Send the booking-invite email. Wrapped — email failure must
+          // NOT mask payment success or trigger a Stripe retry.
+          try {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('full_name')
+              .eq('id', userId)
+              .maybeSingle();
+            const calendlyUrl = planFromMeta === 'diamond'
+              ? (process.env.CALENDLY_URL_DIAMOND || process.env.CALENDLY_URL || null)
+              : (process.env.CALENDLY_URL_COMPLETE || process.env.CALENDLY_URL || null);
+            await sendBookingInvite({
+              userId,
+              plan: planFromMeta,
+              calendlyUrl,
+              displayName: profile?.full_name || null,
+            });
+          } catch (emailErr) {
+            console.error(`[webhook/stripe] booking-invite email failed (non-fatal): ${emailErr.message}`);
+          }
+
+          console.log(`[webhook/stripe] Setup paid: user=${userId} plan=${planFromMeta}`);
+          break;
+        }
+
+        // Anything else with mode!='subscription' is unexpected here.
         if (!session.subscription) break;
 
         const sub = await stripe.subscriptions.retrieve(session.subscription);

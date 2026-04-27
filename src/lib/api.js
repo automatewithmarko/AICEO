@@ -1209,6 +1209,52 @@ export async function createCheckoutSession({ plan, boost = false }) {
   return res.json();
 }
 
+// ─── New 4-step signup funnel ───
+// Each call surfaces real backend errors (e.g., "setup fee already paid")
+// so the UI can route the user to the correct next step instead of
+// showing a generic failure.
+
+async function postJsonOrThrow(path, body = {}) {
+  const headers = await getAuthHeaders();
+  if (!headers.Authorization) {
+    throw new Error('Your session expired. Please sign in again.');
+  }
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  if (res.ok) return res.json();
+  let parsed = null;
+  try { parsed = await res.json(); } catch { /* non-JSON */ }
+  const message = parsed?.error
+    || (res.status === 401 ? 'Your session expired. Please sign in again.'
+      : res.status === 502 ? 'Server is restarting. Try again in a moment.'
+      : `Request failed (HTTP ${res.status}).`);
+  const err = new Error(message);
+  err.status = res.status;
+  err.body = parsed;
+  throw err;
+}
+
+// Pay the one-time setup fee for a plan. Body: { plan: 'complete'|'diamond' }.
+// Returns { url } — frontend redirects via window.location.assign().
+export async function createSetupCheckoutSession({ plan }) {
+  return postJsonOrThrow('/api/billing/checkout/setup', { plan });
+}
+
+// Confirm the user picked a meeting time on Calendly. Idempotent — calling
+// it twice is a no-op success.
+export async function confirmMeetingBooked() {
+  return postJsonOrThrow('/api/billing/meeting/booked', {});
+}
+
+// Start the recurring monthly subscription. Plan is locked server-side
+// from the user's setup payment; client doesn't pass it.
+export async function createMonthlyCheckoutSession() {
+  return postJsonOrThrow('/api/billing/checkout/monthly', {});
+}
+
 // Open the Stripe Customer Portal for the signed-in user. Returns { url }.
 export async function createBillingPortalSession() {
   const headers = await getAuthHeaders();
