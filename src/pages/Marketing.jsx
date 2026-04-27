@@ -2127,16 +2127,25 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
           }
         }));
 
+        // Read latest frame state via a one-shot ref instead of putting a
+        // setChatMessages side-effect inside a setStoryFrames updater.
+        // React 19 / StrictMode invokes updater functions twice for purity
+        // checks, which was firing the chat message twice with the same
+        // Date.now()-based id (duplicate-key warning).
+        let failCount = 0;
         setStoryFrames((current) => {
-          const failCount = current.filter(f => f.error).length;
-          setChatMessages((prev) => [...prev, {
-            id: `msg-${Date.now()}-done`, role: 'assistant',
-            text: failCount > 0
-              ? `Story frames done  -  ${frames.length - failCount}/${frames.length} generated (${failCount} failed)`
-              : 'All story frames generated! Check the canvas.',
-          }]);
+          failCount = current.filter(f => f.error).length;
           return current;
         });
+        // Microtask hop so the read above settles before we push the message.
+        await Promise.resolve();
+        setChatMessages((prev) => [...prev, {
+          id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-done`,
+          role: 'assistant',
+          text: failCount > 0
+            ? `Story frames done  -  ${frames.length - failCount}/${frames.length} generated (${failCount} failed)`
+            : 'All story frames generated! Check the canvas.',
+        }]);
       } else if (parsed?.type === 'edit' && parsed.sections) {
         // Section-based edit  -  merge only changed sections into current HTML
         const mergedHtml = mergeSectionEdits(canvasHtml, parsed.sections);
@@ -2965,8 +2974,13 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
                       multiple
                       style={{ display: 'none' }}
                       onChange={(e) => {
-                        const files = e.target.files;
-                        e.target.value = ''; // allow re-picking the same files
+                        // CRITICAL: snapshot to a plain Array BEFORE clearing
+                        // input.value. Setting value='' empties the live
+                        // FileList — if we captured a reference to it
+                        // beforehand, the handler would see zero files.
+                        // Same pattern Content.jsx uses for LI uploads.
+                        const files = Array.from(e.target.files || []);
+                        e.target.value = '';
                         handleUploadStoryImages(files);
                       }}
                     />
