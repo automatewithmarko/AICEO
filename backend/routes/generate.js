@@ -38,6 +38,38 @@ function getApiKey() {
   return key;
 }
 
+// Strip real-person identity markers from an image prompt before sending
+// to Gemini. Named real person + photorealistic + attached face photo is
+// the exact combo that trips Google's "OTHER" block (named-person policy).
+// We keep the reference photo attached so the LIKENESS still carries
+// through; we just stop *naming* them or calling out ethnicity/nationality
+// in the text. Generic "the founder" / "a person" is safe.
+const NATIONALITIES = [
+  'American','British','Canadian','Australian','Indian','Pakistani','Bangladeshi','Chinese',
+  'Japanese','Korean','Vietnamese','Filipino','Indonesian','Malaysian','Thai','Arab','Arabic',
+  'Middle Eastern','African','Nigerian','Ethiopian','Kenyan','South African','Egyptian',
+  'Mexican','Brazilian','Colombian','Argentinian','Spanish','Portuguese','French','German',
+  'Italian','Russian','Ukrainian','Polish','Turkish','Persian','Iranian','Israeli','Jewish',
+  'Latino','Latina','Hispanic','Asian','Caucasian','White','Black','European',
+];
+function sanitizeIdentityFromPrompt(text) {
+  if (!text) return text;
+  let out = text;
+  // "[Nationality/Ethnicity] man/woman/guy/girl/person" → "the founder"
+  const natRe = new RegExp(
+    `\\b(?:young\\s+|old\\s+|middle[- ]aged\\s+)?(?:${NATIONALITIES.join('|')})\\s+(?:man|woman|guy|girl|boy|gentleman|lady|person|founder)\\b`,
+    'gi',
+  );
+  out = out.replace(natRe, 'the founder');
+  // "photo of FirstName LastName" → "photo of the founder"
+  out = out.replace(/\b(photo|image|picture|portrait|shot)\s+of\s+[A-Z][a-zA-Z'’-]+\s+[A-Z][a-zA-Z'’-]+/g, '$1 of the founder');
+  // Standalone "FirstName LastName," at start of prompt
+  out = out.replace(/^([A-Z][a-zA-Z'’-]+\s+[A-Z][a-zA-Z'’-]+)(?=[,\s])/, 'the founder');
+  // "a realistic photo of" / "a photorealistic image of" → soften hook
+  out = out.replace(/\b(realistic|photorealistic|hyper[- ]realistic|lifelike)\s+(photo|image|portrait)\b/gi, 'high-quality $2');
+  return out;
+}
+
 // ─── Caches ───
 // Brand asset base64 cache — keyed by URL, avoids re-downloading the same images
 const brandImageCache = new Map(); // url -> { data, expiry }
@@ -288,9 +320,19 @@ async function getCachedBrandData(userId) {
 
 // ─── Image generation ───
 router.post('/api/generate/image', requireCredits('image_generation'), async (req, res) => {
-  const { prompt, platform, brandData, referenceImages } = req.body;
-  if (!prompt) {
+  const { prompt: rawPrompt, platform, brandData, referenceImages } = req.body;
+  if (!rawPrompt) {
     return res.status(400).json({ error: 'prompt is required' });
+  }
+
+  // Strip personal identity from the prompt so Gemini's named-person policy
+  // doesn't block. Reference photo still carries the likeness — the text
+  // just shouldn't say "a realistic photo of Bazil Sajjad, a Pakistani man…"
+  // because that combo (named real person + photorealistic + face photo)
+  // is the exact pattern that trips the OTHER finishReason.
+  const prompt = sanitizeIdentityFromPrompt(rawPrompt);
+  if (prompt !== rawPrompt) {
+    console.log(`[generate/image] Prompt sanitized (name/ethnicity stripped). before: "${rawPrompt.slice(0, 120)}..." → after: "${prompt.slice(0, 120)}..."`);
   }
 
   try {
@@ -482,14 +524,33 @@ ${prompt}`;
       }
     }
 
-    console.log(`[generate/image] Generated image: ${imageData ? 'yes' : 'no'}, text: ${text.length} chars`);
+    console.log(`[generate/image] Gemini → image: ${imageData ? 'yes' : 'no'}, text: ${text.length} chars`);
+
+    // Fail loudly when Gemini returns 200 but no image — most likely a policy
+    // block (promptFeedback.blockReason) or a SAFETY/MAX_TOKENS finish. Log the
+    // full diagnostic trail and return a useful 422 instead of {image: null}.
+    if (!imageData) {
+      const promptFb = result.promptFeedback;
+      const finishReason = result.candidates?.[0]?.finishReason;
+      const safetyRatings = result.candidates?.[0]?.safetyRatings;
+      console.warn('[generate/image] Gemini returned NO IMAGE');
+      console.warn(`  finishReason: ${finishReason || '<none>'}`);
+      console.warn(`  promptFeedback: ${promptFb ? JSON.stringify(promptFb) : '<none>'}`);
+      console.warn(`  safetyRatings: ${safetyRatings ? JSON.stringify(safetyRatings) : '<none>'}`);
+      console.warn(`  candidates: ${result.candidates?.length || 0}, parts: ${responseParts.length}`);
+      console.warn(`  text returned: ${text ? `"${text.slice(0, 300)}"` : '<empty>'}`);
+      console.warn(`  full response (first 1500 chars): ${JSON.stringify(result).slice(0, 1500)}`);
+
+      const blockReason = promptFb?.blockReason;
+      const errMsg = blockReason
+        ? `Image blocked by Gemini (${blockReason}). Try a different prompt or remove brand reference photos.`
+        : `Gemini returned no image (finishReason: ${finishReason || 'none'}). Model may have refused.`;
+      return res.status(422).json({ error: errMsg, finishReason, blockReason, text: text || null });
+    }
 
     res.json({
       text: text || null,
-      image: imageData ? {
-        data: imageData,
-        mimeType: imageMimeType,
-      } : null,
+      image: { data: imageData, mimeType: imageMimeType },
     });
   } catch (err) {
     const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
