@@ -8,6 +8,7 @@ import {
   Settings,
   User,
   CreditCard,
+  BookOpen,
 } from 'lucide-react';
 import './Sidebar.css';
 
@@ -98,6 +99,7 @@ const navItems = [
   { label: 'Accounting', icon: AccountingIcon, comingSoon: true },
   { label: 'Press Placement', icon: PressPlacementIcon, comingSoon: true },
   { label: 'Reviews', icon: ReviewsIcon, comingSoon: true },
+  { to: '/docs', label: 'Docs', icon: ({ size }) => <BookOpen size={size} /> },
 ];
 
 export default function Sidebar() {

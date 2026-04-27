@@ -22,6 +22,7 @@ import Forms from './pages/Forms';
 import FormBuilder from './pages/FormBuilder';
 import FormResponses from './pages/FormResponses';
 import FormPlayer from './pages/FormPlayer';
+import Docs from './pages/Docs';
 
 function App() {
   const { user, loading } = useAuth();
@@ -71,6 +72,7 @@ function App() {
         <Route path="/meetings/:id" element={<MeetingDetail />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/billing" element={<Billing />} />
+        <Route path="/docs" element={<Docs />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>
