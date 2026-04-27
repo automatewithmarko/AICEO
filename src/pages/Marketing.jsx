@@ -2399,59 +2399,60 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     }
   }, [storyFrames]);
 
-  // Append uploaded image files as new story frames. Each file is uploaded
-  // to Supabase storage so the frame's imageSrc is a real URL — not an
-  // in-memory base64 dataURL. Without this, "uploaded" frames vanished on
-  // refresh (the autosave row would balloon with base64 and Supabase would
-  // reject or silently truncate the jsonb), and they couldn't be referenced
-  // by Gemini for downstream regeneration.
-  //
-  // Optimistic flow:
-  //   1. Show each new frame with a temporary base64 dataURL + loading=true
-  //   2. Upload to storage in parallel
-  //   3. Swap each frame's imageSrc to the real https URL when its upload resolves
-  //   4. On upload failure, mark that specific frame as error (keeps the others)
+  // Append uploaded image files as new story frames. Pattern lifted from
+  // Content.jsx LinkedIn text-post upload (which is known to work):
+  //   1. blob: URL for instant optimistic preview (no FileReader needed)
+  //   2. Sequential await loop — each file uploads then its frame swaps
+  //      (no index races vs parallel setStoryFrames)
+  //   3. Stable _uploadKey on each frame so we update by ID, not index —
+  //      reorder/delete during upload won't update the wrong frame.
+  //   4. Per-file try/catch — one failure doesn't kill the rest.
   const storyUploadInputRef = useRef(null);
-  const handleUploadStoryImages = useCallback((files) => {
+  const handleUploadStoryImages = useCallback(async (files) => {
     const list = Array.from(files || []).filter((f) => f && f.type.startsWith('image/'));
     if (list.length === 0) return;
 
-    const startIdx = storyFrames.length;
-    const placeholders = list.map(() => ({ title: '', caption: '', image_prompt: '', imageSrc: null, loading: true, uploading: true }));
+    // Stable key per upload so we find the right frame by id, not index.
+    const placeholders = list.map((file) => ({
+      _uploadKey: `up-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title: '',
+      caption: '',
+      image_prompt: '',
+      imageSrc: URL.createObjectURL(file), // instant preview, in-memory
+      loading: false,
+      uploading: true,
+    }));
     setStoryFrames((prev) => [...prev, ...placeholders]);
 
-    list.forEach((file, i) => {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const result = typeof reader.result === 'string' ? reader.result : '';
-        const commaIdx = result.indexOf(',');
-        if (commaIdx === -1) {
-          setStoryFrames((prev) => prev.map((f, idx) => idx === startIdx + i ? { ...f, loading: false, uploading: false, error: true } : f));
-          return;
-        }
-        const base64 = result.slice(commaIdx + 1);
-        const mimeMatch = result.match(/^data:([^;]+);/);
-        const mimeType = mimeMatch?.[1] || file.type || 'image/png';
-        // Show preview immediately while upload runs in background
-        setStoryFrames((prev) => prev.map((f, idx) => idx === startIdx + i ? { ...f, imageSrc: result, loading: false } : f));
-        try {
-          const uploaded = await uploadImageToStorage(base64, mimeType);
-          if (uploaded?.url) {
-            setStoryFrames((prev) => prev.map((f, idx) => idx === startIdx + i ? { ...f, imageSrc: uploaded.url, uploading: false } : f));
-          } else {
-            setStoryFrames((prev) => prev.map((f, idx) => idx === startIdx + i ? { ...f, uploading: false, error: true } : f));
-          }
-        } catch (err) {
-          console.error('[story-upload]', file.name, err.message);
-          setStoryFrames((prev) => prev.map((f, idx) => idx === startIdx + i ? { ...f, uploading: false, error: true } : f));
-        }
-      };
-      reader.onerror = () => {
-        setStoryFrames((prev) => prev.map((f, idx) => idx === startIdx + i ? { ...f, loading: false, uploading: false, error: true } : f));
-      };
-      reader.readAsDataURL(file);
-    });
-  }, [storyFrames.length]);
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      const key = placeholders[i]._uploadKey;
+      try {
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = String(reader.result || '');
+            const comma = result.indexOf(',');
+            resolve(comma !== -1 ? result.slice(comma + 1) : result);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const uploaded = await uploadImageToStorage(base64, file.type || 'image/png');
+        const url = uploaded?.url || uploaded?.publicUrl || null;
+        if (!url) throw new Error('upload returned no URL');
+        // Swap blob URL for real https URL on the matching frame.
+        setStoryFrames((prev) => prev.map((f) =>
+          f._uploadKey === key ? { ...f, imageSrc: url, uploading: false } : f
+        ));
+      } catch (err) {
+        console.error('[story-upload]', file.name, err.message || err);
+        setStoryFrames((prev) => prev.map((f) =>
+          f._uploadKey === key ? { ...f, uploading: false, error: true } : f
+        ));
+      }
+    }
+  }, []);
 
   // Reorder story frames by moving frame at fromIdx into toIdx position.
   // Used by the thumbnail drag-and-drop in StoryPhoneViewer.
