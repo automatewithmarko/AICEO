@@ -711,6 +711,30 @@ export async function addEmailAccount(data) {
   return res.json();
 }
 
+export async function getOutlookAuthUrl() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/email-accounts/outlook/auth`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to start Outlook OAuth' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function connectOutlookCallback(code, state) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/email-accounts/outlook/callback`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, state }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Outlook connection failed' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
 export async function deleteEmailAccount(id) {
   const headers = await getAuthHeaders();
   await fetch(`${API_URL}/api/email-accounts/${id}`, {

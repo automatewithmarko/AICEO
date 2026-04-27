@@ -1,5 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
+import { getValidAccessToken } from './outlook-oauth-refresh.js';
 
 const CONNECTION_TIMEOUT = 15000; // 15s
 
@@ -13,14 +14,17 @@ function withTimeout(promise, ms, label) {
 }
 
 function createClient(account) {
+  const isOAuth = account.auth_type === 'oauth' && account.oauth_access_token;
+
+  const auth = isOAuth
+    ? { user: account.username || account.email, accessToken: account.oauth_access_token }
+    : { user: account.username, pass: account.password };
+
   return new ImapFlow({
     host: account.imap_host,
     port: account.imap_port,
     secure: account.imap_port === 993,
-    auth: {
-      user: account.username,
-      pass: account.password,
-    },
+    auth,
     logger: false,
     tls: {
       rejectUnauthorized: true,
@@ -35,6 +39,10 @@ function createClient(account) {
  * Connect to an IMAP server and fetch emails.
  */
 export async function fetchEmails(account, { folder = 'INBOX', limit = 50, since, latest = false } = {}) {
+  // Refresh OAuth token if needed
+  if (account.auth_type === 'oauth') {
+    account = await getValidAccessToken(account);
+  }
   const client = createClient(account);
   const emails = [];
 
@@ -112,6 +120,9 @@ export async function fetchEmails(account, { folder = 'INBOX', limit = 50, since
  * Validate IMAP connection credentials.
  */
 export async function validateImapConnection(account) {
+  if (account.auth_type === 'oauth') {
+    account = await getValidAccessToken(account);
+  }
   const client = createClient(account);
 
   try {

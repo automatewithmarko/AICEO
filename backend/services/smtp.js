@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { getValidAccessToken } from './outlook-oauth-refresh.js';
 
 const CONNECTION_TIMEOUT = 15000;
 
@@ -65,20 +66,23 @@ async function sendViaResend(account, { to, cc, subject, text, html, inReplyTo, 
  * Send an email via direct SMTP.
  */
 async function sendViaSmtp(account, mailOptions) {
-  const ports = [465, 587];
+  const isOAuth = account.auth_type === 'oauth' && account.oauth_access_token;
+  const ports = isOAuth ? [587] : [465, 587]; // Outlook OAuth uses 587 with STARTTLS
   let lastError = null;
 
   for (const port of ports) {
     try {
-      console.log(`[smtp] Trying ${account.smtp_host}:${port}...`);
+      console.log(`[smtp] Trying ${account.smtp_host}:${port}${isOAuth ? ' (XOAUTH2)' : ''}...`);
+
+      const auth = isOAuth
+        ? { type: 'OAuth2', user: account.username || account.email, accessToken: account.oauth_access_token }
+        : { user: account.username, pass: account.password };
+
       const transport = nodemailer.createTransport({
         host: account.smtp_host,
         port,
         secure: port === 465,
-        auth: {
-          user: account.username,
-          pass: account.password,
-        },
+        auth,
         connectionTimeout: CONNECTION_TIMEOUT,
         greetingTimeout: CONNECTION_TIMEOUT,
         socketTimeout: 30000,
@@ -103,6 +107,10 @@ async function sendViaSmtp(account, mailOptions) {
  * Send an email. Tries Resend API first (HTTPS), falls back to direct SMTP.
  */
 export async function sendEmail(account, { to, cc, subject, text, html, inReplyTo, references }) {
+  // Refresh OAuth token if needed
+  if (account.auth_type === 'oauth') {
+    account = await getValidAccessToken(account);
+  }
   // Try Resend API first (works on hosts that block SMTP)
   try {
     const resendResult = await sendViaResend(account, { to, cc, subject, text, html, inReplyTo, references });
@@ -150,14 +158,20 @@ export async function sendEmail(account, { to, cc, subject, text, html, inReplyT
  * Validate SMTP connection credentials.
  */
 export async function validateSmtpConnection(account) {
+  if (account.auth_type === 'oauth') {
+    account = await getValidAccessToken(account);
+  }
+
+  const isOAuth = account.auth_type === 'oauth' && account.oauth_access_token;
+  const auth = isOAuth
+    ? { type: 'OAuth2', user: account.username || account.email, accessToken: account.oauth_access_token }
+    : { user: account.username, pass: account.password };
+
   const transport = nodemailer.createTransport({
     host: account.smtp_host,
     port: account.smtp_port,
     secure: account.smtp_port === 465,
-    auth: {
-      user: account.username,
-      pass: account.password,
-    },
+    auth,
     connectionTimeout: CONNECTION_TIMEOUT,
     greetingTimeout: CONNECTION_TIMEOUT,
     socketTimeout: 30000,

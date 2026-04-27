@@ -1,8 +1,10 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { supabase } from '../services/storage.js';
 import { fetchEmails, validateImapConnection } from '../services/imap.js';
 import { sendEmail, validateSmtpConnection } from '../services/smtp.js';
 import { connectNewAccount, disconnectAccount } from '../services/email-sync.js';
+import { buildAuthUrl, exchangeCode, decodeIdToken, refreshAccessToken } from '../services/outlook-oauth.js';
 
 const router = Router();
 
@@ -13,7 +15,7 @@ router.get('/api/email-accounts', async (req, res) => {
 
   const { data, error } = await supabase
     .from('email_accounts')
-    .select('id, provider, email, display_name, is_active, last_synced_at, created_at')
+    .select('id, provider, auth_type, email, display_name, is_active, last_synced_at, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
@@ -121,6 +123,103 @@ router.delete('/api/email-accounts/:id', async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true });
+});
+
+// ─── Outlook OAuth: initiate ───
+router.get('/api/email-accounts/outlook/auth', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  if (!process.env.MICROSOFT_CLIENT_ID || !process.env.MICROSOFT_CLIENT_SECRET) {
+    return res.status(500).json({ error: 'Microsoft OAuth is not configured on the server' });
+  }
+
+  // State = userId:random (we verify userId on callback)
+  const state = `${userId}:${crypto.randomBytes(16).toString('hex')}`;
+  const url = buildAuthUrl(state);
+  res.json({ url, state });
+});
+
+// ─── Outlook OAuth: exchange code for tokens ───
+router.post('/api/email-accounts/outlook/callback', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const { code, state } = req.body;
+  if (!code) return res.status(400).json({ error: 'Missing authorization code' });
+
+  // Verify state belongs to this user
+  if (state && !state.startsWith(userId)) {
+    return res.status(403).json({ error: 'State mismatch' });
+  }
+
+  try {
+    const tokens = await exchangeCode(code);
+    const { email, name } = decodeIdToken(tokens.id_token || '');
+
+    if (!email) {
+      return res.status(400).json({ error: 'Could not determine email from Microsoft. Please try again.' });
+    }
+
+    // Check if this Outlook account is already connected
+    const { data: existing } = await supabase
+      .from('email_accounts')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('email', email)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      // Update tokens on existing account
+      await supabase.from('email_accounts').update({
+        oauth_access_token: tokens.access_token,
+        oauth_refresh_token: tokens.refresh_token,
+        oauth_expires_at: tokens.expires_at,
+        is_active: true,
+      }).eq('id', existing[0].id);
+
+      // Reconnect IDLE
+      const { data: account } = await supabase
+        .from('email_accounts').select('*').eq('id', existing[0].id).single();
+      if (account) {
+        disconnectAccount(account.id);
+        connectNewAccount(account);
+      }
+
+      return res.json({ account: { id: existing[0].id, email, display_name: name, provider: 'outlook' }, reconnected: true });
+    }
+
+    // Create new account
+    const { data: account, error } = await supabase.from('email_accounts').insert({
+      user_id: userId,
+      provider: 'outlook',
+      auth_type: 'oauth',
+      email,
+      display_name: name || '',
+      imap_host: 'outlook.office365.com',
+      imap_port: 993,
+      smtp_host: 'smtp-mail.outlook.com',
+      smtp_port: 587,
+      username: email,
+      password: null,
+      oauth_access_token: tokens.access_token,
+      oauth_refresh_token: tokens.refresh_token,
+      oauth_expires_at: tokens.expires_at,
+      is_active: true,
+    }).select('id, provider, email, display_name, is_active, created_at').single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    // Start IDLE connection
+    const fullAccount = await supabase.from('email_accounts').select('*').eq('id', account.id).single();
+    if (fullAccount.data) connectNewAccount(fullAccount.data);
+
+    console.log(`[email] Outlook OAuth account connected: ${email}`);
+    res.json({ account });
+  } catch (err) {
+    console.error('[email] Outlook OAuth callback error:', err.message);
+    res.status(500).json({ error: `OAuth failed: ${err.message}` });
+  }
 });
 
 // ─── Sync emails from IMAP ───

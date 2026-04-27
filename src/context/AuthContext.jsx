@@ -84,6 +84,7 @@ export function AuthProvider({ children }) {
       email: authUser.email,
       avatar: profile?.avatar_url || null,
       plan,
+      onboardingType: authUser.user_metadata?.onboarding_type || null,
     });
     setCredits(creditBalance);
     setFeatures(planFeatures);
@@ -150,12 +151,15 @@ export function AuthProvider({ children }) {
     if (error) throw error;
   };
 
-  const signup = async (email, password, plan, fullName) => {
+  const signup = async (email, password, plan, fullName, onboardingType) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { full_name: fullName || 'New User' },
+        data: {
+          full_name: fullName || 'New User',
+          ...(onboardingType ? { onboarding_type: onboardingType } : {}),
+        },
       },
     });
     if (error) throw error;
