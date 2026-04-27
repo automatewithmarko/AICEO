@@ -1,9 +1,12 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Mail, Send, Users, BarChart3, Megaphone, Inbox, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2 } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Mail, Send, Users, BarChart3, Megaphone, Inbox, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2, Upload } from 'lucide-react';
+import ChatDropOverlay from '../components/ChatDropOverlay';
+import { useChatFileDropZone } from '../hooks/useChatFileDropZone';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
-import { generateImage, uploadImageToStorage, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate, createCalendarPost, publishCalendarPost } from '../lib/api';
 import AutomationGraph from '../components/AutomationGraph';
 import NetlifyDeployButton from '../components/NetlifyDeployButton';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
@@ -127,8 +130,9 @@ RULES FOR STORY SEQUENCES:
     emptyText: 'Your story sequence will appear here',
     readyText: 'Your story sequence is ready! Check the canvas on the right.',
     canvasActions: [
-      { label: 'Download All', style: 'outline' },
-      { label: 'Schedule Stories', style: 'primary' },
+      { label: 'Upload Images', style: 'outline', isUploadStoryImages: true },
+      { label: 'Download All', style: 'outline', isDownloadAllStories: true },
+      { label: 'Schedule Stories', style: 'primary', isScheduleStories: true },
     ],
     canvasEmptyType: 'story-sequence',
   },
@@ -330,11 +334,13 @@ function GhostCard({ icon, lines, className }) {
 // Context categories are now fetched dynamically inside ToolTab
 
 // ── Story Sequence Phone Viewer ──
-function StoryPhoneViewer({ frames, onEditFrame }) {
+function StoryPhoneViewer({ frames, onEditFrame, onReorderFrames }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [editingIdx, setEditingIdx] = useState(null);
   const [editPrompt, setEditPrompt] = useState('');
+  const [dragIdx, setDragIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
   const timerRef = useRef(null);
   const touchStartRef = useRef(null);
   const DURATION = 5000;
@@ -423,12 +429,12 @@ function StoryPhoneViewer({ frames, onEditFrame }) {
           </button>
         )}
 
-        {/* Edit button  -  top right */}
+        {/* Edit button (AI re-draw via prompt)  -  top right */}
         {frame.imageSrc && !frame.loading && !frame.editing && onEditFrame && (
           <button
             className="sp-edit-btn"
             onClick={(e) => { e.stopPropagation(); setEditingIdx(activeIndex); setEditPrompt(''); }}
-            title="Edit this frame"
+            title="Edit this frame with a prompt"
           >
             <Pencil size={14} />
           </button>
@@ -480,6 +486,71 @@ function StoryPhoneViewer({ frames, onEditFrame }) {
           </div>
         )}
       </div>
+
+      {/* Thumbnail strip — click to navigate, drag-and-drop to reorder. */}
+      {total > 1 && onReorderFrames && (
+        <div className="sp-thumbs">
+          {frames.map((f, i) => (
+            <div
+              key={i}
+              className={`sp-thumb${i === activeIndex ? ' sp-thumb--active' : ''}${dragOverIdx === i && dragIdx !== null && dragIdx !== i ? ' sp-thumb--drop' : ''}`}
+              draggable
+              onClick={() => setActiveIndex(i)}
+              onDragStart={(e) => {
+                setDragIdx(i);
+                // Firefox needs effectAllowed + setData for drag to fire.
+                e.dataTransfer.effectAllowed = 'move';
+                try { e.dataTransfer.setData('text/plain', String(i)); } catch { /* ignore */ }
+              }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverIdx(i); }}
+              onDragLeave={() => setDragOverIdx((cur) => (cur === i ? null : cur))}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragIdx === null || dragIdx === i) { setDragIdx(null); setDragOverIdx(null); return; }
+                onReorderFrames(dragIdx, i);
+                // Keep the user's selection on the dragged frame after the move.
+                setActiveIndex(i);
+                setDragIdx(null);
+                setDragOverIdx(null);
+              }}
+              onDragEnd={() => { setDragIdx(null); setDragOverIdx(null); }}
+              title={`Frame ${i + 1}${f.caption ? ' — ' + f.caption : ''}`}
+            >
+              {f.imageSrc ? (
+                <img src={f.imageSrc} alt="" className="sp-thumb-img" />
+              ) : f.error ? (
+                <div className="sp-thumb-placeholder sp-thumb-placeholder--err">!</div>
+              ) : (
+                <div className="sp-thumb-placeholder">
+                  <span className="mkt-msg-dots"><span /><span /><span /></span>
+                </div>
+              )}
+              <span className="sp-thumb-num">{i + 1}</span>
+              {/* Click-to-reorder arrows — work alongside drag-and-drop. */}
+              <button
+                type="button"
+                className="sp-thumb-reorder sp-thumb-reorder--left"
+                disabled={i === 0}
+                onClick={(e) => { e.stopPropagation(); if (i > 0) { onReorderFrames(i, i - 1); setActiveIndex(i - 1); } }}
+                title="Move left"
+                aria-label="Move frame left"
+              >
+                <ChevronRight size={12} style={{ transform: 'rotate(180deg)' }} />
+              </button>
+              <button
+                type="button"
+                className="sp-thumb-reorder sp-thumb-reorder--right"
+                disabled={i === total - 1}
+                onClick={(e) => { e.stopPropagation(); if (i < total - 1) { onReorderFrames(i, i + 1); setActiveIndex(i + 1); } }}
+                title="Move right"
+                aria-label="Move frame right"
+              >
+                <ChevronRight size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1094,7 +1165,8 @@ function ImportTemplateModal({ open, onClose, activeTool, onImport }) {
   );
 }
 
-function ToolTab({ config, activeTool, brandDna }) {
+function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
+  const navigate = useNavigate();
   // Existing state
   const [chatInput, setChatInput] = useState('');
   const [splitPercent, setSplitPercent] = useState(50);
@@ -1227,6 +1299,17 @@ function ToolTab({ config, activeTool, brandDna }) {
   const sanitizeMessagesForSave = useCallback((list) => {
     return (list || [])
       .filter((m) => !m.isStatus)
+      // Drop assistant bubbles that have no text AND no images. These come
+      // from streams that were aborted mid-turn — if we persist them,
+      // loadSession re-hydrates the empty-content assistant, sendMessage
+      // forwards it to Anthropic, and Anthropic 400s with "assistant
+      // message must not be empty". User messages can never be empty
+      // (sendMessage requires text.trim()), so no role-specific check needed.
+      .filter((m) => {
+        const text = m.text || m.content || '';
+        const hasImages = Array.isArray(m.images) && m.images.length > 0;
+        return text.trim().length > 0 || hasImages;
+      })
       .map((m) => {
         const out = { id: m.id, role: m.role, text: m.text || m.content || '' };
         if (Array.isArray(m.images) && m.images.length) {
@@ -1263,37 +1346,32 @@ function ToolTab({ config, activeTool, brandDna }) {
           story_frames: storyFrames.length ? storyFrames : null,
           updated_at: new Date().toISOString(),
         };
-        if (sessionIdRef.current) {
-          const id = sessionIdRef.current;
-          const isCustom = customTitleIdsRef.current.has(id);
-          const finalPayload = isCustom ? payload : { ...payload, title };
-          const { error: updErr } = await supabase
-            .from('marketing_sessions')
-            .update(finalPayload)
-            .eq('id', id)
-            .eq('user_id', userId);
-          if (updErr) {
-            console.error('[marketing] session update failed:', updErr.message || updErr);
-            return;
-          }
-          setSessions((prev) => prev.map((s) =>
-            s.id === id ? { ...s, title: isCustom ? s.title : title, updated_at: payload.updated_at } : s
-          ));
-        } else {
-          const { data, error: insErr } = await supabase
-            .from('marketing_sessions')
-            .insert({ user_id: userId, tool: activeTool, title, ...payload })
-            .select('id, title, tool, updated_at')
-            .single();
-          if (insErr) {
-            console.error('[marketing] session insert failed:', insErr.message || insErr);
-            return;
-          }
-          if (data) {
-            sessionIdRef.current = data.id;
-            setSessionId(data.id);
-            setSessions((prev) => [data, ...prev.filter((s) => s.id !== data.id)]);
-          }
+        // sessionId is always set (newConversation + URL sync both pre-mint
+        // the uuid). Use upsert so the first save creates the row and
+        // subsequent saves update it — no separate insert/update branches.
+        const id = sessionIdRef.current;
+        if (!id) return;
+        const isCustom = customTitleIdsRef.current.has(id);
+        const finalPayload = isCustom
+          ? { id, user_id: userId, tool: activeTool, ...payload }
+          : { id, user_id: userId, tool: activeTool, title, ...payload };
+        const { data, error: upErr } = await supabase
+          .from('marketing_sessions')
+          .upsert(finalPayload, { onConflict: 'id' })
+          .select('id, title, tool, updated_at')
+          .single();
+        if (upErr) {
+          console.error('[marketing] session upsert failed:', upErr.message || upErr);
+          return;
+        }
+        if (data) {
+          setSessions((prev) => {
+            const existing = prev.find((s) => s.id === data.id);
+            if (existing) {
+              return prev.map((s) => s.id === data.id ? { ...s, title: isCustom ? s.title : data.title, updated_at: data.updated_at } : s);
+            }
+            return [data, ...prev];
+          });
         }
       } catch (err) {
         console.error('[marketing] autosave threw:', err?.message || err);
@@ -1304,29 +1382,56 @@ function ToolTab({ config, activeTool, brandDna }) {
   }, [chatMessages, canvasHtml, storyFrames, activeTool]);
 
   // ── Session lifecycle handlers ──
-  const loadSession = useCallback(async (id) => {
+  const loadSession = useCallback(async (id, { navigateToUrl = true } = {}) => {
     const { data, error } = await supabase
       .from('marketing_sessions')
       .select('*')
       .eq('id', id)
       .single();
-    if (error || !data) return;
+    if (error || !data) {
+      // Session doesn't exist (e.g. URL to a deleted session) — treat as a
+      // fresh conversation with this id so the user lands somewhere sane.
+      // Mirrors AiCeo's behaviour.
+      sessionIdRef.current = id;
+      setSessionId(id);
+      setChatMessages([]);
+      setMessages([]);
+      setCanvasHtml('');
+      setStoryFrames([]);
+      setCurrentQuestion(null);
+      return;
+    }
     sessionIdRef.current = data.id;
     setSessionId(data.id);
-    setChatMessages(data.messages || []);
+    // Belt for old sessions saved before the empty-message filter: skip any
+    // empty-content assistants so a legacy aborted-turn row can't poison
+    // the next orchestrate call with an empty assistant that Anthropic 400s on.
+    const safeMessages = (data.messages || []).filter((m) => {
+      const text = m.text || m.content || '';
+      const hasImages = Array.isArray(m.images) && m.images.length > 0;
+      return text.trim().length > 0 || hasImages;
+    });
+    setChatMessages(safeMessages);
     // ApiMessages mirror chatMessages but without UI-only fields; rebuild.
-    setMessages((data.messages || []).map((m) => ({ role: m.role, content: m.text || m.content || '' })));
+    setMessages(safeMessages.map((m) => ({ role: m.role, content: m.text || m.content || '' })));
     setCanvasHtml(data.canvas_html || '');
     setStoryFrames(Array.isArray(data.story_frames) ? data.story_frames : []);
     setCurrentQuestion(null);
     setCustomTyping(false);
     setCustomText('');
     setShowSessions(false);
-  }, []);
+    if (navigateToUrl) navigate(`/marketing/${activeTool}/${data.id}`, { replace: true });
+  }, [activeTool, navigate]);
 
   const newConversation = useCallback(() => {
-    sessionIdRef.current = null;
-    setSessionId(null);
+    // Mint the session uuid up front — mirrors AiCeo. This way the URL and any
+    // backend calls (artifact_versions, file-based edits) all agree from turn
+    // zero instead of waiting for the first autosave ~1.2s later.
+    const newId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `mkt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    sessionIdRef.current = newId;
+    setSessionId(newId);
     setChatMessages([]);
     setMessages([]);
     setCanvasHtml('');
@@ -1335,7 +1440,8 @@ function ToolTab({ config, activeTool, brandDna }) {
     setCustomTyping(false);
     setCustomText('');
     setShowSessions(false);
-  }, []);
+    navigate(`/marketing/${activeTool}/${newId}`, { replace: true });
+  }, [activeTool, navigate]);
 
   const startRenameSession = useCallback((s, e) => {
     e?.stopPropagation?.();
@@ -1371,6 +1477,22 @@ function ToolTab({ config, activeTool, brandDna }) {
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (sessionIdRef.current === id) newConversation();
   }, [confirmDeleteId, newConversation]);
+
+  // ── URL -> session sync ──
+  // When the :sessionId route param changes (direct URL, back/forward, refresh),
+  // load that session. When missing on mount, mint a fresh one so the URL and
+  // any backend calls (artifact_versions, file-based edits) agree from turn 0.
+  // Mirrors AiCeo.jsx.
+  useEffect(() => {
+    if (urlSessionId) {
+      if (urlSessionId !== sessionIdRef.current) {
+        loadSession(urlSessionId, { navigateToUrl: false });
+      }
+    } else if (!sessionIdRef.current) {
+      newConversation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSessionId]);
 
   // Cycle generating status text
   useEffect(() => {
@@ -1712,8 +1834,12 @@ function ToolTab({ config, activeTool, brandDna }) {
   };
 
   // File upload handler
-  const handleFileUpload = (e) => {
-    const files = Array.from(e.target.files);
+  // Accepts a FileList / File[] directly so we can call it from both
+  // the paperclip <input onChange> AND the window-level drag-drop
+  // handler. Keeping it permissive means the same accept rules + size
+  // limits live in one place.
+  const ingestFiles = useCallback((fileLike) => {
+    const files = Array.from(fileLike || []);
     files.forEach((file) => {
       const id = `file-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const isImage = file.type.startsWith('image/');
@@ -1745,8 +1871,18 @@ function ToolTab({ config, activeTool, brandDna }) {
         reader.readAsText(file);
       }
     });
+  }, []);
+
+  const handleFileUpload = (e) => {
+    ingestFiles(e.target.files);
     e.target.value = '';
   };
+
+  // Window-level drag-and-drop. Drop anywhere on the page to attach
+  // files to the current chat — same handler the paperclip uses.
+  const { dragging: filesDragging } = useChatFileDropZone({
+    onFiles: ingestFiles,
+  });
 
   const removeFile = (fileId) => {
     setUploadedFiles((prev) => prev.filter((f) => f.id !== fileId));
@@ -1811,18 +1947,37 @@ function ToolTab({ config, activeTool, brandDna }) {
       if (abortRef.current) abortRef.current.abort();
     }, 180_000);
 
-    // Detect edit mode  -  canvas exists and not first message
-    const isEdit = canvasHtml && !isFirstMessage;
+    // Edit mode = we already have a canvas from a prior turn. canvasHtml is
+    // set only AFTER a successful generation, so empty canvas ⇒ first turn,
+    // any populated canvas ⇒ subsequent turn ⇒ edit.
+    const isEdit = !!canvasHtml;
+
+    // Unique per-turn assistant message id so the backend can tag file-based
+    // edits, artifact versions, and logs against the specific chat turn.
+    // Mirrors AiCeo's pattern. sessionId comes from the current marketing
+    // session (or null on the very first turn before autosave mints one).
+    const assistantMsgId = `msg-${Date.now()}-ai`;
 
     try {
       let fullContent = '';
       let editHandled = false;
+      // Surface server-side errors that arrive as SSE 'error' events
+      // (e.g. upstream Anthropic abort, model timeout). streamFromBackend
+      // routes these through onError but resolves normally on [DONE],
+      // so without a flag the caller can't distinguish "completed cleanly
+      // with empty content" from "server aborted mid-turn". The former
+      // is a rare but valid no-op; the latter must NOT be persisted as
+      // an empty assistant message (Anthropic 400s on empty assistants
+      // in subsequent turns).
+      let streamError = null;
 
       await streamFromBackend('/api/orchestrate', {
         messages: newMessages,
         mode: 'direct',
         agent: activeTool,
         searchMode: researchMode,
+        sessionId: sessionIdRef.current || null,
+        assistantMsgId,
         ...(isEdit ? { currentHtml: canvasHtml, editInstruction: text.trim() } : {}),
       }, {
         onAgentChunk: (_agentName, chunk) => {
@@ -1894,11 +2049,34 @@ function ToolTab({ config, activeTool, brandDna }) {
         onSearchStatus: setSearchStatus,
         onError: (error) => {
           console.error('[marketing] Agent error:', error);
+          streamError = error || 'Upstream error';
         },
       }, abortRef.current.signal);
 
       // Remove status messages
       setChatMessages((prev) => prev.filter((m) => !m.isStatus));
+
+      // If the backend streamed an error event (e.g. upstream LLM aborted),
+      // treat the whole turn as failed: do NOT push anything to `messages`
+      // (an empty or partial assistant would poison the next turn) and
+      // surface a user-friendly message in the chat.
+      if (streamError && !editHandled) {
+        const raw = String(streamError);
+        const msg = /idle for \d+s|stream idle|aborted/i.test(raw)
+          ? "The AI took too long to reply and I stopped waiting. It's usually a hiccup on the model's side — please try again. If this keeps happening, start a new conversation."
+          : /empty|must not be empty|position \d+ with role/i.test(raw)
+          ? "This conversation picked up a bad message earlier and the model won't accept it. Please click \"New\" to start fresh — your drafts in the canvas are saved."
+          : /rate.?limit|429/i.test(raw)
+          ? "We're being rate-limited by the model right now. Give it a minute and try again."
+          : /402|credits|insufficient/i.test(raw)
+          ? "You're out of credits. Top up in Billing to keep going."
+          : "Something went wrong on the model's side. Please try again.";
+        setChatMessages((prev) => [
+          ...prev.filter((m) => !m.isStatus),
+          { id: `msg-${Date.now()}-srverr`, role: 'assistant', text: msg },
+        ]);
+        return;
+      }
 
       // If the backend handled this as a file-based edit, we're done
       if (editHandled) {
@@ -1906,6 +2084,18 @@ function ToolTab({ config, activeTool, brandDna }) {
       } else {
         // Parse the final response
         const parsed = tryParseAIResponse(fullContent);
+        // Guard: never persist an empty assistant into `messages`. An empty
+        // content field gets forwarded to Anthropic on the next turn, which
+        // rejects with 400 "assistant message must not be empty" and then
+        // the whole session is stuck. If the stream closed cleanly with no
+        // content AND no canvas update, surface a retry message instead.
+        if (!fullContent || !fullContent.trim()) {
+          setChatMessages((prev) => [
+            ...prev.filter((m) => !m.isStatus),
+            { id: `msg-${Date.now()}-empty`, role: 'assistant', text: "The AI didn't produce a response. Please try again." },
+          ]);
+          return;
+        }
         const assistantMsg = { role: 'assistant', content: fullContent };
         setMessages((prev) => [...prev, assistantMsg]);
 
@@ -1974,16 +2164,25 @@ function ToolTab({ config, activeTool, brandDna }) {
           }
         }));
 
+        // Read latest frame state via a one-shot ref instead of putting a
+        // setChatMessages side-effect inside a setStoryFrames updater.
+        // React 19 / StrictMode invokes updater functions twice for purity
+        // checks, which was firing the chat message twice with the same
+        // Date.now()-based id (duplicate-key warning).
+        let failCount = 0;
         setStoryFrames((current) => {
-          const failCount = current.filter(f => f.error).length;
-          setChatMessages((prev) => [...prev, {
-            id: `msg-${Date.now()}-done`, role: 'assistant',
-            text: failCount > 0
-              ? `Story frames done  -  ${frames.length - failCount}/${frames.length} generated (${failCount} failed)`
-              : 'All story frames generated! Check the canvas.',
-          }]);
+          failCount = current.filter(f => f.error).length;
           return current;
         });
+        // Microtask hop so the read above settles before we push the message.
+        await Promise.resolve();
+        setChatMessages((prev) => [...prev, {
+          id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-done`,
+          role: 'assistant',
+          text: failCount > 0
+            ? `Story frames done  -  ${frames.length - failCount}/${frames.length} generated (${failCount} failed)`
+            : 'All story frames generated! Check the canvas.',
+        }]);
       } else if (parsed?.type === 'edit' && parsed.sections) {
         // Section-based edit  -  merge only changed sections into current HTML
         const mergedHtml = mergeSectionEdits(canvasHtml, parsed.sections);
@@ -2109,10 +2308,15 @@ function ToolTab({ config, activeTool, brandDna }) {
       } // end !editHandled
     } catch (err) {
       if (err.name !== 'AbortError') {
+        const raw = err.message || '';
         let errText = 'Something went wrong. Please try again.';
-        if (err.code === 'STREAM_TIMEOUT' || err.message === 'STREAM_TIMEOUT' || err.message?.includes('idle')) {
-          errText = "The AI didn't respond within 90 seconds. The model may be overloaded — please try again.";
-        } else if (err.message?.includes('402') || err.message?.toLowerCase().includes('credits') || err.message?.toLowerCase().includes('insufficient')) {
+        if (err.code === 'STREAM_TIMEOUT' || raw === 'STREAM_TIMEOUT' || /idle|Connection idle/i.test(raw)) {
+          errText = "The AI took too long to reply and I stopped waiting. It's usually a hiccup on the model's side — please try again.";
+        } else if (/empty|must not be empty|position \d+ with role/i.test(raw)) {
+          errText = "This conversation picked up a bad message earlier and the model won't accept it. Please click \"New\" to start fresh — your drafts in the canvas are saved.";
+        } else if (/rate.?limit|429/i.test(raw)) {
+          errText = "We're being rate-limited by the model right now. Give it a minute and try again.";
+        } else if (/402|credits|insufficient/i.test(raw)) {
           errText = "You're out of credits. Top up in Billing to keep going.";
         }
         setChatMessages((prev) => [
@@ -2241,6 +2445,213 @@ function ToolTab({ config, activeTool, brandDna }) {
     }
   }, [storyFrames]);
 
+  // Append uploaded image files as new story frames. Pattern lifted from
+  // Content.jsx LinkedIn text-post upload (which is known to work):
+  //   1. blob: URL for instant optimistic preview (no FileReader needed)
+  //   2. Sequential await loop — each file uploads then its frame swaps
+  //      (no index races vs parallel setStoryFrames)
+  //   3. Stable _uploadKey on each frame so we update by ID, not index —
+  //      reorder/delete during upload won't update the wrong frame.
+  //   4. Per-file try/catch — one failure doesn't kill the rest.
+  const storyUploadInputRef = useRef(null);
+  const handleUploadStoryImages = useCallback(async (files) => {
+    const list = Array.from(files || []).filter((f) => f && f.type.startsWith('image/'));
+    if (list.length === 0) return;
+
+    // Stable key per upload so we find the right frame by id, not index.
+    const placeholders = list.map((file) => ({
+      _uploadKey: `up-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title: '',
+      caption: '',
+      image_prompt: '',
+      imageSrc: URL.createObjectURL(file), // instant preview, in-memory
+      loading: false,
+      uploading: true,
+    }));
+    setStoryFrames((prev) => [...prev, ...placeholders]);
+
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      const key = placeholders[i]._uploadKey;
+      try {
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = String(reader.result || '');
+            const comma = result.indexOf(',');
+            resolve(comma !== -1 ? result.slice(comma + 1) : result);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const uploaded = await uploadImageToStorage(base64, file.type || 'image/png');
+        const url = uploaded?.url || uploaded?.publicUrl || null;
+        if (!url) throw new Error('upload returned no URL');
+        // Swap blob URL for real https URL on the matching frame.
+        setStoryFrames((prev) => prev.map((f) =>
+          f._uploadKey === key ? { ...f, imageSrc: url, uploading: false } : f
+        ));
+      } catch (err) {
+        console.error('[story-upload]', file.name, err.message || err);
+        setStoryFrames((prev) => prev.map((f) =>
+          f._uploadKey === key ? { ...f, uploading: false, error: true } : f
+        ));
+      }
+    }
+  }, []);
+
+  // Reorder story frames by moving frame at fromIdx into toIdx position.
+  // Used by the thumbnail drag-and-drop in StoryPhoneViewer.
+  const handleReorderStoryFrames = useCallback((fromIdx, toIdx) => {
+    setStoryFrames((prev) => {
+      if (fromIdx < 0 || toIdx < 0 || fromIdx >= prev.length || toIdx >= prev.length || fromIdx === toIdx) return prev;
+      const next = prev.slice();
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  }, []);
+
+  // ── Story sequence: Download All as ZIP ──
+  // Mirrors the LinkedIn carousel ZIP downloader in Content.jsx — handles
+  // both data: URLs (fresh generation) and remote storage URLs (after upload),
+  // adds a captions.txt with the per-frame captions for context.
+  const [storyDownloading, setStoryDownloading] = useState(false);
+  const handleDownloadAllStories = useCallback(async () => {
+    if (storyDownloading || storyFrames.length === 0) return;
+    setStoryDownloading(true);
+    try {
+      const { default: JSZip } = await import('jszip');
+      const zip = new JSZip();
+      let added = 0;
+      for (let i = 0; i < storyFrames.length; i++) {
+        const f = storyFrames[i];
+        if (!f.imageSrc) continue;
+        const label = String(i + 1).padStart(2, '0');
+        try {
+          if (f.imageSrc.startsWith('data:')) {
+            const commaIdx = f.imageSrc.indexOf(',');
+            if (commaIdx === -1) continue;
+            const b64 = f.imageSrc.slice(commaIdx + 1);
+            const mime = (f.imageSrc.match(/^data:([^;]+);/) || [])[1] || 'image/png';
+            const ext = (mime.split('/')[1] || 'png').split('+')[0];
+            zip.file(`story-${label}.${ext}`, b64, { base64: true });
+            added++;
+          } else {
+            const res = await fetch(f.imageSrc, { mode: 'cors' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const ext = ((blob.type || 'image/png').split('/')[1] || 'png').split('+')[0];
+            zip.file(`story-${label}.${ext}`, blob);
+            added++;
+          }
+        } catch (err) {
+          console.warn(`[story-zip] frame ${i + 1} failed:`, err);
+        }
+      }
+      // Captions file for context — matches the LI/IG carousel pattern.
+      const captions = storyFrames
+        .map((f, i) => `Frame ${i + 1}${f.title ? ` — ${f.title}` : ''}${f.caption ? `: ${f.caption}` : ''}`)
+        .join('\n');
+      if (captions.trim()) zip.file('captions.txt', captions);
+      if (added === 0) throw new Error('No frames could be added — check your connection and try again.');
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.href = url;
+      a.download = `story-sequence-${ts}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (err) {
+      console.error('Story ZIP download failed:', err);
+      alert(err.message || 'Download failed.');
+    } finally {
+      setStoryDownloading(false);
+    }
+  }, [storyFrames, storyDownloading]);
+
+  // ── Story sequence: Schedule to content calendar ──
+  // Same data-URL → upload → calendar row pattern as the carousel scheduler.
+  // Stories don't have a per-platform editor in ContentCalendar yet, so the
+  // row is saved as content_type='story' and shows up as a generic calendar
+  // entry. publishCalendarPost wires through BooSend → Instagram when the
+  // user picks "Publish now".
+  const [storyScheduleOpen, setStoryScheduleOpen] = useState(false);
+  const [storyScheduleWhen, setStoryScheduleWhen] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(10, 0, 0, 0);
+    return d.toISOString().slice(0, 16);
+  });
+  const [storyScheduling, setStoryScheduling] = useState(false);
+  const [storyScheduleStatus, setStoryScheduleStatus] = useState(null); // 'saved' | 'published' | null
+
+  const handleOpenScheduleStories = useCallback(() => {
+    if (storyFrames.length === 0) return;
+    setStoryScheduleStatus(null);
+    setStoryScheduleOpen(true);
+  }, [storyFrames.length]);
+
+  const collectStoryMedia = useCallback(async () => {
+    const media = [];
+    for (const f of storyFrames) {
+      if (!f.imageSrc) continue;
+      let url = f.imageSrc;
+      if (url.startsWith('data:')) {
+        const commaIdx = url.indexOf(',');
+        const mimeMatch = url.match(/^data:([^;]+);/);
+        const base64 = url.slice(commaIdx + 1);
+        const mimeType = mimeMatch?.[1] || 'image/png';
+        try {
+          const uploaded = await uploadImageToStorage(base64, mimeType);
+          url = uploaded.url || uploaded.publicUrl || url;
+        } catch (err) {
+          console.warn('[story-schedule] upload failed for one frame:', err.message);
+          continue;
+        }
+      }
+      media.push({ type: 'image', url, caption: f.caption || '' });
+    }
+    return media;
+  }, [storyFrames]);
+
+  const saveStoriesToCalendar = useCallback(async (mode /* 'scheduled' | 'draft' | 'publish' */) => {
+    if (storyScheduling) return;
+    setStoryScheduling(true);
+    try {
+      const media = await collectStoryMedia();
+      if (!media.length) throw new Error('No frames to schedule');
+      const captionLines = storyFrames
+        .map((f, i) => f.caption ? `${i + 1}. ${f.caption}` : null)
+        .filter(Boolean);
+      const caption = captionLines.join('\n');
+      const { post } = await createCalendarPost({
+        platform: 'instagram',
+        caption,
+        content_type: 'story',
+        scheduled_at: mode === 'scheduled' ? new Date(storyScheduleWhen).toISOString() : null,
+        media,
+        status: mode === 'scheduled' ? 'scheduled' : 'draft',
+      });
+      if (mode === 'publish') {
+        await publishCalendarPost(post.id);
+        setStoryScheduleStatus('published');
+      } else {
+        setStoryScheduleStatus(mode === 'scheduled' ? 'scheduled' : 'saved');
+      }
+      setStoryScheduleOpen(false);
+      setTimeout(() => setStoryScheduleStatus(null), 4000);
+    } catch (err) {
+      console.error('Story calendar save failed:', err);
+      alert(err.message || 'Failed to save to calendar');
+    } finally {
+      setStoryScheduling(false);
+    }
+  }, [storyFrames, storyScheduling, storyScheduleWhen, collectStoryMedia]);
+
   const handleCopyCode = () => {
     if (!canvasHtml) return;
     navigator.clipboard.writeText(canvasHtml);
@@ -2320,34 +2731,38 @@ function ToolTab({ config, activeTool, brandDna }) {
 
   return (
   <>
+    {/* Window-level drag-and-drop overlay. Shown only while a file
+        drag is active anywhere on the page; the actual file ingestion
+        is wired up to the same path the paperclip uses. */}
+    <ChatDropOverlay visible={filesDragging} hint="Drop to add an image or document to your message." />
+    {/* Top bar — sibling of .mkt-split (NOT inside .mkt-split-left). Lives
+        directly under the chrome tabs in the column-flex parent so chat-load
+        layout reflow inside the split panes can never displace or cover it. */}
+    <div className="mkt-chat-topbar">
+      <button
+        type="button"
+        className="mkt-prev-convos"
+        onClick={() => setShowSessions((v) => !v)}
+        title="Previous conversations"
+      >
+        <History size={16} />
+        <span>Previous conversations</span>
+      </button>
+      {chatStarted && (
+        <button
+          type="button"
+          className="mkt-new-convo"
+          onClick={newConversation}
+          title="Start a new conversation"
+        >
+          <Plus size={14} /> New
+        </button>
+      )}
+    </div>
+
     <div className="mkt-split" ref={splitRef}>
       {/* Left  -  chat area */}
       <div className="mkt-split-left" style={{ flex: `0 0 ${splitPercent}%` }}>
-
-        {/* Top bar — Previous conversations button + New. Matches
-            the Content tab pattern so users have consistent access
-            to session history across the app. */}
-        <div className="mkt-chat-topbar">
-          <button
-            type="button"
-            className="mkt-prev-convos"
-            onClick={() => setShowSessions((v) => !v)}
-            title="Previous conversations"
-          >
-            <History size={16} />
-            <span>Previous conversations</span>
-          </button>
-          {chatStarted && (
-            <button
-              type="button"
-              className="mkt-new-convo"
-              onClick={newConversation}
-              title="Start a new conversation"
-            >
-              <Plus size={14} /> New
-            </button>
-          )}
-        </div>
 
         {/* Ghost cards + CTA (shown when no chat) */}
         {!chatStarted && (
@@ -2723,6 +3138,54 @@ function ToolTab({ config, activeTool, brandDna }) {
                       text: `Deploy failed: ${msg}`,
                     }])}
                   />
+                ) : action.isUploadStoryImages ? (
+                  <span key={i} className="mkt-canvas-upload-anchor">
+                    <button
+                      className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
+                      onClick={() => storyUploadInputRef.current?.click()}
+                      title="Upload one or more images as new story frames"
+                    >
+                      <Upload size={14} />
+                      {action.label}
+                    </button>
+                    <input
+                      ref={storyUploadInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        // CRITICAL: snapshot to a plain Array BEFORE clearing
+                        // input.value. Setting value='' empties the live
+                        // FileList — if we captured a reference to it
+                        // beforehand, the handler would see zero files.
+                        // Same pattern Content.jsx uses for LI uploads.
+                        const files = Array.from(e.target.files || []);
+                        e.target.value = '';
+                        handleUploadStoryImages(files);
+                      }}
+                    />
+                  </span>
+                ) : action.isDownloadAllStories ? (
+                  <button
+                    key={i}
+                    className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
+                    onClick={handleDownloadAllStories}
+                    disabled={storyDownloading || storyFrames.length === 0}
+                    title={storyFrames.length === 0 ? 'Generate or upload story frames first' : 'Download all frames as a ZIP'}
+                  >
+                    {storyDownloading ? 'Zipping…' : action.label}
+                  </button>
+                ) : action.isScheduleStories ? (
+                  <button
+                    key={i}
+                    className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
+                    onClick={handleOpenScheduleStories}
+                    disabled={storyFrames.length === 0}
+                    title={storyFrames.length === 0 ? 'Generate or upload story frames first' : 'Schedule or publish to Instagram'}
+                  >
+                    {storyScheduleStatus === 'published' ? 'Published ✓' : storyScheduleStatus === 'scheduled' ? 'Scheduled ✓' : storyScheduleStatus === 'saved' ? 'Saved ✓' : action.label}
+                  </button>
                 ) : (
                   <button
                     key={i}
@@ -2767,7 +3230,11 @@ function ToolTab({ config, activeTool, brandDna }) {
             sandbox="allow-same-origin allow-scripts"
           />
           {config.canvasEmptyType === 'story-sequence' && storyFrames.length > 0 && (
-            <StoryPhoneViewer frames={storyFrames} onEditFrame={handleEditStoryFrame} />
+            <StoryPhoneViewer
+              frames={storyFrames}
+              onEditFrame={handleEditStoryFrame}
+              onReorderFrames={handleReorderStoryFrames}
+            />
           )}
           {config.canvasEmptyType === 'story-sequence' && storyFrames.length === 0 && !canvasHtml && (
             <div className="mkt-canvas-empty mkt-canvas-empty--story">
@@ -2845,6 +3312,45 @@ function ToolTab({ config, activeTool, brandDna }) {
     <SendNewsletterModal open={sendModalOpen} onClose={() => setSendModalOpen(false)} canvasHtml={canvasHtml} />
     <SaveTemplateModal open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} canvasHtml={canvasHtml} activeTool={activeTool} />
     <ImportTemplateModal open={importTemplateOpen} onClose={() => setImportTemplateOpen(false)} activeTool={activeTool} onImport={(html) => setCanvasHtml(html)} />
+
+    {/* ── Schedule Stories modal — same Save-as-draft / Schedule / Publish-now
+        flow Content.jsx uses for carousels. */}
+    {storyScheduleOpen && (
+      <div className="mkt-modal-overlay" onClick={() => !storyScheduling && setStoryScheduleOpen(false)} role="dialog" aria-modal="true">
+        <div className="mkt-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="mkt-modal-header">
+            <span className="mkt-modal-title">Send story sequence to content calendar</span>
+            <button type="button" className="mkt-modal-close" onClick={() => !storyScheduling && setStoryScheduleOpen(false)} aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="mkt-modal-body">
+            <label className="mkt-modal-label">Schedule date/time</label>
+            <input
+              type="datetime-local"
+              className="mkt-modal-input"
+              value={storyScheduleWhen}
+              onChange={(e) => setStoryScheduleWhen(e.target.value)}
+              disabled={storyScheduling}
+            />
+            <div className="mkt-modal-hint">
+              "Publish now" posts immediately via your connected Instagram account. "Schedule" pins it to the chosen date. "Save as draft" parks it in the Content Calendar for later. {storyFrames.length} {storyFrames.length === 1 ? 'frame' : 'frames'} will be uploaded.
+            </div>
+          </div>
+          <div className="mkt-modal-footer">
+            <button type="button" className="mkt-modal-cancel" onClick={() => saveStoriesToCalendar('draft')} disabled={storyScheduling}>
+              Save as draft
+            </button>
+            <button type="button" className="mkt-modal-cancel" onClick={() => saveStoriesToCalendar('scheduled')} disabled={storyScheduling}>
+              Schedule
+            </button>
+            <button type="button" className="mkt-modal-save" onClick={() => saveStoriesToCalendar('publish')} disabled={storyScheduling}>
+              {storyScheduling ? 'Working…' : 'Publish now'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* Sessions overlay + panel */}
     {showSessions && (
@@ -2930,9 +3436,28 @@ function ToolTab({ config, activeTool, brandDna }) {
   );
 }
 
+const VALID_TOOLS = ['newsletter', 'landing', 'squeeze', 'story', 'leadmagnet', 'dm'];
+
 export default function Marketing() {
-  const [activeTab, setActiveTab] = useState('newsletter');
+  const { tool: urlTool, sessionId: urlSessionId } = useParams();
+  const navigate = useNavigate();
   const [brandDna, setBrandDna] = useState(null);
+
+  // URL is source of truth for which tool is active. If URL has no tool,
+  // default to newsletter and redirect so the URL stays honest.
+  const activeTab = VALID_TOOLS.includes(urlTool) ? urlTool : 'newsletter';
+  useEffect(() => {
+    if (!urlTool) {
+      navigate('/marketing/newsletter', { replace: true });
+    } else if (!VALID_TOOLS.includes(urlTool)) {
+      // Unknown tool in URL (typo, renamed tool) — redirect to newsletter.
+      navigate('/marketing/newsletter', { replace: true });
+    }
+  }, [urlTool, navigate]);
+
+  const handleTabClick = useCallback((tabId) => {
+    navigate(`/marketing/${tabId}`);
+  }, [navigate]);
 
   // Load Brand DNA once on mount
   useEffect(() => {
@@ -2961,7 +3486,7 @@ export default function Marketing() {
             <button
               key={tab.id}
               className={`marketing-tab ${activeTab === tab.id ? 'marketing-tab--active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabClick(tab.id)}
             >
               {tab.label}
             </button>
@@ -2969,7 +3494,13 @@ export default function Marketing() {
         )}
       </div>
       <div className="marketing-content">
-        <ToolTab config={TOOL_CONFIGS[activeTab]} activeTool={activeTab} brandDna={brandDna} key={activeTab} />
+        <ToolTab
+          config={TOOL_CONFIGS[activeTab]}
+          activeTool={activeTab}
+          brandDna={brandDna}
+          urlSessionId={urlSessionId}
+          key={activeTab}
+        />
       </div>
     </div>
   );

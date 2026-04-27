@@ -5,7 +5,6 @@ import './LoginScreen.css';
 export default function LoginScreen() {
   const { login, signup } = useAuth();
   const [mode, setMode] = useState('login'); // 'login' | 'signup'
-  const [signupStep, setSignupStep] = useState('choose'); // 'choose' | 'self-serve' | 'coached'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -41,7 +40,6 @@ export default function LoginScreen() {
 
   const resetToLogin = () => {
     setMode('login');
-    setSignupStep('choose');
     setEmail('');
     setPassword('');
     setName('');
@@ -51,7 +49,6 @@ export default function LoginScreen() {
 
   const resetToSignup = () => {
     setMode('signup');
-    setSignupStep('choose');
     setError('');
     setConfirmEmail(false);
   };
@@ -125,63 +122,17 @@ export default function LoginScreen() {
           </>
         )}
 
-        {mode === 'signup' && signupStep === 'choose' && (
+        {mode === 'signup' && (
           <>
-            <h2 className="login-heading">Get Started</h2>
+            <h2 className="login-heading">Create your account</h2>
             <p className="login-subtext">
-              Choose how you'd like to set up your AI CEO
+              You'll choose a plan and complete checkout right after.
             </p>
-            <div className="signup-options">
-              <button
-                className="option-card"
-                onClick={() => setSignupStep('self-serve')}
-              >
-                <div className="option-badge">Self-Serve</div>
-                <h3>Set Up on Your Own</h3>
-                <p>
-                  Get instant access to the platform and configure your AI CEO
-                  at your own pace.
-                </p>
-                <span className="option-cta">View Plans →</span>
-              </button>
-              <button
-                className="option-card option-card--premium"
-                onClick={() => setSignupStep('coached')}
-              >
-                <div className="option-badge option-badge--premium">
-                  Coached Onboarding
-                </div>
-                <h3>Private 1-on-1 Setup</h3>
-                <p>
-                  Get on a private call with Marko or Danny for complete
-                  guidance setting up your AI CEO for maximum revenue.
-                </p>
-                <span className="option-cta">Learn More →</span>
-              </button>
-            </div>
-            <p className="login-switch">
-              Already have an account?{' '}
-              <button className="link-btn" onClick={resetToLogin}>
-                Sign In
-              </button>
-            </p>
-          </>
-        )}
 
-        {mode === 'signup' && signupStep === 'self-serve' && (
-          <>
-            <button
-              className="back-btn"
-              onClick={() => setSignupStep('choose')}
+            <form
+              className="signup-fields"
+              onSubmit={(e) => { e.preventDefault(); handleSignup(null); }}
             >
-              ← Back
-            </button>
-            <h2 className="login-heading">Choose Your Plan</h2>
-            <p className="login-subtext">
-              Create your account, then select a plan
-            </p>
-
-            <div className="signup-fields">
               <div className="form-group">
                 <label htmlFor="signup-name">Full Name</label>
                 <input
@@ -216,109 +167,16 @@ export default function LoginScreen() {
                   minLength={6}
                 />
               </div>
-            </div>
 
-            {/* Account-only step. No plan choice here — once the account is
-                created and the email is confirmed, PlanSelector takes over
-                with the real plans + live Stripe Checkout. */}
-            <button
-              className="btn-primary btn-plan btn-plan--full"
-              onClick={() => handleSignup(null)}
-              disabled={submitting || !email || !password || !name}
-            >
-              {submitting ? 'Creating account…' : 'Create account'}
-            </button>
-            <p className="login-subnote">
-              You'll choose your plan and complete checkout right after.
-            </p>
-            <p className="login-switch">
-              Already have an account?{' '}
-              <button className="link-btn" onClick={resetToLogin}>
-                Sign In
-              </button>
-            </p>
-          </>
-        )}
-
-        {mode === 'signup' && signupStep === 'coached' && (
-          <>
-            <button
-              className="back-btn"
-              onClick={() => setSignupStep('choose')}
-            >
-              ← Back
-            </button>
-            <h2 className="login-heading">Coached Onboarding</h2>
-            <p className="login-subtext">
-              Get your AI CEO set up by the experts
-            </p>
-
-            <div className="signup-fields">
-              <div className="form-group">
-                <label htmlFor="coached-name">Full Name</label>
-                <input
-                  id="coached-name"
-                  type="text"
-                  placeholder="Your full name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="coached-email">Email</label>
-                <input
-                  id="coached-email"
-                  type="email"
-                  placeholder="you@company.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="coached-password">Password</label>
-                <input
-                  id="coached-password"
-                  type="password"
-                  placeholder="Min 6 characters"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={6}
-                />
-              </div>
-            </div>
-
-            <div className="coached-card">
-              <div className="coached-price">
-                <span className="price-amount">$5,987</span>
-                <span className="price-label">one-time</span>
-              </div>
-              <div className="coached-details">
-                <h3>Private 1-on-1 Setup Call</h3>
-                <p>
-                  Get on a private one-on-one call with either <strong>Marko</strong> or{' '}
-                  <strong>Danny</strong> to get complete guidance setting up your
-                  PuerlyPersonal AI CEO to generate maximum revenue for your
-                  business.
-                </p>
-                <ul className="coached-includes">
-                  <li>Full platform access (Growth plan included)</li>
-                  <li>Private setup call with Marko or Danny</li>
-                  <li>Custom AI CEO configuration for your business</li>
-                  <li>Revenue-maximizing strategy session</li>
-                  <li>Priority ongoing support</li>
-                </ul>
-              </div>
               <button
-                className="btn-primary btn-coached"
-                onClick={() => handleSignup('Coached')}
-                disabled={submitting || !email || !password}
+                type="submit"
+                className="btn-primary btn-plan btn-plan--full"
+                disabled={submitting || !email || !password || !name}
               >
-                {submitting ? 'Creating...' : 'Purchase and book the call'}
+                {submitting ? 'Creating account…' : 'Create account'}
               </button>
-            </div>
+            </form>
+
             <p className="login-switch">
               Already have an account?{' '}
               <button className="link-btn" onClick={resetToLogin}>

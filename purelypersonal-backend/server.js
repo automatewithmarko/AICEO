@@ -19,7 +19,7 @@ app.use(cors({ origin: true, credentials: true }));
 // Raw body for Svix webhook verification (before express.json)
 app.use('/api/webhooks', express.raw({ type: 'application/json' }));
 
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 // Request logging
 app.use((req, res, next) => {

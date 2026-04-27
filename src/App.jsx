@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import LoginScreen from './components/LoginScreen';
-import PlanSelector from './components/PlanSelector';
+import OnboardingFunnel from './components/OnboardingFunnel';
 import Layout from './components/Layout';
 import AiCeo from './pages/AiCeo';
 import Dashboard from './pages/Dashboard';
@@ -23,6 +23,7 @@ import FormBuilder from './pages/FormBuilder';
 import FormResponses from './pages/FormResponses';
 import FormPlayer from './pages/FormPlayer';
 import MicrosoftPages from './pages/MicrosoftPages';
+import Docs from './pages/Docs';
 
 function App() {
   const { user, loading } = useAuth();
@@ -50,7 +51,7 @@ function App() {
 
   return (
     <>
-    {!user.plan && <PlanSelector />}
+    <OnboardingFunnel />
     <Routes>
       <Route path="/microsofthomepage" element={<MicrosoftPages />} />
       <Route path="/privacy" element={<MicrosoftPages />} />
@@ -65,6 +66,8 @@ function App() {
         <Route path="/outlier-detector" element={<OutlierDetector />} />
         <Route path="/content-calendar" element={<ContentCalendar />} />
         <Route path="/marketing" element={<Marketing />} />
+        <Route path="/marketing/:tool" element={<Marketing />} />
+        <Route path="/marketing/:tool/:sessionId" element={<Marketing />} />
         <Route path="/inbox" element={<Inbox />} />
         <Route path="/sales" element={<Sales />} />
         <Route path="/products" element={<Products />} />
@@ -77,6 +80,7 @@ function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/outlook/callback" element={<Settings />} />
         <Route path="/billing" element={<Billing />} />
+        <Route path="/docs" element={<Docs />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>

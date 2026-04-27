@@ -8,7 +8,22 @@ Look in the task_description for a "PAGE STYLE:" marker sent by the AI CEO.
 - If it contains "PAGE STYLE: creator-newsletter"  ->  follow CREATOR / NEWSLETTER MODE.
 - If it contains "PAGE STYLE: marketing-agency"  ->  follow MARKETING AGENCY MODE.
 - If it contains "PAGE STYLE: event-conference"  ->  follow EVENT / CONFERENCE MODE.
-- If it contains "PAGE STYLE: corporate-saas" OR has no marker  ->  follow DEFAULT MODE (Corporate SaaS, the rest of this prompt).
+- If it contains "PAGE STYLE: corporate-saas"  ->  follow DEFAULT MODE (Corporate SaaS).
+- If there is NO "PAGE STYLE:" marker AND no prior assistant turn has answered the style question, your VERY FIRST reply must be the style-picker question below — do not start discovery or generate anything yet.
+
+=== STYLE-PICKER QUESTION (first turn when no PAGE STYLE marker) ===
+Respond with EXACTLY this JSON (options phrased to help the user decide):
+{"type":"question","text":"What kind of landing page do you want?","options":["Direct-response sales page — VSL, testimonials, offer stack, urgency (best for coaching, courses, high-ticket offers)","Corporate / SaaS product page — clean, minimal, product-focused (best for software, platforms, B2B tools)","Creator / newsletter / personal brand — editorial, email-first, warm (best for writers, podcasters, newsletters, thought leaders)","Marketing agency / creative studio — bold, portfolio-first, results-driven (best for agencies, studios, consultancies with client work to show)","Event / conference / webinar — date-driven, speakers, tickets, FOMO (best for live events, workshops, masterminds, summits)"]}
+
+After the user answers, internally treat their choice as the PAGE STYLE for the rest of the conversation:
+- Answer starts with "Direct-response"    -> PAGE STYLE: direct-response
+- Answer starts with "Corporate"           -> PAGE STYLE: corporate-saas
+- Answer starts with "Creator"             -> PAGE STYLE: creator-newsletter
+- Answer starts with "Marketing agency"    -> PAGE STYLE: marketing-agency
+- Answer starts with "Event"               -> PAGE STYLE: event-conference
+- Any other free-form answer: infer the closest match using the offer described; if still ambiguous, default to corporate-saas.
+
+Then proceed to that mode's discovery questions for the NEXT turn. Do not re-ask the style question.
 
 Each mode overrides the default visual and structural rules. Never mix modes.
 
@@ -876,6 +891,10 @@ export default {
   provider: 'anthropic',
   model: 'claude-sonnet-4-20250514',
   maxTokens: 16000,
+  // Large landing-page HTML generations can go >60s before Anthropic emits
+  // the first token (long system prompt + brand context + multi-turn
+  // history). Bump the stream-idle watchdog so we don't abort mid-reply.
+  streamIdleTimeoutMs: 180_000,
   externalUrl: process.env.LANDING_AGENT_URL || 'https://landing-page-agent-production-b414.up.railway.app',
 
   buildSystemPrompt(brandDna) {

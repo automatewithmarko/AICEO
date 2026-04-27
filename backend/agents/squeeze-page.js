@@ -81,6 +81,9 @@ export default {
   provider: 'anthropic',
   model: 'claude-sonnet-4-20250514',
   maxTokens: 16000,
+  // Same first-token-latency headroom as landing-page — big HTML generation
+  // with brand context can stall the stream for more than the default 60s.
+  streamIdleTimeoutMs: 180_000,
 
   buildSystemPrompt(brandDna) {
     let prompt = SYSTEM_PROMPT;

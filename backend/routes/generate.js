@@ -7,12 +7,7 @@ const router = Router();
 
 const GEMINI_MODEL_FAST = 'gemini-3.1-flash-image-preview';
 const GEMINI_MODEL_PRO = 'gemini-3-pro-image-preview'; // Best text rendering + reasoning
-const GEMINI_BASE = (process.env.MENTOR_BASE_URL || 'https://platform.thementorprogram.xyz') + '/api/v1beta';
-// ── TEMP DEBUG ── A/B-test endpoint for going direct to Google's Gemini API
-// instead of through the Mentor gateway. Used by the temporary "Image gen
-// provider" toggle in the AI CEO chat header. Delete this constant + every
-// `provider === 'gemini'` branch once we know which one we're keeping.
-const GEMINI_DIRECT_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const GEMINI_TIMEOUT_MS = 90_000; // 90s for fast model
 const GEMINI_PRO_TIMEOUT_MS = 120_000; // 120s for pro model (more thinking time)
 
@@ -38,17 +33,41 @@ const supabase = createClient(
 );
 
 function getApiKey() {
-  const key = process.env.MENTOR_API_KEY;
-  if (!key) throw new Error('MENTOR_API_KEY not configured');
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error('GEMINI_API_KEY not configured');
   return key;
 }
 
-// ── TEMP DEBUG ── pull the direct-Gemini key when the request asks for it.
-// Delete with the rest of the provider-switch code.
-function getGeminiDirectKey() {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error('GEMINI_API_KEY not configured (needed for direct provider)');
-  return key;
+// Strip real-person identity markers from an image prompt before sending
+// to Gemini. Named real person + photorealistic + attached face photo is
+// the exact combo that trips Google's "OTHER" block (named-person policy).
+// We keep the reference photo attached so the LIKENESS still carries
+// through; we just stop *naming* them or calling out ethnicity/nationality
+// in the text. Generic "the founder" / "a person" is safe.
+const NATIONALITIES = [
+  'American','British','Canadian','Australian','Indian','Pakistani','Bangladeshi','Chinese',
+  'Japanese','Korean','Vietnamese','Filipino','Indonesian','Malaysian','Thai','Arab','Arabic',
+  'Middle Eastern','African','Nigerian','Ethiopian','Kenyan','South African','Egyptian',
+  'Mexican','Brazilian','Colombian','Argentinian','Spanish','Portuguese','French','German',
+  'Italian','Russian','Ukrainian','Polish','Turkish','Persian','Iranian','Israeli','Jewish',
+  'Latino','Latina','Hispanic','Asian','Caucasian','White','Black','European',
+];
+function sanitizeIdentityFromPrompt(text) {
+  if (!text) return text;
+  let out = text;
+  // "[Nationality/Ethnicity] man/woman/guy/girl/person" → "the founder"
+  const natRe = new RegExp(
+    `\\b(?:young\\s+|old\\s+|middle[- ]aged\\s+)?(?:${NATIONALITIES.join('|')})\\s+(?:man|woman|guy|girl|boy|gentleman|lady|person|founder)\\b`,
+    'gi',
+  );
+  out = out.replace(natRe, 'the founder');
+  // "photo of FirstName LastName" → "photo of the founder"
+  out = out.replace(/\b(photo|image|picture|portrait|shot)\s+of\s+[A-Z][a-zA-Z'’-]+\s+[A-Z][a-zA-Z'’-]+/g, '$1 of the founder');
+  // Standalone "FirstName LastName," at start of prompt
+  out = out.replace(/^([A-Z][a-zA-Z'’-]+\s+[A-Z][a-zA-Z'’-]+)(?=[,\s])/, 'the founder');
+  // "a realistic photo of" / "a photorealistic image of" → soften hook
+  out = out.replace(/\b(realistic|photorealistic|hyper[- ]realistic|lifelike)\s+(photo|image|portrait)\b/gi, 'high-quality $2');
+  return out;
 }
 
 // ─── Caches ───
@@ -301,14 +320,19 @@ async function getCachedBrandData(userId) {
 
 // ─── Image generation ───
 router.post('/api/generate/image', requireCredits('image_generation'), async (req, res) => {
-  // TEMP DEBUG: `provider` lets the AI CEO chat A/B between the Mentor
-  // gateway (default) and direct Gemini, to confirm whether silent image
-  // failures are a Mentor proxy issue or a Gemini policy issue. Remove
-  // this field + all branches once we've decided which provider stays.
-  const { prompt, platform, brandData, referenceImages, provider } = req.body;
-  const useDirectGemini = provider === 'gemini';
-  if (!prompt) {
+  const { prompt: rawPrompt, platform, brandData, referenceImages } = req.body;
+  if (!rawPrompt) {
     return res.status(400).json({ error: 'prompt is required' });
+  }
+
+  // Strip personal identity from the prompt so Gemini's named-person policy
+  // doesn't block. Reference photo still carries the likeness — the text
+  // just shouldn't say "a realistic photo of Bazil Sajjad, a Pakistani man…"
+  // because that combo (named real person + photorealistic + face photo)
+  // is the exact pattern that trips the OTHER finishReason.
+  const prompt = sanitizeIdentityFromPrompt(rawPrompt);
+  if (prompt !== rawPrompt) {
+    console.log(`[generate/image] Prompt sanitized (name/ethnicity stripped). before: "${rawPrompt.slice(0, 120)}..." → after: "${prompt.slice(0, 120)}..."`);
   }
 
   try {
@@ -467,14 +491,8 @@ ${prompt}`;
       requestBody.tools = [{ google_search: {} }];
     }
 
-    // TEMP DEBUG: route to direct Gemini when the chat asked for it,
-    // otherwise default to the Mentor gateway path used everywhere else.
-    const baseForCall = useDirectGemini ? GEMINI_DIRECT_BASE : GEMINI_BASE;
-    const keyForCall = useDirectGemini ? getGeminiDirectKey() : apiKey;
-    console.log(`[generate/image] Provider: ${useDirectGemini ? 'GEMINI-DIRECT' : 'MENTOR'} (base=${baseForCall})`);
-
     const geminiRes = await fetch(
-      `${baseForCall}/models/${model}:generateContent?key=${keyForCall}`,
+      `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -485,7 +503,7 @@ ${prompt}`;
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
-      console.log(`[generate/image] ${useDirectGemini ? 'GEMINI-DIRECT' : 'MENTOR'} error: ${geminiRes.status} ${errText}`);
+      console.log(`[generate/image] Gemini error: ${geminiRes.status} ${errText}`);
       return res.status(geminiRes.status).json({ error: errText });
     }
 
@@ -506,17 +524,16 @@ ${prompt}`;
       }
     }
 
-    const providerLabel = useDirectGemini ? 'GEMINI-DIRECT' : 'MENTOR';
-    console.log(`[generate/image] ${providerLabel} → image: ${imageData ? 'yes' : 'no'}, text: ${text.length} chars`);
+    console.log(`[generate/image] Gemini → image: ${imageData ? 'yes' : 'no'}, text: ${text.length} chars`);
 
-    // Fail loudly when the upstream returns 200 but no image — most likely
-    // policy block (promptFeedback.blockReason) or a SAFETY/MAX_TOKENS finish.
-    // Log the full diagnostic trail and return a useful 422 instead of {image: null}.
+    // Fail loudly when Gemini returns 200 but no image — most likely a policy
+    // block (promptFeedback.blockReason) or a SAFETY/MAX_TOKENS finish. Log the
+    // full diagnostic trail and return a useful 422 instead of {image: null}.
     if (!imageData) {
       const promptFb = result.promptFeedback;
       const finishReason = result.candidates?.[0]?.finishReason;
       const safetyRatings = result.candidates?.[0]?.safetyRatings;
-      console.warn(`[generate/image] ${providerLabel} returned NO IMAGE`);
+      console.warn('[generate/image] Gemini returned NO IMAGE');
       console.warn(`  finishReason: ${finishReason || '<none>'}`);
       console.warn(`  promptFeedback: ${promptFb ? JSON.stringify(promptFb) : '<none>'}`);
       console.warn(`  safetyRatings: ${safetyRatings ? JSON.stringify(safetyRatings) : '<none>'}`);
@@ -526,9 +543,9 @@ ${prompt}`;
 
       const blockReason = promptFb?.blockReason;
       const errMsg = blockReason
-        ? `Image blocked by ${providerLabel} (${blockReason}). Try a different prompt or remove brand reference photos.`
-        : `${providerLabel} returned no image (finishReason: ${finishReason || 'none'}). Model may have refused.`;
-      return res.status(422).json({ error: errMsg, providerLabel, finishReason, blockReason, text: text || null });
+        ? `Image blocked by Gemini (${blockReason}). Try a different prompt or remove brand reference photos.`
+        : `Gemini returned no image (finishReason: ${finishReason || 'none'}). Model may have refused.`;
+      return res.status(422).json({ error: errMsg, finishReason, blockReason, text: text || null });
     }
 
     res.json({

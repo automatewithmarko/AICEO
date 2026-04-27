@@ -1222,6 +1222,130 @@
   color: var(--text-primary);
 }
 
+/* Paperclip / attach button — same metrics as voice-btn so they stack
+   cleanly in .ceo-input-actions. Distinct hover so it reads as a
+   separate affordance. */
+.ceo-attach-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: none;
+  background: var(--bg-light);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ceo-attach-btn:hover {
+  background: var(--border-light);
+  color: var(--text-primary);
+}
+
+/* Attached-files row — sits above .ceo-input-bottom-row, mirrors the
+   existing .ceo-ctx-pills row so adding files feels visually parallel
+   to picking context items. Pills wrap; long names truncate with
+   ellipsis so a giant filename doesn't blow out the row. */
+.ceo-attached-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0 4px;
+  margin-bottom: 4px;
+}
+
+.ceo-attached-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid var(--border-light, #e5e7eb);
+  background: var(--bg-light, #f9fafb);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary, #1a1a2e);
+  line-height: 1.2;
+}
+
+.ceo-attached-pill--image { padding-left: 4px; }
+.ceo-attached-pill--document { padding-left: 8px; }
+
+.ceo-attached-thumb {
+  width: 24px;
+  height: 24px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.ceo-attached-icon {
+  color: var(--text-muted, #6b7280);
+  flex-shrink: 0;
+}
+
+.ceo-attached-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.ceo-attached-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #6b7280);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ceo-attached-x:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-primary, #1a1a2e);
+}
+
+/* Status modifiers — applied while an upload is in flight or has
+   failed. The error variant is muted-red so it's noticeable but not
+   alarming on a packed input row. */
+.ceo-attached-pill--uploading {
+  opacity: 0.7;
+}
+
+.ceo-attached-pill--error {
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.35);
+}
+
+.ceo-attached-pill--error .ceo-attached-name {
+  color: #b91c1c;
+}
+
+.ceo-attached-spinner {
+  color: var(--text-muted, #6b7280);
+  animation: ceoAttachedSpin 1s linear infinite;
+  flex-shrink: 0;
+}
+
+.ceo-attached-err {
+  color: #b91c1c;
+  flex-shrink: 0;
+}
+
+@keyframes ceoAttachedSpin {
+  to { transform: rotate(360deg); }
+}
+
 .ceo-voice-btn--active {
   background: var(--brand-red-light);
   color: var(--brand-red);

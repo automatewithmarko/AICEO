@@ -56,12 +56,14 @@ export function AuthProvider({ children }) {
         credits: billingInfo.credits,
       };
     } else {
-      // Fallback: fetch credits and subscription directly from DB
+      // Fallback: fetch credits and subscription directly from DB.
+      // maybeSingle() (not single()) so an empty result set returns null
+      // instead of 406; fresh signups have no rows in either table.
       const { data: creditRow } = await supabase
         .from('credits')
         .select('balance')
         .eq('user_id', authUser.id)
-        .single();
+        .maybeSingle();
 
       const { data: subscription } = await supabase
         .from('subscriptions')
@@ -70,7 +72,7 @@ export function AuthProvider({ children }) {
         .eq('status', 'active')
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       plan = subscription?.plan
         ? subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1)
@@ -150,8 +152,14 @@ export function AuthProvider({ children }) {
     if (error) throw error;
   };
 
-  const signup = async (email, password, plan, fullName) => {
-    const { data, error } = await supabase.auth.signUp({
+  const signup = async (email, password, _plan, fullName) => {
+    // The legacy signup wrote a phantom { plan, status:'active' } row into
+    // subscriptions BEFORE any payment. The new 4-step funnel can't tolerate
+    // that — it interpreted the phantom row as "user has a plan, skip the
+    // setup-fee gate". Signup now only creates the auth user; the
+    // subscription row is upserted by the Stripe webhook on the first
+    // checkout.session.completed (mode=payment) event.
+    const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -159,15 +167,6 @@ export function AuthProvider({ children }) {
       },
     });
     if (error) throw error;
-
-    // Create subscription record if plan selected and user confirmed
-    if (data.user && plan) {
-      await supabase.from('subscriptions').insert({
-        user_id: data.user.id,
-        plan: plan.toLowerCase(),
-        status: 'active',
-      });
-    }
   };
 
   const logout = async () => {

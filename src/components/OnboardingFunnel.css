@@ -1,0 +1,586 @@
+/* OnboardingFunnel — full-screen overlay shown until setup → meeting →
+   monthly is fully completed. Backdrop matches PlanSelector (light grey),
+   cards reuse the rounded-white-card vocabulary, and CTAs use the brand
+   red so the in-app screens feel like the rest of the product. The
+   sharp-contrast checkout look lives on the Stripe-hosted page itself
+   (configured via Stripe Dashboard → Settings → Branding), not here. */
+
+.of-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #f5f5f7;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.of-stepper {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 60px 24px 80px;
+  animation: ofFadeIn 0.3s ease-out;
+}
+
+@keyframes ofFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Stepper row ── */
+.of-step-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 36px;
+}
+
+.of-step-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.of-step-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1.5px solid #d1d5db;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.of-step-dot--active {
+  background: var(--brand-red, #e91a44);
+  border-color: var(--brand-red, #e91a44);
+  color: #fff;
+}
+
+.of-step-dot--done {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
+.of-step-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b7280;
+  letter-spacing: 0.1px;
+}
+
+.of-step-label--active {
+  color: #1a1a2e;
+  font-weight: 700;
+}
+
+.of-step-bar {
+  width: 32px;
+  height: 2px;
+  background: #d1d5db;
+  border-radius: 2px;
+  margin: 0 4px;
+}
+
+.of-step-bar--done { background: #16a34a; }
+
+/* ── Header (logo / title / subtitle) ── */
+.of-header {
+  text-align: center;
+  margin-bottom: 36px;
+}
+
+.of-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  margin-bottom: 18px;
+}
+
+.of-icon-large {
+  color: #1a1a2e;
+  margin-bottom: 14px;
+}
+
+.of-title {
+  font-size: 30px;
+  font-weight: 800;
+  color: #1a1a2e;
+  margin: 0 0 10px;
+  letter-spacing: -0.5px;
+  line-height: 1.2;
+}
+
+.of-subtitle {
+  font-size: 15px;
+  color: #6b7280;
+  max-width: 440px;
+  margin: 0 auto;
+  line-height: 1.55;
+}
+
+/* ── Cards grid ── */
+.of-cards {
+  display: grid;
+  gap: 24px;
+  align-items: start;
+}
+
+.of-cards--two { grid-template-columns: 1fr 1fr; }
+.of-cards--one { grid-template-columns: minmax(280px, 480px); justify-content: center; }
+
+/* When the QA test plan is enabled (VITE_SHOW_TEST_PLAN=true) we render
+   3 cards on desktop. Mobile stays single-column via the responsive
+   block at the bottom of this file. */
+@media (min-width: 980px) {
+  .of-cards--three { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 979px) {
+  .of-cards--three { grid-template-columns: 1fr 1fr; }
+}
+
+/* Card (white, rounded — matches the existing PlanSelector visual). */
+.of-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 32px 28px 28px;
+  border: 1.5px solid #e5e7eb;
+  position: relative;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.of-card:hover {
+  border-color: #d1d5db;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+.of-card--recommended {
+  border-color: var(--brand-red, #e91a44);
+  box-shadow: 0 4px 24px rgba(233, 26, 68, 0.1);
+}
+
+.of-card--recommended:hover {
+  border-color: var(--brand-red, #e91a44);
+  box-shadow: 0 8px 32px rgba(233, 26, 68, 0.15);
+}
+
+/* QA test plan — visually distinct so no real user mistakes it for a
+   real plan. Dashed amber border + cream background, matches the
+   pattern used in the previous PlanSelector. */
+.of-card--test {
+  border-style: dashed;
+  border-color: #d97706;
+  background: #fffbeb;
+}
+
+.of-card--test:hover {
+  border-color: #b45309;
+  box-shadow: 0 4px 20px rgba(217, 119, 6, 0.12);
+}
+
+.of-card--test .of-card-name { color: #92400e; }
+
+.of-card-badge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--brand-red, #e91a44);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 14px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.of-card-badge--test {
+  background: #d97706;
+}
+
+.of-card-head {
+  margin-bottom: 20px;
+}
+
+.of-card-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1a1a2e;
+  line-height: 1.3;
+  margin: 0 0 6px;
+}
+
+.of-card-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #b45309;
+  background: #fef3c7;
+  padding: 3px 10px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* Pricing block. Setup uses big bold numbers; monthly card uses the same
+   visual language for consistency between steps A and C. */
+.of-card-pricing {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.of-card-dollar {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.of-card-amount {
+  font-size: 40px;
+  font-weight: 800;
+  color: #1a1a2e;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+
+.of-card-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #9ca3af;
+  margin-left: 8px;
+  align-self: center;
+}
+
+/* Features */
+.of-card-features {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.of-card-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: #1a1a2e;
+  line-height: 1.4;
+}
+
+.of-card-check {
+  flex-shrink: 0;
+  color: #16a34a;
+  margin-top: 1px;
+}
+
+.of-card-feature-highlight {
+  font-weight: 700;
+  color: var(--brand-red, #e91a44);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* ── CTA — brand-red primary, white-bg secondary ──
+   In-app screens stay on brand. The sharp-contrast "checkout" look
+   lives on the Stripe-hosted page, not here. */
+.of-cta {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 20px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+  font-family: inherit;
+}
+
+.of-cta--primary {
+  background: var(--brand-red, #e91a44);
+  border-color: var(--brand-red, #e91a44);
+  color: #fff;
+}
+
+.of-cta--primary:not(:disabled):hover {
+  background: var(--brand-red-hover, #c71538);
+  border-color: var(--brand-red-hover, #c71538);
+}
+
+.of-cta--secondary {
+  background: #fff;
+  border-color: #e5e7eb;
+  color: #1a1a2e;
+}
+
+.of-cta--secondary:not(:disabled):hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+.of-cta:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.of-cta:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* ── Calendly inline iframe ── */
+.of-calendly-frame {
+  background: #fff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 20px;
+  overflow: hidden;
+  min-height: 540px;
+  position: relative;
+  margin-bottom: 24px;
+}
+
+.of-calendly-iframe {
+  width: 100%;
+  height: 720px;
+  border: none;
+  display: block;
+  background: #fff;
+}
+
+.of-calendly-placeholder {
+  height: 540px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 32px;
+  color: #6b7280;
+}
+
+.of-calendly-placeholder p { margin: 0; font-size: 14px; }
+.of-calendly-placeholder-hint { font-size: 12px; color: #9ca3af; margin-top: 6px !important; }
+.of-calendly-placeholder code {
+  background: #f3f4f6;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.of-confirm-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.of-confirm-row .of-cta {
+  width: auto;
+  min-width: 240px;
+}
+
+.of-confirm-hint {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 0;
+  text-align: center;
+}
+
+/* ── Secondary link under the primary CTA ──
+   Used for "Choose a different payment plan" on the plan cards. Looks
+   like an underlined link, not a button — keeps the visual hierarchy
+   focused on Get Started. */
+.of-link-btn {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 6px 4px;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #6b7280);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.of-link-btn:hover {
+  color: var(--brand-red, #e91a44);
+}
+
+.of-link-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── "← Back to plans" link inside the instalments view header ── */
+.of-back-link {
+  display: inline-block;
+  margin-bottom: 18px;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #6b7280);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.of-back-link:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-primary, #1a1a2e);
+}
+
+/* Small grey tag inside the card head, e.g. "2X" / "3X" / "6X". */
+.of-card-installment-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary, #6b7280);
+  background: #f3f4f6;
+  padding: 3px 10px;
+  border-radius: 6px;
+  letter-spacing: 0.4px;
+}
+
+.of-card-feature-mute {
+  color: #9ca3af;
+  font-weight: 400;
+}
+
+.of-installments-foot {
+  text-align: center;
+  margin-top: 28px;
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.of-link-btn-inline {
+  display: inline;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--brand-red, #e91a44);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.of-link-btn-inline:hover {
+  color: var(--brand-red-hover, #c71538);
+}
+
+/* ── Full-screen "Finalising your last payment" view ──
+   Shown while the funnel polls /api/billing/plan after a Stripe
+   checkout return. Replaces the step UI entirely so the user can't
+   accidentally interact with stale state, and prevents the dashboard
+   from flashing through if the funnel briefly thinks the user is
+   "done" against pre-payment AuthContext data. */
+.of-finalising {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  text-align: center;
+  padding: 40px 20px;
+  gap: 16px;
+}
+
+.of-finalising .of-spinner {
+  color: var(--brand-red, #e91a44);
+}
+
+.of-finalising-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #1a1a2e;
+  margin: 12px 0 0;
+  letter-spacing: -0.3px;
+}
+
+.of-finalising-sub {
+  font-size: 14px;
+  color: #6b7280;
+  max-width: 360px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Banner shown while polling after Stripe checkout return ── */
+.of-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  margin-bottom: 24px;
+  font-size: 13px;
+  color: #1a1a2e;
+}
+
+/* ── Inline error ── */
+.of-error {
+  max-width: 720px;
+  margin: 0 auto 20px;
+  padding: 12px 16px;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  border-radius: 10px;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+
+/* ── Spinner ── */
+.of-spinner { animation: ofSpin 1s linear infinite; }
+@keyframes ofSpin { to { transform: rotate(360deg); } }
+
+/* ── Responsive ── */
+@media (max-width: 700px) {
+  .of-stepper { padding: 32px 16px 60px; }
+  .of-title { font-size: 22px; }
+  .of-cards--two { grid-template-columns: 1fr; gap: 18px; }
+  .of-cards--one { grid-template-columns: 1fr; }
+  .of-card { padding: 24px 18px 22px; }
+  .of-card-amount { font-size: 32px; }
+  .of-step-bar { width: 18px; }
+  .of-calendly-iframe { height: 620px; }
+}

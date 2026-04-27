@@ -1,8 +1,7 @@
 // Generic LLM streaming executor  -  supports Anthropic and XAI providers
 
-const MENTOR_BASE = process.env.MENTOR_BASE_URL || 'https://platform.thementorprogram.xyz';
-const ANTHROPIC_API = `${MENTOR_BASE}/api/v1/messages`;
-const XAI_API = `${MENTOR_BASE}/api/v1/chat/completions`;
+const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
+const XAI_API = 'https://api.x.ai/v1/chat/completions';
 
 // Watchdog for upstream LLM streams. If no chunk arrives within idleMs we
 // abort the upstream connection and throw. Prevents the server from hanging
@@ -24,10 +23,10 @@ async function readWithIdleTimeout(reader, controller, idleMs = STREAM_IDLE_TIME
   }
 }
 
-// Stream from Anthropic Claude API (via Mentor gateway)
-async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal }) {
-  const apiKey = process.env.MENTOR_API_KEY;
-  if (!apiKey) throw new Error('MENTOR_API_KEY not configured');
+// Stream from Anthropic Claude API
+async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs }) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
 
   // Convert to Anthropic format (separate system from user/assistant)
   const anthropicMessages = messages
@@ -72,7 +71,7 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
   let buffer = '';
 
   while (true) {
-    const { done, value } = await readWithIdleTimeout(reader, controller);
+    const { done, value } = await readWithIdleTimeout(reader, controller, streamIdleMs);
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
@@ -103,10 +102,10 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
   return fullContent;
 }
 
-// Stream from XAI Grok API via Mentor (OpenAI-compatible)
-async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onChunk, onToolCalls, abortSignal }) {
-  const apiKey = process.env.MENTOR_API_KEY;
-  if (!apiKey) throw new Error('MENTOR_API_KEY not configured');
+// Stream from XAI Grok API (OpenAI-compatible)
+async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onChunk, onToolCalls, abortSignal, streamIdleMs }) {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) throw new Error('XAI_API_KEY not configured');
 
   const body = {
     model: model || 'grok-4-1-fast-non-reasoning',
@@ -152,7 +151,7 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
   let toolCallsMap = {};
 
   while (true) {
-    const { done, value } = await readWithIdleTimeout(reader, controller);
+    const { done, value } = await readWithIdleTimeout(reader, controller, streamIdleMs);
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
@@ -200,10 +199,10 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
   return { content: fullContent, toolCalls: calls };
 }
 
-// Stream from XAI Responses API with web_search (via Mentor gateway)
-async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSearchStatus, onSearchResult, abortSignal }) {
-  const apiKey = process.env.MENTOR_API_KEY;
-  if (!apiKey) throw new Error('MENTOR_API_KEY not configured');
+// Stream from XAI Responses API with web_search
+async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSearchStatus, onSearchResult, abortSignal, streamIdleMs }) {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) throw new Error('XAI_API_KEY not configured');
 
   if (onSearchStatus) onSearchStatus('searching');
 
@@ -215,7 +214,7 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
     else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
   }
 
-  const res = await fetch(`${MENTOR_BASE}/api/v1/responses`, {
+  const res = await fetch('https://api.x.ai/v1/responses', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -245,7 +244,7 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
   let citations = [];
 
   while (true) {
-    const { done, value } = await readWithIdleTimeout(reader, controller);
+    const { done, value } = await readWithIdleTimeout(reader, controller, streamIdleMs);
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
@@ -325,6 +324,11 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
   const model = agent.model;
   const maxTokens = agent.maxTokens;
   const provider = agent.provider || 'anthropic';
+  // Per-agent stream-idle watchdog. Agents that produce long outputs (e.g.
+  // landing-page, squeeze-page at 16K maxTokens) can have a long
+  // first-token latency from Anthropic — the default 60s watchdog aborts
+  // them mid-generation. Those agents override via streamIdleTimeoutMs.
+  const streamIdleMs = agent.streamIdleTimeoutMs;
 
   if (searchMode && provider === 'anthropic') {
     // For content generation agents (newsletter, landing page, etc.), do research first
@@ -339,6 +343,7 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
         onChunk: () => {}, // Don't stream research chunks to the user
         onSearchStatus,
         abortSignal,
+        streamIdleMs,
       });
       researchContent = researchResult.content || '';
     } catch (err) {
@@ -359,21 +364,21 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
       }
     }
 
-    const content = await streamAnthropic({ systemPrompt, messages: enrichedMessages, model, maxTokens, onChunk, abortSignal });
+    const content = await streamAnthropic({ systemPrompt, messages: enrichedMessages, model, maxTokens, onChunk, abortSignal, streamIdleMs });
     return { content, toolCalls: [] };
   }
 
   if (searchMode) {
-    return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal });
+    return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal, streamIdleMs });
   }
 
   if (provider === 'anthropic') {
-    const content = await streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal });
+    const content = await streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs });
     return { content, toolCalls: [] };
   }
 
   if (provider === 'xai') {
-    return streamXai({ systemPrompt, messages, model, maxTokens, tools: agent.tools, onChunk, onToolCalls, abortSignal });
+    return streamXai({ systemPrompt, messages, model, maxTokens, tools: agent.tools, onChunk, onToolCalls, abortSignal, streamIdleMs });
   }
 
   throw new Error(`Unknown provider: ${provider}`);
@@ -382,8 +387,8 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
 // Execute Anthropic Claude with tool_use loop (non-streaming for speed)
 // Used for file-based editing  -  Claude calls replace_text/replace_section tools
 export async function executeAnthropicWithTools({ systemPrompt, messages, tools, maxTokens, onToolCall, onText, abortSignal }) {
-  const apiKey = process.env.MENTOR_API_KEY;
-  if (!apiKey) throw new Error('MENTOR_API_KEY not configured');
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
 
   let conversationMessages = messages
     .filter(m => m.role === 'user' || m.role === 'assistant')

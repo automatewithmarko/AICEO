@@ -1,19 +1,43 @@
 import { useState, useEffect, useRef } from 'react';
-import { Send, ChevronDown } from 'lucide-react';
+import { Send, ChevronDown, Upload, X } from 'lucide-react';
 import { createMeeting, getTemplates } from '../../lib/meetings-api';
 import './BotLauncher.css';
+
+const AVATAR_STORAGE_KEY = 'pp.botAvatar.v1';
+const AVATAR_MAX_BYTES = 1024 * 1024; // 1MB
+
+function readStoredAvatar() {
+  try {
+    const raw = localStorage.getItem(AVATAR_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredAvatar(value) {
+  try {
+    if (value) localStorage.setItem(AVATAR_STORAGE_KEY, JSON.stringify(value));
+    else localStorage.removeItem(AVATAR_STORAGE_KEY);
+  } catch {
+    // localStorage may throw on quota exceeded — non-fatal, the avatar
+    // still applies for this session.
+  }
+}
 
 export default function BotLauncher({ onClose, onCreated }) {
   const [meetingUrl, setMeetingUrl] = useState('');
   const [title, setTitle] = useState('');
   const [template, setTemplate] = useState('general');
   const [botName, setBotName] = useState('PurelyPersonal Notetaker');
+  const [botAvatar, setBotAvatar] = useState(() => readStoredAvatar()); // { dataUrl, mime, name }
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const dropdownRef = useRef(null);
+  const avatarInputRef = useRef(null);
 
   useEffect(() => {
     getTemplates().then(d => setTemplates(d.templates || [])).catch(() => {});
@@ -35,6 +59,36 @@ export default function BotLauncher({ onClose, onCreated }) {
 
   const selectedLabel = templateOptions.find(o => o.value === template)?.label || 'Select...';
 
+  const handleAvatarPick = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/^image\/(jpeg|png)$/i.test(file.type)) {
+      setError('Display photo must be a JPEG or PNG image.');
+      return;
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      setError('Display photo must be under 1MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      const value = { dataUrl, mime: file.type, name: file.name };
+      setBotAvatar(value);
+      writeStoredAvatar(value);
+      setError('');
+    };
+    reader.onerror = () => setError('Could not read image file.');
+    reader.readAsDataURL(file);
+  };
+
+  const handleAvatarReset = () => {
+    setBotAvatar(null);
+    writeStoredAvatar(null);
+    setError('');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!meetingUrl.trim()) return;
@@ -43,11 +97,18 @@ export default function BotLauncher({ onClose, onCreated }) {
     setError('');
 
     try {
+      const avatarPayload = botAvatar?.dataUrl
+        ? {
+            bot_avatar_b64: botAvatar.dataUrl.split(',')[1],
+            bot_avatar_mime: botAvatar.mime,
+          }
+        : {};
       const result = await createMeeting({
         meeting_url: meetingUrl.trim(),
         title: title.trim() || undefined,
         bot_name: botName.trim() || undefined,
         template,
+        ...avatarPayload,
       });
       onCreated?.(result.meeting);
       onClose();
@@ -141,6 +202,54 @@ export default function BotLauncher({ onClose, onCreated }) {
                   value={botName}
                   onChange={e => setBotName(e.target.value)}
                 />
+              </div>
+
+              <div className="bot-launcher-field">
+                <label>Display Photo</label>
+                <div className="bot-avatar-row">
+                  <button
+                    type="button"
+                    className="bot-avatar-preview"
+                    onClick={() => avatarInputRef.current?.click()}
+                    title="Click to change photo"
+                  >
+                    {botAvatar?.dataUrl ? (
+                      <img src={botAvatar.dataUrl} alt="Bot display" />
+                    ) : (
+                      <div className="bot-avatar-default">
+                        <Upload size={16} />
+                      </div>
+                    )}
+                  </button>
+                  <div className="bot-avatar-actions">
+                    <button
+                      type="button"
+                      className="bot-avatar-btn"
+                      onClick={() => avatarInputRef.current?.click()}
+                    >
+                      {botAvatar ? 'Replace' : 'Upload photo'}
+                    </button>
+                    {botAvatar && (
+                      <button
+                        type="button"
+                        className="bot-avatar-btn bot-avatar-btn--ghost"
+                        onClick={handleAvatarReset}
+                      >
+                        <X size={12} /> Reset
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    style={{ display: 'none' }}
+                    onChange={handleAvatarPick}
+                  />
+                </div>
+                <span className="bot-avatar-hint">
+                  JPEG or PNG, up to 1MB. Shown to participants in the meeting.
+                </span>
               </div>
             </div>
           )}
