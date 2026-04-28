@@ -132,7 +132,6 @@ export default function OnboardingFunnel() {
 
   // Sync from AuthContext on mount + whenever it changes.
   useEffect(() => {
-    console.log('[OnboardingFunnel] planData.subscription changed:', planData?.subscription);
     setSub(planData?.subscription || null);
   }, [planData]);
 
@@ -182,19 +181,10 @@ export default function OnboardingFunnel() {
   }, []);
 
   const stepKey = useMemo(() => {
-    const key = sub?.has_active_monthly ? 'done'
+    return sub?.has_active_monthly ? 'done'
       : sub?.meeting_booked_at ? 'monthly'
       : sub?.setup_paid_at ? 'meeting'
       : 'setup';
-    console.log('[OnboardingFunnel] stepKey =', key, '| sub:', JSON.stringify({
-      status: sub?.status,
-      plan: sub?.plan,
-      setup_paid_at: sub?.setup_paid_at,
-      meeting_booked_at: sub?.meeting_booked_at,
-      has_active_monthly: sub?.has_active_monthly,
-      stripe_subscription_id: sub?.stripe_subscription_id,
-    }));
-    return key;
   }, [sub]);
 
   // Only return null when we're CERTAIN the user is past the funnel —
