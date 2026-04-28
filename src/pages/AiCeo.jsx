@@ -1299,6 +1299,17 @@ export default function AiCeo() {
     currentTurnAttachmentsRef.current = attachedFiles.filter((f) => f.status === 'done');
     const contextStr = buildCeoContextString();
     const userContent = contextStr + text;
+    // Trim the attachment list for storage on the message — we only
+    // need what the bubble renders (type, name, url, dataUrl). Drop
+    // status / textContent / dbId etc. so the message payload stays
+    // small and DB-friendly.
+    const msgAttachments = currentTurnAttachmentsRef.current.map((f) => ({
+      id: f.id,
+      type: f.type,
+      name: f.name,
+      url: f.url || null,
+      dataUrl: f.type === 'image' ? f.dataUrl || null : null,
+    }));
     const userMsg = {
       id: `msg-${Date.now()}-user`,
       role: 'user',
@@ -1307,6 +1318,7 @@ export default function AiCeo() {
       // content is what the AI sees (with [CONTEXT…] / [ATTACHED IMAGES…]
       // blocks prepended) — those should never leak into the UI.
       displayText: text,
+      ...(msgAttachments.length ? { attachments: msgAttachments } : {}),
     };
     const updated = [...messages, userMsg];
     setMessages(updated);
@@ -1329,11 +1341,19 @@ export default function AiCeo() {
     currentTurnAttachmentsRef.current = attachedFiles.filter((f) => f.status === 'done');
     const contextStr = buildCeoContextString();
     const userContent = contextStr + text;
+    const msgAttachments = currentTurnAttachmentsRef.current.map((f) => ({
+      id: f.id,
+      type: f.type,
+      name: f.name,
+      url: f.url || null,
+      dataUrl: f.type === 'image' ? f.dataUrl || null : null,
+    }));
     const userMsg = {
       id: `msg-${Date.now()}-user`,
       role: 'user',
       content: userContent,
       displayText: text,
+      ...(msgAttachments.length ? { attachments: msgAttachments } : {}),
     };
     const updated = [userMsg];
     setMessages(updated);
@@ -1697,6 +1717,36 @@ export default function AiCeo() {
                     return (
                       <div key={msg.id} className="ceo-bubble ceo-bubble--user">
                         <p className="ceo-user-text">{msg.displayText || msg.content}</p>
+                        {msg.attachments?.length > 0 && (
+                          <div className="ceo-msg-attachments">
+                            {msg.attachments.map((a) => (
+                              a.type === 'image' ? (
+                                <a
+                                  key={a.id}
+                                  href={a.url || a.dataUrl || '#'}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="ceo-msg-attach-img"
+                                  title={a.name}
+                                >
+                                  <img src={a.dataUrl || a.url} alt={a.name} />
+                                </a>
+                              ) : (
+                                <a
+                                  key={a.id}
+                                  href={a.url || '#'}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="ceo-msg-attach-doc"
+                                  title={a.name}
+                                >
+                                  <FileText size={14} />
+                                  <span className="ceo-msg-attach-doc-name">{a.name}</span>
+                                </a>
+                              )
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   }
