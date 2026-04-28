@@ -48,24 +48,79 @@ app.use((req, res, next) => {
   next();
 });
 
-// Auth middleware — verifies the Supabase JWT from the frontend
+// Auth middleware — verifies the Supabase JWT from the frontend.
+//
+// Validation strategy:
+//   1. If SUPABASE_JWT_SECRET is set, verify the token's HS256 signature
+//      LOCALLY. No network call to GoTrue, no rate-limit risk, no false
+//      401s when Supabase Auth is briefly unreachable. This is the
+//      recommended pattern for a backend service that's already trusted
+//      with the service role key.
+//   2. Otherwise fall back to supabase.auth.getUser(token) so a missing
+//      env var doesn't break auth on a fresh deploy.
+//
+// On a token that's PRESENT but INVALID we now respond 401 directly with
+// a reason. Earlier versions degraded to req.user='anonymous' and let
+// the route emit a generic 401, which made it impossible to tell from
+// the frontend whether the user had no session or a bad one.
+function verifyJwtLocally(token, secret) {
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new Error('malformed_jwt');
+  const [headerB64, payloadB64, sigB64] = parts;
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(`${headerB64}.${payloadB64}`)
+    .digest('base64url');
+  // Constant-time compare to keep timing attacks off the table.
+  const a = Buffer.from(sigB64);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    throw new Error('invalid_signature');
+  }
+  const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+    throw new Error('expired');
+  }
+  if (!payload.sub) throw new Error('no_sub');
+  return { id: payload.sub, email: payload.email || null, role: payload.role || null };
+}
+
 async function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token || token === 'undefined') {
-    console.log('[auth] No token provided — allowing unauthenticated request');
+    // No credentials at all — the route handler decides whether
+    // anonymous is acceptable (some endpoints allow it, some 401).
     req.user = { id: 'anonymous' };
     return next();
   }
 
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  if (error || !user) {
-    console.log('[auth] Invalid token:', error?.message);
-    req.user = { id: 'anonymous' };
-    return next();
+  const jwtSecret = process.env.SUPABASE_JWT_SECRET;
+  if (jwtSecret) {
+    try {
+      req.user = verifyJwtLocally(token, jwtSecret);
+      return next();
+    } catch (err) {
+      console.log('[auth] Local JWT verify failed:', err.message);
+      return res.status(401).json({ error: 'invalid_token', reason: err.message });
+    }
   }
 
-  req.user = user;
-  next();
+  // Legacy fallback. supabase-js makes a network call here; transient
+  // failures (timeouts, rate limits, GoTrue blips) used to silently
+  // degrade to anonymous and 401 paying users on the billing endpoint.
+  // Now we tell the client what actually went wrong.
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      console.log('[auth] Remote token validation failed:', error?.message);
+      return res.status(401).json({ error: 'invalid_token', reason: error?.message || 'no_user' });
+    }
+    req.user = user;
+    next();
+  } catch (err) {
+    console.log('[auth] Auth service unreachable:', err.message);
+    return res.status(503).json({ error: 'auth_unavailable', reason: err.message });
+  }
 }
 
 // Health check
