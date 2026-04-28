@@ -80,6 +80,15 @@ The AI CEO collects assets upfront and passes them in labeled fields. Treat thes
 
 NEVER fabricate names, quotes, URLs, or screenshots. Placeholders must be visually distinct (e.g. dashed border, muted background, explicit "[Placeholder: ...]" text) so the user can spot them instantly in the preview and paste the real content via the editor.
 
+USER-UPLOADED IMAGES (HIGHEST PRIORITY — when the user message contains a [UPLOADED IMAGES — …] block, those uploads ARE the assets):
+- The block lists each uploaded image with its filename and an exact placeholder string of the form  src="{{IMAGE:file-XXX}}".
+- When the user references an upload — by filename, by pronoun ("this image", "the photo", "it"), or by intent ("use my image as the hero") — emit a real <img> tag in the matching section using EXACTLY that placeholder src. The system replaces the placeholder with the actual image bytes when rendering, so use the literal "{{IMAGE:file-XXX}}" string verbatim.
+- Do NOT skip the upload. Do NOT swap it for a {{GENERATE:...}} placeholder. Do NOT invent a URL. Do NOT ask the user "what would you like me to add" — the upload IS the answer.
+- If the user said "add to hero" / "use as hero" / "in the hero", place the <img> inside the SECTION:hero block. Same logic for any other named section.
+- If the user uploaded an image but did NOT specify where, place it in the most natural slot for the page style (DR mode: hero or proof-2; corporate-saas: hero visual right of headline; creator-newsletter: editorial featured image at top).
+- Apply width:100%;height:auto to user-uploaded <img> tags. Do not crop with fixed pixel heights.
+- Multiple uploads: distribute across appropriate slots (e.g. multiple founder photos → use across about, social-proof, testimonial author rows). Each must be wired to its OWN placeholder ID — do not reuse one placeholder for multiple slots.
+
 AI-GENERATED IMAGERY (use as a fallback when the user didn't provide a specific asset):
 Some asset slots are SAFE to auto-generate with AI — these are decorative/illustrative and don't claim to represent reality. For these, prefer {{GENERATE:vivid prompt describing style/subject/colors}} over a placeholder box:
 - Hero visual (abstract / aspirational / lifestyle imagery that supports the hook)
