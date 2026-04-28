@@ -58,8 +58,9 @@ EDIT MODE (when user already has output):
 - When editing, return the FULL updated HTML (with the edits applied), not just the changed parts.
 
 UPLOADED FILES:
-- If the user uploads images, they will be provided as placeholder references like src="{{IMAGE:file-id}}". Use these placeholder src values EXACTLY as given in your <img> tags  -  do NOT modify them. The system will automatically replace them with the actual image data.
-- If the user uploads documents, their text content will be included as context. Use this information to inform the content.
+- If the user uploads an image and refers to it with ANY pronoun ("this", "this image", "the image", "it", "this photo", "this picture"), they mean the uploaded image. Use it directly in the HTML output. Do NOT ask "what would you like me to add" — the upload IS the answer.
+- Uploaded images arrive as placeholder references like src="{{IMAGE:file-id}}". Use these placeholder src values EXACTLY as given in your <img> tags — do NOT modify them. The system replaces the placeholder with the actual image data when rendering. Do NOT invent URLs or omit uploaded images.
+- If the user uploads documents, their text content has been pre-extracted (pdf-parse / mammoth / plain) and is included as context. Use this information to inform the content. Pronouns like "this doc" / "this document" / "it" refer to the upload.
 
 IMPORTANT RULES:
 - NEVER wrap your response in markdown code fences or backticks
@@ -1983,10 +1984,22 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     const images = uploadedFiles.filter((f) => f.type === 'image');
     const docs = uploadedFiles.filter((f) => f.type === 'document');
     if (images.length > 0) {
-      parts.push(`[UPLOADED IMAGES  -  The user has uploaded ${images.length} image(s). When you include them in the HTML output, use exactly this src value for each image:\n${images.map((img) => `- "${img.name}": src="{{IMAGE:${img.id}}}"`).join('\n')}\nDo NOT modify the placeholder src values. Use them exactly as shown above.]`);
+      parts.push(
+        `[UPLOADED IMAGES  -  The user attached ${images.length} image(s) IN THIS MESSAGE. ` +
+        `When the user uses any pronoun referring to an image — "this", "this image", "the image", "it", "the photo", "this picture" — they mean THE UPLOADED IMAGE(S) below. ` +
+        `Do NOT ask "what would you like me to add" or "what image" — use the upload. ` +
+        `Include each image in the HTML output using EXACTLY this src value (the system replaces the placeholder with the actual image):\n` +
+        `${images.map((img) => `- "${img.name}": src="{{IMAGE:${img.id}}}"`).join('\n')}\n` +
+        `Use the {{IMAGE:file-id}} placeholder strings EXACTLY as given. Do not invent URLs or omit images the user attached.]`
+      );
     }
     if (docs.length > 0) {
-      parts.push(`[UPLOADED DOCUMENTS  -  The user has uploaded ${docs.length} document(s) as additional context:\n${docs.map((doc) => `- "${doc.name}":\n${doc.textContent.slice(0, 3000)}`).join('\n\n')}\n]`);
+      parts.push(
+        `[UPLOADED DOCUMENTS  -  The user attached ${docs.length} document(s) IN THIS MESSAGE. ` +
+        `When the user uses any pronoun referring to a document — "this", "this doc", "the document", "it" — they mean the document(s) below. ` +
+        `The text content has been pre-extracted (PDF / Word / plain) and is available as context. Use this information to inform what you create:\n` +
+        `${docs.map((doc) => `- "${doc.name}":\n${(doc.textContent || '').slice(0, 3000)}`).join('\n\n')}\n]`
+      );
     }
     return parts.join('\n\n') + '\n\n';
   };
