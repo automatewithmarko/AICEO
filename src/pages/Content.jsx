@@ -3488,18 +3488,6 @@ export default function Content() {
   const [tooltip, setTooltip] = useState({ text: '', x: 0, y: 0, visible: false });
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const [contentResearchMode, setContentResearchMode] = useState(false);
-  // ── TEMP DEBUG ── image-gen provider toggle (mentor vs direct Gemini).
-  // Mirrors the AI CEO toggle so we can A/B image gen from Content too.
-  // Persists to localStorage. Delete with the rest of the provider-switch code.
-  const [imgProvider, setImgProvider] = useState(() => {
-    if (typeof window === 'undefined') return 'mentor';
-    return localStorage.getItem('content_img_provider') || 'mentor';
-  });
-  const imgProviderRef = useRef('mentor');
-  useEffect(() => {
-    imgProviderRef.current = imgProvider;
-    if (typeof window !== 'undefined') localStorage.setItem('content_img_provider', imgProvider);
-  }, [imgProvider]);
   const [searchStatus, setSearchStatus] = useState(null);
   const [contentCtxMenuOpen, setContentCtxMenuOpen] = useState(false);
   const [contentHoveredCat, setContentHoveredCat] = useState(null);
@@ -4132,7 +4120,7 @@ export default function Content() {
               };
               // Pass the matching previous image for this slide index (if regenerating)
               const refImages = prevImages.length ? [prevImages[idx] || prevImages[0]] : null;
-              const result = await generateImage(imgPrompt, selectedPlatform, brandImageData, refImages, { provider: imgProviderRef.current });
+              const result = await generateImage(imgPrompt, selectedPlatform, brandImageData, refImages);
               // Update message as each image completes
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
@@ -4351,7 +4339,7 @@ export default function Content() {
               };
               const results = await Promise.allSettled(
                 imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
-                  const result = await generateImage(imgPrompt, 'linkedin', brandImageData, null, { provider: imgProviderRef.current });
+                  const result = await generateImage(imgPrompt, 'linkedin', brandImageData, null);
                   if (result.image) {
                     const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                     // Accumulate in array ref to avoid race condition, then set state from it
@@ -4436,7 +4424,7 @@ export default function Content() {
     let lastErr;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const result = await generateImage(slidePrompt, backendPlatform, brandImageData, refImages, { provider: imgProviderRef.current });
+        const result = await generateImage(slidePrompt, backendPlatform, brandImageData, refImages);
         // Tight validity check — Gemini can return a 200 with an empty string,
         // a placeholder, or missing mimeType when its safety filter fires.
         // Treat anything short of "usable base64 + mimetype" as a failure so
@@ -5135,8 +5123,7 @@ export default function Content() {
         `EDIT THIS IMAGE: ${editInstruction.trim()}. Keep the same overall style and composition. Only apply the specific change requested.`,
         selectedPlatform,
         editBrandData,
-        refImage ? [refImage] : null,
-        { provider: imgProviderRef.current }
+        refImage ? [refImage] : null
       );
       if (result.image) {
         const newSrc = `data:${result.image.mimeType};base64,${result.image.data}`;
@@ -5172,7 +5159,7 @@ export default function Content() {
         colors: brandDna?.colors || {},
         mainFont: brandDna?.main_font || null,
       };
-      const result = await generateImage(imgPrompt, 'linkedin', brandImageData, null, { provider: imgProviderRef.current });
+      const result = await generateImage(imgPrompt, 'linkedin', brandImageData, null);
       if (result.image) {
         const src = `data:${result.image.mimeType};base64,${result.image.data}`;
         const newImg = { src, idx: 0 };
@@ -6743,57 +6730,6 @@ export default function Content() {
               >
                 <Globe size={13} /> Research
               </button>
-              {/* TEMP DEBUG — image-gen provider toggle (mentor vs direct Gemini) */}
-              <div
-                className="content-imgprov-toggle"
-                title="Image-gen provider (debug A/B): Mentor gateway vs direct Google Gemini"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: '2px 4px 2px 8px',
-                  background: 'rgba(255,200,0,0.10)',
-                  border: '1px dashed rgba(200,150,0,0.45)',
-                  borderRadius: 999,
-                  fontSize: 11,
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                  lineHeight: 1,
-                }}
-              >
-                <span style={{ color: '#a16207', fontWeight: 600 }}>img</span>
-                <button
-                  type="button"
-                  onClick={() => setImgProvider('mentor')}
-                  style={{
-                    background: imgProvider === 'mentor' ? '#a16207' : 'transparent',
-                    color: imgProvider === 'mentor' ? '#fff' : '#a16207',
-                    border: 0,
-                    borderRadius: 999,
-                    padding: '2px 8px',
-                    fontSize: 11,
-                    fontFamily: 'inherit',
-                    cursor: 'pointer',
-                  }}
-                >
-                  mentor
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setImgProvider('gemini')}
-                  style={{
-                    background: imgProvider === 'gemini' ? '#a16207' : 'transparent',
-                    color: imgProvider === 'gemini' ? '#fff' : '#a16207',
-                    border: 0,
-                    borderRadius: 999,
-                    padding: '2px 8px',
-                    fontSize: 11,
-                    fontFamily: 'inherit',
-                    cursor: 'pointer',
-                  }}
-                >
-                  gemini
-                </button>
-              </div>
               {contentSelectedCtx.size > 0 && (
                 <div className="content-ctx-pills">
                   {getContentSelectedDetails().map((item) => (
