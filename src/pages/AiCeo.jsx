@@ -1136,7 +1136,19 @@ export default function AiCeo() {
               });
             console.log(`[AiCeo] 🖼  generate_image START — prompt="${(args.prompt || '').slice(0, 120)}...", refImages=${refImages.length}`);
             try {
-              const result = await generateImage(args.prompt, 'general', null, refImages.length ? refImages : null);
+              // editUserImage flag tells the backend "these reference
+              // images are the user's primary subject — don't fall back
+              // to brand-DNA photos." Without this, the backend would
+              // attach brand-DNA photos as the dominant reference and
+              // Gemini would edit one of those instead of the user's
+              // attached image.
+              const result = await generateImage(
+                args.prompt,
+                'general',
+                null,
+                refImages.length ? refImages : null,
+                refImages.length ? { editUserImage: true } : {},
+              );
               console.log(`[AiCeo] 🖼  generate_image RESULT — image: ${!!result.image}, text: ${result.text ? `"${result.text.slice(0, 100)}"` : '<none>'}`, result);
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
