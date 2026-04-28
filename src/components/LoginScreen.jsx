@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { describeAuthError } from '../lib/supabase';
 import './LoginScreen.css';
 
 export default function LoginScreen() {
@@ -19,7 +20,11 @@ export default function LoginScreen() {
     try {
       await login(email, password);
     } catch (err) {
-      setError(err.message);
+      // Translate raw Supabase / network exceptions into something
+      // a non-developer can act on — "TypeError: Failed to fetch"
+      // becomes "Authentication service is unreachable…", credential
+      // errors stay clear, etc.
+      setError(describeAuthError(err));
     } finally {
       setSubmitting(false);
     }
@@ -32,7 +37,7 @@ export default function LoginScreen() {
       await signup(email, password, plan, name);
       setConfirmEmail(true);
     } catch (err) {
-      setError(err.message);
+      setError(describeAuthError(err));
     } finally {
       setSubmitting(false);
     }

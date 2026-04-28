@@ -99,10 +99,36 @@ export function AuthProvider({ children }) {
       buildUser(session);
     });
 
-    // Listen for auth changes
+    // Listen for auth changes. Only run the full buildUser pipeline
+    // (profile + billing fetch) on real session transitions —
+    // INITIAL_SESSION, SIGNED_IN, SIGNED_OUT, USER_UPDATED. The
+    // background TOKEN_REFRESHED event fires every ~55 minutes and
+    // produces a session object whose `user` is identical to what
+    // we already have; running buildUser on it caused spurious
+    // re-renders, races with in-flight billing fetches, and the
+    // "logic problems on token refresh" the user reported.
+    //
+    // PASSWORD_RECOVERY: the user clicked a recovery link; we don't
+    // build a user yet — let the recovery flow finish first.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        buildUser(session);
+      (event, session) => {
+        switch (event) {
+          case 'INITIAL_SESSION':
+          case 'SIGNED_IN':
+          case 'SIGNED_OUT':
+          case 'USER_UPDATED':
+            buildUser(session);
+            return;
+          case 'TOKEN_REFRESHED':
+            // Tokens rotated under the hood. The user object is
+            // unchanged; nothing to recompute. supabase-js has
+            // already updated its internal session, so subsequent
+            // requests pick up the new access token automatically.
+            return;
+          case 'PASSWORD_RECOVERY':
+          default:
+            return;
+        }
       }
     );
 
