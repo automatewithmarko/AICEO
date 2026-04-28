@@ -1613,10 +1613,14 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
 
   const donePhotos = photos.filter((p) => p.status === 'done');
   if (donePhotos.length > 0) {
-    prompt += `=== REFERENCE PHOTOS ===\n`;
-    prompt += `The user has uploaded ${donePhotos.length} reference photo(s):\n`;
-    donePhotos.forEach((p, i) => { prompt += `- ${p.file?.name || p.result?.filename || `Photo ${i + 1}`}\n`; });
-    prompt += `These photos are visual references for the content. Acknowledge and reference the visual content when generating captions, descriptions, or scripts.\n\n`;
+    prompt += `=== ATTACHED IMAGES (uploaded by the user this turn) ===\n`;
+    prompt += `The user attached ${donePhotos.length} image(s):\n`;
+    donePhotos.forEach((p, i) => { prompt += `- "${p.file?.name || p.result?.filename || `Photo ${i + 1}`}"\n`; });
+    prompt += `\nFOLLOW THE USER'S EXPLICIT INSTRUCTION about these images:\n`;
+    prompt += `- "use this image" / "post this image" / "with this image" / "this image" → the user wants the attached image to BE the post image. Use it as-is or with minimal edits described by the user; don't generate a brand-new image.\n`;
+    prompt += `- "edit this", "add a CTA", "modify", "make it ___", "change ___" → the user wants the attached image edited per their instruction. Use the attached image as the canvas.\n`;
+    prompt += `- No specific instruction about the image → the attached image acts as soft visual context. Acknowledge it briefly in the caption when relevant.\n`;
+    prompt += `\nWhen you call generate_image, the attached image is automatically passed as the PRIMARY subject reference (the system labels it positionally). Describe the EDIT you want, not the existing content of the image.\n\n`;
     hasContext = true;
   }
 
@@ -4122,24 +4126,38 @@ export default function Content() {
             console.log(`[Content] Regeneration detected  -  sending ${prevImages.length} previous image(s) as reference`);
           }
 
+          // For regenerations, the per-slide previous image takes the
+          // referenceImages slot (Gemini iterates on it). For fresh
+          // generations with user-uploaded photos, those user photos
+          // take the slot via editUserImage so the manifest labels
+          // them as the PRIMARY subject and the AI follows the user's
+          // exact prompt instruction. Only one or the other can use
+          // the slot — regen wins because it's a more specific signal.
+          const isRegenerating = prevImages.length > 0;
+          const imgArgs = isRegenerating ? null : await buildImageGenArgs();
           const results = await Promise.allSettled(
             imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
               console.log(`  🎨 [${idx + 1}/${imageCalls.length}] ${imgPrompt.slice(0, 80)}...`);
-              // Sidebar reference photos (uploaded by user in content context)
-              const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
-              // Only send 1 brand DNA photo (for likeness reference), no logo
-              const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
-              const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
-              console.log(`[Content] Image gen  -  sidebar photos: ${uploadedPhotoUrls.length}, brand photo: ${oneBrandPhoto.length}, total: ${allPhotoUrls.length}`);
-              const brandImageData = {
-                photoUrls: allPhotoUrls,
-                logoUrl: null, // never send logo for content image generation
-                colors: brandDna?.colors || {},
-                mainFont: brandDna?.main_font || null,
-              };
-              // Pass the matching previous image for this slide index (if regenerating)
-              const refImages = prevImages.length ? [prevImages[idx] || prevImages[0]] : null;
-              const result = await generateImage(imgPrompt, selectedPlatform, brandImageData, refImages);
+              const brandImageData = isRegenerating
+                ? {
+                    // Regeneration path — keep user photos mixed in for
+                    // continuity with the previous image's likeness.
+                    photoUrls: [
+                      ...photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean),
+                      ...(brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : []),
+                    ],
+                    logoUrl: null,
+                    colors: brandDna?.colors || {},
+                    mainFont: brandDna?.main_font || null,
+                  }
+                : imgArgs.brandImageData;
+              const refImages = isRegenerating
+                ? [prevImages[idx] || prevImages[0]]
+                : imgArgs.referenceImages;
+              const opts = (!isRegenerating && imgArgs.editUserImage)
+                ? { editUserImage: true }
+                : {};
+              const result = await generateImage(imgPrompt, selectedPlatform, brandImageData, refImages, opts);
               // Update message as each image completes
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
@@ -4347,18 +4365,22 @@ export default function Content() {
               if (imageCalls.length === 0) return;
               // Set total slide count so the UI knows how many slots to show
               setLinkedinPreview(prev => prev ? { ...prev, totalSlides: (prev.totalSlides || 0) + imageCalls.length } : prev);
-              const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
-              const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
-              const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
-              const brandImageData = {
-                photoUrls: allPhotoUrls,
-                logoUrl: null,
-                colors: brandDna?.colors || {},
-                mainFont: brandDna?.main_font || null,
-              };
+              // Split user-uploaded photos from brand-DNA so the backend's
+              // positional manifest can label the user's image as the
+              // PRIMARY subject (editUserImage). The user then drives the
+              // intent through the prompt — "post this image", "add a
+              // CTA", "edit the logo" — instead of all uploads getting
+              // mashed into a single generic face reference.
+              const imgArgs = await buildImageGenArgs();
               const results = await Promise.allSettled(
                 imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
-                  const result = await generateImage(imgPrompt, 'linkedin', brandImageData, null);
+                  const result = await generateImage(
+                    imgPrompt,
+                    'linkedin',
+                    imgArgs.brandImageData,
+                    imgArgs.referenceImages,
+                    { editUserImage: imgArgs.editUserImage },
+                  );
                   if (result.image) {
                     const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                     // Accumulate in array ref to avoid race condition, then set state from it
@@ -5286,6 +5308,52 @@ export default function Content() {
     if (images.length) addPhotos(images);
     if (docs.length) addDocuments(docs);
   }, [addPhotos, addDocuments]);
+
+  // Build the (brandImageData, referenceImages, editUserImage) triple
+  // for a generateImage() call from the current photos/brandDna state.
+  // Splits user-uploaded photos out of brandImageData.photoUrls so the
+  // backend's positional manifest labels them as "USER-PROVIDED IMAGE"
+  // (the same editUserImage path AI CEO uses) — Gemini then follows
+  // the user's exact prompt instruction for each image rather than
+  // mashing all attached photos into a generic face reference.
+  //
+  // Fetches each user photo and converts to base64 because the
+  // generate_image backend reads referenceImages as inline {data,
+  // mimeType} payloads (URLs would need a separate fetch on the
+  // server). Brand-DNA photo stays as a URL — the backend already
+  // does the URL fetch for brand assets.
+  const buildImageGenArgs = useCallback(async () => {
+    const userPhotos = photos.filter((p) => p.status === 'done' && (p.url || p.result?.url));
+    const userPhotoUrls = userPhotos.map((p) => p.url || p.result?.url).filter(Boolean);
+    const brandImageData = {
+      photoUrls: brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [],
+      logoUrl: null,
+      colors: brandDna?.colors || {},
+      mainFont: brandDna?.main_font || null,
+    };
+    let referenceImages = null;
+    if (userPhotoUrls.length) {
+      const refs = await Promise.all(userPhotoUrls.map(async (url) => {
+        try {
+          const r = await fetch(url, { mode: 'cors' });
+          const b = await r.blob();
+          const buf = await b.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+          return { data: base64, mimeType: b.type || 'image/jpeg' };
+        } catch (err) {
+          console.warn('[Content] buildImageGenArgs: failed to fetch user photo', url, err?.message);
+          return null;
+        }
+      }));
+      const filtered = refs.filter(Boolean);
+      if (filtered.length) referenceImages = filtered;
+    }
+    return {
+      brandImageData,
+      referenceImages,
+      editUserImage: !!referenceImages?.length,
+    };
+  }, [photos, brandDna]);
 
   const { dragging: filesDragging } = useChatFileDropZone({
     onFiles: handleWindowFileDrop,
