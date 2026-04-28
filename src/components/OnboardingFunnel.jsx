@@ -123,7 +123,7 @@ function getCalendlyUrl(plan) {
 }
 
 export default function OnboardingFunnel() {
-  const { refreshUser, planData } = useAuth();
+  const { refreshUser, planData, planResolved } = useAuth();
   // Local copy of subscription state so we can re-poll after the user
   // returns from a Stripe Checkout success URL without waiting for the
   // top-level AuthContext refresh to complete.
@@ -186,6 +186,14 @@ export default function OnboardingFunnel() {
       : sub?.setup_paid_at ? 'meeting'
       : 'setup';
   }, [sub]);
+
+  // Don't render until /api/billing/plan has returned 2xx at least once
+  // for this session. Without this guard, a transient 401/5xx caused the
+  // Plans overlay to flash over the dashboards of paying users (their
+  // real subscription was reduced to null when the fetch failed). The
+  // post-checkout poll inside the loadingState branch flips planResolved
+  // back to true, so this guard never blocks the success-URL flow.
+  if (!planResolved && !loadingState) return null;
 
   // Only return null when we're CERTAIN the user is past the funnel —
   // i.e. stepKey says done AND we're not still polling for a post-

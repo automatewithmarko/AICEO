@@ -1179,9 +1179,18 @@ export async function deleteCarouselTemplate(id) {
 // ─── Billing ───
 
 export async function getBillingPlan() {
+  // Throw on non-OK so callers can distinguish "verified no plan" (200 with
+  // empty body) from "couldn't reach billing API" (401/5xx/network). The
+  // earlier silent fallback caused paying users to see the onboarding/Plans
+  // overlay whenever the backend transiently returned 401, because their
+  // real subscription was reduced to null.
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/billing/plan`, { headers });
-  if (!res.ok) return { plan: null, subscription: null, credits: { balance: 0 } };
+  if (!res.ok) {
+    const err = new Error(`getBillingPlan failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 
