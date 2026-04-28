@@ -1274,7 +1274,12 @@ export default function AiCeo() {
     shouldScrollRef.current = true;
     const contextStr = buildCeoContextString();
     const userContent = contextStr + answer.trim();
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: userContent };
+    const userMsg = {
+      id: `msg-${Date.now()}-user`,
+      role: 'user',
+      content: userContent,
+      displayText: answer.trim(),
+    };
     const updated = [...messages, userMsg];
     setMessages(updated);
     sendToAI(updated);
@@ -1294,7 +1299,15 @@ export default function AiCeo() {
     currentTurnAttachmentsRef.current = attachedFiles.filter((f) => f.status === 'done');
     const contextStr = buildCeoContextString();
     const userContent = contextStr + text;
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: userContent };
+    const userMsg = {
+      id: `msg-${Date.now()}-user`,
+      role: 'user',
+      content: userContent,
+      // displayText is what the user sees in their own bubble.
+      // content is what the AI sees (with [CONTEXT…] / [ATTACHED IMAGES…]
+      // blocks prepended) — those should never leak into the UI.
+      displayText: text,
+    };
     const updated = [...messages, userMsg];
     setMessages(updated);
     setInput('');
@@ -1316,7 +1329,12 @@ export default function AiCeo() {
     currentTurnAttachmentsRef.current = attachedFiles.filter((f) => f.status === 'done');
     const contextStr = buildCeoContextString();
     const userContent = contextStr + text;
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: userContent };
+    const userMsg = {
+      id: `msg-${Date.now()}-user`,
+      role: 'user',
+      content: userContent,
+      displayText: text,
+    };
     const updated = [userMsg];
     setMessages(updated);
     setAttachedFiles([]);
@@ -1670,9 +1688,15 @@ export default function AiCeo() {
               <div className="ceo-messages" ref={messagesContainerRef}>
                 {messages.map((msg) => {
                   if (msg.role === 'user') {
+                    // Render only what the user actually typed.
+                    // msg.content has the [CONTEXT…] / [ATTACHED IMAGES…]
+                    // blocks prepended for the AI; users shouldn't see
+                    // those in their own bubble. msg.displayText is set
+                    // for new messages; older messages without it fall
+                    // back to content.
                     return (
                       <div key={msg.id} className="ceo-bubble ceo-bubble--user">
-                        <p className="ceo-user-text">{msg.content}</p>
+                        <p className="ceo-user-text">{msg.displayText || msg.content}</p>
                       </div>
                     );
                   }

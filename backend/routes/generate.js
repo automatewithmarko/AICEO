@@ -373,21 +373,38 @@ router.post('/api/generate/image', requireCredits('image_generation'), async (re
     }
 
     // Determine what brand assets are available for stronger prompting.
-    // When the user is editing their own attached image (editUserImage
-    // mode), DO NOT pull brand reference photos — the model should
-    // edit THE user's image, not substitute a brand-DNA face. Logo
-    // stays available because the prompt may legitimately ask to
-    // place it on the user's image (e.g. "add my logo top-right").
-    const hasLogo = brand?.logoUrl;
-    const hasPhotos = brand?.photoUrls?.length > 0 && !editUserImage;
+    // editUserImage mode does NOT exclude brand assets — it just adds
+    // the user's chat-attached image to the end of the reference set
+    // and labels every image positionally so Gemini can tell them
+    // apart. The user's prompt directs what to actually do; the
+    // backend only provides clear identification.
+    const hasLogo = !!brand?.logoUrl;
+    const hasPhotos = (brand?.photoUrls?.length || 0) > 0;
+    const userImgCount = (editUserImage && referenceImages?.length) ? referenceImages.length : 0;
 
     let brandImageInstructions = '';
-    if (editUserImage && referenceImages?.length) {
-      brandImageInstructions = `
-USER-PROVIDED IMAGE (attached AFTER any brand assets):
-- The user attached an image. The user's image is the PRIMARY SUBJECT — apply the requested change directly to that image.
-- Keep the user's image's overall composition, subject, lighting, and content. Modify ONLY what the prompt explicitly asks to change.
-- Do NOT regenerate from scratch. Do NOT swap the subject. Do NOT substitute any brand-photo person. The user's attached image is what the output is based on.${hasLogo ? '\n- The FIRST attached image (if present) is the user\'s brand logo — only place it on the user\'s image if the prompt explicitly asks for it.' : ''}`;
+    if (userImgCount > 0) {
+      // Build a positional manifest so Gemini knows what each
+      // inlineData part actually is. Brand assets are attached first
+      // (logo → photos), the user's chat image last — same order the
+      // attachment block below uses.
+      const lines = ['ATTACHED IMAGES — what each inline image represents (read positionally; image #1 is the FIRST attached, etc.):'];
+      let idx = 1;
+      if (hasLogo) {
+        lines.push(`  ${idx}. BRAND LOGO — the user's brand mark. Available for placement only if the prompt asks for it.`);
+        idx += 1;
+      }
+      if (hasPhotos) {
+        const n = brand.photoUrls.length;
+        const range = n > 1 ? `${idx}–${idx + n - 1}` : `${idx}`;
+        lines.push(`  ${range}. BRAND PHOTO${n > 1 ? 'S' : ''} — reference photo${n > 1 ? 's' : ''} of the user/founder. Use the face/likeness only if the prompt requires a person; otherwise ignore.`);
+        idx += n;
+      }
+      const range = userImgCount > 1 ? `${idx}–${idx + userImgCount - 1}` : `${idx}`;
+      lines.push(`  ${range}. USER-PROVIDED IMAGE${userImgCount > 1 ? 'S' : ''} (LAST attached) — what the user attached IN THIS CHAT TURN. PRIMARY subject — this is the canvas the user is asking you to work on.`);
+      lines.push('');
+      lines.push('The user\'s prompt below tells you what to DO with these images. Read it carefully and follow exactly. Do not assume the user wants every brand asset combined — only use what the prompt directs.');
+      brandImageInstructions = '\n' + lines.join('\n');
     } else if (hasLogo && hasPhotos) {
       brandImageInstructions = `
 BRAND ASSETS (attached as reference images):
@@ -447,15 +464,18 @@ ${prompt}`;
     if (brand) {
       const imageUrls = [];
       if (brand.logoUrl) imageUrls.push(brand.logoUrl);
-      // Brand photos are suppressed in editUserImage mode (see hasPhotos
-      // computation above) so the model doesn't substitute a brand-DNA
-      // face for the user's attached image.
-      if (brand.photoUrls?.length && !editUserImage) {
+      // Brand photos are ALWAYS attached now — the positional manifest
+      // in brandImageInstructions tells Gemini which is which. The
+      // user's prompt directs what to actually use. (Earlier version
+      // suppressed photos in editUserImage mode; that was too
+      // restrictive — the user might legitimately ask "place me from
+      // my brand photo onto the attached background image".)
+      if (brand.photoUrls?.length) {
         imageUrls.push(...brand.photoUrls);
       }
 
       if (imageUrls.length > 0) {
-        console.log(`[generate/image] Fetching ${imageUrls.length} brand reference image(s)${editUserImage ? ' (logo only — editUserImage mode)' : ''}...`);
+        console.log(`[generate/image] Fetching ${imageUrls.length} brand reference image(s)...`);
         imageUrls.forEach((url, i) => console.log(`  [${i}] ${url?.slice(0, 100)}`));
         const imageParts = await Promise.all(imageUrls.map(fetchImageAsBase64));
         const attached = imageParts.filter(Boolean);
