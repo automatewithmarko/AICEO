@@ -34,11 +34,6 @@ export function AuthProvider({ children }) {
     let billingInfo = null;
     try {
       billingInfo = await getBillingPlan();
-      console.log('[AuthContext] billingInfo:', JSON.stringify({
-        plan: billingInfo?.plan?.name,
-        subscription: billingInfo?.subscription,
-        credits: billingInfo?.credits?.balance,
-      }));
     } catch {
       // Fallback to direct DB queries if billing API not ready
     }
