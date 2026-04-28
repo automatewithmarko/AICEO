@@ -5601,31 +5601,29 @@ export default function Content() {
 
       {/* Document thumbnails */}
       {documents.length > 0 && (
-        <div className="cs-doc-grid">
+        <div className="cs-doc-list">
           {documents.map((item, i) => {
-            const fname = item.file?.name || item.filename || '';
+            const fname = item.file?.name || item.filename || 'file';
             const ext = fname.split('.').pop().toLowerCase();
+            const statusTitle = item.status === 'error'
+              ? (item.errorMessage ? `${fname} — ${item.errorMessage}` : `${fname} — failed`)
+              : item.status === 'done' ? fname
+              : `${fname} — uploading…`;
             return (
               <div
                 key={i}
-                className={`cs-doc-thumb ${item.status === 'uploading' ? 'cs-doc-thumb--processing' : ''}`}
-                onMouseEnter={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const fn = item.file?.name || item.filename || 'file';
-                  const statusText = item.status === 'done' ? `${fn} ✓` : item.status === 'error' ? `${fn}  -  failed` : fn;
-                  setTooltip({ text: statusText, x: rect.left + rect.width / 2, y: rect.top - 6, visible: true });
-                }}
-                onMouseLeave={() => setTooltip((t) => ({ ...t, visible: false }))}
+                className={`cs-doc-pill ${item.status === 'uploading' ? 'cs-doc-pill--processing' : ''} ${item.status === 'error' ? 'cs-doc-pill--error' : ''}`}
+                title={statusTitle}
               >
                 {(item.status === 'pending' || item.status === 'uploading') ? (
-                  <Loader size={14} className="cs-spinner" />
+                  <Loader size={12} className="cs-spinner cs-doc-pill-icon" />
+                ) : item.status === 'error' ? (
+                  <span className="cs-doc-pill-icon cs-doc-pill-icon--err">!</span>
                 ) : (
-                  <span className="cs-doc-ext">{ext}</span>
+                  <span className="cs-doc-pill-ext">{ext || 'doc'}</span>
                 )}
-                {item.status === 'error' && (
-                  <div className="cs-thumb-overlay cs-thumb-overlay--error">!</div>
-                )}
-                <button className="cs-doc-remove" onClick={() => { removeFile(i, setDocuments); setTooltip(t => ({ ...t, visible: false })); }}>
+                <span className="cs-doc-pill-name">{fname}</span>
+                <button className="cs-doc-pill-remove" onClick={() => { removeFile(i, setDocuments); setTooltip(t => ({ ...t, visible: false })); }} title="Remove">
                   <X size={10} />
                 </button>
               </div>
@@ -5899,28 +5897,31 @@ export default function Content() {
             </div>
           )}
 
-          {/* Document thumbnails */}
+          {/* Document thumbnails — pill list with filename visible. */}
           {documents.length > 0 && (
-            <div className="cs-doc-grid">
+            <div className="cs-doc-list">
               {documents.map((item, i) => {
-                const fname = item.file?.name || item.filename || '';
+                const fname = item.file?.name || item.filename || 'file';
                 const ext = fname.split('.').pop().toLowerCase();
+                const statusTitle = item.status === 'error'
+                  ? (item.errorMessage ? `${fname} — ${item.errorMessage}` : `${fname} — failed`)
+                  : item.status === 'done' ? fname
+                  : `${fname} — uploading…`;
                 return (
                   <div
                     key={i}
-                    className={`cs-doc-thumb ${item.status === 'uploading' ? 'cs-doc-thumb--processing' : ''}`}
-                    onMouseEnter={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      setTooltip({ text: item.file?.name || item.filename || 'file', x: rect.left + rect.width / 2, y: rect.top - 6, visible: true });
-                    }}
-                    onMouseLeave={() => setTooltip((t) => ({ ...t, visible: false }))}
+                    className={`cs-doc-pill ${item.status === 'uploading' ? 'cs-doc-pill--processing' : ''} ${item.status === 'error' ? 'cs-doc-pill--error' : ''}`}
+                    title={statusTitle}
                   >
                     {(item.status === 'pending' || item.status === 'uploading') ? (
-                      <Loader size={14} className="cs-spinner" />
+                      <Loader size={12} className="cs-spinner cs-doc-pill-icon" />
+                    ) : item.status === 'error' ? (
+                      <span className="cs-doc-pill-icon cs-doc-pill-icon--err">!</span>
                     ) : (
-                      <span className="cs-doc-ext">{ext}</span>
+                      <span className="cs-doc-pill-ext">{ext || 'doc'}</span>
                     )}
-                    <button className="cs-doc-remove" onClick={() => { removeFile(i, setDocuments); setTooltip(t => ({ ...t, visible: false })); }}>
+                    <span className="cs-doc-pill-name">{fname}</span>
+                    <button className="cs-doc-pill-remove" onClick={() => { removeFile(i, setDocuments); setTooltip(t => ({ ...t, visible: false })); }} title="Remove">
                       <X size={10} />
                     </button>
                   </div>

@@ -157,31 +157,98 @@
 }
 
 /* Document thumbnail grid */
-.cs-doc-grid {
+/* Document list — vertical stack of pills with filename visible.
+   Replaced the old 36×36 icon-only grid because users couldn't
+   identify which doc is which without hovering. Each pill is a
+   row: extension badge + truncated filename + remove X. */
+.cs-doc-list {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   gap: 4px;
+  width: 100%;
 }
 
-.cs-doc-thumb {
+.cs-doc-pill {
   position: relative;
-  width: 36px;
-  height: 36px;
-  border-radius: 6px;
-  border: 1px solid var(--border-light);
-  background: var(--bg-white);
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  gap: 8px;
+  padding: 6px 8px 6px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-white);
+  font-size: 12px;
+  line-height: 1.2;
+  min-width: 0;
 }
 
-.cs-doc-ext {
+.cs-doc-pill--processing { opacity: 0.7; }
+
+.cs-doc-pill--error {
+  background: rgba(220, 38, 38, 0.05);
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+.cs-doc-pill-icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cs-doc-pill-icon--err {
+  color: #b91c1c;
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.cs-doc-pill-ext {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 22px;
+  border-radius: 4px;
+  background: var(--bg-light, #f3f4f6);
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
   color: var(--text-muted);
   letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.cs-doc-pill-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary, #1a1a1a);
+  font-weight: 500;
+}
+
+.cs-doc-pill-remove {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.cs-doc-pill-remove:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-primary, #1a1a1a);
 }
 
 .cs-doc-remove {
