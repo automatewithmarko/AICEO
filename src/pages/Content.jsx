@@ -1287,6 +1287,20 @@ ${LINKEDIN_CAROUSEL_PROMPT}
 };
 
 // Parse <<OPTIONS>> blocks from AI response
+// Strip the AI-only [CONTEXT — …] block from a saved user message so
+// the bubble renders the user's typed text only. New messages stamp
+// `displayText` directly and skip this path; this is the render-time
+// fallback for legacy messages persisted before displayText existed.
+// Content only emits [CONTEXT — …] (its photos / docs live in the
+// sidebar, never in the prompt as text blocks), so a single tag is
+// enough.
+function stripContentContextBlocks(content) {
+  if (!content) return '';
+  return content
+    .replace(/\[CONTEXT\b[^\]]*\]\s*\n*/g, '')
+    .trim();
+}
+
 function parseMessageOptions(content) {
   const match = content.match(/<<OPTIONS>>\n?([\s\S]*?)\n?<<\/OPTIONS>>/);
   if (!match) return { text: content, options: null };
@@ -1599,10 +1613,14 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
 
   const donePhotos = photos.filter((p) => p.status === 'done');
   if (donePhotos.length > 0) {
-    prompt += `=== REFERENCE PHOTOS ===\n`;
-    prompt += `The user has uploaded ${donePhotos.length} reference photo(s):\n`;
-    donePhotos.forEach((p, i) => { prompt += `- ${p.file?.name || p.result?.filename || `Photo ${i + 1}`}\n`; });
-    prompt += `These photos are visual references for the content. Acknowledge and reference the visual content when generating captions, descriptions, or scripts.\n\n`;
+    prompt += `=== ATTACHED IMAGES (uploaded by the user this turn) ===\n`;
+    prompt += `The user attached ${donePhotos.length} image(s):\n`;
+    donePhotos.forEach((p, i) => { prompt += `- "${p.file?.name || p.result?.filename || `Photo ${i + 1}`}"\n`; });
+    prompt += `\nFOLLOW THE USER'S EXPLICIT INSTRUCTION about these images:\n`;
+    prompt += `- "use this image" / "post this image" / "with this image" / "this image" → the user wants the attached image to BE the post image. Use it as-is or with minimal edits described by the user; don't generate a brand-new image.\n`;
+    prompt += `- "edit this", "add a CTA", "modify", "make it ___", "change ___" → the user wants the attached image edited per their instruction. Use the attached image as the canvas.\n`;
+    prompt += `- No specific instruction about the image → the attached image acts as soft visual context. Acknowledge it briefly in the caption when relevant.\n`;
+    prompt += `\nWhen you call generate_image, the attached image is automatically passed as the PRIMARY subject reference (the system labels it positionally). Describe the EDIT you want, not the existing content of the image.\n\n`;
     hasContext = true;
   }
 
@@ -3830,6 +3848,11 @@ export default function Content() {
             }
           : undefined;
         const persisted = { id: m.id, role: m.role, content: m.content, images: uploadedImages };
+        // Persist displayText so a reload doesn't fall back to
+        // rendering the raw [CONTEXT — …] block in the user bubble.
+        // Optional — assistant messages and legacy user messages
+        // won't have it.
+        if (m.displayText) persisted.displayText = m.displayText;
         if (persistedPlan) persisted.carouselPlan = persistedPlan;
         if (m.platform) persisted.platform = m.platform;
         if (m.linkedinPost && m.linkedinPost.content) {
@@ -4103,24 +4126,38 @@ export default function Content() {
             console.log(`[Content] Regeneration detected  -  sending ${prevImages.length} previous image(s) as reference`);
           }
 
+          // For regenerations, the per-slide previous image takes the
+          // referenceImages slot (Gemini iterates on it). For fresh
+          // generations with user-uploaded photos, those user photos
+          // take the slot via editUserImage so the manifest labels
+          // them as the PRIMARY subject and the AI follows the user's
+          // exact prompt instruction. Only one or the other can use
+          // the slot — regen wins because it's a more specific signal.
+          const isRegenerating = prevImages.length > 0;
+          const imgArgs = isRegenerating ? null : await buildImageGenArgs();
           const results = await Promise.allSettled(
             imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
               console.log(`  🎨 [${idx + 1}/${imageCalls.length}] ${imgPrompt.slice(0, 80)}...`);
-              // Sidebar reference photos (uploaded by user in content context)
-              const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
-              // Only send 1 brand DNA photo (for likeness reference), no logo
-              const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
-              const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
-              console.log(`[Content] Image gen  -  sidebar photos: ${uploadedPhotoUrls.length}, brand photo: ${oneBrandPhoto.length}, total: ${allPhotoUrls.length}`);
-              const brandImageData = {
-                photoUrls: allPhotoUrls,
-                logoUrl: null, // never send logo for content image generation
-                colors: brandDna?.colors || {},
-                mainFont: brandDna?.main_font || null,
-              };
-              // Pass the matching previous image for this slide index (if regenerating)
-              const refImages = prevImages.length ? [prevImages[idx] || prevImages[0]] : null;
-              const result = await generateImage(imgPrompt, selectedPlatform, brandImageData, refImages);
+              const brandImageData = isRegenerating
+                ? {
+                    // Regeneration path — keep user photos mixed in for
+                    // continuity with the previous image's likeness.
+                    photoUrls: [
+                      ...photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean),
+                      ...(brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : []),
+                    ],
+                    logoUrl: null,
+                    colors: brandDna?.colors || {},
+                    mainFont: brandDna?.main_font || null,
+                  }
+                : imgArgs.brandImageData;
+              const refImages = isRegenerating
+                ? [prevImages[idx] || prevImages[0]]
+                : imgArgs.referenceImages;
+              const opts = (!isRegenerating && imgArgs.editUserImage)
+                ? { editUserImage: true }
+                : {};
+              const result = await generateImage(imgPrompt, selectedPlatform, brandImageData, refImages, opts);
               // Update message as each image completes
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
@@ -4328,18 +4365,22 @@ export default function Content() {
               if (imageCalls.length === 0) return;
               // Set total slide count so the UI knows how many slots to show
               setLinkedinPreview(prev => prev ? { ...prev, totalSlides: (prev.totalSlides || 0) + imageCalls.length } : prev);
-              const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
-              const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
-              const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
-              const brandImageData = {
-                photoUrls: allPhotoUrls,
-                logoUrl: null,
-                colors: brandDna?.colors || {},
-                mainFont: brandDna?.main_font || null,
-              };
+              // Split user-uploaded photos from brand-DNA so the backend's
+              // positional manifest can label the user's image as the
+              // PRIMARY subject (editUserImage). The user then drives the
+              // intent through the prompt — "post this image", "add a
+              // CTA", "edit the logo" — instead of all uploads getting
+              // mashed into a single generic face reference.
+              const imgArgs = await buildImageGenArgs();
               const results = await Promise.allSettled(
                 imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
-                  const result = await generateImage(imgPrompt, 'linkedin', brandImageData, null);
+                  const result = await generateImage(
+                    imgPrompt,
+                    'linkedin',
+                    imgArgs.brandImageData,
+                    imgArgs.referenceImages,
+                    { editUserImage: imgArgs.editUserImage },
+                  );
                   if (result.image) {
                     const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                     // Accumulate in array ref to avoid race condition, then set state from it
@@ -4996,7 +5037,15 @@ export default function Content() {
     setCustomTyping(false);
     setCustomText('');
     const contextStr = buildContentContextString();
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: contextStr + option };
+    const userMsg = {
+      id: `msg-${Date.now()}-user`,
+      role: 'user',
+      content: contextStr + option,
+      // displayText is what the bubble shows. content carries the
+      // [CONTEXT — …] block prepended for the AI; users shouldn't
+      // see that noise in their own bubble.
+      displayText: option,
+    };
     const updated = [...messages, userMsg];
     setMessages(updated);
     sendToAI(updated);
@@ -5006,7 +5055,12 @@ export default function Content() {
     const text = input.trim();
     if (!text || isGenerating || hasPendingAttachments) return;
     const contextStr = buildContentContextString();
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: contextStr + text };
+    const userMsg = {
+      id: `msg-${Date.now()}-user`,
+      role: 'user',
+      content: contextStr + text,
+      displayText: text,
+    };
     const updated = [...messages, userMsg];
     setMessages(updated);
     setInput('');
@@ -5254,6 +5308,52 @@ export default function Content() {
     if (images.length) addPhotos(images);
     if (docs.length) addDocuments(docs);
   }, [addPhotos, addDocuments]);
+
+  // Build the (brandImageData, referenceImages, editUserImage) triple
+  // for a generateImage() call from the current photos/brandDna state.
+  // Splits user-uploaded photos out of brandImageData.photoUrls so the
+  // backend's positional manifest labels them as "USER-PROVIDED IMAGE"
+  // (the same editUserImage path AI CEO uses) — Gemini then follows
+  // the user's exact prompt instruction for each image rather than
+  // mashing all attached photos into a generic face reference.
+  //
+  // Fetches each user photo and converts to base64 because the
+  // generate_image backend reads referenceImages as inline {data,
+  // mimeType} payloads (URLs would need a separate fetch on the
+  // server). Brand-DNA photo stays as a URL — the backend already
+  // does the URL fetch for brand assets.
+  const buildImageGenArgs = useCallback(async () => {
+    const userPhotos = photos.filter((p) => p.status === 'done' && (p.url || p.result?.url));
+    const userPhotoUrls = userPhotos.map((p) => p.url || p.result?.url).filter(Boolean);
+    const brandImageData = {
+      photoUrls: brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [],
+      logoUrl: null,
+      colors: brandDna?.colors || {},
+      mainFont: brandDna?.main_font || null,
+    };
+    let referenceImages = null;
+    if (userPhotoUrls.length) {
+      const refs = await Promise.all(userPhotoUrls.map(async (url) => {
+        try {
+          const r = await fetch(url, { mode: 'cors' });
+          const b = await r.blob();
+          const buf = await b.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+          return { data: base64, mimeType: b.type || 'image/jpeg' };
+        } catch (err) {
+          console.warn('[Content] buildImageGenArgs: failed to fetch user photo', url, err?.message);
+          return null;
+        }
+      }));
+      const filtered = refs.filter(Boolean);
+      if (filtered.length) referenceImages = filtered;
+    }
+    return {
+      brandImageData,
+      referenceImages,
+      editUserImage: !!referenceImages?.length,
+    };
+  }, [photos, brandDna]);
 
   const { dragging: filesDragging } = useChatFileDropZone({
     onFiles: handleWindowFileDrop,
@@ -5569,31 +5669,29 @@ export default function Content() {
 
       {/* Document thumbnails */}
       {documents.length > 0 && (
-        <div className="cs-doc-grid">
+        <div className="cs-doc-list">
           {documents.map((item, i) => {
-            const fname = item.file?.name || item.filename || '';
+            const fname = item.file?.name || item.filename || 'file';
             const ext = fname.split('.').pop().toLowerCase();
+            const statusTitle = item.status === 'error'
+              ? (item.errorMessage ? `${fname} — ${item.errorMessage}` : `${fname} — failed`)
+              : item.status === 'done' ? fname
+              : `${fname} — uploading…`;
             return (
               <div
                 key={i}
-                className={`cs-doc-thumb ${item.status === 'uploading' ? 'cs-doc-thumb--processing' : ''}`}
-                onMouseEnter={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const fn = item.file?.name || item.filename || 'file';
-                  const statusText = item.status === 'done' ? `${fn} ✓` : item.status === 'error' ? `${fn}  -  failed` : fn;
-                  setTooltip({ text: statusText, x: rect.left + rect.width / 2, y: rect.top - 6, visible: true });
-                }}
-                onMouseLeave={() => setTooltip((t) => ({ ...t, visible: false }))}
+                className={`cs-doc-pill ${item.status === 'uploading' ? 'cs-doc-pill--processing' : ''} ${item.status === 'error' ? 'cs-doc-pill--error' : ''}`}
+                title={statusTitle}
               >
                 {(item.status === 'pending' || item.status === 'uploading') ? (
-                  <Loader size={14} className="cs-spinner" />
+                  <Loader size={12} className="cs-spinner cs-doc-pill-icon" />
+                ) : item.status === 'error' ? (
+                  <span className="cs-doc-pill-icon cs-doc-pill-icon--err">!</span>
                 ) : (
-                  <span className="cs-doc-ext">{ext}</span>
+                  <span className="cs-doc-pill-ext">{ext || 'doc'}</span>
                 )}
-                {item.status === 'error' && (
-                  <div className="cs-thumb-overlay cs-thumb-overlay--error">!</div>
-                )}
-                <button className="cs-doc-remove" onClick={() => { removeFile(i, setDocuments); setTooltip(t => ({ ...t, visible: false })); }}>
+                <span className="cs-doc-pill-name">{fname}</span>
+                <button className="cs-doc-pill-remove" onClick={() => { removeFile(i, setDocuments); setTooltip(t => ({ ...t, visible: false })); }} title="Remove">
                   <X size={10} />
                 </button>
               </div>
@@ -5867,28 +5965,31 @@ export default function Content() {
             </div>
           )}
 
-          {/* Document thumbnails */}
+          {/* Document thumbnails — pill list with filename visible. */}
           {documents.length > 0 && (
-            <div className="cs-doc-grid">
+            <div className="cs-doc-list">
               {documents.map((item, i) => {
-                const fname = item.file?.name || item.filename || '';
+                const fname = item.file?.name || item.filename || 'file';
                 const ext = fname.split('.').pop().toLowerCase();
+                const statusTitle = item.status === 'error'
+                  ? (item.errorMessage ? `${fname} — ${item.errorMessage}` : `${fname} — failed`)
+                  : item.status === 'done' ? fname
+                  : `${fname} — uploading…`;
                 return (
                   <div
                     key={i}
-                    className={`cs-doc-thumb ${item.status === 'uploading' ? 'cs-doc-thumb--processing' : ''}`}
-                    onMouseEnter={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      setTooltip({ text: item.file?.name || item.filename || 'file', x: rect.left + rect.width / 2, y: rect.top - 6, visible: true });
-                    }}
-                    onMouseLeave={() => setTooltip((t) => ({ ...t, visible: false }))}
+                    className={`cs-doc-pill ${item.status === 'uploading' ? 'cs-doc-pill--processing' : ''} ${item.status === 'error' ? 'cs-doc-pill--error' : ''}`}
+                    title={statusTitle}
                   >
                     {(item.status === 'pending' || item.status === 'uploading') ? (
-                      <Loader size={14} className="cs-spinner" />
+                      <Loader size={12} className="cs-spinner cs-doc-pill-icon" />
+                    ) : item.status === 'error' ? (
+                      <span className="cs-doc-pill-icon cs-doc-pill-icon--err">!</span>
                     ) : (
-                      <span className="cs-doc-ext">{ext}</span>
+                      <span className="cs-doc-pill-ext">{ext || 'doc'}</span>
                     )}
-                    <button className="cs-doc-remove" onClick={() => { removeFile(i, setDocuments); setTooltip(t => ({ ...t, visible: false })); }}>
+                    <span className="cs-doc-pill-name">{fname}</span>
+                    <button className="cs-doc-pill-remove" onClick={() => { removeFile(i, setDocuments); setTooltip(t => ({ ...t, visible: false })); }} title="Remove">
                       <X size={10} />
                     </button>
                   </div>
@@ -6343,9 +6444,15 @@ export default function Content() {
             <div className="content-messages">
               {messages.map((msg) => {
                 if (msg.role === 'user') {
+                  // Render only what the user actually typed.
+                  // msg.content has the [CONTEXT — …] block prepended
+                  // for the AI; users shouldn't see that in their own
+                  // bubble. New messages stamp displayText directly;
+                  // legacy messages without it fall back through the
+                  // strip helper.
                   return (
                     <div key={msg.id} className="content-bubble content-bubble--user">
-                      <p className="content-user-text">{msg.content}</p>
+                      <p className="content-user-text">{msg.displayText || stripContentContextBlocks(msg.content)}</p>
                     </div>
                   );
                 }

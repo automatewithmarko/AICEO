@@ -1,12 +1,12 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Mail, Send, Users, BarChart3, Megaphone, Inbox, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2, Upload } from 'lucide-react';
+import { Mail, Send, Users, BarChart3, Megaphone, Inbox, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2, Upload, FileText, AlertCircle } from 'lucide-react';
 import ChatDropOverlay from '../components/ChatDropOverlay';
 import { useChatFileDropZone } from '../hooks/useChatFileDropZone';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
-import { generateImage, uploadImageToStorage, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate, createCalendarPost, publishCalendarPost } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate, createCalendarPost, publishCalendarPost, uploadContextFiles } from '../lib/api';
 import AutomationGraph from '../components/AutomationGraph';
 import NetlifyDeployButton from '../components/NetlifyDeployButton';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
@@ -58,8 +58,9 @@ EDIT MODE (when user already has output):
 - When editing, return the FULL updated HTML (with the edits applied), not just the changed parts.
 
 UPLOADED FILES:
-- If the user uploads images, they will be provided as placeholder references like src="{{IMAGE:file-id}}". Use these placeholder src values EXACTLY as given in your <img> tags  -  do NOT modify them. The system will automatically replace them with the actual image data.
-- If the user uploads documents, their text content will be included as context. Use this information to inform the content.
+- If the user uploads an image and refers to it with ANY pronoun ("this", "this image", "the image", "it", "this photo", "this picture"), they mean the uploaded image. Use it directly in the HTML output. Do NOT ask "what would you like me to add" — the upload IS the answer.
+- Uploaded images arrive as placeholder references like src="{{IMAGE:file-id}}". Use these placeholder src values EXACTLY as given in your <img> tags — do NOT modify them. The system replaces the placeholder with the actual image data when rendering. Do NOT invent URLs or omit uploaded images.
+- If the user uploads documents, their text content has been pre-extracted (pdf-parse / mammoth / plain) and is included as context. Use this information to inform the content. Pronouns like "this doc" / "this document" / "it" refer to the upload.
 
 IMPORTANT RULES:
 - NEVER wrap your response in markdown code fences or backticks
@@ -1346,14 +1347,26 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       })
       .map((m) => {
         const out = { id: m.id, role: m.role, text: m.text || m.content || '' };
-        if (Array.isArray(m.images) && m.images.length) {
-          out.images = m.images.map((img) => ({
+        // New shape: persist `attachments` (images + docs, with public
+        // url so chips survive reload). Drop dataUrl — it's gigantic
+        // and the public Supabase url is enough for display.
+        if (Array.isArray(m.attachments) && m.attachments.length) {
+          out.attachments = m.attachments.map((a) => ({
+            id: a.id,
+            type: a.type,
+            name: a.name,
+            url: a.url || null,
+          }));
+        } else if (Array.isArray(m.images) && m.images.length) {
+          // Legacy shape — pre-port messages had `images` with no url
+          // and no doc support. Keep them readable on reload by
+          // converting to the new shape; chip will render as a
+          // non-clickable placeholder until we backfill (or never).
+          out.attachments = m.images.map((img) => ({
             id: img.id,
+            type: 'image',
             name: img.name,
-            type: img.type,
-            // Don't persist the raw base64 dataUrl — it's gigantic and
-            // the file is already ephemeral. Keep just the metadata so
-            // the UI can re-render a placeholder on reload.
+            url: img.url || null,
           }));
         }
         return out;
@@ -1870,45 +1883,89 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
   // the paperclip <input onChange> AND the window-level drag-drop
   // handler. Keeping it permissive means the same accept rules + size
   // limits live in one place.
-  const ingestFiles = useCallback((fileLike) => {
+  // Pipe attachments through the backend /api/upload pipeline so PDFs
+  // get proper text extraction (pdf-parse) and images get a public
+  // Supabase storage URL. Mirrors AI CEO. Each pill goes through
+  // status: 'uploading' → 'done' / 'error'.
+  //
+  // Marketing-specific quirk: we still need the local image dataUrl
+  // for the existing {{IMAGE:id}} HTML-embedding flow (the AI emits
+  // src="{{IMAGE:file-123}}" placeholders and Marketing inlines the
+  // base64 into the generated HTML). So we keep dataUrl in state for
+  // images alongside the public url. The chip row prefers url; the
+  // HTML-embedding code keeps using dataUrl.
+  const ingestFiles = useCallback(async (fileLike) => {
     const files = Array.from(fileLike || []);
-    files.forEach((file) => {
-      const id = `file-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const isImage = file.type.startsWith('image/');
+    if (files.length === 0) return;
 
-      if (isImage) {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          setUploadedFiles((prev) => [...prev, {
-            id,
-            name: file.name,
-            type: 'image',
-            dataUrl: ev.target.result,
-            size: file.size,
-          }]);
+    const reservations = files.map((file) => ({
+      id: `file-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      file,
+      name: file.name,
+      size: file.size,
+      type: file.type.startsWith('image/') ? 'image' : 'document',
+      status: 'uploading',
+    }));
+
+    // Push pills first (drop the File ref so it doesn't sit in state).
+    // eslint-disable-next-line no-unused-vars
+    setUploadedFiles((prev) => [...prev, ...reservations.map(({ file: _file, ...rest }) => rest)]);
+
+    // Read images locally for instant thumbnail preview AND for the
+    // {{IMAGE:id}} HTML-embedding path. Runs in parallel with the
+    // network upload.
+    for (const res of reservations) {
+      if (res.type !== 'image') continue;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setUploadedFiles((prev) => prev.map((f) =>
+          f.id === res.id ? { ...f, dataUrl: ev.target?.result || null } : f,
+        ));
+      };
+      reader.readAsDataURL(res.file);
+    }
+
+    try {
+      const { files: results } = await uploadContextFiles(reservations.map((r) => r.file));
+      setUploadedFiles((prev) => prev.map((item) => {
+        const ridx = reservations.findIndex((r) => r.id === item.id);
+        if (ridx === -1) return item;
+        const result = results?.[ridx];
+        if (!result || result.type === 'error') {
+          return { ...item, status: 'error', errorMessage: result?.error || 'Upload failed' };
+        }
+        const isImage = result.type === 'photo';
+        return {
+          ...item,
+          status: 'done',
+          type: isImage ? 'image' : 'document',
+          url: result.url || null,
+          dbId: result.dbId || null,
+          // Backend pre-extracts text via pdf-parse / mammoth — this
+          // is what the AI sees in [UPLOADED DOCUMENTS …] now,
+          // replacing the old client-side readAsText that produced
+          // binary garbage on PDFs.
+          textContent: result.extractedText || null,
         };
-        reader.readAsDataURL(file);
-      } else {
-        // Read as text for documents
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          setUploadedFiles((prev) => [...prev, {
-            id,
-            name: file.name,
-            type: 'document',
-            textContent: ev.target.result,
-            size: file.size,
-          }]);
-        };
-        reader.readAsText(file);
-      }
-    });
+      }));
+    } catch (err) {
+      setUploadedFiles((prev) => prev.map((item) =>
+        reservations.some((r) => r.id === item.id)
+          ? { ...item, status: 'error', errorMessage: err.message || 'Upload failed' }
+          : item,
+      ));
+    }
   }, []);
 
   const handleFileUpload = (e) => {
     ingestFiles(e.target.files);
     e.target.value = '';
   };
+
+  // True while at least one attachment is still uploading. Used to
+  // disable Send so the message can't go out before the AI gets the
+  // actual file content.
+  const hasPendingUploads = uploadedFiles.some((f) => f.status === 'uploading');
 
   // Window-level drag-and-drop. Drop anywhere on the page to attach
   // files to the current chat — same handler the paperclip uses.
@@ -1927,10 +1984,22 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     const images = uploadedFiles.filter((f) => f.type === 'image');
     const docs = uploadedFiles.filter((f) => f.type === 'document');
     if (images.length > 0) {
-      parts.push(`[UPLOADED IMAGES  -  The user has uploaded ${images.length} image(s). When you include them in the HTML output, use exactly this src value for each image:\n${images.map((img) => `- "${img.name}": src="{{IMAGE:${img.id}}}"`).join('\n')}\nDo NOT modify the placeholder src values. Use them exactly as shown above.]`);
+      parts.push(
+        `[UPLOADED IMAGES  -  The user attached ${images.length} image(s) IN THIS MESSAGE. ` +
+        `When the user uses any pronoun referring to an image — "this", "this image", "the image", "it", "the photo", "this picture" — they mean THE UPLOADED IMAGE(S) below. ` +
+        `Do NOT ask "what would you like me to add" or "what image" — use the upload. ` +
+        `Include each image in the HTML output using EXACTLY this src value (the system replaces the placeholder with the actual image):\n` +
+        `${images.map((img) => `- "${img.name}": src="{{IMAGE:${img.id}}}"`).join('\n')}\n` +
+        `Use the {{IMAGE:file-id}} placeholder strings EXACTLY as given. Do not invent URLs or omit images the user attached.]`
+      );
     }
     if (docs.length > 0) {
-      parts.push(`[UPLOADED DOCUMENTS  -  The user has uploaded ${docs.length} document(s) as additional context:\n${docs.map((doc) => `- "${doc.name}":\n${doc.textContent.slice(0, 3000)}`).join('\n\n')}\n]`);
+      parts.push(
+        `[UPLOADED DOCUMENTS  -  The user attached ${docs.length} document(s) IN THIS MESSAGE. ` +
+        `When the user uses any pronoun referring to a document — "this", "this doc", "the document", "it" — they mean the document(s) below. ` +
+        `The text content has been pre-extracted (PDF / Word / plain) and is available as context. Use this information to inform what you create:\n` +
+        `${docs.map((doc) => `- "${doc.name}":\n${(doc.textContent || '').slice(0, 3000)}`).join('\n\n')}\n]`
+      );
     }
     return parts.join('\n\n') + '\n\n';
   };
@@ -1949,9 +2018,15 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
   // Send message
   const sendMessage = useCallback(async (text) => {
     if (!text.trim() || isGenerating) return;
+    // Hold until backend uploads finish — sending early would leak
+    // the AI a half-extracted PDF or an image with no public URL.
+    if (uploadedFiles.some((f) => f.status === 'uploading')) return;
 
-    // Capture files before clearing so we can replace placeholders later
-    const filesSnapshot = [...uploadedFiles];
+    // Capture files before clearing so we can replace placeholders later.
+    // Only DONE files participate in this turn — errored uploads are
+    // kept in the pill row for the user to see + dismiss but don't
+    // make it into the AI prompt or the chat-history attachments.
+    const filesSnapshot = uploadedFiles.filter((f) => f.status === 'done');
 
     // Build the content  -  inject context on every message so AI always has it
     const contextStr = buildContextString();
@@ -1961,10 +2036,24 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     const userMsg = { role: 'user', content: userContent };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
-    const imageChips = filesSnapshot
-      .filter((f) => f.type === 'image')
-      .map((f) => ({ id: f.id, name: f.name, dataUrl: f.dataUrl }));
-    setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-user`, role: 'user', text: text.trim(), images: imageChips }]);
+    // Attachments rendered in the user bubble. Includes BOTH images
+    // and documents now (used to be images-only). dataUrl kept on
+    // images for the brief in-session period before persistence
+    // strips it; persistence keeps only id/type/name/url so chips
+    // survive reload via the public Supabase URL.
+    const msgAttachments = filesSnapshot.map((f) => ({
+      id: f.id,
+      type: f.type,
+      name: f.name,
+      url: f.url || null,
+      ...(f.type === 'image' && f.dataUrl ? { dataUrl: f.dataUrl } : {}),
+    }));
+    setChatMessages((prev) => [...prev, {
+      id: `msg-${Date.now()}-user`,
+      role: 'user',
+      text: text.trim(),
+      ...(msgAttachments.length ? { attachments: msgAttachments } : {}),
+    }]);
     setChatInput('');
     setCurrentQuestion(null);
     setCustomTyping(false);
@@ -2844,13 +2933,45 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
                 <div className={`mkt-msg mkt-msg--${msg.role}`}>
                   {msg.text}
                 </div>
-                {msg.images?.length > 0 && (
-                  <div className="mkt-msg-images">
-                    {msg.images.map((img) => (
-                      <span key={img.id} className="mkt-msg-image-chip">
-                        <img src={img.dataUrl} alt={img.name} className="mkt-msg-image-thumb" />
-                        <span className="mkt-msg-image-name">{img.name}</span>
-                      </span>
+                {(msg.attachments?.length || msg.images?.length) > 0 && (
+                  <div className="mkt-msg-attachments">
+                    {/* New shape `attachments` carries both images and
+                        documents with proper urls for clickability and
+                        persistence. Old shape `images` (pre-port) only
+                        had image metadata with dataUrl — render it
+                        backwards-compat as image-only chips. */}
+                    {(msg.attachments
+                      ? msg.attachments
+                      : msg.images.map((img) => ({ ...img, type: 'image' }))
+                    ).map((a) => (
+                      a.type === 'image' ? (
+                        <a
+                          key={a.id}
+                          href={a.url || a.dataUrl || '#'}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mkt-msg-attach-img"
+                          title={a.name}
+                        >
+                          {(a.url || a.dataUrl) ? (
+                            <img src={a.url || a.dataUrl} alt={a.name} className="mkt-msg-attach-thumb" />
+                          ) : (
+                            <span className="mkt-msg-attach-placeholder" aria-label={a.name}>{a.name}</span>
+                          )}
+                        </a>
+                      ) : (
+                        <a
+                          key={a.id}
+                          href={a.url || '#'}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mkt-msg-attach-doc"
+                          title={a.name}
+                        >
+                          <FileText size={14} />
+                          <span className="mkt-msg-attach-doc-name">{a.name}</span>
+                        </a>
+                      )
                     ))}
                   </div>
                 )}
@@ -2999,9 +3120,18 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
               {uploadedFiles.length > 0 && (
                 <div className="mkt-ctx-pills">
                   {uploadedFiles.map((file) => (
-                    <span key={file.id} className={`mkt-ctx-pill ${file.type === 'image' ? 'mkt-ctx-pill--image' : 'mkt-ctx-pill--doc'}`}>
-                      {file.type === 'image' && <img src={file.dataUrl} alt="" className="mkt-file-thumb" />}
+                    <span
+                      key={file.id}
+                      className={`mkt-ctx-pill ${file.type === 'image' ? 'mkt-ctx-pill--image' : 'mkt-ctx-pill--doc'} ${file.status === 'error' ? 'mkt-ctx-pill--error' : ''} ${file.status === 'uploading' ? 'mkt-ctx-pill--uploading' : ''}`}
+                      title={file.status === 'error' ? (file.errorMessage || 'Upload failed') : file.name}
+                    >
+                      {file.type === 'image' && (file.dataUrl || file.url) && (
+                        <img src={file.dataUrl || file.url} alt="" className="mkt-file-thumb" />
+                      )}
+                      {file.type === 'document' && <FileText size={12} className="mkt-file-doc-icon" />}
                       {file.name}
+                      {file.status === 'uploading' && <Loader size={11} className="mkt-file-spinner" />}
+                      {file.status === 'error' && <AlertCircle size={11} className="mkt-file-err" />}
                       <button className="mkt-ctx-pill-x" onClick={() => removeFile(file.id)}>
                         <X size={10} />
                       </button>
@@ -3037,8 +3167,9 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
               />
               <button
                 className="mkt-chat-send"
-                disabled={!chatInput.trim() || isGenerating}
+                disabled={!chatInput.trim() || isGenerating || hasPendingUploads}
                 onClick={handleSend}
+                title={hasPendingUploads ? 'Wait for attachments to finish uploading' : 'Send'}
               >
                 <ArrowUp size={16} />
               </button>

@@ -1160,6 +1160,114 @@
   white-space: nowrap;
 }
 
+/* New attachment chip row — clickable images + doc chips, both
+   open in a new tab. Used for messages saved with the new
+   `attachments` shape (image + doc support). The legacy `images`
+   shape continues to render through the .mkt-msg-images path above. */
+.mkt-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 80%;
+  margin-top: 4px;
+}
+
+.mkt-msg-attach-img {
+  display: block;
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f0f0f2;
+  border: 1px solid var(--border-light, #e5e7eb);
+  flex-shrink: 0;
+  text-decoration: none;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+
+.mkt-msg-attach-img:hover {
+  transform: scale(1.04);
+  border-color: var(--text-muted, #9ca3af);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.mkt-msg-attach-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.mkt-msg-attach-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 10px;
+  color: var(--text-muted, #9ca3af);
+  text-align: center;
+  padding: 6px;
+  word-break: break-all;
+}
+
+.mkt-msg-attach-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  padding: 6px 10px;
+  background: #f0f0f2;
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary, #1a1a1a);
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.mkt-msg-attach-doc:hover {
+  background: #e5e7eb;
+  border-color: var(--text-muted, #9ca3af);
+}
+
+.mkt-msg-attach-doc-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Status indicators on the input-area pills (uploading / error). */
+.mkt-ctx-pill--uploading { opacity: 0.7; }
+
+.mkt-ctx-pill--error {
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.35);
+  color: #b91c1c;
+}
+
+.mkt-file-spinner {
+  color: var(--text-muted, #9ca3af);
+  animation: mktFileSpin 1s linear infinite;
+  flex-shrink: 0;
+}
+
+.mkt-file-err {
+  color: #b91c1c;
+  flex-shrink: 0;
+}
+
+.mkt-file-doc-icon {
+  color: var(--text-muted, #9ca3af);
+  flex-shrink: 0;
+}
+
+@keyframes mktFileSpin {
+  to { transform: rotate(360deg); }
+}
+
 /* Thinking dots */
 .mkt-msg-dots {
   display: inline-flex;
