@@ -84,6 +84,20 @@ function mergeSectionEdits(currentHtml, sections) {
   return result;
 }
 
+// Strip the AI-only context blocks ([CONTEXT…] / [ATTACHED IMAGES…]
+// / [ATTACHED DOCUMENTS…]) from a message's saved content. Used as a
+// render-time fallback for legacy user messages persisted before
+// displayText was added to the schema. Each block opens with a known
+// tag, contains no nested `]`, and ends with `]` followed by
+// optional newlines. New messages stamp displayText directly and
+// don't go through this path.
+function stripCeoContextBlocks(content) {
+  if (!content) return '';
+  return content
+    .replace(/\[(?:CONTEXT|ATTACHED IMAGES|ATTACHED DOCUMENTS)\b[^\]]*\]\s*\n*/g, '')
+    .trim();
+}
+
 // ── Component ──
 export default function AiCeo() {
   const { hasFeature } = useAuth();
@@ -123,6 +137,12 @@ export default function AiCeo() {
   // content so the AI orchestrator can reference it inline.
   const [attachedFiles, setAttachedFiles] = useState([]);
   const fileInputRef = useRef(null);
+  // Snapshot of attachedFiles for the CURRENT turn. Captured on send
+  // (because attachedFiles state is cleared immediately after) so that
+  // the streaming onToolCall handler — which fires later in the
+  // pipeline — can still inject the user's images as reference for
+  // any generate_image tool call the orchestrator emits.
+  const currentTurnAttachmentsRef = useRef([]);
   // Track sessions whose title the user manually edited so the autosave
   // doesn't keep clobbering it with the derived "first user message" title.
   const customTitleIdsRef = useRef(new Set());
@@ -240,12 +260,17 @@ export default function AiCeo() {
       const images = ready.filter((f) => f.type === 'image');
       const docs = ready.filter((f) => f.type === 'document');
       if (images.length > 0) {
-        // The image is uploaded to Supabase storage by /api/upload —
-        // pass the public URL through to the orchestrator so a vision-
-        // capable downstream can fetch the actual pixels. Today the
-        // streaming path is text-only; we still hand off the URL so
-        // when vision is wired in, no UI change is needed.
-        parts.push(`[ATTACHED IMAGES  -  The user attached ${images.length} image(s):\n${images.map((i) => `- "${i.name}" → ${i.url || '(no url)'}`).join('\n')}\n]`);
+        // Tell the orchestrator (a) the images exist by name, and (b)
+        // that calling generate_image will AUTOMATICALLY attach these
+        // pixels as visual reference. The frontend's onToolCall
+        // handler injects them at call time, so the AI doesn't need to
+        // pass URLs or worry about the wire format — it just calls
+        // generate_image with an edit instruction.
+        parts.push(
+          `[ATTACHED IMAGES  -  The user attached ${images.length} image(s):\n` +
+          images.map((i) => `- "${i.name}"`).join('\n') +
+          `\n\nIf the user asks you to edit, modify, build on, or add anything to these image(s) (e.g. "add a CTA button labeled X", "make the background brighter", "add my logo top-right", "change the headline to Y"), call generate_image with a prompt describing the desired change. The system automatically attaches these image(s) to the call as visual reference — you do NOT need to pass URLs or describe the existing image content; just describe the EDIT.]`
+        );
       }
       if (docs.length > 0) {
         // textContent here is the backend-extracted text from
@@ -450,6 +475,25 @@ export default function AiCeo() {
 
       const stripped = messages.map((m) => ({
         id: m.id, role: m.role, content: m.content,
+        // Persist the user-facing display fields so a hard refresh
+        // doesn't fall back to rendering the raw [ATTACHED IMAGES…]
+        // context block in the bubble. Both fields are optional —
+        // assistant messages and legacy user messages won't have them.
+        ...(m.displayText ? { displayText: m.displayText } : {}),
+        // Strip dataUrl before persisting. dataUrl is the full base64
+        // payload from FileReader (1–5 MB per image) — saving it to
+        // the JSONB row blows past Supabase's REST payload limit and
+        // the entire upsert is silently rejected. The Supabase storage
+        // `url` is enough for the bubble's <img>; we only need dataUrl
+        // for the brief pre-upload preview window in fresh state.
+        ...(m.attachments?.length ? {
+          attachments: m.attachments.map((a) => ({
+            id: a.id,
+            type: a.type,
+            name: a.name,
+            url: a.url || null,
+          })),
+        } : {}),
         ...(m.hasArtifact ? { hasArtifact: true, artifactTitle: m.artifactTitle, artifactType: m.artifactType } : {}),
       }));
 
@@ -528,7 +572,18 @@ export default function AiCeo() {
         updated_at: new Date().toISOString(),
       }, { onConflict: 'id' });
 
-      if (!upsertErr) {
+      if (upsertErr) {
+        // Surface autosave failures instead of silently dropping them
+        // — silent failures are how we ended up with messages whose
+        // attachments field got rejected at the REST layer (row too
+        // big from base64 dataUrls) without anyone noticing for days.
+        console.error('[AiCeo] ceo_sessions autosave FAILED', {
+          code: upsertErr.code,
+          message: upsertErr.message,
+          details: upsertErr.details,
+          hint: upsertErr.hint,
+        });
+      } else {
         setSessions((prev) => {
           const idx = prev.findIndex((s) => s.id === sessionId);
           if (idx === -1) {
@@ -1106,9 +1161,38 @@ export default function AiCeo() {
             ));
           }
           if (name === 'generate_image') {
-            console.log(`[AiCeo] 🖼  generate_image START — prompt="${(args.prompt || '').slice(0, 120)}..."`);
+            // Build referenceImages from any image the user attached
+            // this turn, so generate_image edits/builds on the user's
+            // image instead of generating from scratch. dataUrl is set
+            // locally by FileReader at attach time; we strip the
+            // "data:<mime>;base64," prefix to match the backend's
+            // expected { data, mimeType } shape.
+            const turnAttachments = currentTurnAttachmentsRef.current || [];
+            const refImages = turnAttachments
+              .filter((f) => f.type === 'image' && f.dataUrl)
+              .map((f) => {
+                const commaIdx = f.dataUrl.indexOf(',');
+                const mimeMatch = f.dataUrl.match(/^data:([^;]+);/);
+                return {
+                  data: commaIdx !== -1 ? f.dataUrl.slice(commaIdx + 1) : f.dataUrl,
+                  mimeType: mimeMatch?.[1] || 'image/jpeg',
+                };
+              });
+            console.log(`[AiCeo] 🖼  generate_image START — prompt="${(args.prompt || '').slice(0, 120)}...", refImages=${refImages.length}`);
             try {
-              const result = await generateImage(args.prompt, 'general', null, null);
+              // editUserImage flag tells the backend "these reference
+              // images are the user's primary subject — don't fall back
+              // to brand-DNA photos." Without this, the backend would
+              // attach brand-DNA photos as the dominant reference and
+              // Gemini would edit one of those instead of the user's
+              // attached image.
+              const result = await generateImage(
+                args.prompt,
+                'general',
+                null,
+                refImages.length ? refImages : null,
+                refImages.length ? { editUserImage: true } : {},
+              );
               console.log(`[AiCeo] 🖼  generate_image RESULT — image: ${!!result.image}, text: ${result.text ? `"${result.text.slice(0, 100)}"` : '<none>'}`, result);
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
@@ -1234,7 +1318,12 @@ export default function AiCeo() {
     shouldScrollRef.current = true;
     const contextStr = buildCeoContextString();
     const userContent = contextStr + answer.trim();
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: userContent };
+    const userMsg = {
+      id: `msg-${Date.now()}-user`,
+      role: 'user',
+      content: userContent,
+      displayText: answer.trim(),
+    };
     const updated = [...messages, userMsg];
     setMessages(updated);
     sendToAI(updated);
@@ -1248,9 +1337,33 @@ export default function AiCeo() {
     if (attachedFiles.some((f) => f.status === 'uploading')) return;
     setCurrentQuestion(null);
     shouldScrollRef.current = true;
+    // Snapshot DONE attachments BEFORE we clear state. The streaming
+    // onToolCall handler reads this ref later in the turn to inject
+    // referenceImages on any generate_image call.
+    currentTurnAttachmentsRef.current = attachedFiles.filter((f) => f.status === 'done');
     const contextStr = buildCeoContextString();
     const userContent = contextStr + text;
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: userContent };
+    // Trim the attachment list for storage on the message — we only
+    // need what the bubble renders (type, name, url, dataUrl). Drop
+    // status / textContent / dbId etc. so the message payload stays
+    // small and DB-friendly.
+    const msgAttachments = currentTurnAttachmentsRef.current.map((f) => ({
+      id: f.id,
+      type: f.type,
+      name: f.name,
+      url: f.url || null,
+      dataUrl: f.type === 'image' ? f.dataUrl || null : null,
+    }));
+    const userMsg = {
+      id: `msg-${Date.now()}-user`,
+      role: 'user',
+      content: userContent,
+      // displayText is what the user sees in their own bubble.
+      // content is what the AI sees (with [CONTEXT…] / [ATTACHED IMAGES…]
+      // blocks prepended) — those should never leak into the UI.
+      displayText: text,
+      ...(msgAttachments.length ? { attachments: msgAttachments } : {}),
+    };
     const updated = [...messages, userMsg];
     setMessages(updated);
     setInput('');
@@ -1268,9 +1381,24 @@ export default function AiCeo() {
   const handleStarter = useCallback((text) => {
     if (isGenerating) return;
     shouldScrollRef.current = true;
+    // Same per-turn snapshot as sendMessage — see comment there.
+    currentTurnAttachmentsRef.current = attachedFiles.filter((f) => f.status === 'done');
     const contextStr = buildCeoContextString();
     const userContent = contextStr + text;
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: userContent };
+    const msgAttachments = currentTurnAttachmentsRef.current.map((f) => ({
+      id: f.id,
+      type: f.type,
+      name: f.name,
+      url: f.url || null,
+      dataUrl: f.type === 'image' ? f.dataUrl || null : null,
+    }));
+    const userMsg = {
+      id: `msg-${Date.now()}-user`,
+      role: 'user',
+      content: userContent,
+      displayText: text,
+      ...(msgAttachments.length ? { attachments: msgAttachments } : {}),
+    };
     const updated = [userMsg];
     setMessages(updated);
     setAttachedFiles([]);
@@ -1624,9 +1752,49 @@ export default function AiCeo() {
               <div className="ceo-messages" ref={messagesContainerRef}>
                 {messages.map((msg) => {
                   if (msg.role === 'user') {
+                    // Render only what the user actually typed.
+                    // msg.content has the [CONTEXT…] / [ATTACHED IMAGES…]
+                    // blocks prepended for the AI; users shouldn't see
+                    // those in their own bubble. msg.displayText is set
+                    // for new messages; older messages without it fall
+                    // back to content.
                     return (
                       <div key={msg.id} className="ceo-bubble ceo-bubble--user">
-                        <p className="ceo-user-text">{msg.content}</p>
+                        <p className="ceo-user-text">{msg.displayText || stripCeoContextBlocks(msg.content)}</p>
+                        {msg.attachments?.length > 0 && (
+                          <div className="ceo-msg-attachments">
+                            {msg.attachments.map((a) => (
+                              a.type === 'image' ? (
+                                <a
+                                  key={a.id}
+                                  href={a.url || a.dataUrl || '#'}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="ceo-msg-attach-img"
+                                  title={a.name}
+                                >
+                                  {/* Prefer the persisted url (always present after upload + on reload).
+                                      dataUrl exists only briefly in fresh-send state before upload
+                                      finishes, and is dropped on save — falling back to it covers
+                                      the brief pre-upload window only. */}
+                                  <img src={a.url || a.dataUrl} alt={a.name} />
+                                </a>
+                              ) : (
+                                <a
+                                  key={a.id}
+                                  href={a.url || '#'}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="ceo-msg-attach-doc"
+                                  title={a.name}
+                                >
+                                  <FileText size={14} />
+                                  <span className="ceo-msg-attach-doc-name">{a.name}</span>
+                                </a>
+                              )
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   }

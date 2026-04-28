@@ -320,7 +320,13 @@ async function getCachedBrandData(userId) {
 
 // ─── Image generation ───
 router.post('/api/generate/image', requireCredits('image_generation'), async (req, res) => {
-  const { prompt: rawPrompt, platform, brandData, referenceImages } = req.body;
+  // editUserImage: when true, the referenceImages are an image the
+  // user attached IN THE CURRENT CHAT TURN (not a regeneration of a
+  // previous output). In that mode we skip brand-DNA reference photos
+  // so the model edits the user's image directly instead of
+  // substituting the brand DNA face/scene. Brand logo + colors + font
+  // are still applied — only the brand PHOTOS are suppressed.
+  const { prompt: rawPrompt, platform, brandData, referenceImages, editUserImage } = req.body;
   if (!rawPrompt) {
     return res.status(400).json({ error: 'prompt is required' });
   }
@@ -366,12 +372,40 @@ router.post('/api/generate/image', requireCredits('image_generation'), async (re
       if (brand.mainFont) brandContext += `\nBRAND FONT: ${brand.mainFont} (use this typography style)`;
     }
 
-    // Determine what brand assets are available for stronger prompting
-    const hasLogo = brand?.logoUrl;
-    const hasPhotos = brand?.photoUrls?.length > 0;
+    // Determine what brand assets are available for stronger prompting.
+    // editUserImage mode does NOT exclude brand assets — it just adds
+    // the user's chat-attached image to the end of the reference set
+    // and labels every image positionally so Gemini can tell them
+    // apart. The user's prompt directs what to actually do; the
+    // backend only provides clear identification.
+    const hasLogo = !!brand?.logoUrl;
+    const hasPhotos = (brand?.photoUrls?.length || 0) > 0;
+    const userImgCount = (editUserImage && referenceImages?.length) ? referenceImages.length : 0;
 
     let brandImageInstructions = '';
-    if (hasLogo && hasPhotos) {
+    if (userImgCount > 0) {
+      // Build a positional manifest so Gemini knows what each
+      // inlineData part actually is. Brand assets are attached first
+      // (logo → photos), the user's chat image last — same order the
+      // attachment block below uses.
+      const lines = ['ATTACHED IMAGES — what each inline image represents (read positionally; image #1 is the FIRST attached, etc.):'];
+      let idx = 1;
+      if (hasLogo) {
+        lines.push(`  ${idx}. BRAND LOGO — the user's brand mark. Available for placement only if the prompt asks for it.`);
+        idx += 1;
+      }
+      if (hasPhotos) {
+        const n = brand.photoUrls.length;
+        const range = n > 1 ? `${idx}–${idx + n - 1}` : `${idx}`;
+        lines.push(`  ${range}. BRAND PHOTO${n > 1 ? 'S' : ''} — reference photo${n > 1 ? 's' : ''} of the user/founder. Use the face/likeness only if the prompt requires a person; otherwise ignore.`);
+        idx += n;
+      }
+      const range = userImgCount > 1 ? `${idx}–${idx + userImgCount - 1}` : `${idx}`;
+      lines.push(`  ${range}. USER-PROVIDED IMAGE${userImgCount > 1 ? 'S' : ''} (LAST attached) — what the user attached IN THIS CHAT TURN. PRIMARY subject — this is the canvas the user is asking you to work on.`);
+      lines.push('');
+      lines.push('The user\'s prompt below tells you what to DO with these images. Read it carefully and follow exactly. Do not assume the user wants every brand asset combined — only use what the prompt directs.');
+      brandImageInstructions = '\n' + lines.join('\n');
+    } else if (hasLogo && hasPhotos) {
       brandImageInstructions = `
 BRAND ASSETS (attached as reference images):
 - FIRST attached image = BRAND LOGO. Place it small and subtle (corner watermark, max 24px height). The logo is NOT the hero — it's a subtle brand mark.
@@ -430,7 +464,12 @@ ${prompt}`;
     if (brand) {
       const imageUrls = [];
       if (brand.logoUrl) imageUrls.push(brand.logoUrl);
-      // Send ALL brand photos as reference
+      // Brand photos are ALWAYS attached now — the positional manifest
+      // in brandImageInstructions tells Gemini which is which. The
+      // user's prompt directs what to actually use. (Earlier version
+      // suppressed photos in editUserImage mode; that was too
+      // restrictive — the user might legitimately ask "place me from
+      // my brand photo onto the attached background image".)
       if (brand.photoUrls?.length) {
         imageUrls.push(...brand.photoUrls);
       }
@@ -455,15 +494,24 @@ ${prompt}`;
       console.log(`[generate/image] ⚠️ No brand data available — generating without brand references`);
     }
 
-    // Attach previous images as reference when regenerating
+    // Attach reference images. Two modes:
+    //   editUserImage=true  → user attached their own image in chat;
+    //                         it's the PRIMARY subject. Brand photos
+    //                         have already been suppressed above.
+    //   editUserImage=false → regeneration of a previous AI output;
+    //                         keep style/composition, apply changes.
     if (referenceImages?.length) {
-      requestParts.push({ text: '\n\nPREVIOUS VERSION (the user wants you to IMPROVE on this image — keep the same overall style, layout, and composition but apply the requested changes. Do NOT start from scratch):' });
+      if (editUserImage) {
+        requestParts.push({ text: `\n\n=== USER-PROVIDED IMAGE (the actual subject — apply your edit to THIS image, not anything else above. The user explicitly attached this image; it IS the canvas you are editing) ===` });
+      } else {
+        requestParts.push({ text: '\n\nPREVIOUS VERSION (the user wants you to IMPROVE on this image — keep the same overall style, layout, and composition but apply the requested changes. Do NOT start from scratch):' });
+      }
       for (const refImg of referenceImages) {
         if (refImg?.data && refImg?.mimeType) {
           requestParts.push({ inlineData: { data: refImg.data, mimeType: refImg.mimeType } });
         }
       }
-      console.log(`[generate/image] 🔄 Regeneration mode — attached ${referenceImages.length} previous image(s) as reference`);
+      console.log(`[generate/image] ${editUserImage ? '✏️  editUserImage mode' : '🔄 Regeneration mode'} — attached ${referenceImages.length} reference image(s) as ${editUserImage ? 'PRIMARY subject' : 'previous version'}`);
     }
 
     // Select model + config based on platform

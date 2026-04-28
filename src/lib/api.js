@@ -882,10 +882,12 @@ export async function deleteEmail(id) {
 export async function generateImage(prompt, platform, brandData, referenceImages, opts = {}) {
   const headers = await getAuthHeaders();
   const body = { prompt, platform, brandData };
-  // Include previous images as reference when regenerating
+  // Include reference images. When `opts.editUserImage` is true, the
+  // backend treats them as a user-attached primary subject (skips
+  // brand photos so they don't substitute the user's image). When
+  // false / unset, they're treated as a previous-output regeneration.
   if (referenceImages?.length) body.referenceImages = referenceImages;
-  // TEMP DEBUG — image-gen provider toggle ('mentor' default | 'gemini' direct)
-  if (opts.provider) body.provider = opts.provider;
+  if (opts.editUserImage) body.editUserImage = true;
   const res = await fetch(`${API_URL}/api/generate/image`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },

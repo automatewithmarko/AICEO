@@ -407,6 +407,73 @@
   margin: 0;
 }
 
+/* Attachment chip row inside the user bubble — shown when the user
+   sent a message with files attached. Each chip is a clickable link
+   that opens the underlying file in a new tab (image preview / PDF
+   viewer / etc., per the browser's default handler for that MIME). */
+.ceo-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ceo-msg-attach-img {
+  display: block;
+  width: 84px;
+  height: 84px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+  text-decoration: none;
+}
+
+.ceo-msg-attach-img:hover {
+  transform: scale(1.04);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.ceo-msg-attach-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Document chip — file icon + filename, also clickable. */
+.ceo-msg-attach-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 240px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ceo-msg-attach-doc:hover {
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.ceo-msg-attach-doc-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
 .ceo-bubble--assistant {
   align-self: flex-start;
   background: #1e1f21;
