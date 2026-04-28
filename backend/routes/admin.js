@@ -92,24 +92,45 @@ router.get('/api/admin/users/:id', requireAdmin, async (req, res) => {
 router.post('/api/admin/users/:id/plan', requireAdmin, async (req, res) => {
   try {
     const userId = req.params.id;
-    const { plan } = req.body;
+    const { plan, mark_setup_paid, mark_meeting_booked, mark_subscription_active } = req.body;
 
     if (!plan) return res.status(400).json({ error: 'plan is required' });
 
+    // "none" = remove subscription entirely so user sees plan selector
+    if (plan === 'none') {
+      await supabase.from('subscriptions').delete().eq('user_id', userId);
+      console.log(`[admin] Removed plan for user ${userId}`);
+      return res.json({ subscription: null });
+    }
+
+    const now = new Date().toISOString();
+
+    // Determine the correct status based on which steps are marked
+    let status = 'pending';
+    if (mark_setup_paid) status = 'setup_paid';
+    if (mark_subscription_active) status = 'active';
+
+    const upsertData = {
+      user_id: userId,
+      plan,
+      status,
+      updated_at: now,
+    };
+
+    if (mark_setup_paid) upsertData.setup_paid_at = now;
+    if (mark_meeting_booked) upsertData.meeting_booked_at = now;
+    if (mark_subscription_active) upsertData.stripe_subscription_id = `admin_bypass_${Date.now()}`;
+
     const { data, error } = await supabase
       .from('subscriptions')
-      .upsert({
-        user_id: userId,
-        plan,
-        status: 'active',
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' })
+      .upsert(upsertData, { onConflict: 'user_id' })
       .select()
       .single();
 
     if (error) throw error;
 
-    console.log(`[admin] Assigned plan "${plan}" to user ${userId}`);
+    const skipped = [mark_setup_paid && 'setup', mark_meeting_booked && 'meeting', mark_subscription_active && 'subscription'].filter(Boolean);
+    console.log(`[admin] Assigned plan "${plan}" to user ${userId}${skipped.length ? ` (skipped: ${skipped.join(', ')})` : ''}`);
     res.json({ subscription: data });
   } catch (err) {
     console.error('[admin/users/:id/plan]', err.message);

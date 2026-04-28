@@ -4,6 +4,7 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { supabase } from './storage.js';
+import { getValidAccessToken } from './outlook-oauth-refresh.js';
 
 const RESYNC_INTERVAL = 5 * 60 * 1000; // 5 min safety net
 const RECONNECT_DELAY = 15000; // 15s before reconnect
@@ -12,14 +13,17 @@ const RECONNECT_DELAY = 15000; // 15s before reconnect
 const activeConnections = new Map(); // accountId -> { client, destroy }
 
 function createClient(account) {
+  const isOAuth = account.auth_type === 'oauth' && account.oauth_access_token;
+
+  const auth = isOAuth
+    ? { user: account.username || account.email, accessToken: account.oauth_access_token }
+    : { user: account.username, pass: account.password };
+
   return new ImapFlow({
     host: account.imap_host,
     port: account.imap_port,
     secure: account.imap_port === 993,
-    auth: {
-      user: account.username,
-      pass: account.password,
-    },
+    auth,
     logger: false,
     tls: { rejectUnauthorized: true },
     connectionTimeout: 15000,
@@ -131,6 +135,16 @@ async function fetchLatestMessages(client, account, count = 10) {
 
 async function startIdleConnection(account) {
   if (activeConnections.has(account.id)) return;
+
+  // Refresh OAuth token before connecting
+  if (account.auth_type === 'oauth') {
+    try {
+      account = await getValidAccessToken(account);
+    } catch (err) {
+      console.log(`[email-idle] OAuth token refresh failed for ${account.email}: ${err.message}`);
+      return;
+    }
+  }
 
   const client = createClient(account);
   let destroyed = false;

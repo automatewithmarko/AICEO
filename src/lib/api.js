@@ -711,6 +711,31 @@ export async function addEmailAccount(data) {
   return res.json();
 }
 
+export async function getOutlookAuthUrl() {
+  const headers = await getAuthHeaders();
+  const origin = encodeURIComponent(window.location.origin);
+  const res = await fetch(`${API_URL}/api/email-accounts/outlook/auth?origin=${origin}`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to start Outlook OAuth' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
+export async function connectOutlookCallback(code, state) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/email-accounts/outlook/callback`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, state }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Outlook connection failed' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
 export async function deleteEmailAccount(id) {
   const headers = await getAuthHeaders();
   await fetch(`${API_URL}/api/email-accounts/${id}`, {
@@ -854,11 +879,13 @@ export async function deleteEmail(id) {
 
 // ─── Image Generation (Nano Banana 2) ───
 
-export async function generateImage(prompt, platform, brandData, referenceImages) {
+export async function generateImage(prompt, platform, brandData, referenceImages, opts = {}) {
   const headers = await getAuthHeaders();
   const body = { prompt, platform, brandData };
   // Include previous images as reference when regenerating
   if (referenceImages?.length) body.referenceImages = referenceImages;
+  // TEMP DEBUG — image-gen provider toggle ('mentor' default | 'gemini' direct)
+  if (opts.provider) body.provider = opts.provider;
   const res = await fetch(`${API_URL}/api/generate/image`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },

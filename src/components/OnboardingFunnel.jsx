@@ -131,7 +131,10 @@ export default function OnboardingFunnel() {
   const [loadingState, setLoadingState] = useState(false);
 
   // Sync from AuthContext on mount + whenever it changes.
-  useEffect(() => { setSub(planData?.subscription || null); }, [planData]);
+  useEffect(() => {
+    console.log('[OnboardingFunnel] planData.subscription changed:', planData?.subscription);
+    setSub(planData?.subscription || null);
+  }, [planData]);
 
   // After returning from Stripe Checkout (success URL has ?checkout=…)
   // poll the billing endpoint until the new funnel state shows up.
@@ -179,10 +182,19 @@ export default function OnboardingFunnel() {
   }, []);
 
   const stepKey = useMemo(() => {
-    if (sub?.has_active_monthly) return 'done';
-    if (sub?.meeting_booked_at) return 'monthly';
-    if (sub?.setup_paid_at) return 'meeting';
-    return 'setup';
+    const key = sub?.has_active_monthly ? 'done'
+      : sub?.meeting_booked_at ? 'monthly'
+      : sub?.setup_paid_at ? 'meeting'
+      : 'setup';
+    console.log('[OnboardingFunnel] stepKey =', key, '| sub:', JSON.stringify({
+      status: sub?.status,
+      plan: sub?.plan,
+      setup_paid_at: sub?.setup_paid_at,
+      meeting_booked_at: sub?.meeting_booked_at,
+      has_active_monthly: sub?.has_active_monthly,
+      stripe_subscription_id: sub?.stripe_subscription_id,
+    }));
+    return key;
   }, [sub]);
 
   // Only return null when we're CERTAIN the user is past the funnel —

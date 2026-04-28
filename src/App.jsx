@@ -22,6 +22,7 @@ import Forms from './pages/Forms';
 import FormBuilder from './pages/FormBuilder';
 import FormResponses from './pages/FormResponses';
 import FormPlayer from './pages/FormPlayer';
+import MicrosoftPages from './pages/MicrosoftPages';
 import Docs from './pages/Docs';
 
 function App() {
@@ -38,6 +39,9 @@ function App() {
   if (!user) {
     return (
       <Routes>
+        <Route path="/microsofthomepage" element={<MicrosoftPages />} />
+        <Route path="/privacy" element={<MicrosoftPages />} />
+        <Route path="/terms" element={<MicrosoftPages />} />
         <Route path="/shared/:token" element={<SharedMeeting />} />
         <Route path="/f/:slug" element={<FormPlayer />} />
         <Route path="*" element={<LoginScreen />} />
@@ -49,6 +53,9 @@ function App() {
     <>
     <OnboardingFunnel />
     <Routes>
+      <Route path="/microsofthomepage" element={<MicrosoftPages />} />
+      <Route path="/privacy" element={<MicrosoftPages />} />
+      <Route path="/terms" element={<MicrosoftPages />} />
       <Route path="/shared/:token" element={<SharedMeeting />} />
       <Route path="/f/:slug" element={<FormPlayer />} />
       <Route element={<Layout />}>
@@ -71,6 +78,7 @@ function App() {
         <Route path="/meetings" element={<Meetings />} />
         <Route path="/meetings/:id" element={<MeetingDetail />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/settings/outlook/callback" element={<Settings />} />
         <Route path="/billing" element={<Billing />} />
         <Route path="/docs" element={<Docs />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

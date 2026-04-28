@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, ChevronDown, FileText, Loader, Plus, Dna, Calendar } from 'lucide-react';
 import ColorWheelPicker from '../components/ColorWheelPicker';
 import FontSelector from '../components/FontSelector';
-import { uploadBrandDnaFiles, uploadContextFiles, getIntegrations, connectIntegration, disconnectIntegration, getLinkedInAuthUrl, disconnectLinkedIn, getEmailAccounts, addEmailAccount, deleteEmailAccount, syncEmailAccount } from '../lib/api';
+import { uploadBrandDnaFiles, uploadContextFiles, getIntegrations, connectIntegration, disconnectIntegration, getLinkedInAuthUrl, disconnectLinkedIn, getEmailAccounts, addEmailAccount, deleteEmailAccount, syncEmailAccount, getOutlookAuthUrl, connectOutlookCallback } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
 import './Settings.css';
@@ -110,6 +110,43 @@ export default function Settings() {
       }, 200);
     }
   }, [location.state]);
+
+  // Handle Outlook OAuth callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    if (!code || !window.location.pathname.includes('/outlook/callback')) return;
+
+    // Clean the URL immediately
+    window.history.replaceState({}, '', '/settings');
+
+    (async () => {
+      setConnecting(true);
+      setConnectError(null);
+      try {
+        const savedState = sessionStorage.getItem('outlook_oauth_state');
+        if (savedState && savedState !== state) {
+          throw new Error('OAuth state mismatch — please try again');
+        }
+        sessionStorage.removeItem('outlook_oauth_state');
+
+        const result = await connectOutlookCallback(code, state);
+        setIntegrations((prev) => ({ ...prev, email: { is_active: true, provider: 'email' } }));
+        if (result.account) {
+          setEmailAccounts((prev) => {
+            const exists = prev.some(a => a.id === result.account.id);
+            return exists ? prev.map(a => a.id === result.account.id ? { ...a, ...result.account } : a) : [...prev, result.account];
+          });
+        }
+      } catch (err) {
+        setConnectError(err.message);
+        setModalOpen('email');
+      } finally {
+        setConnecting(false);
+      }
+    })();
+  }, []);
 
   // Helper to load a brand DNA record into form state
   const loadBrandDnaIntoForm = (data) => {
@@ -401,6 +438,19 @@ export default function Settings() {
       // Silently fail
     } finally {
       setRemovingEmailId(null);
+    }
+  };
+
+  const handleOutlookOAuth = async () => {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const { url, state } = await getOutlookAuthUrl();
+      sessionStorage.setItem('outlook_oauth_state', state);
+      window.location.href = url;
+    } catch (err) {
+      setConnectError(err.message);
+      setConnecting(false);
     }
   };
 
@@ -815,7 +865,11 @@ export default function Settings() {
                       <Mail size={15} />
                       <div className="settings-email-account-info">
                         <span className="settings-email-account-address">{acc.email}</span>
-                        {acc.display_name && <span className="settings-email-account-name">{acc.display_name}</span>}
+                        <span className="settings-email-account-name">
+                          {acc.display_name ? `${acc.display_name} · ` : ''}
+                          {acc.provider === 'outlook' ? 'Outlook' : acc.provider === 'gmail' ? 'Gmail' : 'IMAP'}
+                          {acc.auth_type === 'oauth' ? ' (OAuth)' : ''}
+                        </span>
                       </div>
                       <button
                         className="settings-btn settings-btn--danger settings-btn--sm"
@@ -1518,12 +1572,29 @@ export default function Settings() {
               </>
             )}
 
-            {/* Email (SMTP/IMAP) */}
+            {/* Email (SMTP/IMAP + Outlook OAuth) */}
             {modalOpen === 'email' && (
               <>
                 <p className="modal-description">
-                  Connect your email account via SMTP/IMAP to send and receive emails directly from the PuerlyPersonal AI CEO.
+                  Connect your email account to send and receive emails directly from the PuerlyPersonal AI CEO.
                 </p>
+
+                {/* Outlook OAuth — one-click */}
+                <button
+                  className="modal-btn modal-btn--outlook"
+                  onClick={handleOutlookOAuth}
+                  disabled={connecting}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 16, background: '#0078d4', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontWeight: 600, cursor: 'pointer', fontSize: 14 }}
+                >
+                  <img src="/outlook-logo.png" alt="" style={{ width: 20, height: 20 }} onError={(e) => { e.target.style.display = 'none'; }} />
+                  {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect with Outlook'}
+                </button>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '4px 0 16px' }}>
+                  <hr style={{ flex: 1, border: 'none', borderTop: '1px solid rgba(255,255,255,0.1)' }} />
+                  <span style={{ fontSize: 12, opacity: 0.5 }}>or connect via IMAP/SMTP</span>
+                  <hr style={{ flex: 1, border: 'none', borderTop: '1px solid rgba(255,255,255,0.1)' }} />
+                </div>
 
                 <div className="modal-connect-instructions">
                   <details>
@@ -1535,11 +1606,10 @@ export default function Settings() {
                     </ol>
                   </details>
                   <details>
-                    <summary className="modal-connect-summary">Outlook setup instructions</summary>
+                    <summary className="modal-connect-summary">Other providers (Yahoo, iCloud, Zoho)</summary>
                     <ol className="modal-connect-steps">
-                      <li>Go to <a href="https://account.microsoft.com/security" target="_blank" rel="noopener noreferrer">Microsoft Account Security</a></li>
-                      <li>Enable Two-step verification, then create an app password</li>
-                      <li>Use <strong>outlook.office365.com</strong> (port 993) and <strong>smtp-mail.outlook.com</strong> (port 587)</li>
+                      <li>Check your provider's security settings for an app password option</li>
+                      <li>Enter the IMAP/SMTP hosts and ports below — they auto-fill for known providers</li>
                     </ol>
                   </details>
                 </div>
@@ -1586,7 +1656,7 @@ export default function Settings() {
                   disabled={!emailForm.email || !emailForm.username || !emailForm.password || !emailForm.imapHost || !emailForm.smtpHost || connecting}
                   onClick={handleEmailConnect}
                 >
-                  {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
+                  {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect via IMAP'}
                 </button>
               </>
             )}

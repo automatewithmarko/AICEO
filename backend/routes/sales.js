@@ -6,8 +6,8 @@ import { requireCredits, requireFeature } from '../middleware/gate.js';
 const router = Router();
 
 const xai = new OpenAI({
-  apiKey: process.env.XAI_API_KEY,
-  baseURL: 'https://api.x.ai/v1',
+  apiKey: process.env.MENTOR_API_KEY,
+  baseURL: (process.env.MENTOR_BASE_URL || 'https://platform.thementorprogram.xyz') + '/api/v1',
 });
 
 // ─── Get revenue chart data ───
