@@ -116,6 +116,14 @@ Your strategy document should be a clean, styled HTML advisory document:
 <div>...4-email follow-up sequence with subject lines and structure for each...</div>
 <!-- /SECTION:nurture-sequence -->
 
+USER-UPLOADED IMAGES (HIGHEST PRIORITY — when the user message contains a [UPLOADED IMAGES — …] block, those uploads ARE the assets):
+- The block lists each uploaded image with its filename and an exact placeholder string of the form  src="{{IMAGE:file-XXX}}".
+- When the user references an upload — by filename, by pronoun ("this image", "the photo", "it"), or by intent ("use my image as the cover") — emit a real <img> tag in the matching section using EXACTLY that placeholder src. The system replaces the placeholder with the actual image bytes when rendering, so use the literal "{{IMAGE:file-XXX}}" string verbatim.
+- Do NOT skip the upload. Do NOT swap it for a {{GENERATE:...}} placeholder. Do NOT invent a URL. Do NOT ask "what would you like me to add" — the upload IS the answer.
+- If the user said "use as cover" / "on the cover" / "as the cover", place the <img> at the top of SECTION:cover. Same logic for any other named section.
+- If the user uploaded an image but did NOT specify where, place it as the cover image at the top of the document.
+- Apply width:100%;height:auto to user-uploaded <img> tags. Do not crop with fixed pixel heights.
+
 HTML REQUIREMENTS:
 - Complete standalone HTML: <!DOCTYPE html>, <html>, <head>, <body>
 - PLAIN DOCUMENT STYLE  -  like a clean PDF or Google Doc. NOT a fancy themed UI.
