@@ -1248,6 +1248,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [showSessions, setShowSessions] = useState(false);
+  const [loadingSession, setLoadingSession] = useState(false);
   const [renamingSessionId, setRenamingSessionId] = useState(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -1383,44 +1384,42 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
 
   // ── Session lifecycle handlers ──
   const loadSession = useCallback(async (id, { navigateToUrl = true } = {}) => {
-    const { data, error } = await supabase
-      .from('marketing_sessions')
-      .select('*')
-      .eq('id', id)
-      .single();
-    if (error || !data) {
-      // Session doesn't exist (e.g. URL to a deleted session) — treat as a
-      // fresh conversation with this id so the user lands somewhere sane.
-      // Mirrors AiCeo's behaviour.
-      sessionIdRef.current = id;
-      setSessionId(id);
-      setChatMessages([]);
-      setMessages([]);
-      setCanvasHtml('');
-      setStoryFrames([]);
-      setCurrentQuestion(null);
-      return;
-    }
-    sessionIdRef.current = data.id;
-    setSessionId(data.id);
-    // Belt for old sessions saved before the empty-message filter: skip any
-    // empty-content assistants so a legacy aborted-turn row can't poison
-    // the next orchestrate call with an empty assistant that Anthropic 400s on.
-    const safeMessages = (data.messages || []).filter((m) => {
-      const text = m.text || m.content || '';
-      const hasImages = Array.isArray(m.images) && m.images.length > 0;
-      return text.trim().length > 0 || hasImages;
-    });
-    setChatMessages(safeMessages);
-    // ApiMessages mirror chatMessages but without UI-only fields; rebuild.
-    setMessages(safeMessages.map((m) => ({ role: m.role, content: m.text || m.content || '' })));
-    setCanvasHtml(data.canvas_html || '');
-    setStoryFrames(Array.isArray(data.story_frames) ? data.story_frames : []);
-    setCurrentQuestion(null);
-    setCustomTyping(false);
-    setCustomText('');
+    setLoadingSession(true);
     setShowSessions(false);
-    if (navigateToUrl) navigate(`/marketing/${activeTool}/${data.id}`, { replace: true });
+    try {
+      const { data, error } = await supabase
+        .from('marketing_sessions')
+        .select('*')
+        .eq('id', id)
+        .single();
+      if (error || !data) {
+        sessionIdRef.current = id;
+        setSessionId(id);
+        setChatMessages([]);
+        setMessages([]);
+        setCanvasHtml('');
+        setStoryFrames([]);
+        setCurrentQuestion(null);
+        return;
+      }
+      sessionIdRef.current = data.id;
+      setSessionId(data.id);
+      const safeMessages = (data.messages || []).filter((m) => {
+        const text = m.text || m.content || '';
+        const hasImages = Array.isArray(m.images) && m.images.length > 0;
+        return text.trim().length > 0 || hasImages;
+      });
+      setChatMessages(safeMessages);
+      setMessages(safeMessages.map((m) => ({ role: m.role, content: m.text || m.content || '' })));
+      setCanvasHtml(data.canvas_html || '');
+      setStoryFrames(Array.isArray(data.story_frames) ? data.story_frames : []);
+      setCurrentQuestion(null);
+      setCustomTyping(false);
+      setCustomText('');
+      if (navigateToUrl) navigate(`/marketing/${activeTool}/${data.id}`, { replace: true });
+    } finally {
+      setLoadingSession(false);
+    }
   }, [activeTool, navigate]);
 
   const newConversation = useCallback(() => {
@@ -2782,8 +2781,15 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
           </div>
         )}
 
+        {/* Loading indicator when switching conversations */}
+        {loadingSession && (
+          <div className="mkt-messages" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 0' }}>
+            <Loader size={24} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-muted)' }} />
+          </div>
+        )}
+
         {/* Chat messages (shown when chat started) */}
-        {chatStarted && (
+        {chatStarted && !loadingSession && (
           <div className="mkt-messages">
             {chatMessages.map((msg) => (
               <div key={msg.id} className={`mkt-msg-row mkt-msg-row--${msg.role}`}>
@@ -3373,7 +3379,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
                 <div
                   key={s.id}
                   className={`mkt-sessions-item ${s.id === sessionId ? 'mkt-sessions-item--active' : ''}`}
-                  onClick={() => { if (!isRenaming) loadSession(s.id); }}
+                  onClick={() => { if (!isRenaming && !loadingSession) loadSession(s.id); }}
                 >
                   <div className="mkt-sessions-item-info">
                     {isRenaming ? (

@@ -34,6 +34,11 @@ export function AuthProvider({ children }) {
     let billingInfo = null;
     try {
       billingInfo = await getBillingPlan();
+      console.log('[AuthContext] billingInfo:', JSON.stringify({
+        plan: billingInfo?.plan?.name,
+        subscription: billingInfo?.subscription,
+        credits: billingInfo?.credits?.balance,
+      }));
     } catch {
       // Fallback to direct DB queries if billing API not ready
     }
@@ -43,13 +48,15 @@ export function AuthProvider({ children }) {
     let planFeatures = [];
     let billingData = null;
 
-    if (billingInfo?.plan) {
-      plan = billingInfo.plan.display_name || billingInfo.plan.name || billingInfo.plan.id;
+    if (billingInfo?.plan || billingInfo?.subscription) {
+      if (billingInfo.plan) {
+        plan = billingInfo.plan.display_name || billingInfo.plan.name || billingInfo.plan.id;
+        const featObj = billingInfo.plan.features || {};
+        planFeatures = Object.entries(featObj).filter(([, v]) => !!v).map(([k]) => k);
+      } else if (billingInfo.subscription?.plan) {
+        plan = billingInfo.subscription.plan.charAt(0).toUpperCase() + billingInfo.subscription.plan.slice(1);
+      }
       creditBalance = billingInfo.credits?.balance ?? 0;
-      // features is a jsonb object like { crm: true, marketing_ai: true, ... }
-      // Convert to array of enabled feature names for hasFeature() checks
-      const featObj = billingInfo.plan.features || {};
-      planFeatures = Object.entries(featObj).filter(([, v]) => !!v).map(([k]) => k);
       billingData = {
         plan: billingInfo.plan,
         subscription: billingInfo.subscription,
