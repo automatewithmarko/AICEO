@@ -480,7 +480,20 @@ export default function AiCeo() {
         // context block in the bubble. Both fields are optional —
         // assistant messages and legacy user messages won't have them.
         ...(m.displayText ? { displayText: m.displayText } : {}),
-        ...(m.attachments?.length ? { attachments: m.attachments } : {}),
+        // Strip dataUrl before persisting. dataUrl is the full base64
+        // payload from FileReader (1–5 MB per image) — saving it to
+        // the JSONB row blows past Supabase's REST payload limit and
+        // the entire upsert is silently rejected. The Supabase storage
+        // `url` is enough for the bubble's <img>; we only need dataUrl
+        // for the brief pre-upload preview window in fresh state.
+        ...(m.attachments?.length ? {
+          attachments: m.attachments.map((a) => ({
+            id: a.id,
+            type: a.type,
+            name: a.name,
+            url: a.url || null,
+          })),
+        } : {}),
         ...(m.hasArtifact ? { hasArtifact: true, artifactTitle: m.artifactTitle, artifactType: m.artifactType } : {}),
       }));
 
@@ -559,7 +572,18 @@ export default function AiCeo() {
         updated_at: new Date().toISOString(),
       }, { onConflict: 'id' });
 
-      if (!upsertErr) {
+      if (upsertErr) {
+        // Surface autosave failures instead of silently dropping them
+        // — silent failures are how we ended up with messages whose
+        // attachments field got rejected at the REST layer (row too
+        // big from base64 dataUrls) without anyone noticing for days.
+        console.error('[AiCeo] ceo_sessions autosave FAILED', {
+          code: upsertErr.code,
+          message: upsertErr.message,
+          details: upsertErr.details,
+          hint: upsertErr.hint,
+        });
+      } else {
         setSessions((prev) => {
           const idx = prev.findIndex((s) => s.id === sessionId);
           if (idx === -1) {
@@ -1749,7 +1773,11 @@ export default function AiCeo() {
                                   className="ceo-msg-attach-img"
                                   title={a.name}
                                 >
-                                  <img src={a.dataUrl || a.url} alt={a.name} />
+                                  {/* Prefer the persisted url (always present after upload + on reload).
+                                      dataUrl exists only briefly in fresh-send state before upload
+                                      finishes, and is dropped on save — falling back to it covers
+                                      the brief pre-upload window only. */}
+                                  <img src={a.url || a.dataUrl} alt={a.name} />
                                 </a>
                               ) : (
                                 <a
