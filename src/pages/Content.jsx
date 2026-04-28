@@ -1287,6 +1287,20 @@ ${LINKEDIN_CAROUSEL_PROMPT}
 };
 
 // Parse <<OPTIONS>> blocks from AI response
+// Strip the AI-only [CONTEXT — …] block from a saved user message so
+// the bubble renders the user's typed text only. New messages stamp
+// `displayText` directly and skip this path; this is the render-time
+// fallback for legacy messages persisted before displayText existed.
+// Content only emits [CONTEXT — …] (its photos / docs live in the
+// sidebar, never in the prompt as text blocks), so a single tag is
+// enough.
+function stripContentContextBlocks(content) {
+  if (!content) return '';
+  return content
+    .replace(/\[CONTEXT\b[^\]]*\]\s*\n*/g, '')
+    .trim();
+}
+
 function parseMessageOptions(content) {
   const match = content.match(/<<OPTIONS>>\n?([\s\S]*?)\n?<<\/OPTIONS>>/);
   if (!match) return { text: content, options: null };
@@ -3830,6 +3844,11 @@ export default function Content() {
             }
           : undefined;
         const persisted = { id: m.id, role: m.role, content: m.content, images: uploadedImages };
+        // Persist displayText so a reload doesn't fall back to
+        // rendering the raw [CONTEXT — …] block in the user bubble.
+        // Optional — assistant messages and legacy user messages
+        // won't have it.
+        if (m.displayText) persisted.displayText = m.displayText;
         if (persistedPlan) persisted.carouselPlan = persistedPlan;
         if (m.platform) persisted.platform = m.platform;
         if (m.linkedinPost && m.linkedinPost.content) {
@@ -4996,7 +5015,15 @@ export default function Content() {
     setCustomTyping(false);
     setCustomText('');
     const contextStr = buildContentContextString();
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: contextStr + option };
+    const userMsg = {
+      id: `msg-${Date.now()}-user`,
+      role: 'user',
+      content: contextStr + option,
+      // displayText is what the bubble shows. content carries the
+      // [CONTEXT — …] block prepended for the AI; users shouldn't
+      // see that noise in their own bubble.
+      displayText: option,
+    };
     const updated = [...messages, userMsg];
     setMessages(updated);
     sendToAI(updated);
@@ -5006,7 +5033,12 @@ export default function Content() {
     const text = input.trim();
     if (!text || isGenerating || hasPendingAttachments) return;
     const contextStr = buildContentContextString();
-    const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: contextStr + text };
+    const userMsg = {
+      id: `msg-${Date.now()}-user`,
+      role: 'user',
+      content: contextStr + text,
+      displayText: text,
+    };
     const updated = [...messages, userMsg];
     setMessages(updated);
     setInput('');
@@ -6343,9 +6375,15 @@ export default function Content() {
             <div className="content-messages">
               {messages.map((msg) => {
                 if (msg.role === 'user') {
+                  // Render only what the user actually typed.
+                  // msg.content has the [CONTEXT — …] block prepended
+                  // for the AI; users shouldn't see that in their own
+                  // bubble. New messages stamp displayText directly;
+                  // legacy messages without it fall back through the
+                  // strip helper.
                   return (
                     <div key={msg.id} className="content-bubble content-bubble--user">
-                      <p className="content-user-text">{msg.content}</p>
+                      <p className="content-user-text">{msg.displayText || stripContentContextBlocks(msg.content)}</p>
                     </div>
                   );
                 }
