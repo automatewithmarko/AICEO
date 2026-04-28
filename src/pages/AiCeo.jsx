@@ -84,6 +84,20 @@ function mergeSectionEdits(currentHtml, sections) {
   return result;
 }
 
+// Strip the AI-only context blocks ([CONTEXT…] / [ATTACHED IMAGES…]
+// / [ATTACHED DOCUMENTS…]) from a message's saved content. Used as a
+// render-time fallback for legacy user messages persisted before
+// displayText was added to the schema. Each block opens with a known
+// tag, contains no nested `]`, and ends with `]` followed by
+// optional newlines. New messages stamp displayText directly and
+// don't go through this path.
+function stripCeoContextBlocks(content) {
+  if (!content) return '';
+  return content
+    .replace(/\[(?:CONTEXT|ATTACHED IMAGES|ATTACHED DOCUMENTS)\b[^\]]*\]\s*\n*/g, '')
+    .trim();
+}
+
 // ── Component ──
 export default function AiCeo() {
   const { hasFeature } = useAuth();
@@ -461,6 +475,12 @@ export default function AiCeo() {
 
       const stripped = messages.map((m) => ({
         id: m.id, role: m.role, content: m.content,
+        // Persist the user-facing display fields so a hard refresh
+        // doesn't fall back to rendering the raw [ATTACHED IMAGES…]
+        // context block in the bubble. Both fields are optional —
+        // assistant messages and legacy user messages won't have them.
+        ...(m.displayText ? { displayText: m.displayText } : {}),
+        ...(m.attachments?.length ? { attachments: m.attachments } : {}),
         ...(m.hasArtifact ? { hasArtifact: true, artifactTitle: m.artifactTitle, artifactType: m.artifactType } : {}),
       }));
 
@@ -1716,7 +1736,7 @@ export default function AiCeo() {
                     // back to content.
                     return (
                       <div key={msg.id} className="ceo-bubble ceo-bubble--user">
-                        <p className="ceo-user-text">{msg.displayText || msg.content}</p>
+                        <p className="ceo-user-text">{msg.displayText || stripCeoContextBlocks(msg.content)}</p>
                         {msg.attachments?.length > 0 && (
                           <div className="ceo-msg-attachments">
                             {msg.attachments.map((a) => (
