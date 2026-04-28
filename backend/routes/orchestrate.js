@@ -633,7 +633,15 @@ RULES:
 4. old_text must be EXACT  -  include enough surrounding context to be unique if needed.
 5. After all edits, respond with a 1-sentence summary of what you changed.
 6. NEVER rewrite the entire page.
-7. Preserve all existing styles, classes, and structure unless the user asks to change them.`;
+7. Preserve all existing styles, classes, and structure unless the user asks to change them.
+
+USER-UPLOADED IMAGES (CRITICAL):
+- When the user message contains a [UPLOADED IMAGES — …] block, those uploads ARE the assets the user is referring to.
+- Each upload is listed with its filename and an exact placeholder of the form  src="{{IMAGE:file-XXX}}". The frontend swaps the placeholder for the real image at render time.
+- When the user says "add attached image to hero" / "use this image as the hero" / "put the photo in the cover" / etc., you MUST call replace_section (or replace_text) and emit a real <img> tag whose src is EXACTLY the literal placeholder string  {{IMAGE:file-XXX}}  from the manifest. Do not invent URLs. Do not write the placeholder as plain text outside an <img> tag. Do not narrate that the placeholder is "already there"  -  if the placeholder isn't already in the existing HTML you can see, IT IS NOT THERE and you must add it.
+- The placeholder text {{IMAGE:file-XXX}} will NOT appear in the existing HTML you were given unless a previous edit already inserted it. Your job is to insert the <img> tag with that placeholder src now.
+- Apply  style="width:100%;height:auto;"  on inserted user-upload <img> tags. Do not crop with fixed pixel heights.
+- After making the actual tool call(s), summarise in one sentence (rule 5). The summary alone is not enough  -  you MUST call a tool to make the edit visible.`;
 
   if (brandDna) {
     prompt += '\n\n' + buildBrandContext(brandDna);

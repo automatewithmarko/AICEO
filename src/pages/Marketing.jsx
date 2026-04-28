@@ -2099,7 +2099,12 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         searchMode: researchMode,
         sessionId: sessionIdRef.current || null,
         assistantMsgId,
-        ...(isEdit ? { currentHtml: canvasHtml, editInstruction: text.trim() } : {}),
+        // editInstruction must carry the [UPLOADED IMAGES …] manifest so
+        // the edit agent sees the upload placeholders. Without this, the
+        // agent gets the user's bare text ("add attached image to hero")
+        // with no idea which placeholder to insert and either narrates
+        // that the image "is already there" or gives up.
+        ...(isEdit ? { currentHtml: canvasHtml, editInstruction: fileContext + text.trim() } : {}),
       }, {
         onAgentChunk: (_agentName, chunk) => {
           fullContent = chunk;
