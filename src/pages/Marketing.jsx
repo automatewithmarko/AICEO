@@ -2117,11 +2117,19 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
           fullContent = content;
         },
         onFileUpdate: (html) => {
-          // File-based edit  -  backend applied a surgical diff
+          // File-based edit  -  backend applied a surgical diff.
+          // CRITICAL: must run replaceImagePlaceholders BEFORE setting
+          // canvas HTML, same as the non-edit onAgentChunk path. The
+          // agent emits  src="{{IMAGE:file-XXX}}"  for user uploads;
+          // without substitution the browser tries to load it as a
+          // relative URL and shows alt-text fallback. filesSnapshot is
+          // the per-turn capture taken at sendMessage time and carries
+          // each upload's local dataUrl.
           editHandled = true;
-          setCanvasHtml(html);
+          const substituted = replaceImagePlaceholders(html, filesSnapshot);
+          setCanvasHtml(substituted);
           // Check if the edit introduced new {{GENERATE:...}} placeholders
-          if (html && html.includes('{{GENERATE:')) {
+          if (substituted && substituted.includes('{{GENERATE:')) {
             const genRegex = /\{\{GENERATE:([\s\S]*?)\}\}/g;
             const matches = [];
             let m;
