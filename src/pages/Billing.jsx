@@ -109,12 +109,16 @@ export default function Billing() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      // Each call swallows its own failure so a single 401/5xx (e.g. the
+      // billing endpoint being unauthenticated) doesn't blank the entire
+      // Billing page. getBillingPlan now throws on non-OK; the .catch
+      // here keeps the page rendering with whatever data did load.
       try {
         const [pd, cd, pl, co] = await Promise.all([
-          getBillingPlan(),
-          getBillingCredits(),
-          getAvailablePlans(),
-          getCreditCosts(),
+          getBillingPlan().catch(() => null),
+          getBillingCredits().catch(() => null),
+          getAvailablePlans().catch(() => null),
+          getCreditCosts().catch(() => null),
         ]);
         if (cancelled) return;
         // If polling already settled with the activated plan, keep it.

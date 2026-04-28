@@ -9,6 +9,10 @@ export function AuthProvider({ children }) {
   const [credits, setCredits] = useState(0);
   const [features, setFeatures] = useState([]);
   const [planData, setPlanData] = useState(null);
+  // 'unknown' until /api/billing/plan returns a 2xx successfully. Gates the
+  // OnboardingFunnel so a transient 401/5xx never speculatively shows the
+  // Plans page to a paying user.
+  const [planResolved, setPlanResolved] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const buildUser = async (session) => {
@@ -17,6 +21,7 @@ export function AuthProvider({ children }) {
       setCredits(0);
       setFeatures([]);
       setPlanData(null);
+      setPlanResolved(false);
       setLoading(false);
       return;
     }
@@ -32,10 +37,15 @@ export function AuthProvider({ children }) {
 
     // Fetch billing plan (includes plan, subscription, and credits)
     let billingInfo = null;
+    let billingOk = false;
     try {
       billingInfo = await getBillingPlan();
+      billingOk = true;
     } catch {
-      // Fallback to direct DB queries if billing API not ready
+      // Backend returned 401/5xx or network failed. Fall back to direct DB
+      // for credits/plan display, but DON'T flip planResolved — the
+      // OnboardingFunnel needs an authoritative signal before it can know
+      // whether to render the Plans overlay.
     }
 
     let plan = null;
@@ -92,6 +102,7 @@ export function AuthProvider({ children }) {
     setCredits(creditBalance);
     setFeatures(planFeatures);
     setPlanData(billingData);
+    setPlanResolved(billingOk);
     setLoading(false);
   };
 
@@ -144,6 +155,7 @@ export function AuthProvider({ children }) {
   const refreshCredits = useCallback(async () => {
     try {
       const billingInfo = await getBillingPlan();
+      setPlanResolved(true);
       if (billingInfo?.credits) {
         setCredits(billingInfo.credits.balance ?? 0);
       }
@@ -213,7 +225,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, credits, features, planData, loading, login, signup, logout, hasFeature, refreshCredits, refreshUser }}>
+    <AuthContext.Provider value={{ user, credits, features, planData, planResolved, loading, login, signup, logout, hasFeature, refreshCredits, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
