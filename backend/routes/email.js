@@ -616,8 +616,8 @@ router.post('/api/emails/ai-draft', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
-  const apiKey = process.env.MENTOR_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'MENTOR_API_KEY not configured' });
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
 
   const { prompt, mode = 'reply', original = null, context_emails = [], context_calls = [], useBrandTemplate = false } = req.body || {};
   if (!prompt || !String(prompt).trim()) {
@@ -825,8 +825,7 @@ ${copyRules}`;
   const userMessage = lines.join('\n');
 
   try {
-    const mentorBase = process.env.MENTOR_BASE_URL || 'https://platform.thementorprogram.xyz';
-    const r = await fetch(`${mentorBase}/api/v1/messages`, {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
