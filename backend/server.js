@@ -67,6 +67,22 @@ function verifyJwtLocally(token, secret) {
   const parts = token.split('.');
   if (parts.length !== 3) throw new Error('malformed_jwt');
   const [headerB64, payloadB64, sigB64] = parts;
+  // Decode header first so we can fail clearly when Supabase issues a
+  // non-HS256 token. Newer Supabase projects use asymmetric signing keys
+  // (RS256/ES256) where HMAC verification will never succeed regardless
+  // of the secret.
+  let header;
+  try {
+    header = JSON.parse(Buffer.from(headerB64, 'base64url').toString());
+  } catch {
+    throw new Error('malformed_header');
+  }
+  if (header.alg !== 'HS256') {
+    const e = new Error(`unsupported_alg:${header.alg}`);
+    e.alg = header.alg;
+    e.kid = header.kid;
+    throw e;
+  }
   const expected = crypto
     .createHmac('sha256', secret)
     .update(`${headerB64}.${payloadB64}`)
@@ -100,8 +116,16 @@ async function requireAuth(req, res, next) {
       req.user = verifyJwtLocally(token, jwtSecret);
       return next();
     } catch (err) {
-      console.log('[auth] Local JWT verify failed:', err.message);
-      return res.status(401).json({ error: 'invalid_token', reason: err.message });
+      // If the token isn't HS256, the local path can never verify it.
+      // Fall back to supabase.auth.getUser which works for any algorithm
+      // Supabase issues. Logged once per request so we can spot the
+      // condition in logs without spamming on signature mismatches.
+      if (err.message.startsWith('unsupported_alg:')) {
+        console.log(`[auth] Token alg=${err.alg} kid=${err.kid} — falling back to remote getUser`);
+      } else {
+        console.log('[auth] Local JWT verify failed:', err.message);
+        return res.status(401).json({ error: 'invalid_token', reason: err.message });
+      }
     }
   }
 
