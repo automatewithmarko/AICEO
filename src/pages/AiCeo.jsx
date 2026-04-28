@@ -123,6 +123,12 @@ export default function AiCeo() {
   // content so the AI orchestrator can reference it inline.
   const [attachedFiles, setAttachedFiles] = useState([]);
   const fileInputRef = useRef(null);
+  // Snapshot of attachedFiles for the CURRENT turn. Captured on send
+  // (because attachedFiles state is cleared immediately after) so that
+  // the streaming onToolCall handler — which fires later in the
+  // pipeline — can still inject the user's images as reference for
+  // any generate_image tool call the orchestrator emits.
+  const currentTurnAttachmentsRef = useRef([]);
   // Track sessions whose title the user manually edited so the autosave
   // doesn't keep clobbering it with the derived "first user message" title.
   const customTitleIdsRef = useRef(new Set());
@@ -240,12 +246,17 @@ export default function AiCeo() {
       const images = ready.filter((f) => f.type === 'image');
       const docs = ready.filter((f) => f.type === 'document');
       if (images.length > 0) {
-        // The image is uploaded to Supabase storage by /api/upload —
-        // pass the public URL through to the orchestrator so a vision-
-        // capable downstream can fetch the actual pixels. Today the
-        // streaming path is text-only; we still hand off the URL so
-        // when vision is wired in, no UI change is needed.
-        parts.push(`[ATTACHED IMAGES  -  The user attached ${images.length} image(s):\n${images.map((i) => `- "${i.name}" → ${i.url || '(no url)'}`).join('\n')}\n]`);
+        // Tell the orchestrator (a) the images exist by name, and (b)
+        // that calling generate_image will AUTOMATICALLY attach these
+        // pixels as visual reference. The frontend's onToolCall
+        // handler injects them at call time, so the AI doesn't need to
+        // pass URLs or worry about the wire format — it just calls
+        // generate_image with an edit instruction.
+        parts.push(
+          `[ATTACHED IMAGES  -  The user attached ${images.length} image(s):\n` +
+          images.map((i) => `- "${i.name}"`).join('\n') +
+          `\n\nIf the user asks you to edit, modify, build on, or add anything to these image(s) (e.g. "add a CTA button labeled X", "make the background brighter", "add my logo top-right", "change the headline to Y"), call generate_image with a prompt describing the desired change. The system automatically attaches these image(s) to the call as visual reference — you do NOT need to pass URLs or describe the existing image content; just describe the EDIT.]`
+        );
       }
       if (docs.length > 0) {
         // textContent here is the backend-extracted text from
@@ -1106,9 +1117,26 @@ export default function AiCeo() {
             ));
           }
           if (name === 'generate_image') {
-            console.log(`[AiCeo] 🖼  generate_image START — prompt="${(args.prompt || '').slice(0, 120)}..."`);
+            // Build referenceImages from any image the user attached
+            // this turn, so generate_image edits/builds on the user's
+            // image instead of generating from scratch. dataUrl is set
+            // locally by FileReader at attach time; we strip the
+            // "data:<mime>;base64," prefix to match the backend's
+            // expected { data, mimeType } shape.
+            const turnAttachments = currentTurnAttachmentsRef.current || [];
+            const refImages = turnAttachments
+              .filter((f) => f.type === 'image' && f.dataUrl)
+              .map((f) => {
+                const commaIdx = f.dataUrl.indexOf(',');
+                const mimeMatch = f.dataUrl.match(/^data:([^;]+);/);
+                return {
+                  data: commaIdx !== -1 ? f.dataUrl.slice(commaIdx + 1) : f.dataUrl,
+                  mimeType: mimeMatch?.[1] || 'image/jpeg',
+                };
+              });
+            console.log(`[AiCeo] 🖼  generate_image START — prompt="${(args.prompt || '').slice(0, 120)}...", refImages=${refImages.length}`);
             try {
-              const result = await generateImage(args.prompt, 'general', null, null);
+              const result = await generateImage(args.prompt, 'general', null, refImages.length ? refImages : null);
               console.log(`[AiCeo] 🖼  generate_image RESULT — image: ${!!result.image}, text: ${result.text ? `"${result.text.slice(0, 100)}"` : '<none>'}`, result);
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
@@ -1248,6 +1276,10 @@ export default function AiCeo() {
     if (attachedFiles.some((f) => f.status === 'uploading')) return;
     setCurrentQuestion(null);
     shouldScrollRef.current = true;
+    // Snapshot DONE attachments BEFORE we clear state. The streaming
+    // onToolCall handler reads this ref later in the turn to inject
+    // referenceImages on any generate_image call.
+    currentTurnAttachmentsRef.current = attachedFiles.filter((f) => f.status === 'done');
     const contextStr = buildCeoContextString();
     const userContent = contextStr + text;
     const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: userContent };
@@ -1268,6 +1300,8 @@ export default function AiCeo() {
   const handleStarter = useCallback((text) => {
     if (isGenerating) return;
     shouldScrollRef.current = true;
+    // Same per-turn snapshot as sendMessage — see comment there.
+    currentTurnAttachmentsRef.current = attachedFiles.filter((f) => f.status === 'done');
     const contextStr = buildCeoContextString();
     const userContent = contextStr + text;
     const userMsg = { id: `msg-${Date.now()}-user`, role: 'user', content: userContent };
