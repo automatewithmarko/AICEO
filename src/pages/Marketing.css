@@ -1721,6 +1721,52 @@
   background: rgba(0, 0, 0, 0.75);
 }
 
+/* Delete button on the main phone preview — symmetric to .sp-edit-btn but
+   on the top-LEFT and red on hover so it reads as destructive. */
+.sp-delete-btn {
+  position: absolute;
+  top: 28px;
+  left: 8px;
+  z-index: 9;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.15s;
+}
+.sp-phone:hover .sp-delete-btn { opacity: 1; }
+.sp-delete-btn:hover { background: var(--brand-red, #e91a44); }
+
+/* Per-thumbnail delete bin — appears in the top-right corner on hover. */
+.sp-thumb-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  z-index: 3;
+  padding: 0;
+}
+.sp-thumb-delete:hover { background: var(--brand-red, #e91a44); }
+.sp-thumb:hover .sp-thumb-delete { opacity: 1; }
+
 /* Story thumbnail strip — appears below the phone viewer, lets the user
    click to navigate or drag to reorder frames. */
 .sp-thumbs {

@@ -334,7 +334,7 @@ function GhostCard({ icon, lines, className }) {
 // Context categories are now fetched dynamically inside ToolTab
 
 // ── Story Sequence Phone Viewer ──
-function StoryPhoneViewer({ frames, onEditFrame, onReorderFrames }) {
+function StoryPhoneViewer({ frames, onEditFrame, onReorderFrames, onDeleteFrame }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [editingIdx, setEditingIdx] = useState(null);
@@ -437,6 +437,22 @@ function StoryPhoneViewer({ frames, onEditFrame, onReorderFrames }) {
             title="Edit this frame with a prompt"
           >
             <Pencil size={14} />
+          </button>
+        )}
+        {/* Delete this frame  -  top left. Always available so single-frame
+            sequences can be cleared without losing the rest of the session. */}
+        {!frame.loading && !frame.editing && onDeleteFrame && (
+          <button
+            className="sp-delete-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteFrame(activeIndex);
+              setActiveIndex((cur) => Math.max(0, Math.min(cur, total - 2)));
+            }}
+            title="Delete this frame"
+            aria-label="Delete frame"
+          >
+            <Trash2 size={14} />
           </button>
         )}
 
@@ -547,6 +563,23 @@ function StoryPhoneViewer({ frames, onEditFrame, onReorderFrames }) {
               >
                 <ChevronRight size={12} />
               </button>
+              {/* Delete this frame — appears on hover. */}
+              {onDeleteFrame && (
+                <button
+                  type="button"
+                  className="sp-thumb-delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteFrame(i);
+                    // After deletion, snap selection to a sane neighbour.
+                    setActiveIndex((cur) => Math.max(0, Math.min(cur, total - 2)));
+                  }}
+                  title="Delete this frame"
+                  aria-label="Delete frame"
+                >
+                  <Trash2 size={12} />
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -2121,15 +2154,21 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
           console.error('Cover image gen failed:', imgErr.message);
         }
       } else if (parsed?.type === 'story_sequence') {
-        // Initialize frames with loading state
+        // APPEND new generated frames to any existing ones (uploads, prior
+        // generations) instead of replacing — the user explicitly asked us
+        // to respect their existing assets. Each new frame gets a stable
+        // _genKey so per-frame state updates find the right row even after
+        // reorders or deletes mid-generation.
+        const existingCount = storyFrames.length;
         const frames = parsed.frames.map((f, i) => ({
           ...f,
+          _genKey: `gen-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
           imageSrc: null,
           loading: true,
-          id: i,
         }));
-        setStoryFrames(frames);
-        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || `Generating ${frames.length} story frames...` }]);
+        setStoryFrames((prev) => [...prev, ...frames]);
+        const verb = existingCount > 0 ? `Adding ${frames.length} more` : `Generating ${frames.length}`;
+        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || `${verb} story ${frames.length === 1 ? 'frame' : 'frames'}...` }]);
 
         // Generate ALL frames in parallel  -  no sequential dependency
         // Only pass 1 user photo (for likeness reference), NO logo
@@ -2148,18 +2187,19 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
           const captionInstruction = captionText ? `\n\nTEXT OVERLAY  -  ONE text sticker:\n- Render EXACTLY ONE text sticker: "${captionText}"\n- Flat solid white (#FFFFFF) rectangle with rounded corners (~12px radius). NO border, NO outline, NO stroke around the pill  -  just a clean flat white shape.\n- Text: "${captionText}" in pure black (#000000), bold weight, clean sans-serif (SF Pro, Helvetica), ~30px\n- Snug padding: pill tightly wraps text. Only as wide as the text needs.\n- Centered horizontally, upper third of frame.\n- ONE sticker only. Do NOT duplicate text. Do NOT add any border or outline around the white pill.\n\nDO NOT RENDER:\n- No Instagram UI (no progress bars, profile pics, usernames, send bar, hearts)\n- No borders or outlines around the text sticker\n- No second copy of the text\n- Just the photo with one clean white text sticker on top.` : '';
           const sequencePrompt = `${visualStyle ? `VISUAL STYLE FOR THIS SERIES: ${visualStyle}\n\n` : ''}This is frame ${idx + 1} of ${frames.length} in a cohesive Instagram Story sequence. Follow the visual style exactly so all frames feel like ONE continuous story.\n\nIMPORTANT: Generate ONLY the photo/image content. Do NOT render any Instagram UI (no progress bars, no profile icons, no usernames, no send message bar, no close button). Just the raw image with the text sticker overlay.\n\n${frame.image_prompt}${captionInstruction}`;
 
+          const key = frame._genKey;
           try {
             const result = await generateImage(sequencePrompt, 'instagram_story', brandData);
             const allowedMime = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
             if (result.image && allowedMime.includes(result.image.mimeType)) {
               const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-              setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, imageSrc: src, loading: false } : f));
+              setStoryFrames((prev) => prev.map((f) => f._genKey === key ? { ...f, imageSrc: src, loading: false } : f));
             } else {
-              setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, loading: false, error: true } : f));
+              setStoryFrames((prev) => prev.map((f) => f._genKey === key ? { ...f, loading: false, error: true } : f));
             }
           } catch (err) {
             console.error(`Story frame ${idx + 1} failed:`, err.message);
-            setStoryFrames((prev) => prev.map((f, i) => i === idx ? { ...f, loading: false, error: true } : f));
+            setStoryFrames((prev) => prev.map((f) => f._genKey === key ? { ...f, loading: false, error: true } : f));
           }
         }));
 
@@ -2508,6 +2548,14 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       const [moved] = next.splice(fromIdx, 1);
       next.splice(toIdx, 0, moved);
       return next;
+    });
+  }, []);
+
+  // ── Story sequence: Delete a single frame ──
+  const handleDeleteStoryFrame = useCallback((idx) => {
+    setStoryFrames((prev) => {
+      if (idx < 0 || idx >= prev.length) return prev;
+      return prev.filter((_, i) => i !== idx);
     });
   }, []);
 
@@ -3240,6 +3288,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
               frames={storyFrames}
               onEditFrame={handleEditStoryFrame}
               onReorderFrames={handleReorderStoryFrames}
+              onDeleteFrame={handleDeleteStoryFrame}
             />
           )}
           {config.canvasEmptyType === 'story-sequence' && storyFrames.length === 0 && !canvasHtml && (
