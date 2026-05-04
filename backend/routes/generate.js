@@ -124,10 +124,9 @@ TEXT & BRANDING — CRITICAL:
 - Use the brand colors and fonts as the design foundation — this should look like it came from the brand's design team
 
 PERSON/FOUNDER:
-- If reference photos are attached, include a person whose overall look matches the references — same general appearance, attire, and styling
-- Render the person naturally — as the face behind the newsletter, a professional headshot framing, or contextually related to the topic
-- Treat the references as stylistic inspiration for the subject rather than as a face to reproduce exactly; the figure should read as the same kind of person without replicating identifying facial features
-- A human subject adds authenticity and personal connection — newsletters perform better with a face in frame
+- If reference photos of the user/founder are attached, include their likeness in the cover image
+- Show them naturally — as the face behind the newsletter, a professional headshot style, or contextually related to the topic
+- The person adds authenticity and personal connection — newsletters perform better with a human face
 
 COMPOSITION & STYLE:
 - Bold, magazine-cover quality — think Morning Brew, The Hustle, or Milk Road cover graphics
@@ -158,11 +157,11 @@ FALLBACK (only when NO DESIGN SYSTEM block is present — single post, not a pla
 - Aspect ratio: LANDSCAPE 16:9 — wide format, this is critical
 - This is a YouTube thumbnail that needs to get clicks — it competes with millions of others
 
-PERSON (when reference photos are attached):
-- A person should be the main subject — large, expressive face taking up 40-60% of the frame
+PERSON (MANDATORY when reference photos are attached):
+- The person from the reference photos MUST be the main subject — large, expressive face taking up 40-60% of the frame
 - Show a strong emotion: surprise, excitement, shock, curiosity — exaggerated expressions work best
 - The person should be looking at the camera or at the text element
-- Take stylistic inspiration from the reference photos (general look, attire, hair, framing) — render a fresh subject that reads as the same kind of person rather than reproducing identifying features
+- Use their EXACT face and likeness from the reference photos
 
 TEXT ON THUMBNAIL:
 - 3-5 words MAX in huge bold text — this text comes from the user's prompt, use their exact words or a punchier version
@@ -398,7 +397,7 @@ router.post('/api/generate/image', requireCredits('image_generation'), async (re
       if (hasPhotos) {
         const n = brand.photoUrls.length;
         const range = n > 1 ? `${idx}–${idx + n - 1}` : `${idx}`;
-        lines.push(`  ${range}. BRAND PHOTO${n > 1 ? 'S' : ''} — reference photo${n > 1 ? 's' : ''} of the user/founder. Use as stylistic inspiration for a subject (general look, attire, presentation) only if the prompt calls for a person; otherwise ignore.`);
+        lines.push(`  ${range}. BRAND PHOTO${n > 1 ? 'S' : ''} — reference photo${n > 1 ? 's' : ''} of the user/founder. Use the face/likeness only if the prompt requires a person; otherwise ignore.`);
         idx += n;
       }
       const range = userImgCount > 1 ? `${idx}–${idx + userImgCount - 1}` : `${idx}`;
@@ -410,7 +409,7 @@ router.post('/api/generate/image', requireCredits('image_generation'), async (re
       brandImageInstructions = `
 BRAND ASSETS (attached as reference images):
 - FIRST attached image = BRAND LOGO. Place it small and subtle (corner watermark, max 24px height). The logo is NOT the hero — it's a subtle brand mark.
-- REMAINING attached images = REFERENCE PHOTOS of the user/founder. Include a person who matches the overall look and styling shown in those photos — same general appearance, attire, and presentation — as a prominent part of the composition. Treat them as stylistic guides rather than exact copies; the figure should read as the same kind of person without replicating specific identifying features. Social media content with a human subject gets 2-3x more engagement.`;
+- REMAINING attached images = REFERENCE PHOTOS of the user/founder. You MUST include this person in the image — use their exact face and likeness from these photos. They should be a prominent, visible part of the composition. Do NOT generate a random person or leave the person out. Social media content with a real human face gets 2-3x more engagement.`;
     } else if (hasLogo) {
       brandImageInstructions = `
 BRAND ASSETS (attached as reference):
@@ -418,7 +417,7 @@ BRAND ASSETS (attached as reference):
     } else if (hasPhotos) {
       brandImageInstructions = `
 BRAND ASSETS (attached as reference):
-- The attached images are REFERENCE PHOTOS of the user/founder. Include a person who matches the overall look and styling shown in those photos — same general appearance, attire, and presentation — as a prominent part of the composition. Treat them as stylistic guides rather than exact copies; the figure should read as the same kind of person without replicating specific identifying features.`;
+- The attached images are REFERENCE PHOTOS of the user/founder. You MUST include this person in the image — use their exact face and likeness from these photos. They should be a prominent, visible part of the composition. Do NOT generate a random person or leave the person out.`;
     }
 
     // Platform-specific quality framing — stories/social photos need iPhone-natural look, not studio
