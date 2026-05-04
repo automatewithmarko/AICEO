@@ -2,15 +2,18 @@ import { Router } from 'express';
 import OpenAI from 'openai';
 import { supabase } from '../services/storage.js';
 import { requireCredits, requireFeature } from '../middleware/gate.js';
+import { MENTOR_BASE_URL } from '../agents/base-agent.js';
 
 const router = Router();
 
-// xAI's API is OpenAI-wire-compatible, so we keep the OpenAI SDK and
-// point it directly at xAI. XAI_API_KEY must be set; without it the
-// action-item extraction endpoint surfaces a clear 401.
+// xAI's API is OpenAI-wire-compatible, so we keep the OpenAI SDK. Routing:
+// when MENTOR_API_KEY is set, point at Mentor's /api/v1 (Mentor's
+// /chat/completions accepts the Bearer header the SDK uses); otherwise
+// fall back to direct xAI. Either MENTOR_API_KEY or XAI_API_KEY must be set.
+const useMentor = Boolean(process.env.MENTOR_API_KEY);
 const xai = new OpenAI({
-  apiKey: process.env.XAI_API_KEY,
-  baseURL: 'https://api.x.ai/v1',
+  apiKey: useMentor ? process.env.MENTOR_API_KEY : process.env.XAI_API_KEY,
+  baseURL: useMentor ? `${MENTOR_BASE_URL}/api/v1` : 'https://api.x.ai/v1',
 });
 
 // ─── Get revenue chart data ───

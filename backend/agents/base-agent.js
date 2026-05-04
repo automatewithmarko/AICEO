@@ -1,7 +1,49 @@
 // Generic LLM streaming executor  -  supports Anthropic and XAI providers
+//
+// Routing: when MENTOR_API_KEY is set we hit the Mentor gateway
+// (https://platform.thementorprogram.xyz/api/v1/*). Mentor's /v1/messages is
+// a pure passthrough to api.anthropic.com — same wire bytes in and out — so
+// AICEO's response parsing (JSON content blocks for landing-page etc.) is
+// unchanged. When MENTOR_API_KEY is missing we fall back to direct provider
+// calls so dev/local without Mentor still works.
+//
+// Gemini stays direct (image gen in routes/generate.js).
 
-const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
-const XAI_API = 'https://api.x.ai/v1/chat/completions';
+const MENTOR_BASE_URL = process.env.MENTOR_BASE_URL || 'https://platform.thementorprogram.xyz';
+
+function anthropicTarget() {
+  if (process.env.MENTOR_API_KEY) {
+    return { url: `${MENTOR_BASE_URL}/api/v1/messages`, key: process.env.MENTOR_API_KEY, via: 'mentor' };
+  }
+  if (process.env.ANTHROPIC_API_KEY) {
+    return { url: 'https://api.anthropic.com/v1/messages', key: process.env.ANTHROPIC_API_KEY, via: 'direct' };
+  }
+  throw new Error('No Anthropic credential — set MENTOR_API_KEY (preferred) or ANTHROPIC_API_KEY');
+}
+
+function xaiChatTarget() {
+  if (process.env.MENTOR_API_KEY) {
+    return { url: `${MENTOR_BASE_URL}/api/v1/chat/completions`, key: process.env.MENTOR_API_KEY, via: 'mentor' };
+  }
+  if (process.env.XAI_API_KEY) {
+    return { url: 'https://api.x.ai/v1/chat/completions', key: process.env.XAI_API_KEY, via: 'direct' };
+  }
+  throw new Error('No xAI credential — set MENTOR_API_KEY (preferred) or XAI_API_KEY');
+}
+
+function xaiResponsesTarget() {
+  if (process.env.MENTOR_API_KEY) {
+    return { url: `${MENTOR_BASE_URL}/api/v1/responses`, key: process.env.MENTOR_API_KEY, via: 'mentor' };
+  }
+  if (process.env.XAI_API_KEY) {
+    return { url: 'https://api.x.ai/v1/responses', key: process.env.XAI_API_KEY, via: 'direct' };
+  }
+  throw new Error('No xAI credential — set MENTOR_API_KEY (preferred) or XAI_API_KEY');
+}
+
+// Re-exports so other backend modules (routes/email.js, routes/sales.js) can
+// pick the same routing without duplicating env/branch logic.
+export { anthropicTarget, xaiChatTarget, MENTOR_BASE_URL };
 
 // Watchdog for upstream LLM streams. If no chunk arrives within idleMs we
 // abort the upstream connection and throw. Prevents the server from hanging
@@ -23,10 +65,9 @@ async function readWithIdleTimeout(reader, controller, idleMs = STREAM_IDLE_TIME
   }
 }
 
-// Stream from Anthropic Claude API
+// Stream from Anthropic Claude API (via Mentor gateway when configured, else direct)
 async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs }) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+  const { url, key } = anthropicTarget();
 
   // Convert to Anthropic format (separate system from user/assistant)
   const anthropicMessages = messages
@@ -41,11 +82,11 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
     else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
   }
 
-  const res = await fetch(ANTHROPIC_API, {
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey,
+      'x-api-key': key,
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
@@ -102,10 +143,9 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
   return fullContent;
 }
 
-// Stream from XAI Grok API (OpenAI-compatible)
+// Stream from XAI Grok API (OpenAI-compatible) — via Mentor gateway when configured, else direct
 async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onChunk, onToolCalls, abortSignal, streamIdleMs }) {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) throw new Error('XAI_API_KEY not configured');
+  const { url, key } = xaiChatTarget();
 
   const body = {
     model: model || 'grok-4-1-fast-non-reasoning',
@@ -127,11 +167,11 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
     else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
   }
 
-  const res = await fetch(XAI_API, {
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${key}`,
     },
     body: JSON.stringify(body),
     signal: controller.signal,
@@ -199,10 +239,9 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
   return { content: fullContent, toolCalls: calls };
 }
 
-// Stream from XAI Responses API with web_search
+// Stream from XAI Responses API with web_search — via Mentor gateway when configured, else direct
 async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSearchStatus, onSearchResult, abortSignal, streamIdleMs }) {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) throw new Error('XAI_API_KEY not configured');
+  const { url, key } = xaiResponsesTarget();
 
   if (onSearchStatus) onSearchStatus('searching');
 
@@ -214,11 +253,11 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
     else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
   }
 
-  const res = await fetch('https://api.x.ai/v1/responses', {
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${key}`,
     },
     body: JSON.stringify({
       model: 'grok-4-1-fast-non-reasoning',
@@ -386,9 +425,9 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
 
 // Execute Anthropic Claude with tool_use loop (non-streaming for speed)
 // Used for file-based editing  -  Claude calls replace_text/replace_section tools
+// Routes via Mentor's /v1/messages passthrough when configured (tools preserved).
 export async function executeAnthropicWithTools({ systemPrompt, messages, tools, maxTokens, onToolCall, onText, abortSignal }) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+  const { url, key } = anthropicTarget();
 
   let conversationMessages = messages
     .filter(m => m.role === 'user' || m.role === 'assistant')
@@ -400,11 +439,11 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
   while (iterations < MAX_ITERATIONS) {
     iterations++;
 
-    const res = await fetch(ANTHROPIC_API, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'x-api-key': key,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -468,8 +507,16 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
 // Execute the CEO orchestrator with tool_use loop
 // After tool calls, sends results back to the model for a follow-up response
 export async function executeCeoOrchestrator({ systemPrompt, messages, tools, onChunk, onToolCalls, searchMode, onSearchStatus, abortSignal }) {
+  // The Mentor gateway adds cold-start latency on top of the upstream provider's
+  // own time-to-first-token. Combined with a long system prompt + tool-call
+  // setup, the first chunk on each turn of the orchestrator's tool-use loop
+  // can cross the default 60s idle watchdog. Bumping to 180s gives Mentor +
+  // Grok room for the first chunk on every turn. Per-chunk reset means a
+  // healthy stream is unaffected.
+  const ceoStreamIdleMs = 180_000;
+
   if (searchMode) {
-    return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal });
+    return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal, streamIdleMs: ceoStreamIdleMs });
   }
 
   const model = 'grok-4-1-fast-non-reasoning';
@@ -493,6 +540,7 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, on
       },
       onToolCalls: null, // We handle tool calls here, not in streamXai
       abortSignal,
+      streamIdleMs: ceoStreamIdleMs,
     });
 
     const { content, toolCalls } = result;
