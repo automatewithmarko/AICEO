@@ -5,6 +5,7 @@ import { fetchEmails, validateImapConnection } from '../services/imap.js';
 import { sendEmail, validateSmtpConnection } from '../services/smtp.js';
 import { connectNewAccount, disconnectAccount } from '../services/email-sync.js';
 import { buildAuthUrl, exchangeCode, decodeIdToken, refreshAccessToken } from '../services/outlook-oauth.js';
+import { anthropicTarget } from '../agents/base-agent.js';
 
 const router = Router();
 
@@ -616,8 +617,10 @@ router.post('/api/emails/ai-draft', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
+  // Route via Mentor gateway when MENTOR_API_KEY is set; else direct Anthropic.
+  let target;
+  try { target = anthropicTarget(); }
+  catch (err) { return res.status(500).json({ error: err.message }); }
 
   const { prompt, mode = 'reply', original = null, context_emails = [], context_calls = [], useBrandTemplate = false } = req.body || {};
   if (!prompt || !String(prompt).trim()) {
@@ -825,11 +828,11 @@ ${copyRules}`;
   const userMessage = lines.join('\n');
 
   try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
+    const r = await fetch(target.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'x-api-key': target.key,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
