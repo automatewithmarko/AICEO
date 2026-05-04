@@ -10,6 +10,7 @@ import NetlifyDeployButton from '../components/NetlifyDeployButton';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
+import { extractStreamingHtml, looksLikeHtmlChunk } from '../lib/streamingHtml';
 import './Pages.css';
 import './Marketing.css';
 
@@ -282,24 +283,10 @@ function mergeSectionEdits(currentHtml, sections) {
   return result;
 }
 
-function extractStreamingHtml(text) {
-  // Try to extract partial HTML from a streaming newsletter response
-  const htmlMatch = text.match(/"html"\s*:\s*"([\s\S]*)$/);
-  if (htmlMatch) {
-    let html = htmlMatch[1];
-    // Remove trailing unfinished JSON
-    if (html.endsWith('"}')) html = html.slice(0, -2);
-    else if (html.endsWith('"')) html = html.slice(0, -1);
-    // Unescape JSON string escapes
-    try {
-      html = JSON.parse('"' + html + '"');
-    } catch {
-      html = html.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-    }
-    return html;
-  }
-  return null;
-}
+// extractStreamingHtml lives in src/lib/streamingHtml.js — shared across
+// Marketing, AI CEO, and any other section that watches an agent stream
+// for live preview. The shared version recognises JSON envelope + markdown
+// code fence + raw HTML, so non-Claude models (Kimi via Mentor) preview too.
 
 // ── Constants ──
 const TABS = [
@@ -1898,9 +1885,12 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       }, {
         onAgentChunk: (_agentName, chunk) => {
           fullContent = chunk;
-          // Try to extract HTML for live preview while streaming
-          if (chunk.includes('"type":"html"') || chunk.includes('"type": "html"') ||
-              chunk.includes('"type":"newsletter"') || chunk.includes('"type": "newsletter"')) {
+          // Live preview while streaming. looksLikeHtmlChunk gates the
+          // parse so we don't run regex on every chat token. The extractor
+          // accepts JSON envelope, markdown code fence, AND raw HTML — so
+          // models that ignore the "respond with ONLY valid JSON" directive
+          // (Kimi via Mentor, etc.) still preview live.
+          if (looksLikeHtmlChunk(chunk)) {
             let html = extractStreamingHtml(chunk);
             if (html) {
               html = replaceImagePlaceholders(html, filesSnapshot);

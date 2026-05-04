@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts } from '../lib/api';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
+import { extractStreamingHtml } from '../lib/streamingHtml';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import Paywall from '../components/Paywall';
@@ -609,32 +610,29 @@ export default function AiCeo() {
             if (isMobileRef.current) setMobileArtifactOpen(true);
           }
         },
-        // Agent streaming chunks (show in artifact panel)
+        // Agent streaming chunks (show in artifact panel). The extractor in
+        // src/lib/streamingHtml.js accepts JSON envelope, markdown code fence,
+        // AND raw HTML — so models that don't strictly follow the "respond
+        // with ONLY valid JSON" directive (Kimi via Mentor, etc.) still
+        // populate the live preview canvas.
         onAgentChunk: (agentName, content) => {
-          // Try to extract HTML from the agent's streaming response for live preview
-          const htmlMatch = content.match(/"html"\s*:\s*"([\s\S]*?)(?:"\s*[,}]|$)/);
-          if (htmlMatch) {
-            let html = htmlMatch[1];
-            try { html = JSON.parse('"' + html + '"'); } catch {
-              html = html.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-            }
-            if (html.length > 50) {
-              const isNewsletter = agentName === 'newsletter' || content.includes('"type":"newsletter"') || content.includes('"type": "newsletter"');
-              const streamTitle = isNewsletter ? 'Crafting your Newsletter...' : `Crafting your ${agentName === 'landing' ? 'Landing Page' : agentName === 'squeeze' ? 'Squeeze Page' : 'content'}...`;
-              setArtifact(prev => ({
-                id: prev?.id || Date.now(),
-                type: isNewsletter ? 'newsletter' : 'html_template',
-                title: streamTitle,
-                content: html,
-                images: prev?.images || [],
-                agentSource: agentName,
-              }));
-              setPanelOpen(true);
-              if (isMobileRef.current) setMobileArtifactOpen(true);
-              setMessages(prev => prev.map(m =>
-                m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: streamTitle, artifactType: 'html_template' } : m
-              ));
-            }
+          const html = extractStreamingHtml(content);
+          if (html && html.length > 50) {
+            const isNewsletter = agentName === 'newsletter' || content.includes('"type":"newsletter"') || content.includes('"type": "newsletter"');
+            const streamTitle = isNewsletter ? 'Crafting your Newsletter...' : `Crafting your ${agentName === 'landing' ? 'Landing Page' : agentName === 'squeeze' ? 'Squeeze Page' : 'content'}...`;
+            setArtifact(prev => ({
+              id: prev?.id || Date.now(),
+              type: isNewsletter ? 'newsletter' : 'html_template',
+              title: streamTitle,
+              content: html,
+              images: prev?.images || [],
+              agentSource: agentName,
+            }));
+            setPanelOpen(true);
+            if (isMobileRef.current) setMobileArtifactOpen(true);
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: streamTitle, artifactType: 'html_template' } : m
+            ));
           }
         },
         // Agent finished  -  parse final result
