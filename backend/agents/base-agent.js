@@ -469,8 +469,16 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
 // Execute the CEO orchestrator with tool_use loop
 // After tool calls, sends results back to the model for a follow-up response
 export async function executeCeoOrchestrator({ systemPrompt, messages, tools, onChunk, onToolCalls, searchMode, onSearchStatus, abortSignal }) {
+  // Mentor proxy cold-starts + Grok TTFT for a tools call with a long system
+  // prompt routinely cross the default 60s idle watchdog. When that fires we
+  // abort before `delegate_to_agent` is emitted, so handleAgentDelegation
+  // never runs and downstream agents (landing-page, etc.) never execute.
+  // 180s gives Mentor + Grok room for the first chunk on every turn of the
+  // tool-call loop. Per-chunk reset means a healthy stream is unaffected.
+  const ceoStreamIdleMs = 180_000;
+
   if (searchMode) {
-    return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal });
+    return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal, streamIdleMs: ceoStreamIdleMs });
   }
 
   const model = 'grok-4-1-fast-non-reasoning';
@@ -494,6 +502,7 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, on
       },
       onToolCalls: null, // We handle tool calls here, not in streamXai
       abortSignal,
+      streamIdleMs: ceoStreamIdleMs,
     });
 
     const { content, toolCalls } = result;
