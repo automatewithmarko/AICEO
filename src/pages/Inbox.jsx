@@ -147,6 +147,14 @@ export default function Inbox() {
   const emailCountRef = useRef(0);
   useEffect(() => { emailCountRef.current = emails.length; }, [emails.length]);
 
+  // Monotonic request id — a setEmails from an older loadEmails call can't
+  // win over a newer one even if responses arrive out of order. Earlier
+  // version had multiple concurrent paths firing loadEmails (initial mount,
+  // folder change, debounced search, realtime INSERT triggering loadCounts
+  // which doesn't replace the list but the parent flow does), and a slow
+  // earlier response overwriting a fresh later one read as a 5-second
+  // appear/disappear flicker on the user's screen.
+  const loadEmailsReqRef = useRef(0);
   const loadEmails = useCallback(async (folder, search, accountId, append = false) => {
     const params = { limit: PAGE_SIZE, offset: append ? emailCountRef.current : 0 };
     if (folder === 'starred') {
@@ -156,17 +164,22 @@ export default function Inbox() {
     }
     if (search) params.search = search;
     if (accountId) params.accountId = accountId;
+
+    const reqId = ++loadEmailsReqRef.current;
     let data;
     try {
       const result = await getEmails(params);
       data = result.emails;
     } catch (err) {
       // Backend transient failure (401 during token refresh, 5xx, network).
-      // Keep the existing list rather than wiping it — the next poll or
-      // realtime event will recover the correct state. Silent flicker
-      // ("0 mails, then back, then 0") came from setEmails([]) firing on
-      // every such blip.
+      // Keep the existing list rather than wiping it.
       console.warn('[inbox] loadEmails failed, keeping previous list:', err?.message);
+      return;
+    }
+    // Drop stale response — a newer loadEmails started after we did, its
+    // result is the source of truth.
+    if (reqId !== loadEmailsReqRef.current) {
+      console.log('[inbox] loadEmails stale response dropped (req', reqId, 'current', loadEmailsReqRef.current, ')');
       return;
     }
     const fetched = data || [];
