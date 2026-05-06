@@ -821,7 +821,47 @@ export async function generateEmailDraft({ prompt, mode, original, context_email
 }
 
 export async function sendEmailApi({ account_id, to, cc, subject, body_text, body_html, in_reply_to, references }) {
-  // Send via Supabase Edge Function (bypasses Railway SMTP port blocking)
+  // Primary path: our Railway backend at /api/emails/send. It already
+  // does OAuth refresh + XOAUTH2 SMTP for Outlook accounts via
+  // services/smtp.js, and Railway only blocks port 25 (587 / 465 are
+  // allowed) so STARTTLS / SSL submission works.
+  //
+  // Fallback: the Supabase Edge Function. Kept as belt-and-braces in
+  // case the backend is briefly down. The Edge Function only handles
+  // password-based SMTP accounts (Gmail app-password), so it'll still
+  // 500 for OAuth/Outlook — but if the backend is reachable that path
+  // is taken first.
+  const body = { account_id, to, cc, subject, body_text, body_html, in_reply_to, references };
+
+  // 1. Try backend.
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_URL}/api/emails/send`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) return res.json();
+    // Surface 4xx (e.g. account-not-found, validation errors) directly —
+    // those are not transient, so retrying via the Edge Function would
+    // just produce the same error.
+    if (res.status >= 400 && res.status < 500) {
+      const err = await res.json().catch(() => ({ error: 'Send failed' }));
+      throw new Error(err.error || 'Send failed');
+    }
+    // 5xx — fall through to the Edge Function fallback below.
+    console.warn('[sendEmailApi] Backend returned', res.status, '— falling back to edge function');
+  } catch (err) {
+    if (err && err.message && !err.message.toLowerCase().includes('failed to fetch')) {
+      // Validation / 4xx errors thrown above end up here. Re-throw so
+      // the UI shows the real reason instead of a misleading edge-fn
+      // fallback success.
+      if (err.message !== 'Send failed') throw err;
+    }
+    console.warn('[sendEmailApi] Backend send failed — falling back to edge function:', err?.message);
+  }
+
+  // 2. Fallback: Supabase Edge Function.
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error('Not authenticated');
@@ -836,12 +876,12 @@ export async function sendEmailApi({ account_id, to, cc, subject, body_text, bod
       'apikey': anonKey,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ account_id, to, cc, subject, body_text, body_html, in_reply_to, references }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Send failed' }));
-    throw new Error(err.error);
+    throw new Error(err.error || 'Send failed');
   }
   return res.json();
 }
