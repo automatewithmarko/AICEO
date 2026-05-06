@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { getValidAccessToken } from './outlook-oauth-refresh.js';
+import { sendViaGraph } from './outlook-graph.js';
 
 const CONNECTION_TIMEOUT = 15000;
 
@@ -111,6 +112,17 @@ export async function sendEmail(account, { to, cc, subject, text, html, inReplyT
   if (account.auth_type === 'oauth') {
     account = await getValidAccessToken(account);
   }
+
+  // Outlook OAuth → Microsoft Graph. Direct SMTP is unusable for most
+  // Outlook mailboxes today (Microsoft returns 5.7.139 "SMTP AUTH
+  // disabled" even with valid XOAUTH2). Graph's /me/sendMail endpoint
+  // is the supported replacement and uses the same OAuth access_token.
+  // Requires the account's token to carry the `Mail.Send` scope —
+  // accounts connected before that scope was added must reconnect.
+  if (account.auth_type === 'oauth' && account.provider === 'outlook') {
+    return await sendViaGraph(account, { to, cc, subject, text, html, inReplyTo, references });
+  }
+
   // Try Resend API first (works on hosts that block SMTP)
   try {
     const resendResult = await sendViaResend(account, { to, cc, subject, text, html, inReplyTo, references });

@@ -4,10 +4,28 @@
 const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
 const MICROSOFT_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
 
-// Scopes needed for IMAP + SMTP access (per Microsoft docs)
+// Microsoft Graph scopes. Switched off the legacy
+// `https://outlook.office.com/SMTP.Send` + `IMAP.AccessAsUser.All`
+// scopes because:
+//  1. Microsoft has progressively disabled SMTP AUTH at the mailbox
+//     level (default since 2022 for tenant accounts, increasingly for
+//     personal Outlook). Even with a valid OAuth access_token, the
+//     SMTP server now responds:
+//       "535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication
+//        is disabled for the Mailbox"
+//     so SMTP.Send is functionally dead for many accounts.
+//  2. Microsoft's v2.0 OAuth blocks combining `outlook.office.com` and
+//     `graph.microsoft.com` scopes in a single consent for personal
+//     accounts. Choose one resource — Graph is the future-proof one.
+//
+// Sending now goes through Microsoft Graph `POST /me/sendMail` (HTTPS,
+// works through Railway). Inbox sync via Graph is on the roadmap; the
+// existing IMAP IDLE service will fail until that lands, but it has
+// already been failing for hours on every Outlook account due to the
+// same SMTP-AUTH-disabled surface, so this is not a regression.
 const SCOPES = [
-  'https://outlook.office.com/IMAP.AccessAsUser.All',
-  'https://outlook.office.com/SMTP.Send',
+  'https://graph.microsoft.com/Mail.Send',
+  'https://graph.microsoft.com/Mail.Read',
   'offline_access',       // needed for refresh_token
   'openid',
   'email',
