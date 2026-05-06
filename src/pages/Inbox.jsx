@@ -156,7 +156,19 @@ export default function Inbox() {
     }
     if (search) params.search = search;
     if (accountId) params.accountId = accountId;
-    const { emails: data } = await getEmails(params);
+    let data;
+    try {
+      const result = await getEmails(params);
+      data = result.emails;
+    } catch (err) {
+      // Backend transient failure (401 during token refresh, 5xx, network).
+      // Keep the existing list rather than wiping it — the next poll or
+      // realtime event will recover the correct state. Silent flicker
+      // ("0 mails, then back, then 0") came from setEmails([]) firing on
+      // every such blip.
+      console.warn('[inbox] loadEmails failed, keeping previous list:', err?.message);
+      return;
+    }
     const fetched = data || [];
     if (append) {
       setEmails(prev => [...prev, ...fetched]);
@@ -174,8 +186,14 @@ export default function Inbox() {
   }, [loadingMore, hasMore, activeFolder, searchQuery, selectedAccountId, loadEmails]);
 
   const loadCounts = useCallback(async (accountId) => {
-    const { counts: c } = await getEmailCounts(accountId);
-    setCounts(c || {});
+    try {
+      const { counts: c } = await getEmailCounts(accountId);
+      setCounts(c || {});
+    } catch (err) {
+      // Same pattern as loadEmails — keep stale counts on transient
+      // failure rather than zeroing every folder badge.
+      console.warn('[inbox] loadCounts failed, keeping previous counts:', err?.message);
+    }
   }, []);
 
   // Initial load

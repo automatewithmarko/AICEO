@@ -771,6 +771,11 @@ export async function getDashboardStats(timeframe = 'week', { from, to } = {}) {
 }
 
 export async function getEmails(params = {}) {
+  // Throw on non-OK so callers can distinguish "verified empty inbox"
+  // (200 with []) from "couldn't reach backend" (401/5xx/network).
+  // Earlier silent fallback caused the inbox UI to flicker — every
+  // transient auth blip overwrote the cached email list with [],
+  // then the next successful poll repopulated it.
   const headers = await getAuthHeaders();
   const url = new URL(`${API_URL}/api/emails`);
   if (params.folder) url.searchParams.set('folder', params.folder);
@@ -780,7 +785,11 @@ export async function getEmails(params = {}) {
   if (params.limit) url.searchParams.set('limit', String(params.limit));
   if (params.offset) url.searchParams.set('offset', String(params.offset));
   const res = await fetch(url.toString(), { headers });
-  if (!res.ok) return { emails: [] };
+  if (!res.ok) {
+    const err = new Error(`getEmails failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 
@@ -901,11 +910,18 @@ export async function saveDraft({ account_id, to, cc, subject, body_text, body_h
 }
 
 export async function getEmailCounts(accountId) {
+  // Throw on non-OK; caller decides whether to keep stale counts. The
+  // earlier `return { counts: {} }` reset every folder's badge to zero
+  // on any backend blip and contributed to the inbox flicker.
   const headers = await getAuthHeaders();
   const url = new URL(`${API_URL}/api/emails/counts`);
   if (accountId) url.searchParams.set('account_id', accountId);
   const res = await fetch(url.toString(), { headers });
-  if (!res.ok) return { counts: {} };
+  if (!res.ok) {
+    const err = new Error(`getEmailCounts failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 
