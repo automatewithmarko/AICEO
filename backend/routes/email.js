@@ -4,6 +4,8 @@ import { supabase } from '../services/storage.js';
 import { fetchEmails, validateImapConnection } from '../services/imap.js';
 import { sendEmail, validateSmtpConnection } from '../services/smtp.js';
 import { connectNewAccount, disconnectAccount } from '../services/email-sync.js';
+import { fetchInboxFromGraph, isGraphAccount } from '../services/outlook-graph-sync.js';
+import { getValidAccessToken } from '../services/outlook-oauth-refresh.js';
 import { buildAuthUrl, exchangeCode, decodeIdToken, refreshAccessToken } from '../services/outlook-oauth.js';
 import { anthropicTarget } from '../agents/base-agent.js';
 
@@ -249,6 +251,22 @@ router.post('/api/email-accounts/:id/sync', async (req, res) => {
     .single();
 
   if (accErr || !account) return res.status(404).json({ error: 'Account not found' });
+
+  // Outlook OAuth: route through Microsoft Graph (Mail.Read scope).
+  // IMAP can't authenticate against Outlook with our new scopes — see
+  // outlook-oauth.js for why. Graph polling already runs in the
+  // background sync service; this endpoint just kicks an immediate
+  // fetch + returns the count for the user.
+  if (isGraphAccount(account)) {
+    try {
+      const fresh = await getValidAccessToken(account);
+      const { inserted } = await fetchInboxFromGraph(fresh, { limit: 100 });
+      return res.json({ synced: inserted });
+    } catch (err) {
+      console.error(`[email] Graph sync failed for ${account.email}:`, err.message);
+      return res.status(500).json({ error: `Graph sync failed: ${err.message}` });
+    }
+  }
 
   try {
     const isInitialSync = !account.last_synced_at;

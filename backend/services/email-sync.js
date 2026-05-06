@@ -5,6 +5,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { supabase } from './storage.js';
 import { getValidAccessToken } from './outlook-oauth-refresh.js';
+import { isGraphAccount, startGraphSync, stopGraphSync } from './outlook-graph-sync.js';
 
 const RESYNC_INTERVAL = 5 * 60 * 1000; // 5 min safety net
 const RECONNECT_DELAY = 15000; // 15s before reconnect
@@ -134,6 +135,16 @@ async function fetchLatestMessages(client, account, count = 10) {
 }
 
 async function startIdleConnection(account) {
+  // Outlook OAuth accounts can't use IMAP — the new OAuth flow only
+  // grants Graph scopes (Mail.Send + Mail.Read), and Microsoft has been
+  // disabling IMAP+OAuth on personal accounts anyway. Route them to
+  // Graph polling instead. This function stays the entry point for
+  // every provider so callers (connectNewAccount, syncCheck, the
+  // startup loop) don't need to know about the split.
+  if (isGraphAccount(account)) {
+    startGraphSync(account);
+    return;
+  }
   if (activeConnections.has(account.id)) return;
 
   // Refresh OAuth token before connecting
@@ -226,6 +237,13 @@ async function syncCheck() {
     if (!accounts?.length) return;
 
     for (const account of accounts) {
+      // Graph accounts have their own activePolls map inside
+      // outlook-graph-sync; startIdleConnection is idempotent for both
+      // paths so we can call it unconditionally.
+      if (isGraphAccount(account)) {
+        startIdleConnection(account);
+        continue;
+      }
       if (!activeConnections.has(account.id)) {
         console.log(`[email-idle] Safety net: reconnecting ${account.email}`);
         startIdleConnection(account);
@@ -267,9 +285,13 @@ export function connectNewAccount(account) {
 }
 
 export function disconnectAccount(accountId) {
+  // Stop both kinds of sync — caller doesn't know whether this account
+  // ran IMAP IDLE or Graph polling, and either map is a no-op when the
+  // account isn't tracked there.
   const conn = activeConnections.get(accountId);
   if (conn) {
     conn.destroy();
     console.log(`[email-idle] Disconnected account ${accountId}`);
   }
+  stopGraphSync(accountId);
 }
