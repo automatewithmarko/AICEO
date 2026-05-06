@@ -80,6 +80,12 @@ export default function Inbox() {
   const [searchQuery, setSearchQuery] = useState('');
   const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(true);
+  // Distinct from `loading` (initial mount only). Folder/account/search
+  // changes set `fetching` so the row container can show a spinner
+  // instead of either flashing the previous folder's emails for a
+  // half-second OR showing 'Your inbox is empty' before the real
+  // response lands.
+  const [fetching, setFetching] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -166,6 +172,7 @@ export default function Inbox() {
     if (accountId) params.accountId = accountId;
 
     const reqId = ++loadEmailsReqRef.current;
+    if (!append) setFetching(true);
     let data;
     try {
       const result = await getEmails(params);
@@ -174,6 +181,7 @@ export default function Inbox() {
       // Backend transient failure (401 during token refresh, 5xx, network).
       // Keep the existing list rather than wiping it.
       console.warn('[inbox] loadEmails failed, keeping previous list:', err?.message);
+      if (reqId === loadEmailsReqRef.current && !append) setFetching(false);
       return;
     }
     // Drop stale response — a newer loadEmails started after we did, its
@@ -189,6 +197,7 @@ export default function Inbox() {
       setEmails(fetched);
     }
     setHasMore(fetched.length >= PAGE_SIZE);
+    if (!append) setFetching(false);
   }, []);
 
   const loadMore = useCallback(async () => {
@@ -813,7 +822,7 @@ export default function Inbox() {
           </div>
 
           <div className="inbox-emails">
-            {loading ? (
+            {loading || fetching ? (
               <div className="inbox-loading">
                 <Loader2 size={20} className="inbox-spinner" />
                 <span>Loading...</span>
