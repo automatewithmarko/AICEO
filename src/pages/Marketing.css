@@ -2046,6 +2046,456 @@
   to { transform: rotate(360deg); }
 }
 
+/* ── DM Automation List View ── */
+.dma-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 24px;
+  overflow-y: auto;
+  background: var(--bg-white);
+}
+
+.dma-list-toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+/* Account switcher */
+.dma-account-switcher {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.dma-account-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: #111;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.dma-account-btn:hover {
+  border-color: #111;
+}
+
+.dma-account-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.dma-account-avatar--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e5e7eb;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dma-account-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dma-account-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  z-index: 20;
+  padding: 4px;
+  animation: dmaFadeIn 0.12s ease-out;
+}
+
+@keyframes dmaFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.dma-account-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #374151;
+  transition: background 0.1s;
+  text-align: left;
+}
+
+.dma-account-option:hover { background: #f3f4f6; }
+.dma-account-option--active { background: #f0f0f2; font-weight: 600; color: #111; }
+
+.dma-search-wrap {
+  flex: 1;
+  position: relative;
+  min-width: 200px;
+}
+
+.dma-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  display: flex;
+}
+
+.dma-search {
+  width: 100%;
+  padding: 10px 12px 10px 40px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  font-size: 14px;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.dma-search:focus {
+  border-color: #111;
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.06);
+}
+
+.dma-filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dma-filter-pill {
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s;
+}
+
+.dma-filter-pill:hover {
+  background: #f9fafb;
+}
+
+.dma-filter-pill--active {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+.dma-filter-pill--active-green {
+  background: #16a34a;
+  color: #fff;
+  border-color: #16a34a;
+}
+
+.dma-filter-pill--active-green .dma-filter-dot--green {
+  background: #fff;
+}
+
+.dma-filter-pill--active-gray {
+  background: #4b5563;
+  color: #fff;
+  border-color: #4b5563;
+}
+
+.dma-filter-pill--active-gray .dma-filter-dot--gray {
+  background: #fff;
+}
+
+.dma-filter-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dma-filter-dot--green { background: #22c55e; }
+.dma-filter-dot--gray { background: #9ca3af; }
+
+.dma-new-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  background: #111;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.dma-new-btn:hover { background: #333; }
+
+/* Cards */
+.dma-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dma-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  gap: 16px;
+}
+
+.dma-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.07);
+  border-color: #d1d5db;
+}
+
+.dma-card-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.dma-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dma-card-icon img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.dma-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dma-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dma-card-date {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.dma-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.dma-badge--active { background: #dcfce7; color: #166534; }
+.dma-badge--draft { background: #f3f4f6; color: #374151; }
+.dma-badge--paused { background: #fef9c3; color: #854d0e; }
+.dma-badge--archived { background: #fee2e2; color: #991b1b; }
+
+.dma-card-right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-shrink: 0;
+}
+
+.dma-card-stats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.dma-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #111;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.dma-stat svg { color: #111; }
+
+/* Toggle */
+.dma-toggle {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: #d1d5db;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.dma-toggle--on { background: #16a34a; }
+
+.dma-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+}
+
+.dma-toggle--on .dma-toggle-thumb {
+  transform: translateX(20px);
+}
+
+.dma-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Skeleton */
+.dma-skeleton-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dma-skeleton-card {
+  padding: 24px 20px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+}
+
+.dma-skeleton-bar {
+  height: 14px;
+  background: #e5e7eb;
+  border-radius: 8px;
+  animation: dmaPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dmaPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Empty */
+.dma-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #6b7280;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* Back bar when viewing an automation */
+.dma-back-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg-white);
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  transition: background 0.15s;
+}
+
+.dma-back-bar:hover { background: #f9fafb; }
+
+.dma-back-bar svg { flex-shrink: 0; }
+
+.dma-back-name {
+  font-weight: 600;
+  color: #111;
+  margin-left: 4px;
+}
+
+.dma-back-account {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.dma-back-account-pic {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.dma-back-badge {
+  margin-left: 8px;
+}
+
+@media (max-width: 640px) {
+  .dma-list { padding: 16px; }
+  .dma-list-toolbar { flex-direction: column; }
+  .dma-card { flex-direction: column; align-items: flex-start; }
+  .dma-card-right { width: 100%; justify-content: space-between; }
+}
+
 /* ── DM Flow Canvas Empty State ── */
 .mkt-canvas-empty--dmflow {
   padding: 0;

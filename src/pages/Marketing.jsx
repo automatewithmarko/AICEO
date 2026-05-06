@@ -1,13 +1,14 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Mail, Send, Users, BarChart3, Megaphone, Inbox, ArrowUp, ChevronDown, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2, Upload, FileText, AlertCircle } from 'lucide-react';
+import { Mail, Send, Users, BarChart3, Megaphone, Inbox, ArrowUp, ChevronDown, ChevronLeft, Plus, X, ChevronRight, Paperclip, Globe, Search, PenLine, Pencil, Loader, History, Trash2, Upload, FileText, AlertCircle } from 'lucide-react';
 import ChatDropOverlay from '../components/ChatDropOverlay';
 import { useChatFileDropZone } from '../hooks/useChatFileDropZone';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
-import { generateImage, uploadImageToStorage, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate, createCalendarPost, publishCalendarPost, uploadContextFiles } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate, getBoosendAutomation, createBoosendAutomation, updateBoosendAutomation, activateBoosendAutomation, getInstagramAccounts, streamBoosendAgentBuild, createCalendarPost, publishCalendarPost, uploadContextFiles } from '../lib/api';
 import AutomationGraph from '../components/AutomationGraph';
+import DmAutomationList from '../components/DmAutomationList';
 import NetlifyDeployButton from '../components/NetlifyDeployButton';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
@@ -155,7 +156,7 @@ RULES FOR STORY SEQUENCES:
     canvasEmptyType: 'dm-flow',
     canvasActions: [
       { label: 'Templates', style: 'outline', hasChevron: true, isBoosendTemplates: true },
-      { label: 'Publish In BooSend', style: 'boosend', iconSrc: '/BooSend_Logo_Light.png' },
+      { label: 'Publish In BooSend', style: 'boosend', iconSrc: '/BooSend_Logo_Light.png', isPublishInBoosend: true },
     ],
   },
 };
@@ -1273,6 +1274,9 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
   const [bsTemplates, setBsTemplates] = useState([]);
   const [bsTemplatesLoading, setBsTemplatesLoading] = useState(false);
   const [dmGraphData, setDmGraphData] = useState(null); // { nodes, edges }
+  const [dmSelectedAutomation, setDmSelectedAutomation] = useState(null); // null = show list, object = show chat+canvas
+  const [dmSessionContext, setDmSessionContext] = useState(null); // multi-turn agent context
+  const [dmAccount, setDmAccount] = useState(null); // selected Instagram account for DM automation
   const [deployResult, setDeployResult] = useState(null); // { url, site_name } — set by <NetlifyDeployButton onDeployed>, used for "Redeploy" label + banner
   const [sendModalOpen, setSendModalOpen] = useState(false);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
@@ -2063,6 +2067,69 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
 
     abortRef.current = new AbortController();
 
+    // ── DM Automation: use Boosend AI agent instead of orchestrator ──
+    if (activeTool === 'dm') {
+      try {
+        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-status`, role: 'assistant', text: 'Building your automation...', isStatus: true }]);
+        const currentGraph = dmGraphData || { nodes: [], edges: [] };
+        // Prepend brand context so the agent knows the business
+        let agentMessage = text.trim();
+        if (brandDna && !dmSessionContext) {
+          const parts = [];
+          if (brandDna.name) parts.push(`Brand: ${brandDna.name}`);
+          if (brandDna.description) parts.push(`About: ${brandDna.description}`);
+          if (brandDna.documents && typeof brandDna.documents === 'object') {
+            const docs = Object.values(brandDna.documents).filter(d => d.extracted_text);
+            for (const doc of docs) {
+              parts.push(`${doc.name || 'Document'}: ${doc.extracted_text.slice(0, 2000)}`);
+            }
+          }
+          if (parts.length > 0) {
+            agentMessage = `[Brand context]\n${parts.join('\n')}\n\n[User request]\n${agentMessage}`;
+          }
+        }
+        await streamBoosendAgentBuild({
+          message: agentMessage,
+          graph: currentGraph,
+          meta: dmSessionContext ? { sessionContext: dmSessionContext } : undefined,
+          signal: abortRef.current.signal,
+          onData: () => {},
+          onError: (errMsg) => {
+            setChatMessages((prev) => [...prev.filter(m => !m.isStatus), { id: `msg-${Date.now()}-err`, role: 'assistant', text: errMsg || 'Something went wrong. Please try again.' }]);
+          },
+          onDone: (finalData) => {
+            setChatMessages((prev) => prev.filter(m => !m.isStatus));
+            if (finalData?.meta?.sessionContext) setDmSessionContext(finalData.meta.sessionContext);
+
+            if (finalData?.type === 'suggestions' && Array.isArray(finalData?.options)) {
+              // Show as question with options
+              const optionTexts = finalData.options.map(o => typeof o === 'string' ? o : o.label || o.text || String(o));
+              setCurrentQuestion({ text: finalData.question || '', options: optionTexts });
+              setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-q`, role: 'assistant', text: finalData.question || 'What would you like?' }]);
+            } else if (finalData?.type === 'followup' && finalData?.question) {
+              setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-q`, role: 'assistant', text: finalData.question }]);
+            } else if (finalData?.type === 'build' && finalData?.graph?.nodes) {
+              const nodes = finalData.graph.nodes || [];
+              const edges = finalData.graph.edges || [];
+              setDmGraphData({ nodes, edges });
+              const summary = finalData.summary || `Built automation with ${nodes.length} nodes!`;
+              setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-done`, role: 'assistant', text: summary }]);
+            } else {
+              setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-fallback`, role: 'assistant', text: 'Could you tell me more about what automation you want to build?' }]);
+            }
+          },
+        });
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error('[DM Agent]', err);
+          setChatMessages((prev) => [...prev.filter(m => !m.isStatus), { id: `msg-${Date.now()}-err`, role: 'assistant', text: err.message || 'Something went wrong.' }]);
+        }
+      } finally {
+        setIsGenerating(false);
+      }
+      return;
+    }
+
     // Auto-timeout after 3 minutes to prevent infinite "thinking" hangs
     const timeoutId = setTimeout(() => {
       if (abortRef.current) abortRef.current.abort();
@@ -2473,7 +2540,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         ];
       });
     }
-  }, [messages, isGenerating, selectedItems, uploadedFiles, canvasHtml, config, activeTool, brandDna, researchMode]);
+  }, [messages, isGenerating, selectedItems, uploadedFiles, canvasHtml, config, activeTool, brandDna, researchMode, dmSessionContext, dmGraphData]);
 
   // Handle send button / enter key
   const handleSend = () => {
@@ -2811,6 +2878,65 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     navigator.clipboard.writeText(canvasHtml);
   };
 
+  // Publish DM automation to BooSend
+  const [publishingToBoosend, setPublishingToBoosend] = useState(false);
+  const isExistingAutomation = dmSelectedAutomation && !dmSelectedAutomation._new && dmSelectedAutomation.id;
+
+  const handlePublishInBoosend = async () => {
+    if (!dmGraphData?.nodes?.length) {
+      setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-bs`, role: 'assistant', text: 'Select a template or generate a DM automation first.' }]);
+      return;
+    }
+    if (!dmAccount?.id) {
+      setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-bs`, role: 'assistant', text: 'No Instagram account selected. Go back and select an account.' }]);
+      return;
+    }
+    setPublishingToBoosend(true);
+    try {
+      let autoId, autoName;
+
+      if (isExistingAutomation) {
+        // Update existing automation
+        await updateBoosendAutomation(dmSelectedAutomation.id, {
+          nodes: dmGraphData.nodes,
+          edges: dmGraphData.edges || [],
+          viewport: { x: 0, y: 0, zoom: 1 },
+        });
+        autoId = dmSelectedAutomation.id;
+        autoName = dmSelectedAutomation.name || 'Automation';
+      } else {
+        // Create new
+        const result = await createBoosendAutomation({
+          name: dmSelectedAutomation?.name || `DM Automation ${new Date().toLocaleDateString()}`,
+          instagram_account_id: dmAccount.id,
+          nodes: dmGraphData.nodes,
+          edges: dmGraphData.edges || [],
+          viewport: { x: 0, y: 0, zoom: 1 },
+        });
+        autoId = result.automation?.id;
+        autoName = result.automation?.name || 'Automation';
+      }
+
+      // Compile and activate
+      if (autoId) {
+        try {
+          await activateBoosendAutomation(autoId);
+          const verb = isExistingAutomation ? 'Updated and reactivated' : 'Published and activated';
+          setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-bs`, role: 'assistant', text: `"${autoName}" ${verb} on @${dmAccount.instagram_username || 'account'}.` }]);
+        } catch (activateErr) {
+          console.error('[Publish BooSend] activate failed:', activateErr);
+          const verb = isExistingAutomation ? 'updated' : 'published';
+          setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-bs`, role: 'assistant', text: `"${autoName}" ${verb} on @${dmAccount.instagram_username || 'account'} but activation failed: ${activateErr.message}` }]);
+        }
+      }
+    } catch (err) {
+      console.error('[Publish BooSend]', err);
+      setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-bs`, role: 'assistant', text: `Failed to publish: ${err.message}` }]);
+    } finally {
+      setPublishingToBoosend(false);
+    }
+  };
+
   // Cleanup abort on unmount
   useEffect(() => {
     return () => {
@@ -2865,12 +2991,59 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     };
   }, [getPointerPercent]);
 
+  // DM tab: show automation list when no automation is selected
+  const isDmListView = activeTool === 'dm' && !dmSelectedAutomation;
+
+  const handleDmAutomationSelect = (automation) => {
+    setDmGraphData({ nodes: automation.nodes || [], edges: automation.edges || [] });
+    setDmSelectedAutomation(automation);
+    if (automation._account) setDmAccount(automation._account);
+  };
+
+  const handleDmBack = () => {
+    setDmSelectedAutomation(null);
+    setDmGraphData(null);
+    setDmSessionContext(null);
+  };
+
+  const handleDmCreateNew = (account) => {
+    setDmGraphData(null);
+    setDmSessionContext(null);
+    if (account) setDmAccount(account);
+    setDmSelectedAutomation({ _new: true, name: 'New Automation', status: 'draft' });
+  };
+
+  if (isDmListView) {
+    return <DmAutomationList onSelect={handleDmAutomationSelect} onCreateNew={handleDmCreateNew} />;
+  }
+
   return (
   <>
     {/* Window-level drag-and-drop overlay. Shown only while a file
         drag is active anywhere on the page; the actual file ingestion
         is wired up to the same path the paperclip uses. */}
     <ChatDropOverlay visible={filesDragging} hint="Drop to add an image or document to your message." />
+
+    {/* Back bar when viewing a specific DM automation */}
+    {dmSelectedAutomation && (
+      <div className="dma-back-bar" onClick={handleDmBack}>
+        <ChevronLeft size={16} />
+        <span>Back to Automations</span>
+        <span className="dma-back-name">{dmSelectedAutomation.name || 'Untitled'}</span>
+        {dmAccount && (
+          <span className="dma-back-account">
+            {dmAccount.profile_picture_url
+              ? <img src={dmAccount.profile_picture_url} alt="" className="dma-back-account-pic" />
+              : null}
+            @{dmAccount.instagram_username || dmAccount.username || 'Account'}
+          </span>
+        )}
+        <span className={`dma-badge dma-back-badge dma-badge--${dmSelectedAutomation.status || 'draft'}`}>
+          {(dmSelectedAutomation.status || 'draft').charAt(0).toUpperCase() + (dmSelectedAutomation.status || 'draft').slice(1)}
+        </span>
+      </div>
+    )}
+
     {/* Top bar — sibling of .mkt-split (NOT inside .mkt-split-left). Lives
         directly under the chrome tabs in the column-flex parent so chat-load
         layout reflow inside the split panes can never displace or cover it. */}
@@ -3250,16 +3423,38 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
                               className="mkt-bs-dropdown-item"
                               onClick={async () => {
                                 setBsTemplatesOpen(false);
-                                const graph = tpl.automation_graph;
+                                // Parse graph — handle string or object
+                                let graph = tpl.automation_graph;
+                                if (typeof graph === 'string') try { graph = JSON.parse(graph); } catch {}
                                 if (graph?.nodes?.length) {
                                   setDmGraphData({ nodes: graph.nodes, edges: graph.edges || [] });
-                                } else {
-                                  try {
-                                    const full = await getBoosendTemplate(tpl.id);
-                                    const t = full.template || full;
-                                    const g = t.automation_graph || {};
-                                    setDmGraphData({ nodes: g.nodes || [], edges: g.edges || [] });
-                                  } catch { setDmGraphData(null); }
+                                  return;
+                                }
+                                // Fallback: fetch the full template
+                                try {
+                                  const full = await getBoosendTemplate(tpl.id);
+                                  const t = full.template || full;
+                                  let g = t.automation_graph;
+                                  if (typeof g === 'string') try { g = JSON.parse(g); } catch {}
+                                  if (g?.nodes?.length) {
+                                    setDmGraphData({ nodes: g.nodes, edges: g.edges || [] });
+                                    return;
+                                  }
+                                  // If automation_graph is empty, try the linked automation
+                                  if (t.automation_id) {
+                                    const autoRes = await getBoosendAutomation(t.automation_id);
+                                    const auto = autoRes.automation || autoRes;
+                                    const nodes = auto.nodes || auto.graph_json?.nodes || [];
+                                    const edges = auto.edges || auto.graph_json?.edges || [];
+                                    if (nodes.length) {
+                                      setDmGraphData({ nodes, edges });
+                                      return;
+                                    }
+                                  }
+                                  setDmGraphData(null);
+                                } catch (err) {
+                                  console.error('[DM Templates] Failed to load template graph:', err);
+                                  setDmGraphData(null);
                                 }
                               }}
                             >
@@ -3370,6 +3565,18 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
                     title={storyFrames.length === 0 ? 'Generate or upload story frames first' : 'Schedule or publish to Instagram'}
                   >
                     {storyScheduleStatus === 'published' ? 'Published ✓' : storyScheduleStatus === 'scheduled' ? 'Scheduled ✓' : storyScheduleStatus === 'saved' ? 'Saved ✓' : action.label}
+                  </button>
+                ) : action.isPublishInBoosend ? (
+                  <button
+                    key={i}
+                    className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
+                    onClick={handlePublishInBoosend}
+                    disabled={publishingToBoosend || !dmGraphData?.nodes?.length}
+                  >
+                    {action.iconSrc && <img src={action.iconSrc} alt="" className="mkt-canvas-btn-icon" />}
+                    {publishingToBoosend
+                      ? (isExistingAutomation ? 'Updating...' : 'Publishing...')
+                      : (isExistingAutomation ? 'Update In BooSend' : action.label)}
                   </button>
                 ) : (
                   <button

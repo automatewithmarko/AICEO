@@ -87,6 +87,73 @@ router.post('/api/boosend/templates/:id/use', async (req, res) => {
   }
 });
 
+// ─── AI Agent Build (streaming) ───
+router.post('/api/boosend/agent/build', async (req, res) => {
+  const userId = req.user.id;
+  const apiKey = await getBoosendKey(userId);
+  if (!apiKey) return res.status(400).json({ error: 'BooSend integration not connected' });
+
+  try {
+    const url = new URL('/api/agent/build', BOOSEND_API);
+    url.searchParams.set('user_id', userId);
+
+    const upstream = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(req.body),
+    });
+
+    if (!upstream.ok) {
+      const errText = await upstream.text();
+      return res.status(upstream.status).json({ error: errText });
+    }
+
+    // Stream SSE through
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(decoder.decode(value, { stream: true }));
+    }
+    res.end();
+  } catch (err) {
+    console.error('[boosend] agent build error:', err.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    } else {
+      res.end();
+    }
+  }
+});
+
+// ─── Create automation ───
+router.post('/api/boosend/automations', async (req, res) => {
+  const userId = req.user.id;
+  const apiKey = await getBoosendKey(userId);
+  if (!apiKey) return res.status(400).json({ error: 'BooSend integration not connected' });
+
+  try {
+    const body = { user_id: userId, ...req.body };
+    const { status, data } = await boosendFetch(apiKey, userId, `/api/automations`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    res.status(status).json(data);
+  } catch (err) {
+    console.error('[boosend] automation create error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── List user's automations ───
 router.get('/api/boosend/automations', async (req, res) => {
   const userId = req.user.id;
@@ -97,10 +164,10 @@ router.get('/api/boosend/automations', async (req, res) => {
     const page = req.query.page || 1;
     const limit = req.query.limit || 20;
     const filter = req.query.filter || 'all';
-    const { status, data } = await boosendFetch(
-      apiKey, userId,
-      `/api/automations?user_id=${userId}&page=${page}&limit=${limit}&filter=${filter}`
-    );
+    const accountId = req.query.instagram_account_id || '';
+    let url = `/api/automations?user_id=${userId}&page=${page}&limit=${limit}&filter=${filter}`;
+    if (accountId) url += `&instagram_account_id=${accountId}`;
+    const { status, data } = await boosendFetch(apiKey, userId, url);
     res.status(status).json(data);
   } catch (err) {
     console.error('[boosend] automations list error:', err.message);
