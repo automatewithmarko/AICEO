@@ -12,6 +12,7 @@
 // Server enforces the order so a tampered client can't skip a step.
 
 import { useEffect, useState, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Check, Crown, Star, Loader2, CalendarCheck, ArrowRight, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -113,7 +114,8 @@ function getCalendlyUrl(plan) {
 }
 
 export default function OnboardingFunnel() {
-  const { refreshUser, planData, planResolved } = useAuth();
+  const { user, refreshUser, planData, planResolved, workspace } = useAuth();
+  const location = useLocation();
   // Local copy of subscription state so we can re-poll after the user
   // returns from a Stripe Checkout success URL without waiting for the
   // top-level AuthContext refresh to complete.
@@ -178,6 +180,17 @@ export default function OnboardingFunnel() {
       : sub?.setup_paid_at ? 'meeting'
       : 'setup';
   }, [sub, freeYearActive]);
+
+  // Skip the funnel on invite-acceptance pages — the invitee shouldn't
+  // be force-fed pricing in the middle of joining a workspace, and the
+  // funnel overlay would otherwise hide the InviteAccept UI entirely.
+  if (location.pathname.startsWith('/invite/')) return null;
+
+  // Skip the funnel when the actor is acting in someone else's workspace
+  // (member, not owner). Members consume the workspace owner's plan, so
+  // their personal billing state is irrelevant — only the owner is
+  // expected to complete the setup → meeting → monthly funnel.
+  if (workspace && !workspace.isOwner && workspace.activeOwnerId !== user?.id) return null;
 
   // Don't render until /api/billing/plan has returned 2xx at least once
   // for this session. Without this guard, a transient 401/5xx caused the
