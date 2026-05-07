@@ -114,7 +114,7 @@ function getCalendlyUrl(plan) {
 }
 
 export default function OnboardingFunnel() {
-  const { user, refreshUser, planData, planResolved, workspace } = useAuth();
+  const { user, refreshUser, planData, planResolved, workspace, switchWorkspace } = useAuth();
   const location = useLocation();
   // Local copy of subscription state so we can re-poll after the user
   // returns from a Stripe Checkout success URL without waiting for the
@@ -218,9 +218,55 @@ export default function OnboardingFunnel() {
   // polling settles.
   if (stepKey === 'done' && !loadingState) return null;
 
+  // Escape hatch: if the user has memberships in OTHER workspaces, surface
+  // a one-click switch back to one of them. Without this, a user who lands
+  // here (no plan in their own workspace) is trapped — every URL they
+  // navigate to renders behind this fullscreen backdrop.
+  const otherWorkspaces = (workspace?.workspaces || []).filter(
+    (w) => w.ownerId !== user?.id
+  );
+
   return (
     <div className="of-backdrop">
       <div className="of-stepper">
+        {otherWorkspaces.length > 0 && (
+          <div style={{
+            background: '#f1f5f9',
+            border: '1px solid #cbd5e1',
+            borderRadius: 10,
+            padding: '10px 14px',
+            marginBottom: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            fontSize: 13,
+          }}>
+            <span style={{ opacity: 0.85 }}>
+              You're a member of {otherWorkspaces.length === 1 ? 'another workspace' : `${otherWorkspaces.length} other workspaces`}
+              {' '}— switch to {otherWorkspaces.length === 1 ? 'it' : 'one'} if you don't need a personal AICEO subscription right now.
+            </span>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {otherWorkspaces.map((w) => (
+                <button
+                  key={w.ownerId}
+                  onClick={async () => { await switchWorkspace(w.ownerId); }}
+                  style={{
+                    padding: '6px 12px',
+                    background: '#111',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Switch to {w.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <Stepper current={loadingState ? 'setup' : stepKey} freeYear={freeYearActive} />
         {loadingState ? (
           <div className="of-finalising">
