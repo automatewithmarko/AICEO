@@ -11,39 +11,92 @@
 
 const MENTOR_BASE_URL = process.env.MENTOR_BASE_URL || 'https://platform.thementorprogram.xyz';
 
+// Each target carries an optional `fallback` to its direct-provider sibling.
+// `fetchWithMentorFallback` retries against the fallback once when the
+// primary returns 5xx or the network throws — so a Mentor outage doesn't
+// take the app down. A 4xx is a real input error and never falls back.
+
 function anthropicTarget() {
+  const direct = process.env.ANTHROPIC_API_KEY
+    ? { url: 'https://api.anthropic.com/v1/messages', key: process.env.ANTHROPIC_API_KEY, via: 'direct' }
+    : null;
   if (process.env.MENTOR_API_KEY) {
-    return { url: `${MENTOR_BASE_URL}/api/v1/messages`, key: process.env.MENTOR_API_KEY, via: 'mentor' };
+    return {
+      url: `${MENTOR_BASE_URL}/api/v1/messages`,
+      key: process.env.MENTOR_API_KEY,
+      via: 'mentor',
+      fallback: direct,
+    };
   }
-  if (process.env.ANTHROPIC_API_KEY) {
-    return { url: 'https://api.anthropic.com/v1/messages', key: process.env.ANTHROPIC_API_KEY, via: 'direct' };
-  }
+  if (direct) return direct;
   throw new Error('No Anthropic credential — set MENTOR_API_KEY (preferred) or ANTHROPIC_API_KEY');
 }
 
 function xaiChatTarget() {
+  const direct = process.env.XAI_API_KEY
+    ? { url: 'https://api.x.ai/v1/chat/completions', key: process.env.XAI_API_KEY, via: 'direct' }
+    : null;
   if (process.env.MENTOR_API_KEY) {
-    return { url: `${MENTOR_BASE_URL}/api/v1/chat/completions`, key: process.env.MENTOR_API_KEY, via: 'mentor' };
+    return {
+      url: `${MENTOR_BASE_URL}/api/v1/chat/completions`,
+      key: process.env.MENTOR_API_KEY,
+      via: 'mentor',
+      fallback: direct,
+    };
   }
-  if (process.env.XAI_API_KEY) {
-    return { url: 'https://api.x.ai/v1/chat/completions', key: process.env.XAI_API_KEY, via: 'direct' };
-  }
+  if (direct) return direct;
   throw new Error('No xAI credential — set MENTOR_API_KEY (preferred) or XAI_API_KEY');
 }
 
 function xaiResponsesTarget() {
+  const direct = process.env.XAI_API_KEY
+    ? { url: 'https://api.x.ai/v1/responses', key: process.env.XAI_API_KEY, via: 'direct' }
+    : null;
   if (process.env.MENTOR_API_KEY) {
-    return { url: `${MENTOR_BASE_URL}/api/v1/responses`, key: process.env.MENTOR_API_KEY, via: 'mentor' };
+    return {
+      url: `${MENTOR_BASE_URL}/api/v1/responses`,
+      key: process.env.MENTOR_API_KEY,
+      via: 'mentor',
+      fallback: direct,
+    };
   }
-  if (process.env.XAI_API_KEY) {
-    return { url: 'https://api.x.ai/v1/responses', key: process.env.XAI_API_KEY, via: 'direct' };
-  }
+  if (direct) return direct;
   throw new Error('No xAI credential — set MENTOR_API_KEY (preferred) or XAI_API_KEY');
+}
+
+/**
+ * Run a fetch against `target`, retrying once against `target.fallback` on
+ * 5xx or network failure. `buildInit(target)` builds the fetch options for
+ * a given target — needed because the auth header value depends on the
+ * target's key. Aborts (user cancel / timeout) are NOT retried — they
+ * surface to the caller untouched.
+ */
+async function fetchWithMentorFallback(target, buildInit) {
+  let primaryReason = null;
+  try {
+    const res = await fetch(target.url, buildInit(target));
+    if (res.status < 500) return res;            // 2xx-4xx: caller decides
+    primaryReason = `${target.via} ${res.status}`;
+    // Drain the body so it can be logged but the caller still gets a fresh
+    // response from the fallback. A 5xx body is usually a JSON error from
+    // the gateway — small enough to read entirely.
+    try { primaryReason += `: ${(await res.text()).slice(0, 200)}`; } catch { /* drain failed */ }
+  } catch (err) {
+    if (err?.name === 'AbortError') throw err;  // user cancel / timeout — don't fall back
+    primaryReason = `${target.via} ${err.name || 'Error'}: ${err.message}`;
+  }
+
+  if (!target.fallback) {
+    throw new Error(primaryReason);
+  }
+
+  console.warn(`[gateway] Primary failed (${primaryReason}) — falling back to ${target.fallback.via}`);
+  return fetch(target.fallback.url, buildInit(target.fallback));
 }
 
 // Re-exports so other backend modules (routes/email.js, routes/sales.js) can
 // pick the same routing without duplicating env/branch logic.
-export { anthropicTarget, xaiChatTarget, MENTOR_BASE_URL };
+export { anthropicTarget, xaiChatTarget, fetchWithMentorFallback, MENTOR_BASE_URL };
 
 // Watchdog for upstream LLM streams. If no chunk arrives within idleMs we
 // abort the upstream connection and throw. Prevents the server from hanging
@@ -67,7 +120,7 @@ async function readWithIdleTimeout(reader, controller, idleMs = STREAM_IDLE_TIME
 
 // Stream from Anthropic Claude API (via Mentor gateway when configured, else direct)
 async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs }) {
-  const { url, key } = anthropicTarget();
+  const target = anthropicTarget();
 
   // Convert to Anthropic format (separate system from user/assistant)
   const anthropicMessages = messages
@@ -82,11 +135,11 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
     else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
   }
 
-  const res = await fetch(url, {
+  const buildInit = (t) => ({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': key,
+      'x-api-key': t.key,
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
@@ -98,6 +151,7 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
     }),
     signal: controller.signal,
   });
+  const res = await fetchWithMentorFallback(target, buildInit);
 
   if (!res.ok) {
     const errText = await res.text().catch(() => 'Unknown error');
@@ -145,7 +199,7 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
 
 // Stream from XAI Grok API (OpenAI-compatible) — via Mentor gateway when configured, else direct
 async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onChunk, onToolCalls, abortSignal, streamIdleMs }) {
-  const { url, key } = xaiChatTarget();
+  const target = xaiChatTarget();
 
   const body = {
     model: model || 'grok-4-1-fast-non-reasoning',
@@ -167,15 +221,16 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
     else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
   }
 
-  const res = await fetch(url, {
+  const buildInit = (t) => ({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${key}`,
+      Authorization: `Bearer ${t.key}`,
     },
     body: JSON.stringify(body),
     signal: controller.signal,
   });
+  const res = await fetchWithMentorFallback(target, buildInit);
 
   if (!res.ok) {
     const errText = await res.text().catch(() => 'Unknown error');
@@ -241,7 +296,7 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
 
 // Stream from XAI Responses API with web_search — via Mentor gateway when configured, else direct
 async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSearchStatus, onSearchResult, abortSignal, streamIdleMs }) {
-  const { url, key } = xaiResponsesTarget();
+  const target = xaiResponsesTarget();
 
   if (onSearchStatus) onSearchStatus('searching');
 
@@ -253,11 +308,11 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
     else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
   }
 
-  const res = await fetch(url, {
+  const buildInit = (t) => ({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${key}`,
+      Authorization: `Bearer ${t.key}`,
     },
     body: JSON.stringify({
       model: 'grok-4-1-fast-non-reasoning',
@@ -268,6 +323,7 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
     }),
     signal: controller.signal,
   });
+  const res = await fetchWithMentorFallback(target, buildInit);
 
   if (!res.ok) {
     const errText = await res.text().catch(() => 'Unknown error');
@@ -427,7 +483,7 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
 // Used for file-based editing  -  Claude calls replace_text/replace_section tools
 // Routes via Mentor's /v1/messages passthrough when configured (tools preserved).
 export async function executeAnthropicWithTools({ systemPrompt, messages, tools, maxTokens, onToolCall, onText, abortSignal }) {
-  const { url, key } = anthropicTarget();
+  const target = anthropicTarget();
 
   let conversationMessages = messages
     .filter(m => m.role === 'user' || m.role === 'assistant')
@@ -456,11 +512,11 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
 
     let res;
     try {
-      res = await fetch(url, {
+      const buildInit = (t) => ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': key,
+          'x-api-key': t.key,
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
@@ -472,6 +528,7 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
         }),
         signal: iterCtl.signal,
       });
+      res = await fetchWithMentorFallback(target, buildInit);
     } finally {
       clearTimeout(iterTimer);
       abortSignal?.removeEventListener?.('abort', onCallerAbort);
