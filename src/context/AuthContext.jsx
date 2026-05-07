@@ -46,18 +46,25 @@ export function AuthProvider({ children }) {
       .single();
 
     // Resolve workspace context (role + permissions + workspaces list).
-    // Tolerant to backend errors — falls back to "owner of own
-    // workspace, all permissions" so a backend hiccup never locks the
-    // user out of their own data.
+    //
+    // Recovery path matters here: if localStorage points to a workspace
+    // the actor is no longer a member of (membership revoked, account
+    // switched in same browser, suspension), the request will 403 with
+    // X-Workspace-Owner. Without recovery, the actor would be silently
+    // stuck sending the bad header on every subsequent request and
+    // landing in a half-broken fallback state. So on ANY failure, we
+    // clear the persisted workspace and retry once — the retry omits
+    // the X-Workspace-Owner header and falls through to the actor's
+    // own workspace, which is always valid.
     let wsCtx = null;
     try {
       wsCtx = await getWorkspaceMe();
     } catch {
-      wsCtx = null;
+      setActiveWorkspaceOwner(null);
+      try { wsCtx = await getWorkspaceMe(); } catch { wsCtx = null; }
     }
-    // If the persisted active workspace is no longer one the user can
-    // access (membership revoked, etc.), reset to their own workspace
-    // and re-fetch context.
+    // Belt-and-suspenders: even on success, if the persisted owner
+    // isn't in the workspace list, drop it and re-fetch.
     if (wsCtx) {
       const persisted = getActiveWorkspaceOwner();
       const validOwners = new Set((wsCtx.workspaces || []).map((w) => w.ownerId));
@@ -263,24 +270,44 @@ export function AuthProvider({ children }) {
     if (error) throw error;
   };
 
-  const signup = async (email, password, _plan, fullName) => {
+  // `redirectTo` lets callers (currently InviteAccept) override Supabase's
+  // default post-confirmation URL so the user lands back on /invite/:token
+  // after clicking the email link, rather than the project's catch-all.
+  const signup = async (email, password, fullName, { redirectTo } = {}) => {
     // The legacy signup wrote a phantom { plan, status:'active' } row into
     // subscriptions BEFORE any payment. The new 4-step funnel can't tolerate
     // that — it interpreted the phantom row as "user has a plan, skip the
     // setup-fee gate". Signup now only creates the auth user; the
     // subscription row is upserted by the Stripe webhook on the first
     // checkout.session.completed (mode=payment) event.
-    const { error } = await supabase.auth.signUp({
+    //
+    // Clear stale workspace-scoped browser state before signup so that the
+    // brand-new account doesn't inherit a previous user's active workspace
+    // selection (see the matching clear in logout()).
+    setActiveWorkspaceOwner(null);
+    const options = {
+      data: { full_name: fullName || 'New User' },
+    };
+    if (redirectTo) options.emailRedirectTo = redirectTo;
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: { full_name: fullName || 'New User' },
-      },
+      options,
     });
     if (error) throw error;
+    // Returns the session so callers can decide whether to show "check
+    // your email" vs. the user is already signed in.
+    return data;
   };
 
   const logout = async () => {
+    // Clear workspace-scoped browser state BEFORE signOut so the next
+    // account on this browser doesn't inherit the previous user's
+    // active workspace selection. Without this, a logout-then-signup
+    // flow makes the new user's first /api/workspace/me call carry an
+    // X-Workspace-Owner header pointing at a workspace they're not a
+    // member of — which 403s and breaks invite acceptance.
+    setActiveWorkspaceOwner(null);
     await supabase.auth.signOut();
   };
 

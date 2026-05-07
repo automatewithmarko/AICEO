@@ -15,6 +15,10 @@ import './Layout.css';
 // more-specific prefixes must come BEFORE shorter ones (e.g.
 // /content-calendar before /content). Routes not listed are unprotected
 // (Docs, Shared meeting, Form player handled outside Layout).
+//
+// SYNC: tab values here MUST match backend/services/workspace.js TAB_KEYS,
+// src/components/Sidebar.jsx navItems[].tab, and
+// src/components/TeamSettings.jsx TAB_LABELS.
 const ROUTE_TAB_MAP = [
   { prefix: '/ai-ceo',           tab: 'ai-ceo' },
   { prefix: '/dashboard',        tab: 'dashboard' },

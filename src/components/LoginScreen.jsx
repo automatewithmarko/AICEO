@@ -3,7 +3,12 @@ import { useAuth } from '../context/AuthContext';
 import { describeAuthError } from '../lib/supabase';
 import './LoginScreen.css';
 
-export default function LoginScreen({ defaultMode = 'login' } = {}) {
+// `defaultMode` — initial form ('login' or 'signup'). Invitees default
+// to 'signup' since they typically don't have an account.
+// `signupRedirectTo` — passed through to Supabase as emailRedirectTo
+// so confirmation links return the user to the right page (used by
+// the invite-acceptance flow to preserve /invite/:token).
+export default function LoginScreen({ defaultMode = 'login', signupRedirectTo = null } = {}) {
   const { login, signup } = useAuth();
   const [mode, setMode] = useState(defaultMode); // 'login' | 'signup'
   const [email, setEmail] = useState('');
@@ -30,12 +35,18 @@ export default function LoginScreen({ defaultMode = 'login' } = {}) {
     }
   };
 
-  const handleSignup = async (plan) => {
+  const handleSignup = async () => {
     setError('');
     setSubmitting(true);
     try {
-      await signup(email, password, plan, name);
-      setConfirmEmail(true);
+      const result = await signup(email, password, name, { redirectTo: signupRedirectTo });
+      // If Supabase email confirmation is OFF, signUp returns a session
+      // immediately and AuthContext picks it up — no need to show the
+      // "Check Your Email" dead-end. Only show it when the user genuinely
+      // has to act on a confirmation email before logging in.
+      if (!result?.session) {
+        setConfirmEmail(true);
+      }
     } catch (err) {
       setError(describeAuthError(err));
     } finally {
@@ -136,7 +147,7 @@ export default function LoginScreen({ defaultMode = 'login' } = {}) {
 
             <form
               className="signup-fields"
-              onSubmit={(e) => { e.preventDefault(); handleSignup(null); }}
+              onSubmit={(e) => { e.preventDefault(); handleSignup(); }}
             >
               <div className="form-group">
                 <label htmlFor="signup-name">Full Name</label>

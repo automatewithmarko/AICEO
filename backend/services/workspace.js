@@ -1,8 +1,14 @@
 import { supabase } from './storage.js';
 
 // The canonical list of tab keys the frontend understands. Changing this
-// list requires updating the Sidebar permission map AND the seeded role
-// permissions below.
+// list requires synchronizing FOUR places:
+//   1. backend/services/workspace.js (this file) — TAB_KEYS
+//   2. src/components/Sidebar.jsx                — navItems[].tab
+//   3. src/components/Layout.jsx                 — ROUTE_TAB_MAP
+//   4. src/components/TeamSettings.jsx           — TAB_LABELS
+// There's no automated drift check; if a tab appears in the sidebar
+// but is missing from TAB_KEYS, every member will be denied access to
+// it because their role's permissions array can never list it.
 export const TAB_KEYS = [
   'ai-ceo',
   'dashboard',
@@ -33,10 +39,13 @@ const SYSTEM_ROLES = [
   {
     role_key: 'member',
     label: 'Member',
-    // Default Member preset: every tab except CRM (often sensitive) — admin
-    // can edit this in Settings → Team. Picked deliberately to be useful
-    // out of the box rather than empty.
-    permissions: TAB_KEYS.filter((k) => k !== 'crm'),
+    // Default Member preset: a conservative content/marketing-leaning
+    // set that's safe to grant to a junior teammate or assistant
+    // without exposing the sales pipeline, CRM, or inbox by default.
+    // Admins can broaden it in Settings → Team — ticking a checkbox
+    // is much friendlier than "you accidentally let your VA see every
+    // contact" being a permanent footgun.
+    permissions: ['ai-ceo', 'dashboard', 'content', 'marketing', 'forms', 'docs'],
     can_manage_members: false,
     is_system: true,
   },
@@ -95,9 +104,18 @@ export async function resolveContext(actorId, requestedOwnerId) {
     .maybeSingle();
 
   if (error) throw new Error(`membership_lookup_failed: ${error.message}`);
-  if (!membership || membership.status !== 'active') {
+  if (!membership) {
     const e = new Error('not_a_member');
     e.code = 'NOT_A_MEMBER';
+    throw e;
+  }
+  if (membership.status !== 'active') {
+    // Suspended members get a distinct error so the UI can show
+    // "your access has been suspended" rather than the misleading
+    // "you're not a member" — and so a future "reactivate" action
+    // has a name to flip back to active.
+    const e = new Error('membership_suspended');
+    e.code = 'SUSPENDED';
     throw e;
   }
 

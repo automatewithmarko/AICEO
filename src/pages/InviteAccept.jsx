@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { acceptWorkspaceInvite, setActiveWorkspaceOwner } from '../lib/api';
+import { acceptWorkspaceInvite, lookupWorkspaceInvite, setActiveWorkspaceOwner } from '../lib/api';
 import LoginScreen from '../components/LoginScreen';
 
 // Pretty status messages keyed off the backend's error strings.
@@ -10,6 +10,7 @@ const ERROR_MESSAGES = {
   invite_not_pending: 'This invite has already been used or revoked.',
   invite_expired: 'This invite has expired. Ask the workspace admin to send a new one.',
   cannot_join_own_workspace: 'You can\'t accept your own invite — sign in with the invited email instead.',
+  email_mismatch: 'This invite was sent to a different email address. Sign in with the email the invite was addressed to.',
 };
 
 export default function InviteAccept() {
@@ -19,12 +20,37 @@ export default function InviteAccept() {
   const [status, setStatus] = useState('idle');  // idle | accepting | success | error
   const [error, setError] = useState(null);
   const [workspaceInfo, setWorkspaceInfo] = useState(null);
+  // Preview data fetched without auth — what workspace the user is being
+  // invited to, role label, expiration. Lets us show a meaningful card
+  // BEFORE asking the user to sign up, and short-circuit on
+  // expired/revoked/used invites without making the user authenticate
+  // first.
+  const [preview, setPreview] = useState(null);
+  const [previewError, setPreviewError] = useState(null);
   const acceptedRef = useRef(false);
+
+  // Fetch the invite preview on mount. No auth required.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await lookupWorkspaceInvite(token);
+        if (!cancelled) setPreview(data);
+      } catch (err) {
+        if (!cancelled) setPreviewError(err.body?.error || err.message || 'lookup_failed');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
 
   useEffect(() => {
     if (loading) return;
     if (!user) return;             // logged-out branch handled below
     if (acceptedRef.current) return;
+    // Don't try to accept if the preview already told us this invite is
+    // dead. Saves a redundant 4xx and lets the user see the friendly
+    // message immediately.
+    if (preview && preview.status !== 'pending') return;
     acceptedRef.current = true;
 
     (async () => {
@@ -44,7 +70,7 @@ export default function InviteAccept() {
         setError(err.body?.error || err.message || 'accept_failed');
       }
     })();
-  }, [user, loading, token, switchWorkspace, navigate]);
+  }, [user, loading, token, preview, switchWorkspace, navigate]);
 
   // Logged-out branch: render LoginScreen inline with a banner
   // explaining why. Defaults to signup mode since most invitees won't
@@ -53,13 +79,58 @@ export default function InviteAccept() {
   // when auth completes AuthContext flips `user` to truthy, this
   // component re-renders without the LoginScreen branch, and the
   // effect above proceeds to accept the invite automatically.
+  // Dead-invite short-circuit: show the friendly message and stop,
+  // even before requiring auth. Covers expired / revoked / used /
+  // 404 tokens.
+  if (preview && preview.status !== 'pending') {
+    return (
+      <div style={pageStyle}>
+        <div style={cardStyle}>
+          <h1 style={{ margin: 0, fontSize: 22, color: '#dc2626' }}>This invite isn't usable</h1>
+          <p style={{ opacity: 0.7, fontSize: 14, marginTop: 8 }}>
+            {preview.status === 'expired'
+              ? 'This invite has expired. Ask the workspace admin to send a new one.'
+              : preview.status === 'revoked'
+                ? 'This invite has been revoked.'
+                : preview.status === 'accepted'
+                  ? 'This invite has already been used.'
+                  : 'This invite is no longer valid.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (previewError) {
+    return (
+      <div style={pageStyle}>
+        <div style={cardStyle}>
+          <h1 style={{ margin: 0, fontSize: 22, color: '#dc2626' }}>Couldn't load invite</h1>
+          <p style={{ opacity: 0.7, fontSize: 14, marginTop: 8 }}>
+            {ERROR_MESSAGES[previewError] || previewError}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!loading && !user) {
+    // Pass the current invite URL as the post-confirmation redirect so
+    // that — when Supabase email confirmation is enabled — the link in
+    // the inbox returns the user back to /invite/:token rather than
+    // dropping them on the project default URL and orphaning the invite.
+    const inviteUrl = typeof window !== 'undefined' ? window.location.href : null;
+    const inviterName = preview?.ownerName || 'a workspace';
+    const roleLabel = preview?.roleLabel || 'team member';
     return (
       <div>
         <div style={bannerStyle}>
-          You've been invited to join a workspace. Create an account below — or sign in if you already have one — to accept the invite.
+          {preview ? (
+            <>You've been invited to join <strong>{inviterName}</strong> as <strong>{roleLabel}</strong>. Create an account below — or sign in with <strong>{preview.email}</strong> if you already have one.</>
+          ) : (
+            <>You've been invited to join a workspace. Create an account below — or sign in if you already have one — to accept the invite.</>
+          )}
         </div>
-        <LoginScreen defaultMode="signup" />
+        <LoginScreen defaultMode="signup" signupRedirectTo={inviteUrl} />
       </div>
     );
   }
@@ -76,7 +147,8 @@ export default function InviteAccept() {
           <>
             <h1 style={{ margin: 0, fontSize: 22, color: '#16a34a' }}>You're in!</h1>
             <p style={{ opacity: 0.7, fontSize: 14, marginTop: 8 }}>
-              Joined as <strong>{workspaceInfo?.role}</strong>. Redirecting to your dashboard…
+              Joined {preview?.ownerName ? <strong>{preview.ownerName}</strong> : 'the workspace'}
+              {' '}as <strong>{preview?.roleLabel || workspaceInfo?.role}</strong>. Redirecting…
             </p>
           </>
         ) : (

@@ -50,30 +50,35 @@ router.get('/api/billing/plan', async (req, res) => {
   try {
     const planInfo = await getUserPlan(userId);
 
-    // Fetch full plan row for display_name
+    // Fetch full plan row for display_name. .maybeSingle() so a stale
+    // planInfo.plan that no longer exists in the plans table doesn't
+    // 406 the whole endpoint — it just returns no plan.
     let planRow = null;
     if (planInfo.plan) {
       const { data } = await supabase
         .from('plans')
         .select('*')
         .eq('id', planInfo.plan)
-        .single();
+        .maybeSingle();
       planRow = data;
     }
 
-    // Fetch subscription for period dates
+    // Fetch subscription for period dates. .maybeSingle() — fresh
+    // signups have no row, and we want a clean null in the response
+    // rather than a 406 from PostgREST.
     const { data: sub } = await supabase
       .from('subscriptions')
       .select('*')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
-    // Fetch current credit balance
+    // Same story for credits: brand-new accounts have no credits row
+    // until their first webhook seeds one.
     const { data: creditRow } = await supabase
       .from('credits')
       .select('balance')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     res.json({
       plan: planRow ? {

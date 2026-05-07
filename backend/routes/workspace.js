@@ -368,6 +368,87 @@ router.delete('/api/workspace/invites/:id', requireWorkspaceAdmin, async (req, r
   res.json({ ok: true });
 });
 
+// ─── GET /api/workspace/invites/lookup/:token ────────────────────────
+// Preview an invite before accepting. Returns workspace owner display
+// info, role, and expiration so the InviteAccept page can render
+// "Join Acme Corp as Admin · expires May 21" before requesting auth.
+//
+// Mounted with requireAuthOnly so a stale X-Workspace-Owner header
+// can't 403 the preview. Anonymous callers can also hit this — useful
+// when an invite link is shared and the recipient previews before
+// signing up. We never leak the token itself; the only sensitive
+// field is the inviting workspace owner's name, which the recipient
+// would see post-accept anyway.
+router.get('/api/workspace/invites/lookup/:token', async (req, res) => {
+  const { data: invite } = await supabase
+    .from('workspace_invites')
+    .select('owner_user_id, email, role_key, status, expires_at')
+    .eq('token', req.params.token)
+    .maybeSingle();
+
+  if (!invite) return res.status(404).json({ error: 'invite_not_found' });
+
+  let ownerName = null;
+  let ownerAvatar = null;
+  if (invite.status === 'pending') {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name, avatar_url')
+      .eq('id', invite.owner_user_id)
+      .maybeSingle();
+    ownerName = profile?.full_name || null;
+    ownerAvatar = profile?.avatar_url || null;
+  }
+
+  // Look up the role label so the preview shows "Admin" not "admin"
+  let roleLabel = invite.role_key;
+  const { data: role } = await supabase
+    .from('workspace_roles')
+    .select('label')
+    .eq('owner_user_id', invite.owner_user_id)
+    .eq('role_key', invite.role_key)
+    .maybeSingle();
+  if (role?.label) roleLabel = role.label;
+
+  // Compute effective status. Surfacing 'expired' upfront lets the UI
+  // show a tailored message rather than throwing on accept.
+  const expired = new Date(invite.expires_at).getTime() < Date.now();
+  const effectiveStatus = invite.status === 'pending' && expired ? 'expired' : invite.status;
+
+  res.json({
+    status: effectiveStatus,
+    email: invite.email,
+    roleKey: invite.role_key,
+    roleLabel,
+    expiresAt: invite.expires_at,
+    ownerName,
+    ownerAvatar,
+  });
+});
+
+// ─── POST /api/workspace/invites/:id/resend — extend expiry ──────────
+// Refreshes the invite's expires_at to now + INVITE_TTL_DAYS without
+// changing the token. Useful when an invitee didn't act in time but
+// the admin still wants the same person on the same role.
+router.post('/api/workspace/invites/:id/resend', requireWorkspaceAdmin, async (req, res) => {
+  const ownerId = req.user.ownerId;
+  const newExpires = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 3600 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('workspace_invites')
+    .update({ status: 'pending', expires_at: newExpires })
+    .eq('id', req.params.id)
+    .eq('owner_user_id', ownerId)
+    .select()
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: 'invite_not_found' });
+
+  const frontendUrl = process.env.FRONTEND_URL || 'https://aiceo-dev.netlify.app';
+  res.json({ invite: data, inviteUrl: `${frontendUrl}/invite/${data.token}` });
+});
+
 // ─── POST /api/workspace/invites/accept — { token } ──────────────────
 // Any authenticated user can call. Verifies the token, attaches the
 // caller as a workspace_members row, marks the invite accepted.
@@ -396,11 +477,17 @@ router.post('/api/workspace/invites/accept', async (req, res) => {
     return res.status(400).json({ error: 'cannot_join_own_workspace' });
   }
 
-  // Best-effort email match — accepted from the email's mailbox should
-  // match the actor. Mismatch is logged but not blocked, since some users
-  // sign up with a different email than the one invited.
+  // Enforce email match. If the invite went to alice@x.com but the
+  // caller is signed in as bob@x.com, refuse — otherwise anyone with
+  // the link could join under any account, defeating the point of an
+  // emailed invite. Admin can revoke + re-invite the actual address
+  // if they meant a different person.
   if (req.user.email && invite.email && req.user.email.toLowerCase() !== invite.email.toLowerCase()) {
-    console.log(`[invite-accept] email mismatch: invite=${invite.email} actor=${req.user.email}`);
+    return res.status(403).json({
+      error: 'email_mismatch',
+      invitedEmail: invite.email,
+      actorEmail: req.user.email,
+    });
   }
 
   // Create / re-activate the membership.

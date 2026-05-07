@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Trash2, Copy, Check, Plus, X, UserPlus, Shield } from 'lucide-react';
+import { Trash2, Copy, Check, Plus, X, UserPlus, Shield, RefreshCw } from 'lucide-react';
 import {
   getWorkspaceMembers,
   updateWorkspaceMember,
@@ -11,12 +11,17 @@ import {
   getWorkspaceInvites,
   createWorkspaceInvite,
   revokeWorkspaceInvite,
+  resendWorkspaceInvite,
 } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import './TeamSettings.css';
 
-// Friendly labels for the canonical tab keys. Keep in sync with
-// backend/services/workspace.js TAB_KEYS.
+// Friendly labels for the canonical tab keys.
+//
+// SYNC: keys here MUST match backend/services/workspace.js TAB_KEYS,
+// src/components/Sidebar.jsx navItems[].tab, and
+// src/components/Layout.jsx ROUTE_TAB_MAP. Missing a key here means
+// the matrix column shows the raw key (ugly but not broken).
 const TAB_LABELS = {
   'ai-ceo': 'AI CEO',
   'dashboard': 'Dashboard',
@@ -104,6 +109,21 @@ export default function TeamSettings() {
   const handleRevokeInvite = async (inviteId) => {
     await revokeWorkspaceInvite(inviteId);
     setInvites((prev) => prev.filter((i) => i.id !== inviteId));
+  };
+
+  const handleResendInvite = async (inviteId) => {
+    try {
+      const result = await resendWorkspaceInvite(inviteId);
+      // Refresh the pending list so the new expires_at shows.
+      const i = await getWorkspaceInvites();
+      setInvites(i.invites || []);
+      // Surface the URL so the admin can copy + share again.
+      if (result.inviteUrl) {
+        setLastInviteUrl(result.inviteUrl);
+      }
+    } catch (err) {
+      alert(err.body?.error || err.message || 'Resend failed');
+    }
   };
 
   const togglePerm = (roleKey, tab) => {
@@ -230,6 +250,9 @@ export default function TeamSettings() {
                   <span className="team-row-name">{inv.email}</span>
                   <span className="team-row-meta">{inv.role_key} · expires {new Date(inv.expires_at).toLocaleDateString()}</span>
                 </div>
+                <button className="team-row-action" onClick={() => handleResendInvite(inv.id)} title="Resend (extend expiry)">
+                  <RefreshCw size={14} />
+                </button>
                 <button className="team-row-action" onClick={() => handleRevokeInvite(inv.id)} title="Revoke invite">
                   <X size={14} />
                 </button>

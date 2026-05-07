@@ -73,6 +73,11 @@ function CreditsIcon({ size = 16 }) {
 // `tab` is the permission key checked against the user's workspace
 // permissions. Items without `tab` are unconditionally visible
 // (coming-soon teasers). Children inherit the parent's tab key.
+//
+// SYNC: tab keys here MUST match backend/services/workspace.js TAB_KEYS,
+// src/components/Layout.jsx ROUTE_TAB_MAP, and
+// src/components/TeamSettings.jsx TAB_LABELS. See the comment above
+// TAB_KEYS in workspace.js for the canonical list.
 const navItems = [
   { to: '/ai-ceo', label: 'AI CEO', icon: AiCeoIcon, tab: 'ai-ceo' },
   { to: '/dashboard', label: 'Dashboard', icon: DashboardIcon, tab: 'dashboard' },

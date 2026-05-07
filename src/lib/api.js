@@ -1527,5 +1527,7 @@ export const deleteWorkspaceRole    = (key)               => jsonRequest('DELETE
 export const getWorkspaceInvites    = ()                  => jsonRequest('GET',    '/api/workspace/invites');
 export const createWorkspaceInvite  = (email, role_key)   => jsonRequest('POST',   '/api/workspace/invites', { email, role_key });
 export const revokeWorkspaceInvite  = (id)                => jsonRequest('DELETE', `/api/workspace/invites/${id}`);
+export const resendWorkspaceInvite  = (id)                => jsonRequest('POST',   `/api/workspace/invites/${id}/resend`);
+export const lookupWorkspaceInvite  = (token)             => jsonRequest('GET',    `/api/workspace/invites/lookup/${token}`);
 export const acceptWorkspaceInvite  = (token)             => jsonRequest('POST',   '/api/workspace/invites/accept', { token });
 export const leaveWorkspace         = (ownerId)           => jsonRequest('DELETE', `/api/workspace/leave/${ownerId}`);

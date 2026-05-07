@@ -70,70 +70,107 @@ const JWKS = SUPABASE_URL
   ? createRemoteJWKSet(new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`))
   : null;
 
-async function requireAuth(req, res, next) {
+// Verify the Supabase JWT and return a minimal payload. Shared between
+// the full requireAuth (which then resolves workspace context) and
+// requireAuthOnly (which doesn't — used by endpoints that must work
+// even when the actor's persisted workspace is stale, e.g. the invite
+// acceptance endpoint that's the recovery mechanism for that exact
+// state).
+async function verifyJwt(req, res) {
   const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token || token === 'undefined') {
-    // No credentials at all — the route handler decides whether
-    // anonymous is acceptable (some endpoints allow it, some 401).
-    req.user = { id: 'anonymous' };
-    return next();
-  }
+  if (!token || token === 'undefined') return { kind: 'anonymous' };
 
   if (!JWKS) {
     console.error('[auth] SUPABASE_URL not set — cannot verify token');
-    return res.status(503).json({ error: 'auth_unavailable', reason: 'supabase_url_missing' });
+    res.status(503).json({ error: 'auth_unavailable', reason: 'supabase_url_missing' });
+    return { kind: 'sent_response' };
   }
 
   try {
     const { payload } = await jwtVerify(token, JWKS, {
-      // Supabase tokens always carry this issuer.
       issuer: `${SUPABASE_URL}/auth/v1`,
     });
     if (!payload.sub) {
-      return res.status(401).json({ error: 'invalid_token', reason: 'no_sub' });
+      res.status(401).json({ error: 'invalid_token', reason: 'no_sub' });
+      return { kind: 'sent_response' };
     }
-
-    const actorId = payload.sub;
-    const requestedOwner = req.headers['x-workspace-owner'] || req.query.workspace || null;
-
-    // Resolve workspace context. `req.user.id` is the EFFECTIVE owner —
-    // every existing route reads/writes against this, so a member acting
-    // in someone else's workspace transparently sees the owner's data.
-    // `req.user.actorId` is the real auth user (use for self-only writes
-    // like notifications, profile updates).
-    let ctx;
-    try {
-      ctx = await resolveContext(actorId, requestedOwner);
-    } catch (err) {
-      if (err.code === 'NOT_A_MEMBER') {
-        return res.status(403).json({ error: 'not_a_member' });
-      }
-      console.error('[auth] resolveContext failed:', err.message);
-      return res.status(500).json({ error: 'workspace_context_failed' });
-    }
-
-    req.user = {
-      id: ctx.ownerId,           // effective owner — what every existing query keys on
-      ownerId: ctx.ownerId,      // explicit alias
-      actorId,                   // the real logged-in auth user
-      email: payload.email || null,
-      authRole: payload.role || null,
-      role: ctx.role,            // 'owner' | 'admin' | 'member' | custom
-      permissions: ctx.permissions,
-      isOwner: ctx.isOwner,
-      canManageMembers: ctx.canManageMembers,
-    };
-    return next();
+    return { kind: 'ok', actorId: payload.sub, email: payload.email || null, authRole: payload.role || null };
   } catch (err) {
-    // jose error codes: ERR_JWT_EXPIRED, ERR_JWS_SIGNATURE_VERIFICATION_FAILED,
-    // ERR_JWKS_NO_MATCHING_KEY, ERR_JWT_CLAIM_VALIDATION_FAILED, etc.
-    // Logged at info level — a routine expired token should not be noisy.
     const code = err.code || err.message;
-    if (code !== 'ERR_JWT_EXPIRED') {
-      console.log('[auth] JWKS verify failed:', code);
-    }
-    return res.status(401).json({ error: 'invalid_token', reason: code });
+    if (code !== 'ERR_JWT_EXPIRED') console.log('[auth] JWKS verify failed:', code);
+    res.status(401).json({ error: 'invalid_token', reason: code });
+    return { kind: 'sent_response' };
   }
+}
+
+async function requireAuth(req, res, next) {
+  const v = await verifyJwt(req, res);
+  if (v.kind === 'sent_response') return;
+  if (v.kind === 'anonymous') {
+    req.user = { id: 'anonymous' };
+    return next();
+  }
+
+  const actorId = v.actorId;
+  const requestedOwner = req.headers['x-workspace-owner'] || req.query.workspace || null;
+
+  // Resolve workspace context. `req.user.id` is the EFFECTIVE owner —
+  // every existing route reads/writes against this, so a member acting
+  // in someone else's workspace transparently sees the owner's data.
+  // `req.user.actorId` is the real auth user (use for self-only writes
+  // like notifications, profile updates).
+  let ctx;
+  try {
+    ctx = await resolveContext(actorId, requestedOwner);
+  } catch (err) {
+    if (err.code === 'NOT_A_MEMBER') {
+      return res.status(403).json({ error: 'not_a_member' });
+    }
+    if (err.code === 'SUSPENDED') {
+      return res.status(403).json({ error: 'membership_suspended' });
+    }
+    console.error('[auth] resolveContext failed:', err.message);
+    return res.status(500).json({ error: 'workspace_context_failed' });
+  }
+
+  req.user = {
+    id: ctx.ownerId,
+    ownerId: ctx.ownerId,
+    actorId,
+    email: v.email,
+    authRole: v.authRole,
+    role: ctx.role,
+    permissions: ctx.permissions,
+    isOwner: ctx.isOwner,
+    canManageMembers: ctx.canManageMembers,
+  };
+  return next();
+}
+
+// Thin auth: JWT-only, no workspace resolution. Use for endpoints that
+// must work even when the actor's persisted workspace pointer is bad.
+// Sets req.user with actorId + email + a minimal `id`/`isOwner`
+// shape so existing helpers don't crash, but DOES NOT enforce
+// membership against any X-Workspace-Owner header.
+async function requireAuthOnly(req, res, next) {
+  const v = await verifyJwt(req, res);
+  if (v.kind === 'sent_response') return;
+  if (v.kind === 'anonymous') {
+    req.user = { id: 'anonymous' };
+    return next();
+  }
+  req.user = {
+    id: v.actorId,
+    actorId: v.actorId,
+    ownerId: v.actorId,
+    email: v.email,
+    authRole: v.authRole,
+    role: 'owner',
+    permissions: [],
+    isOwner: true,
+    canManageMembers: true,
+  };
+  return next();
 }
 
 // Health check
@@ -1147,7 +1184,22 @@ app.use((req, res, next) => {
 app.use(adminRoutes);
 
 // ─── Workspace routes (members, roles, invites — auth required) ───
+// Two paths bypass workspace resolution intentionally:
+//
+//   POST /api/workspace/invites/accept
+//   GET  /api/workspace/invites/lookup/:token (preview, public-ish)
+//
+// These must work even when the actor's persisted X-Workspace-Owner
+// header points at a workspace they're not a member of — accept is
+// literally the recovery mechanism for that state, and lookup runs
+// before any acceptance has happened.
 app.use((req, res, next) => {
+  if (
+    req.path === '/api/workspace/invites/accept' ||
+    req.path.startsWith('/api/workspace/invites/lookup/')
+  ) {
+    return requireAuthOnly(req, res, next);
+  }
   if (req.path.startsWith('/api/workspace')) return requireAuth(req, res, next);
   next();
 });
