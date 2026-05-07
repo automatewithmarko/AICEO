@@ -87,6 +87,21 @@ export async function streamFromBackend(endpoint, body, callbacks = {}, signal) 
           case 'text_delta':
             if (onTextDelta) onTextDelta(event.content);
             break;
+          case 'debug_prompt':
+            // Backend echoes the assembled system prompt + last user
+            // message so it can be inspected from browser DevTools.
+            // Grouped collapsed so it doesn't dominate the console.
+            try {
+              const groupLabel = `[prompt] ${event.site || ''}${event.agent ? ' / ' + event.agent : ''} (model=${event.model || '?'})`;
+              console.groupCollapsed(groupLabel);
+              if (event.systemPrompt) console.log('--- systemPrompt ---\n' + event.systemPrompt);
+              if (event.lastUser) console.log('--- lastUser ---\n' + event.lastUser);
+              if (event.editInstruction) console.log('--- editInstruction ---\n' + event.editInstruction);
+              if (event.taskDescription) console.log('--- taskDescription ---\n' + event.taskDescription);
+              if (event.fileHtmlLen) console.log('fileHtmlLen:', event.fileHtmlLen);
+              console.groupEnd();
+            } catch { /* console API quirks — ignore */ }
+            break;
           case 'status':
             if (onStatus) onStatus(event.text);
             break;

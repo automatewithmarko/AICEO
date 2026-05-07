@@ -786,6 +786,18 @@ ${currentHtml}`,
 
   const agentWithPrompt = { ...agent, systemPrompt };
 
+  // Surface the assembled prompt to the browser console for debugging.
+  // Frontend's streamFromBackend forwards `debug_prompt` events to
+  // console.log so you can read the exact bytes the LLM sees.
+  sendSSE(res, {
+    type: 'debug_prompt',
+    site: 'direct-agent',
+    agent: agent.name,
+    model: agent.model,
+    systemPrompt,
+    lastUser: agentMessages?.findLast?.((m) => m.role === 'user')?.content?.toString?.().slice(0, 2000) || null,
+  });
+
   let finalContent = '';
 
   await executeAgent({
@@ -883,6 +895,16 @@ async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId
       content: `Here is the current HTML file you previously generated:\n\n${fileHtml}\n\nEdit request: ${editInstruction}\n\nImportant: apply ONLY what is requested. Keep everything else (copy, layout, assets, brand colors, tone) exactly as it is.`,
     },
   ];
+
+  sendSSE(res, {
+    type: 'debug_prompt',
+    site: 'edit-mode',
+    agent: agentName,
+    model: 'claude-sonnet-4-20250514',
+    systemPrompt,
+    editInstruction,
+    fileHtmlLen: fileHtml?.length || 0,
+  });
 
   let editCount = 0;
 
@@ -1032,6 +1054,14 @@ async function enrichMessagesWithVideoContext(messages, userId, res) {
 async function handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId = null, assistantMsgId = null }) {
   const systemPrompt = buildCeoSystemPrompt(context);
   const tools = buildAgentTools();
+
+  sendSSE(res, {
+    type: 'debug_prompt',
+    site: 'ceo-orchestrator',
+    model: 'grok-4-1-fast-non-reasoning',
+    systemPrompt,
+    lastUser: messages?.findLast?.((m) => m.role === 'user')?.content?.toString?.().slice(0, 2000) || null,
+  });
 
   // Auto-extract video/social URLs from the user's message before the model sees it
   const enrichedMessages = await enrichMessagesWithVideoContext(messages, userId, res);
@@ -1390,6 +1420,15 @@ async function handleAgentDelegation({ res, call, context, userId, currentHtml, 
   }
 
   const systemPrompt = agent.buildSystemPrompt(context.brandDna) + buildProductsContext(context.products) + GLOBAL_OUTPUT_RULES;
+
+  sendSSE(res, {
+    type: 'debug_prompt',
+    site: 'ceo-delegated',
+    agent: agent.name,
+    model: agent.model,
+    systemPrompt,
+    taskDescription,
+  });
 
   // If editing but file-based failed, use section-based editing
   let agentMessages;
