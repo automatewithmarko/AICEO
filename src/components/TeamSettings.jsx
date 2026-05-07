@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Trash2, Copy, Check, Plus, X, UserPlus, Shield, RefreshCw } from 'lucide-react';
+import { Trash2, Copy, Check, Plus, X, UserPlus, Shield, RefreshCw, Link as LinkIcon } from 'lucide-react';
 import {
   getWorkspaceMembers,
   updateWorkspaceMember,
@@ -35,7 +35,7 @@ const TAB_LABELS = {
 };
 
 export default function TeamSettings() {
-  const { workspace } = useAuth();
+  const { workspace, user } = useAuth();
   const [members, setMembers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [tabKeys, setTabKeys] = useState([]);
@@ -48,6 +48,9 @@ export default function TeamSettings() {
   const [inviteError, setInviteError] = useState(null);
   const [lastInviteUrl, setLastInviteUrl] = useState(null);
   const [copiedToken, setCopiedToken] = useState(null);
+  // Per-invite "show URL" toggle so admins can re-grab the link after
+  // closing it without firing a Resend (which extends expiry).
+  const [shownInviteUrl, setShownInviteUrl] = useState({});  // { inviteId: url }
 
   const [editingPerms, setEditingPerms] = useState({});  // { role_key: Set<tab> }
   const [savingRole, setSavingRole] = useState(null);
@@ -76,14 +79,24 @@ export default function TeamSettings() {
 
   useEffect(() => { if (isAdmin) reloadAll(); }, [isAdmin, reloadAll]);
 
+  // Trivial RFC-shaped check — Supabase will reject anything truly malformed
+  // anyway. We just stop a typo'd "alice@example" from being saved as a
+  // pending invite that can never match a real account.
+  const looksLikeEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+
   const handleInvite = async (e) => {
     e.preventDefault();
-    if (!inviteEmail.trim()) return;
+    const trimmed = inviteEmail.trim();
+    if (!trimmed) return;
+    if (!looksLikeEmail(trimmed)) {
+      setInviteError("That doesn't look like a valid email address.");
+      return;
+    }
     setInviteBusy(true);
     setInviteError(null);
     setLastInviteUrl(null);
     try {
-      const result = await createWorkspaceInvite(inviteEmail.trim(), inviteRole);
+      const result = await createWorkspaceInvite(trimmed, inviteRole);
       setLastInviteUrl(result.inviteUrl || null);
       setInviteEmail('');
       const i = await getWorkspaceInvites();
@@ -96,14 +109,25 @@ export default function TeamSettings() {
   };
 
   const handleRoleChange = async (memberId, newRoleKey) => {
-    await updateWorkspaceMember(memberId, { role: newRoleKey });
-    setMembers((prev) => prev.map((m) => m.id === memberId ? { ...m, role: newRoleKey } : m));
+    try {
+      await updateWorkspaceMember(memberId, { role: newRoleKey });
+      setMembers((prev) => prev.map((m) => m.id === memberId ? { ...m, role: newRoleKey } : m));
+    } catch (err) {
+      // Backend's self-change guard surfaces here too — UI also disables
+      // the dropdown for self, but this catches the race where someone
+      // edits their own role via DevTools.
+      alert(err.body?.hint || err.body?.error || err.message || 'Role change failed');
+    }
   };
 
   const handleRemoveMember = async (memberId) => {
     if (!confirm('Remove this member from the workspace? They lose access immediately.')) return;
-    await removeWorkspaceMember(memberId);
-    setMembers((prev) => prev.filter((m) => m.id !== memberId));
+    try {
+      await removeWorkspaceMember(memberId);
+      setMembers((prev) => prev.filter((m) => m.id !== memberId));
+    } catch (err) {
+      alert(err.body?.hint || err.body?.error || err.message || 'Remove failed');
+    }
   };
 
   const handleRevokeInvite = async (inviteId) => {
@@ -244,20 +268,45 @@ export default function TeamSettings() {
         <div className="team-card">
           <h3 className="team-card-title">Pending invites</h3>
           <div className="team-list">
-            {invites.map((inv) => (
-              <div key={inv.id} className="team-row">
-                <div className="team-row-main">
-                  <span className="team-row-name">{inv.email}</span>
-                  <span className="team-row-meta">{inv.role_key} · expires {new Date(inv.expires_at).toLocaleDateString()}</span>
+            {invites.map((inv) => {
+              const url = inv.inviteUrl;
+              const visible = shownInviteUrl[inv.id];
+              return (
+                <div key={inv.id} style={{ display: 'flex', flexDirection: 'column' }}>
+                  <div className="team-row">
+                    <div className="team-row-main">
+                      <span className="team-row-name">{inv.email}</span>
+                      <span className="team-row-meta">{inv.role_key} · expires {new Date(inv.expires_at).toLocaleDateString()}</span>
+                    </div>
+                    {url && (
+                      <button
+                        className="team-row-action"
+                        onClick={() => setShownInviteUrl((prev) => ({ ...prev, [inv.id]: prev[inv.id] ? null : url }))}
+                        title={visible ? 'Hide link' : 'Show link'}
+                      >
+                        <LinkIcon size={14} />
+                      </button>
+                    )}
+                    <button className="team-row-action" onClick={() => handleResendInvite(inv.id)} title="Resend (extend expiry)">
+                      <RefreshCw size={14} />
+                    </button>
+                    <button className="team-row-action" onClick={() => handleRevokeInvite(inv.id)} title="Revoke invite">
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {visible && (
+                    <div className="team-invite-link" style={{ marginTop: 4, marginBottom: 8 }}>
+                      <div className="team-invite-link-row">
+                        <code>{visible}</code>
+                        <button onClick={() => copyInviteUrl(visible)}>
+                          {copiedToken === visible ? <Check size={14} /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <button className="team-row-action" onClick={() => handleResendInvite(inv.id)} title="Resend (extend expiry)">
-                  <RefreshCw size={14} />
-                </button>
-                <button className="team-row-action" onClick={() => handleRevokeInvite(inv.id)} title="Revoke invite">
-                  <X size={14} />
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -271,26 +320,41 @@ export default function TeamSettings() {
           <p className="team-settings-empty">No team members yet — invite someone above.</p>
         ) : (
           <div className="team-list">
-            {members.map((m) => (
-              <div key={m.id} className="team-row">
-                <div className="team-row-main">
-                  <span className="team-row-name">{m.name || m.email || m.userId.slice(0, 8)}</span>
-                  <span className="team-row-meta">{m.email}</span>
+            {members.map((m) => {
+              // Disable role / remove controls for the actor's OWN row.
+              // Otherwise an admin can demote themselves to a role with no
+              // canManageMembers (locking themselves out of this very page)
+              // or remove themselves with one click. Backend enforces both,
+              // but UI shouldn't tempt — and shows a clear "(you)" badge.
+              const isSelf = m.userId === user?.id;
+              return (
+                <div key={m.id} className="team-row">
+                  <div className="team-row-main">
+                    <span className="team-row-name">
+                      {m.name || m.email || m.userId.slice(0, 8)}
+                      {isSelf && <span className="team-perm-tag" style={{ marginLeft: 6 }}>you</span>}
+                    </span>
+                    <span className="team-row-meta">{m.email}</span>
+                  </div>
+                  <select
+                    value={m.role}
+                    onChange={(e) => handleRoleChange(m.id, e.target.value)}
+                    className="team-row-select"
+                    disabled={isSelf}
+                    title={isSelf ? "You can't change your own role — ask the workspace owner" : ''}
+                  >
+                    {roles.map((r) => (
+                      <option key={r.role_key} value={r.role_key}>{r.label}</option>
+                    ))}
+                  </select>
+                  {!isSelf && (
+                    <button className="team-row-action" onClick={() => handleRemoveMember(m.id)} title="Remove member">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
-                <select
-                  value={m.role}
-                  onChange={(e) => handleRoleChange(m.id, e.target.value)}
-                  className="team-row-select"
-                >
-                  {roles.map((r) => (
-                    <option key={r.role_key} value={r.role_key}>{r.label}</option>
-                  ))}
-                </select>
-                <button className="team-row-action" onClick={() => handleRemoveMember(m.id)} title="Remove member">
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

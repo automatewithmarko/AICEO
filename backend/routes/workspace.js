@@ -124,7 +124,28 @@ router.get('/api/workspace/members', requireWorkspaceAdmin, async (req, res) => 
 // ─── PATCH /api/workspace/members/:id — change role/status ────────────
 router.patch('/api/workspace/members/:id', requireWorkspaceAdmin, async (req, res) => {
   const ownerId = req.user.ownerId;
+  const actorId = req.user.actorId;
   const { role, status } = req.body || {};
+
+  // Block self role/status changes — the trap from "as admin marked
+  // myself as member": the actor demoted themselves to a role without
+  // canManageMembers and lost access to the very page they were using.
+  // Force the change to come from the owner or another admin instead.
+  // (Removal is already blocked at the DELETE endpoint with the same
+  // reasoning.)
+  const { data: existing } = await supabase
+    .from('workspace_members')
+    .select('member_user_id')
+    .eq('id', req.params.id)
+    .eq('owner_user_id', ownerId)
+    .maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'member_not_found' });
+  if (existing.member_user_id === actorId) {
+    return res.status(400).json({
+      error: 'cannot_change_own_role',
+      hint: 'Ask the workspace owner (or another admin) to change your role.',
+    });
+  }
 
   // Validate the target role exists in this workspace.
   if (role !== undefined) {
@@ -212,6 +233,7 @@ router.get('/api/workspace/roles', async (req, res) => {
 // Update permissions / label / can_manage_members for an existing role.
 router.put('/api/workspace/roles/:role_key', requireWorkspaceAdmin, async (req, res) => {
   const ownerId = req.user.ownerId;
+  const actorId = req.user.actorId;
   const roleKey = req.params.role_key;
   const { label, permissions, can_manage_members } = req.body || {};
 
@@ -219,6 +241,26 @@ router.put('/api/workspace/roles/:role_key', requireWorkspaceAdmin, async (req, 
     if (!Array.isArray(permissions)) return res.status(400).json({ error: 'permissions_must_be_array' });
     const invalid = permissions.filter((p) => !TAB_KEYS.includes(p));
     if (invalid.length) return res.status(400).json({ error: 'unknown_tab_keys', keys: invalid });
+  }
+
+  // Lockout guard: if the actor IS NOT the owner AND they're editing
+  // the role they currently hold AND the change drops can_manage_members
+  // to false, refuse — they'd lose the ability to undo the change. The
+  // owner is exempt because they can't be removed from their own role
+  // (owner is implicit, never has a workspace_roles row).
+  if (!req.user.isOwner && can_manage_members === false) {
+    const { data: actorMembership } = await supabase
+      .from('workspace_members')
+      .select('role_key')
+      .eq('owner_user_id', ownerId)
+      .eq('member_user_id', actorId)
+      .maybeSingle();
+    if (actorMembership?.role_key === roleKey) {
+      return res.status(400).json({
+        error: 'would_lock_self_out',
+        hint: 'You can\'t remove "can manage members" from the role you currently hold. Ask the owner to do it.',
+      });
+    }
   }
 
   await ensureSystemRoles(ownerId);
@@ -306,16 +348,26 @@ router.delete('/api/workspace/roles/:role_key', requireWorkspaceAdmin, async (re
 });
 
 // ─── GET /api/workspace/invites — pending invites ────────────────────
+// Includes the invite URL so admins can re-grab it from the list (the
+// "I copied the link, then closed the page" recovery case). Token is
+// returned because it's already shareable by the admin who created
+// the invite — they can always create a fresh one anyway, so reading
+// existing tokens adds no privilege.
 router.get('/api/workspace/invites', requireWorkspaceAdmin, async (req, res) => {
   const ownerId = req.user.ownerId;
   const { data, error } = await supabase
     .from('workspace_invites')
-    .select('id, email, role_key, status, expires_at, created_at')
+    .select('id, email, role_key, status, expires_at, created_at, token')
     .eq('owner_user_id', ownerId)
     .eq('status', 'pending')
     .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ invites: data || [] });
+  const frontendUrl = process.env.FRONTEND_URL || 'https://aiceo-dev.netlify.app';
+  const invites = (data || []).map((inv) => ({
+    ...inv,
+    inviteUrl: `${frontendUrl}/invite/${inv.token}`,
+  }));
+  res.json({ invites });
 });
 
 // ─── POST /api/workspace/invites — create invite ─────────────────────
