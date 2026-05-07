@@ -249,6 +249,10 @@ export default {
   provider: 'anthropic',
   model: 'claude-sonnet-4-20250514',
   maxTokens: 16000,
+  // Same first-chunk headroom as landing-page/squeeze-page. Through the
+  // Mentor gateway, Anthropic time-to-first-token plus Mentor cold start
+  // can exceed the default 60s on long-prompt generations.
+  streamIdleTimeoutMs: 180_000,
 
   buildSystemPrompt(brandDna) {
     let prompt = SYSTEM_PROMPT;

@@ -152,6 +152,9 @@ export default {
   provider: 'anthropic',
   model: 'claude-sonnet-4-20250514',
   maxTokens: 16000,
+  // Long-output Anthropic agents need extended first-token budget when
+  // routed via Mentor — see newsletter/landing-page for the same pattern.
+  streamIdleTimeoutMs: 180_000,
 
   buildSystemPrompt(brandDna) {
     let prompt = SYSTEM_PROMPT;
