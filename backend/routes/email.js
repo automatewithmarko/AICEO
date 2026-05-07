@@ -7,7 +7,7 @@ import { connectNewAccount, disconnectAccount } from '../services/email-sync.js'
 import { fetchInboxFromGraph, isGraphAccount } from '../services/outlook-graph-sync.js';
 import { getValidAccessToken } from '../services/outlook-oauth-refresh.js';
 import { buildAuthUrl, exchangeCode, decodeIdToken, refreshAccessToken } from '../services/outlook-oauth.js';
-import { anthropicTarget } from '../agents/base-agent.js';
+import { anthropicTarget, fetchWithMentorFallback } from '../agents/base-agent.js';
 
 const router = Router();
 
@@ -851,11 +851,11 @@ ${copyRules}`;
   const draftCtl = new AbortController();
   const draftTimer = setTimeout(() => draftCtl.abort(), 90_000);
   try {
-    const r = await fetch(target.url, {
+    const buildInit = (t) => ({
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': target.key,
+        'x-api-key': t.key,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -866,6 +866,7 @@ ${copyRules}`;
       }),
       signal: draftCtl.signal,
     });
+    const r = await fetchWithMentorFallback(target, buildInit);
 
     if (!r.ok) {
       const errText = await r.text().catch(() => '');
