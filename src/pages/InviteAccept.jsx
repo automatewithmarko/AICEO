@@ -47,17 +47,19 @@ export default function InviteAccept() {
   }, [user, loading, token, switchWorkspace, navigate]);
 
   // Logged-out branch: render LoginScreen inline with a banner
-  // explaining why. The URL stays at /invite/:token, so when sign-in
-  // completes AuthContext flips `user` to truthy, this component
-  // re-renders without the LoginScreen branch, and the effect above
-  // proceeds to accept the invite automatically.
+  // explaining why. Defaults to signup mode since most invitees won't
+  // have an account yet — they can switch to "Sign In" via the link
+  // beneath the form if they do. The URL stays at /invite/:token, so
+  // when auth completes AuthContext flips `user` to truthy, this
+  // component re-renders without the LoginScreen branch, and the
+  // effect above proceeds to accept the invite automatically.
   if (!loading && !user) {
     return (
       <div>
         <div style={bannerStyle}>
-          You're invited to join a workspace — sign in or create an account below to accept.
+          You've been invited to join a workspace. Create an account below — or sign in if you already have one — to accept the invite.
         </div>
-        <LoginScreen />
+        <LoginScreen defaultMode="signup" />
       </div>
     );
   }

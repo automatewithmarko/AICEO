@@ -3,9 +3,9 @@ import { useAuth } from '../context/AuthContext';
 import { describeAuthError } from '../lib/supabase';
 import './LoginScreen.css';
 
-export default function LoginScreen() {
+export default function LoginScreen({ defaultMode = 'login' } = {}) {
   const { login, signup } = useAuth();
-  const [mode, setMode] = useState('login'); // 'login' | 'signup'
+  const [mode, setMode] = useState(defaultMode); // 'login' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
