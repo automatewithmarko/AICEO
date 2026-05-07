@@ -114,7 +114,7 @@ function getCalendlyUrl(plan) {
 }
 
 export default function OnboardingFunnel() {
-  const { user, refreshUser, planData, planResolved, workspace, switchWorkspace } = useAuth();
+  const { user, refreshUser, planData, planResolved, workspace, switchWorkspace, logout } = useAuth();
   const location = useLocation();
   // Local copy of subscription state so we can re-poll after the user
   // returns from a Stripe Checkout success URL without waiting for the
@@ -229,6 +229,26 @@ export default function OnboardingFunnel() {
   return (
     <div className="of-backdrop">
       <div className="of-stepper">
+        {/* Always-available sign-out so a user trapped on this fullscreen
+            overlay (no plan, no other workspaces) isn't locked into the
+            app. The sidebar is hidden behind the backdrop, so without
+            this button the only way out would be browser DevTools. */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <button
+            onClick={logout}
+            style={{
+              background: 'transparent',
+              border: '1px solid #cbd5e1',
+              borderRadius: 6,
+              padding: '4px 10px',
+              fontSize: 11,
+              color: '#475569',
+              cursor: 'pointer',
+            }}
+          >
+            Sign out
+          </button>
+        </div>
         {otherWorkspaces.length > 0 && (
           <div style={{
             background: '#f1f5f9',

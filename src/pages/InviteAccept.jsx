@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { acceptWorkspaceInvite, lookupWorkspaceInvite, setActiveWorkspaceOwner } from '../lib/api';
+import { supabase } from '../lib/supabase';
 import LoginScreen from '../components/LoginScreen';
 
 // Pretty status messages keyed off the backend's error strings.
@@ -96,6 +97,24 @@ export default function InviteAccept() {
                   ? 'This invite has already been used.'
                   : 'This invite is no longer valid.'}
           </p>
+          {/* Always give the user a way out — without these buttons, a
+              logged-in user landing on a dead invite has no nav (page is
+              rendered outside Layout, no sidebar). */}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 18, flexWrap: 'wrap' }}>
+            {user && (
+              <button style={btnStyle} onClick={() => navigate('/dashboard', { replace: true })}>
+                Continue to dashboard
+              </button>
+            )}
+            {user && (
+              <button
+                style={{ ...btnStyle, background: 'transparent', color: '#111', border: '1px solid #111' }}
+                onClick={async () => { await supabase.auth.signOut(); }}
+              >
+                Sign out
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -125,12 +144,20 @@ export default function InviteAccept() {
       <div>
         <div style={bannerStyle}>
           {preview ? (
-            <>You've been invited to join <strong>{inviterName}</strong> as <strong>{roleLabel}</strong>. Create an account below — or sign in with <strong>{preview.email}</strong> if you already have one.</>
+            <>You've been invited to join <strong>{inviterName}</strong> as <strong>{roleLabel}</strong>. The email is locked to <strong>{preview.email}</strong> — create an account or sign in with that address.</>
           ) : (
             <>You've been invited to join a workspace. Create an account below — or sign in if you already have one — to accept the invite.</>
           )}
         </div>
-        <LoginScreen defaultMode="signup" signupRedirectTo={inviteUrl} />
+        {/* lockedEmail prevents the broken journey where the invitee types
+            the wrong email, creates a phantom account, then gets bounced
+            by the backend's email-mismatch check on accept and ends up
+            stuck on the OnboardingFunnel pricing page with no nav. */}
+        <LoginScreen
+          defaultMode="signup"
+          signupRedirectTo={inviteUrl}
+          lockedEmail={preview?.email || null}
+        />
       </div>
     );
   }
@@ -157,12 +184,31 @@ export default function InviteAccept() {
             <p style={{ opacity: 0.7, fontSize: 14, marginTop: 8 }}>
               {ERROR_MESSAGES[error] || error}
             </p>
-            <button
-              style={btnStyle}
-              onClick={() => navigate('/dashboard', { replace: true })}
-            >
-              Go to dashboard
-            </button>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 18, flexWrap: 'wrap' }}>
+              {/* For email_mismatch and cannot_join_own_workspace, the user
+                  is logged into the WRONG account for this invite. Going
+                  to /dashboard would just leave them on the OnboardingFunnel
+                  in their phantom account. Offer sign-out so they can
+                  retry the invite link with the correct account. */}
+              {(error === 'email_mismatch' || error === 'cannot_join_own_workspace') && (
+                <button
+                  style={btnStyle}
+                  onClick={async () => { await supabase.auth.signOut(); }}
+                >
+                  Sign out and try again
+                </button>
+              )}
+              <button
+                style={
+                  error === 'email_mismatch' || error === 'cannot_join_own_workspace'
+                    ? { ...btnStyle, background: 'transparent', color: '#111', border: '1px solid #111' }
+                    : btnStyle
+                }
+                onClick={() => navigate('/dashboard', { replace: true })}
+              >
+                Continue to dashboard
+              </button>
+            </div>
           </>
         )}
       </div>

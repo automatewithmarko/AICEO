@@ -8,10 +8,14 @@ import './LoginScreen.css';
 // `signupRedirectTo` — passed through to Supabase as emailRedirectTo
 // so confirmation links return the user to the right page (used by
 // the invite-acceptance flow to preserve /invite/:token).
-export default function LoginScreen({ defaultMode = 'login', signupRedirectTo = null } = {}) {
+// `lockedEmail` — when set (used by the invite flow), the email field
+// is pre-filled and READ-ONLY in BOTH modes. Prevents the case where
+// an invitee types the wrong address, creates a phantom account, then
+// gets bounced by the backend's email-mismatch check on accept.
+export default function LoginScreen({ defaultMode = 'login', signupRedirectTo = null, lockedEmail = null } = {}) {
   const { login, signup } = useAuth();
   const [mode, setMode] = useState(defaultMode); // 'login' | 'signup'
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(lockedEmail || '');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -104,13 +108,14 @@ export default function LoginScreen({ defaultMode = 'login', signupRedirectTo = 
             <p className="login-subtext">Sign in to your AI CEO dashboard</p>
             <form className="login-form" onSubmit={handleLogin}>
               <div className="form-group">
-                <label htmlFor="email">Email</label>
+                <label htmlFor="email">Email{lockedEmail && <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.6 }}>(from your invite)</span>}</label>
                 <input
                   id="email"
                   type="email"
                   placeholder="you@company.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => !lockedEmail && setEmail(e.target.value)}
+                  readOnly={!!lockedEmail}
                   required
                 />
               </div>
@@ -161,13 +166,14 @@ export default function LoginScreen({ defaultMode = 'login', signupRedirectTo = 
                 />
               </div>
               <div className="form-group">
-                <label htmlFor="signup-email">Email</label>
+                <label htmlFor="signup-email">Email{lockedEmail && <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.6 }}>(from your invite — can't be changed)</span>}</label>
                 <input
                   id="signup-email"
                   type="email"
                   placeholder="you@company.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => !lockedEmail && setEmail(e.target.value)}
+                  readOnly={!!lockedEmail}
                   required
                 />
               </div>
