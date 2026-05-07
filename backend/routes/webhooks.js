@@ -147,9 +147,14 @@ router.post('/api/webhooks/stripe', async (req, res) => {
           }
 
           const nowIso = new Date().toISOString();
+          // Complete & Diamond setup buyers get 12 months free (no monthly sub).
+          const freeYearUntil = new Date();
+          freeYearUntil.setFullYear(freeYearUntil.getFullYear() + 1);
+
           // Upsert the funnel-state row. setup_paid_at + plan get set;
-          // status stays 'setup_paid' until the recurring subscription
-          // activates later (mode='subscription' branch).
+          // status stays 'setup_paid' until the meeting is booked, at
+          // which point the meeting-booked handler auto-activates the
+          // free year (no monthly checkout needed).
           const { error: upErr } = await supabase.from('subscriptions').upsert({
             user_id: userId,
             plan: planFromMeta,
@@ -158,6 +163,7 @@ router.post('/api/webhooks/stripe', async (req, res) => {
             stripe_customer_id: session.customer || null,
             setup_paid_at: nowIso,
             setup_checkout_session_id: session.id,
+            free_year_until: freeYearUntil.toISOString(),
             updated_at: nowIso,
           }, { onConflict: 'user_id' });
           if (upErr) {
@@ -212,6 +218,10 @@ router.post('/api/webhooks/stripe', async (req, res) => {
           }
 
           const nowIso = new Date().toISOString();
+          // Same 12-month free access as lump-sum setup.
+          const freeYearUntil = new Date();
+          freeYearUntil.setFullYear(freeYearUntil.getFullYear() + 1);
+
           const { error: upErr } = await supabase.from('subscriptions').upsert({
             user_id: userId,
             plan: planFromMeta,
@@ -222,6 +232,7 @@ router.post('/api/webhooks/stripe', async (req, res) => {
             // Reuse the column to dedupe — Stripe webhook retries land here
             // and the unique index on setup_checkout_session_id rejects dupes.
             setup_checkout_session_id: session.id,
+            free_year_until: freeYearUntil.toISOString(),
             updated_at: nowIso,
           }, { onConflict: 'user_id' });
           if (upErr) {

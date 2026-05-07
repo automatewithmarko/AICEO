@@ -26,39 +26,30 @@ import './OnboardingFunnel.css';
 const BASE_SETUP_PLANS = [
   {
     id: 'complete',
-    name: 'The Complete Platform',
-    setup: 1997,
+    name: 'Core',
+    setup: 2997,
     recommended: true,
+    cta: 'Start with Core',
     features: [
-      'CRM with AI enrichment',
-      'Content creation (all platforms)',
-      'Marketing & newsletter builder',
-      'Landing pages & squeeze pages',
-      'Content calendar',
-      'Meeting recorder & transcription',
-      'Forms builder',
-      'Sales tracking',
-      'Outlier detector',
-      'Bookkeeping & invoicing',
+      'AICEO platform access — 12 months',
+      'Done-with-you setup and onboarding (30 days)',
+      'ICP, messaging, and positioning frameworks',
+      'All tools, workflows, and integrations configured',
+      'Private community access — full year',
     ],
   },
   {
     id: 'diamond',
-    name: 'Run Your Business From One Platform',
+    name: 'Diamond',
     badge: 'Diamond',
-    setup: 2997,
+    setup: 3997,
     recommended: false,
     features: [
-      'Everything in Complete, plus:',
-      'AI CEO unified chat',
-      'PR placement',
-      'Reviews vault',
-      'Instagram stories generation',
-      'LinkedIn posting',
-      'Instagram posting',
-      'Lead magnets',
-      'Call intelligence (advanced)',
-      'Priority support',
+      'Everything in Core, plus:',
+      '30-day priority Slack support',
+      'Weekly strategy sessions — full year',
+      'Access to all online workshops',
+      'Access to beta features',
     ],
   },
 ];
@@ -88,21 +79,20 @@ const SETUP_PLANS = import.meta.env.VITE_SHOW_TEST_PLAN === 'true'
   : BASE_SETUP_PLANS;
 
 const MONTHLY_BY_PLAN = {
-  complete: { label: 'The Complete Platform', monthly: 99 },
+  complete: { label: 'Core', monthly: 99 },
   diamond: { label: 'Diamond', monthly: 199 },
   test: { label: 'Test Plan', monthly: 1 },
 };
 
 // Installment options. extraPerMonth is the merchant fee added to EACH
-// monthly payment (not the total) — so for 2x at $50/mo extra the
-// customer pays an additional $100 on top of the base setup, for 6x at
-// $100/mo extra they pay an additional $600 on top. Each option maps
+// monthly payment (not the total) — so for 3x at $100/mo extra the
+// customer pays an additional $300 on top of the base setup, for 6x at
+// $125/mo extra they pay an additional $750 on top. Each option maps
 // to a Stripe Price the merchant configures at
 // STRIPE_PRICE_<PLAN>_INSTALL_<KEY> (see backend .env.example).
 const INSTALLMENT_OPTIONS = [
-  { key: '2x', count: 2, extraPerMonth: 50, label: '2 payments' },
-  { key: '3x', count: 3, extraPerMonth: 75, label: '3 payments' },
-  { key: '6x', count: 6, extraPerMonth: 100, label: '6 payments' },
+  { key: '3x', count: 3, extraPerMonth: 100, label: '3 payments' },
+  { key: '6x', count: 6, extraPerMonth: 125, label: '6 payments' },
 ];
 
 function formatMoney(amount) {
@@ -180,12 +170,22 @@ export default function OnboardingFunnel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const freeYearActive = !!sub?.free_year_until && new Date(sub.free_year_until) > new Date();
+
   const stepKey = useMemo(() => {
     return sub?.has_active_monthly ? 'done'
-      : sub?.meeting_booked_at ? 'monthly'
+      : sub?.meeting_booked_at ? (freeYearActive ? 'done' : 'monthly')
       : sub?.setup_paid_at ? 'meeting'
       : 'setup';
-  }, [sub]);
+  }, [sub, freeYearActive]);
+
+  // Don't render until /api/billing/plan has returned 2xx at least once
+  // for this session. Without this guard, a transient 401/5xx caused the
+  // Plans overlay to flash over the dashboards of paying users (their
+  // real subscription was reduced to null when the fetch failed). The
+  // post-checkout poll inside the loadingState branch flips planResolved
+  // back to true, so this guard never blocks the success-URL flow.
+  if (!planResolved && !loadingState) return null;
 
   // Don't render until /api/billing/plan has returned 2xx at least once
   // for this session. Without this guard, a transient 401/5xx caused the
@@ -208,7 +208,7 @@ export default function OnboardingFunnel() {
   return (
     <div className="of-backdrop">
       <div className="of-stepper">
-        <Stepper current={loadingState ? 'setup' : stepKey} />
+        <Stepper current={loadingState ? 'setup' : stepKey} freeYear={freeYearActive} />
         {loadingState ? (
           <div className="of-finalising">
             <Loader2 size={28} className="of-spinner" />
@@ -223,6 +223,7 @@ export default function OnboardingFunnel() {
             {stepKey === 'meeting' && (
               <BookingPage
                 plan={sub?.plan || 'complete'}
+                freeYear={freeYearActive}
                 onBooked={(updatedSub) => setSub(updatedSub)}
               />
             )}
@@ -236,12 +237,19 @@ export default function OnboardingFunnel() {
   );
 }
 
-function Stepper({ current }) {
-  const steps = [
-    { key: 'setup', label: 'Setup' },
-    { key: 'meeting', label: 'Book call' },
-    { key: 'monthly', label: 'Subscribe' },
-  ];
+function Stepper({ current, freeYear }) {
+  // Free-year users skip the monthly subscription step entirely — their
+  // setup fee includes 12 months of access.
+  const steps = freeYear
+    ? [
+        { key: 'setup', label: 'Setup' },
+        { key: 'meeting', label: 'Book call' },
+      ]
+    : [
+        { key: 'setup', label: 'Setup' },
+        { key: 'meeting', label: 'Book call' },
+        { key: 'monthly', label: 'Subscribe' },
+      ];
   const currentIdx = steps.findIndex((s) => s.key === current);
   return (
     <div className="of-step-row">
@@ -335,7 +343,7 @@ function SetupPlanPicker() {
         <img src="/favicon.png" alt="" className="of-logo" />
         <h1 className="of-title">Choose Your Plan</h1>
         <p className="of-subtitle">
-          Pay the one-time setup fee to get started. Your monthly subscription begins after your onboarding call.
+          Pay the one-time setup fee to get started. Your first year of full access is included — no monthly fees for 12 months.
         </p>
       </header>
 
@@ -401,7 +409,7 @@ function SetupPlanPicker() {
                 {busy ? (
                   <><Loader2 size={14} className="of-spinner" /> Starting checkout…</>
                 ) : (
-                  <>Get Started <ArrowRight size={14} /></>
+                  <>{plan.cta || 'Get Started'} <ArrowRight size={14} /></>
                 )}
               </button>
 
@@ -514,7 +522,7 @@ function InstallmentsView({ planId, acting, error, onBack, onPick }) {
 }
 
 // ─── Step B: Calendly inline + confirm-booked button ───
-function BookingPage({ plan, onBooked }) {
+function BookingPage({ plan, freeYear, onBooked }) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState('');
   const calendlyUrl = getCalendlyUrl(plan);
@@ -545,7 +553,9 @@ function BookingPage({ plan, onBooked }) {
         <CalendarCheck size={32} className="of-icon-large" />
         <h1 className="of-title">Book your onboarding call</h1>
         <p className="of-subtitle">
-          Pick a time that works for you. We'll configure your AI CEO around your business on the call, then unlock the platform on your monthly subscription right after.
+          {freeYear
+            ? 'Pick a time that works for you. We\'ll configure your AI CEO around your business on the call, then unlock the platform — your first year is included with your setup.'
+            : 'Pick a time that works for you. We\'ll configure your AI CEO around your business on the call, then unlock the platform on your monthly subscription right after.'}
         </p>
       </header>
 

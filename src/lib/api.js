@@ -1062,9 +1062,60 @@ export async function useBoosendTemplate(templateId, { name, instagram_account_i
   return res.json();
 }
 
-export async function getBoosendAutomations() {
+export async function createBoosendAutomation({ name, instagram_account_id, nodes, edges, viewport }) {
   const headers = await getAuthHeaders();
-  const res = await fetch(`${API_URL}/api/boosend/automations`, { headers });
+  const res = await fetch(`${API_URL}/api/boosend/automations`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, instagram_account_id, nodes, edges, viewport }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to create automation' }));
+    throw new Error(err.error || err.message || 'Failed to create automation');
+  }
+  return res.json();
+}
+
+export async function streamBoosendAgentBuild({ message, graph, meta, targetNodes, signal, onData, onError, onDone }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/boosend/agent/build`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, graph, meta, targetNodes }),
+    signal,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(err.error || `Agent error ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (!data || data === '[DONE]') continue;
+      try {
+        const json = JSON.parse(data);
+        if (json.error) { onError?.(json.detail || json.error); return; }
+        if (json.done) { onDone?.(json); return; }
+        onData?.(json);
+      } catch {}
+    }
+  }
+}
+
+export async function getBoosendAutomations({ instagram_account_id } = {}) {
+  const headers = await getAuthHeaders();
+  let url = `${API_URL}/api/boosend/automations`;
+  if (instagram_account_id) url += `?instagram_account_id=${instagram_account_id}`;
+  const res = await fetch(url, { headers });
   if (!res.ok) return { automations: [] };
   return res.json();
 }
@@ -1073,6 +1124,34 @@ export async function getBoosendAutomation(id) {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/boosend/automations/${id}`, { headers });
   if (!res.ok) throw new Error('Failed to fetch automation');
+  return res.json();
+}
+
+export async function updateBoosendAutomation(id, { nodes, edges, viewport }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/boosend/automations/${id}`, {
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nodes, edges, viewport }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to update automation' }));
+    throw new Error(err.error || 'Failed to update automation');
+  }
+  return res.json();
+}
+
+export async function activateBoosendAutomation(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/boosend/automations/${id}/activate`, { method: 'POST', headers });
+  if (!res.ok) throw new Error('Failed to activate automation');
+  return res.json();
+}
+
+export async function deactivateBoosendAutomation(id) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/boosend/automations/${id}/deactivate`, { method: 'POST', headers });
+  if (!res.ok) throw new Error('Failed to deactivate automation');
   return res.json();
 }
 

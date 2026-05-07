@@ -1,5 +1,10 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
+// ── Shared styles ──
+const HANDLE = { width: 20, height: 20, borderRadius: '50%', border: '4px solid #fff', boxShadow: '0 2px 6px rgba(0,0,0,0.2)' };
+const HANDLE_SM = { width: 16, height: 16, borderRadius: '50%', border: '2px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' };
+const NODE_BASE = { borderRadius: 24, boxShadow: '0 4px 20px rgba(0,0,0,0.08)', minWidth: 280, maxWidth: 380, userSelect: 'none' };
+
 // ── Node type configs (colors, icons, labels) ──
 const NODE_STYLES = {
   trigger: { bg: '#fff', border: '#3b82f6', headerBg: '#eff6ff', label: 'Trigger', icon: 'zap', color: '#3b82f6' },
@@ -69,83 +74,107 @@ function NodeIcon({ icon, size = 20, color }) {
   }
 }
 
-// ── Handle dot ──
-function HandleDot({ side = 'left', color = '#6b7280', label, small }) {
-  const sz = small ? 10 : 14;
-  const pos = side === 'left'
-    ? { left: -(sz / 2), top: '50%', transform: 'translateY(-50%)' }
-    : side === 'right'
-    ? { right: -(sz / 2), top: '50%', transform: 'translateY(-50%)' }
-    : { bottom: -(sz / 2), left: '50%', transform: 'translateX(-50%)' };
-  return (
-    <>
-      <div style={{ position: 'absolute', ...pos, width: sz, height: sz, borderRadius: '50%', background: color, border: '3px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,0.2)', zIndex: 2 }} />
-      {label && side === 'right' && (
-        <div style={{ position: 'absolute', right: -(sz / 2) - 55, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: '#9ca3af', whiteSpace: 'nowrap' }}>{label}</div>
-      )}
-    </>
-  );
-}
-
 // ── Trigger node ──
 function TriggerNodeView({ data }) {
   const conditions = data?.triggerConditions || [];
   return (
-    <div style={{ padding: '16px 20px', minWidth: 260 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <NodeIcon icon="boosend" size={22} />
-        <span style={{ fontSize: 16, fontWeight: 600, color: '#111' }}>Trigger</span>
+    <div style={{ padding: '24px 24px 24px 24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+        <NodeIcon icon="zap" size={20} color="#4b5563" />
+        <h3 style={{ fontSize: 18, fontWeight: 500, color: '#111', marginLeft: 12 }}>When</h3>
       </div>
-      {conditions.length > 0 ? conditions.map((c, i) => (
-        <div key={c.id || i} style={{ marginTop: i > 0 ? 8 : 0, padding: '8px 10px', background: '#f9fafb', borderRadius: 10, fontSize: 13 }}>
-          <div style={{ fontWeight: 500, color: '#374151', marginBottom: 4, textTransform: 'capitalize' }}>
-            {(c.type || 'message').replace(/_/g, ' ')}
-          </div>
-          {c.messageDetectionType === 'ai_intent' && c.aiIntentPrompt && (
-            <div style={{ color: '#6b7280', fontSize: 12, lineHeight: 1.4 }}>"{c.aiIntentPrompt}"</div>
-          )}
-          {c.keywords?.length > 0 && (
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-              {c.keywords.slice(0, 5).map((k, j) => (
-                <span key={j} style={{ padding: '2px 8px', borderRadius: 12, background: '#e5e7eb', fontSize: 11, fontWeight: 500, color: '#374151' }}>{k}</span>
-              ))}
-              {c.keywords.length > 5 && <span style={{ fontSize: 11, color: '#9ca3af' }}>+{c.keywords.length - 5} more</span>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {conditions.length > 0 ? conditions.map((c, i) => {
+          const label = (c.label || getTriggerLabel(c.type)).replace(/_/g, ' ');
+          return (
+            <div key={c.id || i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ width: 16, height: 16, marginTop: 2, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <NodeIcon icon={c.type === 'telegram_message' ? 'telegram' : 'instagram'} size={16} color={c.type === 'telegram_message' ? '#0088cc' : '#E4405F'} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#111', marginBottom: 4 }}>{label}</div>
+                {c.messageDetectionType === 'keywords' && c.keywords?.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Keywords</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {c.keywords.slice(0, 3).map((k, j) => (
+                        <span key={j} style={{ padding: '2px 8px', borderRadius: 12, background: '#f3f4f6', fontSize: 12, fontWeight: 500, color: '#374151' }}>{k}</span>
+                      ))}
+                      {c.keywords.length > 3 && <span style={{ fontSize: 12, color: '#9ca3af' }}>+{c.keywords.length - 3} more</span>}
+                    </div>
+                  </>
+                )}
+                {(c.messageDetectionType === 'intent' || c.messageDetectionType === 'ai_intent') && (
+                  <div style={{ marginTop: 4 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid #e5e7eb', background: '#f9fafb', padding: '4px 10px', borderRadius: 20 }}>
+                      <NodeIcon icon="boosend" size={14} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>AI set up</span>
+                    </span>
+                  </div>
+                )}
+                {!c.messageDetectionType && !c.keywords?.length && (
+                  <div style={{ fontSize: 12, color: '#9ca3af' }}>Any message</div>
+                )}
+              </div>
             </div>
-          )}
-        </div>
-      )) : (
-        <div style={{ fontSize: 13, color: '#9ca3af', padding: '8px 0' }}>Click to configure</div>
-      )}
+          );
+        }) : (
+          <div style={{ fontSize: 13, color: '#9ca3af' }}>Click to configure trigger</div>
+        )}
+      </div>
     </div>
   );
 }
 
-// ── Instagram Message node ──
+function getTriggerLabel(type) {
+  const labels = {
+    message: 'User sends a message', comment: 'User comments on post', story_reply: 'User replies to story',
+    follow: 'User follows account', live_comment: 'User comments on live', telegram_message: 'Telegram message',
+    web_chat: 'Web chat message', whatsapp_message: 'WhatsApp message',
+  };
+  return labels[type] || (type || 'message').replace(/_/g, ' ');
+}
+
+// ── Instagram/Message node ──
 function InstagramNodeView({ data }) {
+  const buttons = data?.buttons || [];
+  const hasButtons = data?.messageType === 'text' && buttons.length > 0;
   return (
-    <div style={{ padding: '12px 16px', minWidth: 260 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+    <div style={{ padding: '24px 24px 24px 24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <NodeIcon icon="instagram" size={18} color="#E4405F" />
         <span style={{ fontSize: 16, fontWeight: 500, color: '#111' }}>Send Message</span>
       </div>
-      {data?.content && (
-        <div style={{ background: '#f3f4f6', borderRadius: 8, padding: '8px 10px', fontSize: 13, color: '#111', lineHeight: 1.5, wordBreak: 'break-word' }}>
-          {data.content.length > 120 ? data.content.slice(0, 120) + '...' : data.content}
+      {data?.messageType === 'image' ? (
+        <div style={{ height: 80, background: '#f9fafb', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#6b7280' }}>
+          {data.mediaUrl ? <img src={data.mediaUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 10 }} /> : 'Image message'}
         </div>
-      )}
-      {data?.messageType === 'image' && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Image message</div>}
-      {data?.messageType === 'voice' && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Voice message</div>}
-      {data?.buttons?.length > 0 && (
-        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {data.buttons.map((b, i) => (
-            <div key={b.id || i} style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, fontWeight: 500, color: '#374151', textAlign: 'center' }}>
-              {b.title}
+      ) : data?.messageType === 'voice' ? (
+        <div style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 12px', fontSize: 13, color: '#6b7280' }}>Voice message</div>
+      ) : data?.content ? (
+        <div style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 12px', fontSize: 13, color: '#111', lineHeight: 1.5, wordBreak: 'break-word', maxHeight: 80, overflow: 'auto' }}>
+          {data.content}
+        </div>
+      ) : null}
+      {/* Buttons with individual handles */}
+      {hasButtons && (
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {buttons.map((b) => (
+            <div key={b.id || b.title} style={{ position: 'relative' }}>
+              <div style={{ width: '100%', padding: '8px 12px', borderRadius: 12, background: '#111', color: '#fff', fontSize: 12, fontWeight: 600, textAlign: 'center', letterSpacing: '0.03em' }}>
+                {(b.title || '').toUpperCase()}
+              </div>
+              {/* Button handle */}
+              <div style={{ position: 'absolute', right: -28, top: '50%', transform: 'translateY(-50%)', ...HANDLE_SM, background: '#3b82f6' }} />
             </div>
           ))}
         </div>
       )}
       {data?.collectResponse && (
-        <div style={{ marginTop: 6, fontSize: 11, color: '#6b7280' }}>Collecting: {data.responseType || 'response'}</div>
+        <div style={{ marginTop: 10, padding: '6px 10px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3b82f6' }} />
+          <span style={{ fontSize: 12, fontWeight: 500, color: '#1d4ed8' }}>Collecting {data.responseType || 'response'}</span>
+        </div>
       )}
     </div>
   );
@@ -155,22 +184,24 @@ function InstagramNodeView({ data }) {
 function AINodeView({ data }) {
   const isAdvanced = data?.selectedAITab === 'advanced' || data?.configType === 'advanced';
   const goals = Array.isArray(data?.goals) ? data.goals.filter(g => g?.task?.trim()) : [];
+  const stepCount = goals.length || (Array.isArray(data?.goals) ? data.goals.length : 0);
   return (
-    <div style={{ padding: '16px 20px', minWidth: 260 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-        <NodeIcon icon="boosend" size={22} />
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 500, color: '#fff' }}>AI Agent</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#4ade80' }}>{isAdvanced ? 'Advanced Agent' : 'Basic Agent'}</span>
-            {goals.length > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 500, color: 'rgba(255,255,255,0.8)', background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.15)' }}>
-                {goals.length} step{goals.length !== 1 ? 's' : ''}
-              </span>
-            )}
+    <div style={{ padding: '24px 24px 24px 24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+        <NodeIcon icon="boosend" size={34} />
+        <div style={{ marginLeft: 12 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 500, color: '#fff', lineHeight: 1 }}>AI Agent</h3>
+          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#4ade80' }}>{isAdvanced ? 'Advanced Agent' : 'Basic Agent'}</span>
+            <span style={{ fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.9)', background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.2)' }}>
+              {stepCount} step{stepCount !== 1 ? 's' : ''}
+            </span>
           </div>
         </div>
       </div>
+      {data?.knowledgeBaseId && data.knowledgeBaseId !== 'custom' && (
+        <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>KB: {data.knowledgeBaseId}</div>
+      )}
     </div>
   );
 }
@@ -180,28 +211,19 @@ function DelayNodeView({ data }) {
   const t = data?.delayType || 'fixed';
   const typeLabel = t === 'random' ? 'Randomized' : t === 'schedule' ? 'Scheduled' : 'Fixed';
   return (
-    <div style={{ padding: '12px 16px', minWidth: 240 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <NodeIcon icon="clock" size={18} color="#6b7280" />
-        <span style={{ fontSize: 16, fontWeight: 500, color: '#111' }}>Delay</span>
-      </div>
-      <div style={{ fontSize: 14, color: '#374151', lineHeight: 1.6 }}>
-        This is a{' '}
-        <span style={{ background: '#111', color: '#fff', padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>{typeLabel}</span>
-        {' '}delay.
-        {t === 'random' && data?.minDuration != null && data?.maxDuration != null && (
-          <div style={{ marginTop: 4 }}>
-            Between <span style={{ fontWeight: 600, borderBottom: '2px solid #111' }}>{data.minDuration}</span> and{' '}
-            <span style={{ fontWeight: 600, borderBottom: '2px solid #111' }}>{data.maxDuration}</span>{' '}
-            <span style={{ background: '#111', color: '#fff', padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>{data.unit || 'seconds'}</span>
+    <div style={{ padding: '20px 24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: '#1f2937', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <NodeIcon icon="clock" size={20} color="#fff" />
+        </div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#111' }}>Delay</div>
+          <div style={{ fontSize: 13, color: '#374151', marginTop: 2 }}>
+            <span style={{ background: '#111', color: '#fff', padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>{typeLabel}</span>
+            {t === 'fixed' && data?.duration != null && <span style={{ marginLeft: 6 }}>{data.duration} {data.unit || 'seconds'}</span>}
+            {t === 'random' && data?.minDuration != null && <span style={{ marginLeft: 6 }}>{data.minDuration}-{data.maxDuration} {data.unit || 'seconds'}</span>}
           </div>
-        )}
-        {t === 'fixed' && data?.duration != null && (
-          <div style={{ marginTop: 4 }}>
-            Wait <span style={{ fontWeight: 600, borderBottom: '2px solid #111' }}>{data.duration}</span>{' '}
-            <span style={{ background: '#111', color: '#fff', padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>{data.unit || 'seconds'}</span>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -211,12 +233,12 @@ function DelayNodeView({ data }) {
 function ConditionNodeView({ data }) {
   const conditions = Array.isArray(data?.conditions) ? data.conditions : [];
   return (
-    <div style={{ padding: '16px 20px', minWidth: 300, paddingRight: 50 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+    <div style={{ padding: '20px 24px', paddingRight: 60 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <NodeIcon icon="branch" size={18} color="#6b7280" />
         <span style={{ fontSize: 16, fontWeight: 500, color: '#111' }}>Condition</span>
       </div>
-      <div style={{ fontSize: 14, color: '#374151', lineHeight: 1.6 }}>
+      <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>
         {conditions.length > 0 ? data.conditionSummary || conditions.map(c => c.type?.replace(/_/g, ' ')).join(` ${data.relationship || 'AND'} `) : 'Click to configure'}
       </div>
     </div>
@@ -226,13 +248,21 @@ function ConditionNodeView({ data }) {
 // ── Wait for Reply node ──
 function WaitForReplyNodeView({ data }) {
   return (
-    <div style={{ padding: '12px 16px', minWidth: 240 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <NodeIcon icon="message" size={18} color="#6b7280" />
-        <span style={{ fontSize: 16, fontWeight: 500, color: '#111' }}>Wait for Reply</span>
+    <div style={{ padding: '16px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: '#1f2937', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <NodeIcon icon="message" size={20} color="#fff" />
+        </div>
+        <div>
+          <h3 style={{ fontSize: 14, fontWeight: 600, color: '#111' }}>Wait for Reply</h3>
+          <p style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Pauses until user replies</p>
+        </div>
       </div>
       {data?.enableTimeout && (
-        <div style={{ fontSize: 13, color: '#6b7280' }}>Timeout: {data.timeout || 24} {data.timeoutUnit || 'hours'}</div>
+        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151' }}>
+          <NodeIcon icon="clock" size={14} color="#6b7280" />
+          <span>Timeout: {data.timeout || 24} {data.timeoutUnit || 'hours'}</span>
+        </div>
       )}
     </div>
   );
@@ -242,73 +272,255 @@ function WaitForReplyNodeView({ data }) {
 function GenericNodeView({ type, data }) {
   const style = getNodeStyle(type);
   return (
-    <div style={{ padding: '12px 16px', minWidth: 240 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div style={{ padding: '20px 24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <NodeIcon icon={style.icon} size={18} color={style.color} />
         <span style={{ fontSize: 16, fontWeight: 500, color: style.textColor || '#111' }}>{style.label}</span>
       </div>
       {data?.content && (
-        <div style={{ marginTop: 6, fontSize: 13, color: style.textColor ? 'rgba(255,255,255,0.7)' : '#6b7280', lineHeight: 1.4 }}>
-          {data.content.length > 100 ? data.content.slice(0, 100) + '...' : data.content}
+        <div style={{ marginTop: 8, fontSize: 13, color: style.textColor ? 'rgba(255,255,255,0.7)' : '#6b7280', lineHeight: 1.5, wordBreak: 'break-word' }}>
+          {data.content}
         </div>
       )}
     </div>
   );
 }
 
-// ── Node renderer ──
-function AutomationNode({ node }) {
+// ── Node Detail Modal (shown on click) ──
+function NodeDetailModal({ node, onClose }) {
+  if (!node) return null;
   const type = node.type || 'action';
   const style = getNodeStyle(type);
+  const data = node.data || {};
+  const isDark = ['ai', 'chatgpt', 'grok', 'gemini', 'aiExtractor', 'aiCondition'].includes(type);
+
+  return (
+    <div data-panel="1" onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 15, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: isDark ? '#111' : '#fff', borderRadius: 16, width: '90%', maxWidth: 480,
+        maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+      }}>
+        {/* Header */}
+        <div style={{ padding: '18px 24px', borderBottom: `1px solid ${isDark ? '#222' : '#e5e7eb'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <NodeIcon icon={style.icon} size={20} color={style.color} />
+            <span style={{ fontSize: 16, fontWeight: 600, color: isDark ? '#fff' : '#111' }}>{style.label}</span>
+          </div>
+          <button onClick={onClose} style={{ background: isDark ? '#222' : '#f3f4f6', border: 'none', cursor: 'pointer', width: 28, height: 28, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: isDark ? '#9ca3af' : '#6b7280', fontSize: 16 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px', color: isDark ? '#d1d5db' : '#374151', fontSize: 13, lineHeight: 1.6 }}>
+
+          {/* AI Agent */}
+          {['ai', 'chatgpt', 'grok', 'gemini'].includes(type) && (() => {
+            const isAdvanced = data.selectedAITab === 'advanced' || data.configType === 'advanced';
+            const goals = Array.isArray(data.goals) ? data.goals.filter(g => g?.task?.trim()) : [];
+            return (<>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#4ade80', background: 'rgba(74,222,128,0.1)', padding: '3px 10px', borderRadius: 8, display: 'inline-block', marginBottom: 14 }}>
+                {isAdvanced ? 'Advanced Agent' : 'Basic Agent'}
+              </span>
+              {data.prompt && <DRow label="Prompt" value={data.prompt} dark={isDark} block />}
+              {goals.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Steps ({goals.length})</div>
+                  {goals.map((g, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 8, padding: '10px 12px', background: isDark ? '#1a1a1a' : '#f9fafb', borderRadius: 10, border: `1px solid ${isDark ? '#222' : '#e5e7eb'}` }}>
+                      <span style={{ width: 22, height: 22, borderRadius: '50%', background: isDark ? '#333' : '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0, color: isDark ? '#fff' : '#111' }}>{i + 1}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 500, color: isDark ? '#fff' : '#111' }}>{g.task}</div>
+                        {g.description && <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>{g.description}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {data.knowledgeBase && <DRow label="Knowledge Base" value={data.knowledgeBaseName || data.knowledgeBase} dark={isDark} />}
+            </>);
+          })()}
+
+          {type === 'aiExtractor' && (<>
+            {data.extractionType && <DRow label="Extract" value={data.extractionType.replace(/_/g, ' ')} dark={isDark} />}
+            {data.prompt && <DRow label="Prompt" value={data.prompt} dark={isDark} block />}
+            {data.saveTo && <DRow label="Save to" value={data.saveTo} dark={isDark} />}
+          </>)}
+
+          {type === 'aiCondition' && (<>
+            {data.prompt && <DRow label="Condition" value={data.prompt} dark={isDark} block />}
+            {Array.isArray(data.paths) && data.paths.map((p, i) => <DRow key={i} label={`Path ${i + 1}`} value={p.label || p.description || `Option ${i + 1}`} dark={isDark} />)}
+          </>)}
+
+          {type === 'trigger' && (data.triggerConditions || []).map((c, i) => (
+            <div key={i} style={{ marginBottom: 10, padding: '10px 12px', background: '#f9fafb', borderRadius: 10 }}>
+              <div style={{ fontWeight: 600, textTransform: 'capitalize', marginBottom: 4 }}>{(c.type || 'message').replace(/_/g, ' ')}</div>
+              {c.messageDetectionType && <DRow label="Detection" value={c.messageDetectionType.replace(/_/g, ' ')} />}
+              {c.aiIntentPrompt && <DRow label="Intent" value={c.aiIntentPrompt} block />}
+              {c.keywords?.length > 0 && <DRow label="Keywords" value={c.keywords.join(', ')} />}
+            </div>
+          ))}
+
+          {['instagram', 'instagramReplyComment', 'telegram', 'gmail', 'outlook'].includes(type) && (<>
+            {data.messageType && <DRow label="Type" value={data.messageType} />}
+            {data.content && <DRow label="Message" value={data.content} block />}
+            {data.buttons?.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Buttons ({data.buttons.length})</div>
+                {data.buttons.map((b, i) => (
+                  <div key={i} style={{ padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, marginBottom: 4, color: '#374151' }}>{b.title}{b.url ? ` - ${b.url}` : ''}</div>
+                ))}
+              </div>
+            )}
+            {data.imageUrl && <DRow label="Image" value={data.imageUrl} />}
+            {data.collectResponse && <DRow label="Collects" value={data.responseType || 'response'} />}
+          </>)}
+
+          {type === 'condition' && (<>
+            {data.conditionSummary && <DRow label="Logic" value={data.conditionSummary} block />}
+            {data.relationship && <DRow label="Operator" value={data.relationship} />}
+            {Array.isArray(data.conditions) && data.conditions.map((c, i) => <DRow key={i} label={`Rule ${i + 1}`} value={`${c.field || c.type || ''} ${c.operator || ''} ${c.value || ''}`} />)}
+          </>)}
+
+          {type === 'smartDelay' && (<>
+            <DRow label="Type" value={data.delayType || 'fixed'} />
+            {data.duration != null && <DRow label="Duration" value={`${data.duration} ${data.unit || 'seconds'}`} />}
+            {data.minDuration != null && <DRow label="Min" value={`${data.minDuration} ${data.unit || 'seconds'}`} />}
+            {data.maxDuration != null && <DRow label="Max" value={`${data.maxDuration} ${data.unit || 'seconds'}`} />}
+          </>)}
+
+          {type === 'waitForReply' && (<>
+            {data.enableTimeout && <DRow label="Timeout" value={`${data.timeout || 24} ${data.timeoutUnit || 'hours'}`} />}
+            {data.saveResponse && <DRow label="Save as" value={data.saveResponseAs || 'variable'} />}
+          </>)}
+
+          {type === 'action' && (<>
+            {data.actionType && <DRow label="Action" value={data.actionType.replace(/_/g, ' ')} />}
+            {data.tagName && <DRow label="Tag" value={data.tagName} />}
+            {data.webhookUrl && <DRow label="Webhook" value={data.webhookUrl} />}
+            {data.customFieldName && <DRow label="Field" value={`${data.customFieldName} = ${data.customFieldValue || ''}`} />}
+          </>)}
+
+          {type === 'tool' && (<>
+            {data.toolType && <DRow label="Tool" value={data.toolType.replace(/_/g, ' ')} />}
+            {data.spreadsheetId && <DRow label="Sheet" value={data.spreadsheetName || data.spreadsheetId} />}
+            {data.notionDatabaseId && <DRow label="Database" value={data.notionDatabaseName || data.notionDatabaseId} />}
+          </>)}
+
+          {type === 'transferWorkflow' && data.targetAutomationId && <DRow label="Target" value={data.targetAutomationName || data.targetAutomationId} />}
+
+          {type === 'randomizer' && Array.isArray(data.paths) && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Paths ({data.paths.length})</div>
+              {data.paths.map((p, i) => <DRow key={i} label={`Path ${i + 1}`} value={`${p.weight || p.percentage || Math.round(100 / data.paths.length)}%`} />)}
+            </div>
+          )}
+
+          {!['trigger', 'instagram', 'instagramReplyComment', 'ai', 'chatgpt', 'grok', 'gemini', 'aiExtractor', 'aiCondition', 'condition', 'smartDelay', 'waitForReply', 'action', 'tool', 'transferWorkflow', 'randomizer', 'telegram', 'gmail', 'outlook'].includes(type) && data.content && (
+            <DRow label="Content" value={data.content} block />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DRow({ label, value, dark, block }) {
+  if (!value && value !== 0) return null;
+  const labelColor = dark ? '#9ca3af' : '#6b7280';
+  const textColor = dark ? '#fff' : '#111';
+  return (
+    <div style={{ marginBottom: block ? 14 : 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: labelColor, marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+      {block
+        ? <div style={{ background: dark ? '#1a1a1a' : '#f3f4f6', padding: '10px 12px', borderRadius: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: dark ? '#d1d5db' : '#374151' }}>{value}</div>
+        : <div style={{ color: textColor, fontWeight: 500 }}>{String(value)}</div>
+      }
+    </div>
+  );
+}
+
+// ── Node renderer ──
+function AutomationNode({ node, isSelected, onSelect }) {
+  const type = node.type || 'action';
+  const style = getNodeStyle(type);
+  const data = node.data || {};
   const isDark = style.bg === '#000';
+  const isCondition = type === 'condition' || type === 'aiCondition';
+  const isWaitForReply = type === 'waitForReply';
+  const isAI = ['ai', 'chatgpt', 'grok', 'gemini'].includes(type);
+  const hasButtons = type === 'instagram' && data.messageType === 'text' && data.buttons?.length > 0;
+  const hasCollectResponse = (type === 'instagram' || type === 'instagramReplyComment') && data.collectResponse;
 
   let content;
   switch (type) {
-    case 'trigger': content = <TriggerNodeView data={node.data} />; break;
-    case 'instagram': case 'instagramReplyComment': content = <InstagramNodeView data={node.data} />; break;
-    case 'ai': case 'chatgpt': case 'grok': case 'gemini': content = <AINodeView data={node.data} />; break;
-    case 'smartDelay': content = <DelayNodeView data={node.data} />; break;
-    case 'condition': case 'aiCondition': content = <ConditionNodeView data={node.data} />; break;
-    case 'waitForReply': content = <WaitForReplyNodeView data={node.data} />; break;
-    default: content = <GenericNodeView type={type} data={node.data} />;
+    case 'trigger': content = <TriggerNodeView data={data} />; break;
+    case 'instagram': case 'instagramReplyComment': content = <InstagramNodeView data={data} />; break;
+    case 'ai': case 'chatgpt': case 'grok': case 'gemini': content = <AINodeView data={data} />; break;
+    case 'smartDelay': content = <DelayNodeView data={data} />; break;
+    case 'condition': case 'aiCondition': content = <ConditionNodeView data={data} />; break;
+    case 'waitForReply': content = <WaitForReplyNodeView data={data} />; break;
+    default: content = <GenericNodeView type={type} data={data} />;
   }
-
-  const isCondition = type === 'condition' || type === 'aiCondition';
 
   return (
     <div
+      onClick={(e) => { e.stopPropagation(); onSelect(node); }}
       style={{
         position: 'absolute',
         left: node.position?.x || 0,
         top: node.position?.y || 0,
         background: style.bg,
-        border: `2px solid ${style.border}`,
-        borderRadius: 20,
-        boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-        minWidth: 260,
-        maxWidth: 380,
-        cursor: 'default',
-        userSelect: 'none',
+        border: `2px solid ${isSelected ? (isDark ? '#fff' : '#3b82f6') : style.border}`,
+        ...NODE_BASE,
+        cursor: 'pointer',
+        transition: 'border-color 0.15s, box-shadow 0.15s',
       }}
     >
-      {/* Left handle (target) */}
-      {type !== 'trigger' && <HandleDot side="left" color="#6b7280" />}
-      {/* Content */}
+      {/* Left target handle (all except trigger) */}
+      {type !== 'trigger' && (
+        <div style={{ position: 'absolute', left: -10, top: '50%', transform: 'translateY(-50%)', ...HANDLE, background: '#4b5563', zIndex: 2 }} />
+      )}
+
       {content}
-      {/* Right handle(s) */}
+
+      {/* Right output handles — varies by node type */}
       {isCondition ? (
-        <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: 20, paddingRight: 2 }}>
+        <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: 12, paddingRight: 4 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#22c55e' }}>True</span>
-            <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#22c55e', border: '3px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
+            <span style={{ fontSize: 12, fontWeight: 500, color: '#374151' }}>True</span>
+            <div style={{ ...HANDLE, background: '#22c55e' }} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#ef4444' }}>False</span>
-            <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#ef4444', border: '3px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
+            <span style={{ fontSize: 12, fontWeight: 500, color: '#374151' }}>False</span>
+            <div style={{ ...HANDLE, background: '#ef4444' }} />
           </div>
         </div>
+      ) : isWaitForReply ? (
+        <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: 12, paddingRight: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: '#374151' }}>Reply</span>
+            <div style={{ ...HANDLE, background: '#4b5563' }} />
+          </div>
+          {data.enableTimeout && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: '#f97316' }}>Timeout</span>
+              <div style={{ ...HANDLE, background: '#f97316' }} />
+            </div>
+          )}
+        </div>
+      ) : hasButtons || hasCollectResponse ? (
+        /* Buttons have their own handles in the content; skip default handle */
+        null
       ) : (
-        <HandleDot side="right" color="#6b7280" />
+        /* Default right handle */
+        <div style={{ position: 'absolute', right: -8, top: '50%', transform: 'translateY(-50%)', ...HANDLE, background: '#4b5563', zIndex: 2 }} />
+      )}
+
+      {/* AI Agent: tools handle at bottom center */}
+      {isAI && (
+        <div style={{ position: 'absolute', bottom: -8, left: '50%', transform: 'translateX(-50%)', ...HANDLE_SM, background: '#3b82f6', zIndex: 2 }} />
       )}
     </div>
   );
@@ -320,7 +532,6 @@ function computeEdgePath(source, target, nodes) {
   const tNode = nodes.find(n => n.id === target);
   if (!sNode || !tNode) return null;
 
-  // Approximate node dimensions
   const sw = 300, sh = 120;
   const sx = (sNode.position?.x || 0) + sw;
   const sy = (sNode.position?.y || 0) + sh / 2;
@@ -336,8 +547,8 @@ export default function AutomationGraph({ nodes = [], edges = [] }) {
   const vpRef = useRef(null);
   const [tf, setTf] = useState({ x: 0, y: 0, s: 0.65 });
   const panRef = useRef({ active: false, lx: 0, ly: 0 });
+  const [selectedNode, setSelectedNode] = useState(null);
 
-  // Auto-fit on mount
   const fitView = useCallback(() => {
     if (!nodes.length) return;
     const el = vpRef.current;
@@ -370,19 +581,26 @@ export default function AutomationGraph({ nodes = [], edges = [] }) {
     return () => obs.disconnect();
   }, [fitView]);
 
-  // Wheel zoom
+  // Clear selection when nodes change
+  useEffect(() => { setSelectedNode(null); }, [nodes]);
+
+  // Wheel: pinch/ctrl+wheel = zoom, regular scroll = pan
   useEffect(() => {
     const el = vpRef.current;
     if (!el) return;
     const h = (e) => {
       e.preventDefault();
-      const r = el.getBoundingClientRect();
-      const mx = e.clientX - r.left, my = e.clientY - r.top;
-      setTf(p => {
-        const ns = Math.min(Math.max(p.s * (e.deltaY > 0 ? 0.92 : 1.08), 0.1), 2.5);
-        const ratio = ns / p.s;
-        return { x: mx - ratio * (mx - p.x), y: my - ratio * (my - p.y), s: ns };
-      });
+      if (e.ctrlKey || e.metaKey) {
+        const r = el.getBoundingClientRect();
+        const mx = e.clientX - r.left, my = e.clientY - r.top;
+        setTf(p => {
+          const ns = Math.min(Math.max(p.s * (e.deltaY > 0 ? 0.92 : 1.08), 0.1), 2.5);
+          const ratio = ns / p.s;
+          return { x: mx - ratio * (mx - p.x), y: my - ratio * (my - p.y), s: ns };
+        });
+      } else {
+        setTf(p => ({ ...p, x: p.x - e.deltaX, y: p.y - e.deltaY }));
+      }
     };
     el.addEventListener('wheel', h, { passive: false });
     return () => el.removeEventListener('wheel', h);
@@ -409,7 +627,6 @@ export default function AutomationGraph({ nodes = [], edges = [] }) {
     if (vpRef.current) vpRef.current.style.cursor = 'grab';
   }, []);
 
-  // Compute edge paths
   const edgePaths = useMemo(() => {
     return edges.map(e => ({
       id: e.id,
@@ -423,7 +640,13 @@ export default function AutomationGraph({ nodes = [], edges = [] }) {
     <div
       ref={vpRef}
       style={{ width: '100%', height: '100%', overflow: 'hidden', cursor: 'grab', position: 'relative', background: '#fafafa' }}
-      onMouseDown={onMD}
+      onMouseDown={(e) => {
+        // Close panel when clicking on empty canvas
+        if (!e.target.closest('[data-node]') && !e.target.closest('[data-panel]')) {
+          setSelectedNode(null);
+        }
+        onMD(e);
+      }}
       onMouseMove={onMM}
       onMouseUp={onMU}
       onMouseLeave={onMU}
@@ -455,10 +678,19 @@ export default function AutomationGraph({ nodes = [], edges = [] }) {
         {/* Nodes */}
         {nodes.map(node => (
           <div key={node.id} data-node="1">
-            <AutomationNode node={node} />
+            <AutomationNode
+              node={node}
+              isSelected={selectedNode?.id === node.id}
+              onSelect={setSelectedNode}
+            />
           </div>
         ))}
       </div>
+
+      {/* Detail modal */}
+      {selectedNode && (
+        <NodeDetailModal node={selectedNode} onClose={() => setSelectedNode(null)} />
+      )}
     </div>
   );
 }

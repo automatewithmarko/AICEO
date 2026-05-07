@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../services/storage.js';
 import { getUserPlan, getPlans } from '../services/plans.js';
-import { getCreditCosts } from '../services/credits.js';
+import { getCreditCosts, addCredits } from '../services/credits.js';
 import { stripe as getStripe, getStripePriceId } from '../services/stripe.js';
 
 const router = Router();
@@ -99,20 +99,26 @@ router.get('/api/billing/plan', async (req, res) => {
         // add_funnel_state_columns + expand_funnel_backfill migrations.
         setup_paid_at: sub.setup_paid_at || null,
         meeting_booked_at: sub.meeting_booked_at || null,
-        // Funnel-done flag. Two cases:
+        // Funnel-done flag. Three cases:
         //   1. Real Stripe-backed monthly sub is live (the post-funnel
-        //      steady state for any new customer).
-        //   2. Legacy "grandfather" — status='active' row that predates
+        //      steady state for any customer whose free year expired).
+        //   2. Free year is active — setup fee paid, free_year_until is
+        //      in the future. No monthly subscription needed yet.
+        //   3. Legacy "grandfather" — status='active' row that predates
         //      the funnel and was backfilled by the migration. May lack
         //      stripe_subscription_id (phantom rows from the old
         //      AuthContext.signup) but the user still expects "I had a
-        //      plan" to mean "let me into the app".
+        //      plan" to mean "let me into the app". Distinguished from
+        //      expired free-year users by not having a free_year_until.
         // Mid-funnel users have status='setup_paid' and therefore don't
-        // match either branch — they continue through the steps.
+        // match any branch — they continue through the steps.
         has_active_monthly:
           (!!sub.stripe_subscription_id
             && ['active', 'canceling', 'trialing', 'past_due'].includes(sub.status))
-          || (sub.status === 'active' && !!sub.setup_paid_at),
+          || (!!sub.free_year_until && new Date(sub.free_year_until) > new Date()
+              && sub.status === 'active' && !!sub.meeting_booked_at)
+          || (sub.status === 'active' && !!sub.setup_paid_at && !sub.free_year_until),
+        free_year_until: sub.free_year_until || null,
       } : null,
       credits: {
         balance: creditRow?.balance ?? 0,
@@ -473,7 +479,7 @@ router.post('/api/billing/checkout/setup', async (req, res) => {
 //
 // 'test' plan deliberately does not support instalments — keeps the QA
 // flow tight.
-const INSTALLMENT_KEYS = ['2x', '3x', '6x'];
+const INSTALLMENT_KEYS = ['3x', '6x'];
 
 router.post('/api/billing/checkout/installment', async (req, res) => {
   const userId = req.user?.id;
@@ -492,9 +498,8 @@ router.post('/api/billing/checkout/installment', async (req, res) => {
     return res.status(400).json({ error: `installment must be one of: ${INSTALLMENT_KEYS.join(', ')}` });
   }
 
-  // Stripe Price ID for the (plan, installment) combo. Merchant configures
-  // each as a recurring monthly price with `cancel_at_period_end` or a
-  // subscription schedule limiting it to N cycles.
+  // Stripe Price ID for the (plan, installment) combo.
+  const INSTALLMENT_CYCLES = { '3x': 3, '6x': 6 };
   const envKey = `STRIPE_PRICE_${plan.toUpperCase()}_INSTALL_${installment.toUpperCase()}`;
   const priceId = process.env[envKey];
   if (!priceId) {
@@ -526,6 +531,15 @@ router.post('/api/billing/checkout/installment', async (req, res) => {
     const email = authData?.user?.email;
     const origin = resolveFrontendOrigin(req);
 
+    // Auto-cancel the instalment subscription after N cycles so the
+    // customer isn't billed indefinitely. cancel_at is a Unix timestamp;
+    // we set it to N months from now (with a small buffer so the last
+    // invoice has time to finalise before the sub is cancelled).
+    const cycles = INSTALLMENT_CYCLES[installment] || 6;
+    const cancelAt = new Date();
+    cancelAt.setMonth(cancelAt.getMonth() + cycles);
+    cancelAt.setDate(cancelAt.getDate() + 3); // 3-day buffer
+
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
@@ -539,6 +553,7 @@ router.post('/api/billing/checkout/installment', async (req, res) => {
       metadata: { user_id: userId, plan, step: 'installment', installment },
       subscription_data: {
         metadata: { user_id: userId, plan, step: 'installment', installment },
+        cancel_at: Math.floor(cancelAt.getTime() / 1000),
       },
       allow_promotion_codes: true,
     }, {
@@ -564,7 +579,7 @@ router.post('/api/billing/meeting/booked', async (req, res) => {
 
   const { data: sub } = await supabase
     .from('subscriptions')
-    .select('setup_paid_at, meeting_booked_at')
+    .select('plan, setup_paid_at, meeting_booked_at, free_year_until')
     .eq('user_id', userId)
     .maybeSingle();
 
@@ -583,16 +598,43 @@ router.post('/api/billing/meeting/booked', async (req, res) => {
   }
 
   const now = new Date().toISOString();
+  // If the user has a free year (Complete / Diamond setup buyers), auto-
+  // activate on meeting confirmation — no monthly checkout step needed.
+  const freeYearActive = !!sub.free_year_until && new Date(sub.free_year_until) > new Date();
+  const patch = { meeting_booked_at: now, updated_at: now };
+  if (freeYearActive) {
+    patch.status = 'active';
+  }
+
   const { error } = await supabase
     .from('subscriptions')
-    .update({ meeting_booked_at: now, updated_at: now })
+    .update(patch)
     .eq('user_id', userId);
   if (error) {
     console.error('[billing/meeting/booked]', error.message);
     return res.status(500).json({ error: 'Could not save booking confirmation.' });
   }
 
-  console.log(`[billing/meeting/booked] user=${userId} at=${now}`);
+  // Seed initial credits for free-year users (normally done on the monthly
+  // subscription's first invoice, but free-year users skip that checkout).
+  if (freeYearActive && sub.plan) {
+    try {
+      const { data: planRow } = await supabase
+        .from('plans')
+        .select('credits_per_month')
+        .eq('id', sub.plan)
+        .single();
+      const seed = planRow?.credits_per_month || 500;
+      await addCredits(userId, seed, 'free_year_activation', {});
+      console.log(`[billing/meeting/booked] Seeded ${seed} credits (free year) user=${userId}`);
+    } catch (seedErr) {
+      // Non-fatal — user can still use the platform; credits can be
+      // manually topped up if this fails.
+      console.error(`[billing/meeting/booked] Credit seed failed: ${seedErr.message}`);
+    }
+  }
+
+  console.log(`[billing/meeting/booked] user=${userId} at=${now} free_year=${freeYearActive}`);
   res.json({ ok: true, meeting_booked_at: now });
 });
 
