@@ -77,6 +77,8 @@ export default {
   provider: 'anthropic',
   model: 'claude-sonnet-4-20250514',
   maxTokens: 16000,
+  // First-chunk headroom for Mentor gateway — see newsletter/landing-page.
+  streamIdleTimeoutMs: 180_000,
 
   buildSystemPrompt(brandDna) {
     let prompt = SYSTEM_PROMPT;

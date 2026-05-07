@@ -845,6 +845,11 @@ ${copyRules}`;
 
   const userMessage = lines.join('\n');
 
+  // 90s ceiling — non-streaming 1500-token reply should land in <30s
+  // direct, with Mentor cold-start added. Without this the request
+  // hangs forever if the gateway stalls (no built-in fetch timeout).
+  const draftCtl = new AbortController();
+  const draftTimer = setTimeout(() => draftCtl.abort(), 90_000);
   try {
     const r = await fetch(target.url, {
       method: 'POST',
@@ -859,6 +864,7 @@ ${copyRules}`;
         system: systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
       }),
+      signal: draftCtl.signal,
     });
 
     if (!r.ok) {
@@ -896,7 +902,10 @@ ${copyRules}`;
     res.json({ draft, draft_html: draftHtml });
   } catch (err) {
     console.error('[ai-draft] failed:', err.message);
-    res.status(500).json({ error: err.message });
+    const status = err.name === 'AbortError' ? 504 : 500;
+    res.status(status).json({ error: err.name === 'AbortError' ? 'AI draft timed out' : err.message });
+  } finally {
+    clearTimeout(draftTimer);
   }
 });
 

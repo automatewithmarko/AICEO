@@ -435,26 +435,47 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
 
   let iterations = 0;
   const MAX_ITERATIONS = 15;
+  // Per-iteration ceiling. Non-streaming, so without a timeout a stalled
+  // upstream (Mentor or Anthropic) hangs the whole edit loop until the
+  // platform-level connection timeout. 120s is generous — we've seen
+  // healthy responses in <30s direct, ~45s via Mentor.
+  const PER_ITER_TIMEOUT_MS = 120_000;
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: maxTokens || 4096,
-        system: systemPrompt,
-        messages: conversationMessages,
-        tools,
-      }),
-      signal: abortSignal,
-    });
+    // Chain the caller's abortSignal with our per-iteration timer. If
+    // either fires, we abort the upstream fetch.
+    const iterCtl = new AbortController();
+    const iterTimer = setTimeout(() => iterCtl.abort(), PER_ITER_TIMEOUT_MS);
+    const onCallerAbort = () => iterCtl.abort();
+    if (abortSignal) {
+      if (abortSignal.aborted) iterCtl.abort();
+      else abortSignal.addEventListener('abort', onCallerAbort, { once: true });
+    }
+
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: maxTokens || 4096,
+          system: systemPrompt,
+          messages: conversationMessages,
+          tools,
+        }),
+        signal: iterCtl.signal,
+      });
+    } finally {
+      clearTimeout(iterTimer);
+      abortSignal?.removeEventListener?.('abort', onCallerAbort);
+    }
 
     if (!res.ok) {
       const errText = await res.text().catch(() => 'Unknown error');
