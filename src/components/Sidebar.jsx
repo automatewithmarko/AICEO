@@ -265,12 +265,24 @@ export default function Sidebar() {
                 </>
               )}
               <div className="profile-divider" />
-              {workspace?.isOwner && (
-                <button className="profile-menu-item" onClick={() => { navigate('/billing'); setProfileOpen(false); }}>
-                  <CreditCard size={16} />
-                  <span>Billing & Credits</span>
-                </button>
-              )}
+              {/* Billing is personal, not workspace-scoped — every signed-in
+                  user has their own subscription to manage. If the actor is
+                  currently acting in someone else's workspace, switch back
+                  to their own first so the /billing page shows their plan
+                  rather than the host workspace's. */}
+              <button
+                className="profile-menu-item"
+                onClick={async () => {
+                  setProfileOpen(false);
+                  if (!workspace?.isOwner && user?.id) {
+                    await switchWorkspace(user.id);
+                  }
+                  navigate('/billing');
+                }}
+              >
+                <CreditCard size={16} />
+                <span>Billing & Credits</span>
+              </button>
               {(workspace?.isOwner || workspace?.canManageMembers) && (
                 <button className="profile-menu-item" onClick={() => { navigate('/settings'); setProfileOpen(false); }}>
                   <Settings size={16} />

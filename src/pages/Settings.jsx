@@ -824,7 +824,17 @@ export default function Settings() {
                         : integrations[nt.id]?.is_active ? 'Connected' : 'Not connected'}
                   </span>
                 </div>
-                {nt.id === 'linkedin' ? (
+                {/* Connect / Disconnect controls are owner-only — third-party
+                    credentials belong to the workspace owner, and disconnecting
+                    them (e.g. Stripe, LinkedIn) breaks live customer flows.
+                    Workspace admins / members see the connection status but no
+                    action button. Backend enforces the same; this is just so
+                    the UI doesn't tempt them. */}
+                {!workspace?.isOwner ? (
+                  <span style={{ fontSize: 11, opacity: 0.55, fontStyle: 'italic' }}>
+                    Owner only
+                  </span>
+                ) : nt.id === 'linkedin' ? (
                   integrations.linkedin?.is_active ? (
                     <button
                       className="settings-btn settings-btn--danger"

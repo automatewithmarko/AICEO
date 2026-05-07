@@ -8,6 +8,7 @@ import { fetchInboxFromGraph, isGraphAccount } from '../services/outlook-graph-s
 import { getValidAccessToken } from '../services/outlook-oauth-refresh.js';
 import { buildAuthUrl, exchangeCode, decodeIdToken, refreshAccessToken } from '../services/outlook-oauth.js';
 import { anthropicTarget, fetchWithMentorFallback } from '../agents/base-agent.js';
+import { requireOwner } from '../middleware/workspace.js';
 
 const router = Router();
 
@@ -27,7 +28,7 @@ router.get('/api/email-accounts', async (req, res) => {
 });
 
 // ─── Add email account ───
-router.post('/api/email-accounts', async (req, res) => {
+router.post('/api/email-accounts', requireOwner, async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
@@ -111,7 +112,7 @@ router.post('/api/email-accounts', async (req, res) => {
 });
 
 // ─── Delete email account ───
-router.delete('/api/email-accounts/:id', async (req, res) => {
+router.delete('/api/email-accounts/:id', requireOwner, async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
@@ -147,7 +148,7 @@ router.get('/api/email-accounts/outlook/auth', async (req, res) => {
 });
 
 // ─── Outlook OAuth: exchange code for tokens ───
-router.post('/api/email-accounts/outlook/callback', async (req, res) => {
+router.post('/api/email-accounts/outlook/callback', requireOwner, async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 

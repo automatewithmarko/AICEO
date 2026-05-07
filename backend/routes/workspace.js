@@ -162,6 +162,26 @@ router.patch('/api/workspace/members/:id', requireWorkspaceAdmin, async (req, re
 // ─── DELETE /api/workspace/members/:id ────────────────────────────────
 router.delete('/api/workspace/members/:id', requireWorkspaceAdmin, async (req, res) => {
   const ownerId = req.user.ownerId;
+  const actorId = req.user.actorId;
+
+  // Refuse self-removal — an admin clicking their own "Remove" button
+  // would lock themselves out with no undo. They have to ask the
+  // owner (or another admin) to remove them, or use the "leave" flow
+  // explicitly via DELETE /api/workspace/leave/:owner_user_id.
+  const { data: row } = await supabase
+    .from('workspace_members')
+    .select('member_user_id')
+    .eq('id', req.params.id)
+    .eq('owner_user_id', ownerId)
+    .maybeSingle();
+  if (!row) return res.status(404).json({ error: 'member_not_found' });
+  if (row.member_user_id === actorId) {
+    return res.status(400).json({
+      error: 'cannot_remove_self',
+      hint: 'Use the leave-workspace flow if you want to remove your own access.',
+    });
+  }
+
   const { error } = await supabase
     .from('workspace_members')
     .delete()
