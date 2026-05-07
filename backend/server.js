@@ -28,7 +28,9 @@ import calendarRoutes from './routes/calendar.js';
 import carouselTemplateRoutes from './routes/carousel-templates.js';
 import billingRoutes from './routes/billing.js';
 import adminRoutes from './routes/admin.js';
+import workspaceRoutes from './routes/workspace.js';
 import { startEmailSync } from './services/email-sync.js';
+import { resolveContext } from './services/workspace.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -90,10 +92,36 @@ async function requireAuth(req, res, next) {
     if (!payload.sub) {
       return res.status(401).json({ error: 'invalid_token', reason: 'no_sub' });
     }
+
+    const actorId = payload.sub;
+    const requestedOwner = req.headers['x-workspace-owner'] || req.query.workspace || null;
+
+    // Resolve workspace context. `req.user.id` is the EFFECTIVE owner —
+    // every existing route reads/writes against this, so a member acting
+    // in someone else's workspace transparently sees the owner's data.
+    // `req.user.actorId` is the real auth user (use for self-only writes
+    // like notifications, profile updates).
+    let ctx;
+    try {
+      ctx = await resolveContext(actorId, requestedOwner);
+    } catch (err) {
+      if (err.code === 'NOT_A_MEMBER') {
+        return res.status(403).json({ error: 'not_a_member' });
+      }
+      console.error('[auth] resolveContext failed:', err.message);
+      return res.status(500).json({ error: 'workspace_context_failed' });
+    }
+
     req.user = {
-      id: payload.sub,
+      id: ctx.ownerId,           // effective owner — what every existing query keys on
+      ownerId: ctx.ownerId,      // explicit alias
+      actorId,                   // the real logged-in auth user
       email: payload.email || null,
-      role: payload.role || null,
+      authRole: payload.role || null,
+      role: ctx.role,            // 'owner' | 'admin' | 'member' | custom
+      permissions: ctx.permissions,
+      isOwner: ctx.isOwner,
+      canManageMembers: ctx.canManageMembers,
     };
     return next();
   } catch (err) {
@@ -866,13 +894,32 @@ app.post('/api/outlier/scan/:creatorId', requireAuth, async (req, res) => {
   }
 });
 
+// Helper: gate a path-prefix on a tab permission. Owner always passes;
+// members must have the tab key in their workspace_roles permission set.
+// Anonymous (no token) gets a 401 from the check itself.
+function gateOnTab(prefix, tabKey) {
+  return (req, res, next) => {
+    if (!req.path.startsWith(prefix)) return next();
+    const u = req.user;
+    if (!u || u.id === 'anonymous') return res.status(401).json({ error: 'Authentication required' });
+    if (u.isOwner) return next();
+    if (Array.isArray(u.permissions) && u.permissions.includes(tabKey)) return next();
+    return res.status(403).json({ error: 'permission_denied', tab: tabKey });
+  };
+}
+
 // ─── Email routes (auth applied per-route inside) ───
+// Inbox tab gating — applies to the read/write surface that powers the
+// Inbox UI. The OAuth callback paths (/api/email/outlook/callback etc.)
+// stay open so the redirect can land before the user is fully attached
+// to a workspace.
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/email')) {
     return requireAuth(req, res, next);
   }
   next();
 });
+app.use(gateOnTab('/api/email', 'inbox'));
 app.use(emailRoutes);
 
 // ─── Integration routes (auth required) ───
@@ -889,13 +936,16 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/sales')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/sales', 'sales'));
 app.use(salesRoutes);
 
 // ─── Products routes (auth required) ───
+// Products lives under the Sales tab in the sidebar; gate on the same key.
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/products')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/products', 'sales'));
 app.use(productRoutes);
 
 // ─── Contacts/CRM routes (auth required) ───
@@ -903,6 +953,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/contacts')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/contacts', 'crm'));
 app.use(contactRoutes);
 
 // ─── Generate routes (auth required) ───
@@ -917,6 +968,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/orchestrate')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/orchestrate', 'ai-ceo'));
 app.use(orchestrateRoutes);
 
 // ─── BooSend automation routes (auth required) ───
@@ -924,6 +976,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/boosend')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/boosend', 'marketing'));
 app.use(boosendRoutes);
 
 // ─── CEO Notifications ───
@@ -1033,6 +1086,12 @@ app.use((req, res, next) => {
   }
   next();
 });
+// Tab gate skips public form-player paths; only the management surface
+// is gated by the 'forms' permission.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/forms') || req.path.startsWith('/api/forms/public')) return next();
+  return gateOnTab('/api/forms', 'forms')(req, res, next);
+});
 app.use(formRoutes);
 
 // ─── Dashboard stats route (auth required) ───
@@ -1040,6 +1099,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/dashboard-stats')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/dashboard-stats', 'dashboard'));
 app.use(dashboardRoutes);
 
 // ─── Artifact version history (auth required) ───
@@ -1050,10 +1110,12 @@ app.use((req, res, next) => {
 app.use(artifactVersionRoutes);
 
 // ─── Calendar routes (auth required) ───
+// Content Calendar is part of the Content tab; gate accordingly.
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/calendar')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/calendar', 'content'));
 app.use(calendarRoutes);
 
 // ─── Carousel templates (auth required) ───
@@ -1061,21 +1123,35 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/carousel-templates')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/carousel-templates', 'marketing'));
 app.use(carouselTemplateRoutes);
 
 // ─── Billing routes (auth required, except /plans and /costs which are public-ish) ───
+// Billing is owner-only — workspace members never see Billing in the UI
+// and the backend rejects them too. The /plans and /costs endpoints are
+// catalog reads with no user-specific data, so the owner gate inside
+// billingRoutes is per-handler rather than blanket.
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/billing')) return requireAuth(req, res, next);
   next();
 });
 app.use(billingRoutes);
 
-// ─── Admin routes (auth + admin check required) ───
+// ─── Admin routes (auth + platform-admin check required) ───
+// "Platform admin" (Esforge employees) — separate concept from
+// workspace admin. Gated by requireAdmin inside adminRoutes.
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/admin')) return requireAuth(req, res, next);
   next();
 });
 app.use(adminRoutes);
+
+// ─── Workspace routes (members, roles, invites — auth required) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/workspace')) return requireAuth(req, res, next);
+  next();
+});
+app.use(workspaceRoutes);
 
 // ─── Webhook routes (no auth — external services) ───
 app.use(webhookRoutes);

@@ -1,6 +1,11 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { getBillingPlan } from '../lib/api';
+import {
+  getBillingPlan,
+  getWorkspaceMe,
+  getActiveWorkspaceOwner,
+  setActiveWorkspaceOwner,
+} from '../lib/api';
 
 const AuthContext = createContext(null);
 
@@ -14,6 +19,10 @@ export function AuthProvider({ children }) {
   // Plans page to a paying user.
   const [planResolved, setPlanResolved] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Workspace / RBAC state — populated from /api/workspace/me on session
+  // build. `permissions` is the array of tab keys the actor can see in
+  // the active workspace; Sidebar/Layout/Settings consume this directly.
+  const [workspace, setWorkspace] = useState(null);
 
   const buildUser = async (session) => {
     if (!session?.user) {
@@ -22,6 +31,7 @@ export function AuthProvider({ children }) {
       setFeatures([]);
       setPlanData(null);
       setPlanResolved(false);
+      setWorkspace(null);
       setLoading(false);
       return;
     }
@@ -34,6 +44,28 @@ export function AuthProvider({ children }) {
       .select('full_name, avatar_url')
       .eq('id', authUser.id)
       .single();
+
+    // Resolve workspace context (role + permissions + workspaces list).
+    // Tolerant to backend errors — falls back to "owner of own
+    // workspace, all permissions" so a backend hiccup never locks the
+    // user out of their own data.
+    let wsCtx = null;
+    try {
+      wsCtx = await getWorkspaceMe();
+    } catch {
+      wsCtx = null;
+    }
+    // If the persisted active workspace is no longer one the user can
+    // access (membership revoked, etc.), reset to their own workspace
+    // and re-fetch context.
+    if (wsCtx) {
+      const persisted = getActiveWorkspaceOwner();
+      const validOwners = new Set((wsCtx.workspaces || []).map((w) => w.ownerId));
+      if (persisted && !validOwners.has(persisted)) {
+        setActiveWorkspaceOwner(null);
+        try { wsCtx = await getWorkspaceMe(); } catch { /* keep prev */ }
+      }
+    }
 
     // Fetch billing plan (includes plan, subscription, and credits)
     let billingInfo = null;
@@ -103,6 +135,24 @@ export function AuthProvider({ children }) {
     setFeatures(planFeatures);
     setPlanData(billingData);
     setPlanResolved(billingOk);
+    setWorkspace(wsCtx ? {
+      activeOwnerId: wsCtx.activeOwnerId,
+      role: wsCtx.role,
+      permissions: wsCtx.permissions || [],
+      isOwner: !!wsCtx.isOwner,
+      canManageMembers: !!wsCtx.canManageMembers,
+      tabKeys: wsCtx.tabKeys || [],
+      workspaces: wsCtx.workspaces || [],
+    } : {
+      // Fallback when /api/workspace/me failed: treat as solo owner.
+      activeOwnerId: authUser.id,
+      role: 'owner',
+      permissions: [],
+      isOwner: true,
+      canManageMembers: true,
+      tabKeys: [],
+      workspaces: [{ ownerId: authUser.id, role: 'owner', label: profile?.full_name || 'My workspace', avatarUrl: profile?.avatar_url || null }],
+    });
     setLoading(false);
   };
 
@@ -151,6 +201,27 @@ export function AuthProvider({ children }) {
   const hasFeature = useCallback((name) => {
     return features.includes(name);
   }, [features]);
+
+  // Tab-permission check used by Sidebar/Layout/route guards. Owner
+  // always passes. Returns false when workspace context isn't loaded
+  // yet so consumers can render a safe "denied" fallback during the
+  // brief boot window.
+  const can = useCallback((tabKey) => {
+    if (!workspace) return false;
+    if (workspace.isOwner) return true;
+    return Array.isArray(workspace.permissions) && workspace.permissions.includes(tabKey);
+  }, [workspace]);
+
+  // Switch the active workspace. Persists to localStorage and re-runs
+  // the full session pipeline so role/permissions/credits reflect the
+  // new workspace. The page itself stays on whatever route it was on;
+  // Layout's permission guard will redirect if the new workspace
+  // doesn't allow it.
+  const switchWorkspace = useCallback(async (ownerId) => {
+    setActiveWorkspaceOwner(ownerId === user?.id ? null : ownerId);
+    const { data: { session } } = await supabase.auth.getSession();
+    await buildUser(session);
+  }, [user?.id]);
 
   const refreshCredits = useCallback(async () => {
     try {
@@ -225,7 +296,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, credits, features, planData, planResolved, loading, login, signup, logout, hasFeature, refreshCredits, refreshUser }}>
+    <AuthContext.Provider value={{ user, credits, features, planData, planResolved, workspace, loading, login, signup, logout, hasFeature, can, switchWorkspace, refreshCredits, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

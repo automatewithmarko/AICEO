@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, ChevronDown, FileText, Loader, Plus, Dna, Calendar } from 'lucide-react';
 import ColorWheelPicker from '../components/ColorWheelPicker';
 import FontSelector from '../components/FontSelector';
+import TeamSettings from '../components/TeamSettings';
 import { uploadBrandDnaFiles, uploadContextFiles, getIntegrations, connectIntegration, disconnectIntegration, getLinkedInAuthUrl, disconnectLinkedIn, getEmailAccounts, addEmailAccount, deleteEmailAccount, syncEmailAccount, getOutlookAuthUrl, connectOutlookCallback } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
@@ -31,7 +32,7 @@ const DOC_TYPES = [
 ];
 
 export default function Settings() {
-  const { user, credits, features, planData } = useAuth();
+  const { user, credits, features, planData, workspace } = useAuth();
   const [passwordReset, setPasswordReset] = useState(false);
   const [integrations, setIntegrations] = useState({});
   const [integrationsLoading, setIntegrationsLoading] = useState(true);
@@ -781,6 +782,15 @@ export default function Settings() {
           )}
         </div>
       </div>
+
+      {/* Team Section — invite members, manage roles & permissions.
+          The component itself shows a friendly empty state for non-admins. */}
+      {(workspace?.isOwner || workspace?.canManageMembers) && (
+        <div className="settings-section">
+          <h2 className="settings-section-title">Team</h2>
+          <TeamSettings />
+        </div>
+      )}
 
       {/* Integrations Section */}
       <div className="settings-section">

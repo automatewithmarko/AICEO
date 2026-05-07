@@ -2,12 +2,43 @@ import { supabase } from './supabase';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+// ─── Active workspace selection ──────────────────────────────────────
+// The current user can be a member of multiple workspaces (their own
+// + any they were invited to). The active workspace is stored in
+// localStorage under this key as the owner_user_id of the workspace
+// they're acting in. When unset / equal to actor → solo / own
+// workspace and no header is sent.
+const ACTIVE_WORKSPACE_KEY = 'aiceo_active_workspace_owner';
+
+export function getActiveWorkspaceOwner() {
+  try {
+    return localStorage.getItem(ACTIVE_WORKSPACE_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function setActiveWorkspaceOwner(ownerId) {
+  try {
+    if (ownerId) localStorage.setItem(ACTIVE_WORKSPACE_KEY, ownerId);
+    else localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+  } catch { /* ignore */ }
+}
+
 async function getAuthHeaders() {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) return {};
-  return {
+  const headers = {
     Authorization: `Bearer ${session.access_token}`,
   };
+  // Only attach the workspace header when it's set AND differs from the
+  // actor's own id. Skipping it for the solo case keeps the request
+  // identical to the pre-RBAC shape and saves the backend a DB lookup.
+  const activeOwner = getActiveWorkspaceOwner();
+  if (activeOwner && session.user?.id && activeOwner !== session.user.id) {
+    headers['X-Workspace-Owner'] = activeOwner;
+  }
+  return headers;
 }
 
 /**
@@ -1463,3 +1494,38 @@ export async function createBillingPortalSession() {
   }
   return res.json();
 }
+
+// ─── Workspace / RBAC ────────────────────────────────────────────────
+
+async function jsonRequest(method, path, body) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 204) return null;
+  let parsed = null;
+  try { parsed = await res.json(); } catch { /* non-JSON */ }
+  if (!res.ok) {
+    const err = new Error(parsed?.error || `Request failed (${res.status})`);
+    err.status = res.status;
+    err.body = parsed;
+    throw err;
+  }
+  return parsed;
+}
+
+export const getWorkspaceMe         = ()                  => jsonRequest('GET',    '/api/workspace/me');
+export const getWorkspaceMembers    = ()                  => jsonRequest('GET',    '/api/workspace/members');
+export const updateWorkspaceMember  = (id, patch)         => jsonRequest('PATCH',  `/api/workspace/members/${id}`, patch);
+export const removeWorkspaceMember  = (id)                => jsonRequest('DELETE', `/api/workspace/members/${id}`);
+export const getWorkspaceRoles      = ()                  => jsonRequest('GET',    '/api/workspace/roles');
+export const updateWorkspaceRole    = (key, patch)        => jsonRequest('PUT',    `/api/workspace/roles/${key}`, patch);
+export const createWorkspaceRole    = (payload)           => jsonRequest('POST',   '/api/workspace/roles', payload);
+export const deleteWorkspaceRole    = (key)               => jsonRequest('DELETE', `/api/workspace/roles/${key}`);
+export const getWorkspaceInvites    = ()                  => jsonRequest('GET',    '/api/workspace/invites');
+export const createWorkspaceInvite  = (email, role_key)   => jsonRequest('POST',   '/api/workspace/invites', { email, role_key });
+export const revokeWorkspaceInvite  = (id)                => jsonRequest('DELETE', `/api/workspace/invites/${id}`);
+export const acceptWorkspaceInvite  = (token)             => jsonRequest('POST',   '/api/workspace/invites/accept', { token });
+export const leaveWorkspace         = (ownerId)           => jsonRequest('DELETE', `/api/workspace/leave/${ownerId}`);
