@@ -5,24 +5,42 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 // ─── Active workspace selection ──────────────────────────────────────
 // The current user can be a member of multiple workspaces (their own
 // + any they were invited to). The active workspace is stored in
-// localStorage under this key as the owner_user_id of the workspace
-// they're acting in. When unset / equal to actor → solo / own
-// workspace and no header is sent.
-const ACTIVE_WORKSPACE_KEY = 'aiceo_active_workspace_owner';
+// localStorage as the owner_user_id of the workspace they're acting in.
+//
+// The key is SCOPED PER USER (`aiceo_active_workspace_<actorId>`) so
+// account-A's preference can't leak into account-B's session if they
+// share a browser. This was the root cause of the early "not_a_member"
+// bug — a single shared key meant a brand-new signup inherited the
+// previous user's workspace pointer and 403'd every request.
+const KEY_PREFIX = 'aiceo_active_workspace_';
 
-export function getActiveWorkspaceOwner() {
+function workspaceKey(actorId) { return `${KEY_PREFIX}${actorId}`; }
+
+// Synchronous variants take an explicit actorId — used by getAuthHeaders
+// after it has the session in hand. Returns null when actorId is falsy
+// so callers don't have to special-case logged-out state.
+function getActiveWorkspaceOwnerSync(actorId) {
+  if (!actorId) return null;
+  try { return localStorage.getItem(workspaceKey(actorId)) || null; } catch { return null; }
+}
+function setActiveWorkspaceOwnerSync(actorId, ownerId) {
+  if (!actorId) return;
   try {
-    return localStorage.getItem(ACTIVE_WORKSPACE_KEY) || null;
-  } catch {
-    return null;
-  }
+    if (ownerId) localStorage.setItem(workspaceKey(actorId), ownerId);
+    else localStorage.removeItem(workspaceKey(actorId));
+  } catch { /* ignore */ }
 }
 
-export function setActiveWorkspaceOwner(ownerId) {
-  try {
-    if (ownerId) localStorage.setItem(ACTIVE_WORKSPACE_KEY, ownerId);
-    else localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
-  } catch { /* ignore */ }
+// Async variants resolve the actor from the current Supabase session.
+// These are the public API — most callers don't have actorId at hand
+// and would otherwise have to plumb it through.
+export async function getActiveWorkspaceOwner() {
+  const { data: { session } } = await supabase.auth.getSession();
+  return getActiveWorkspaceOwnerSync(session?.user?.id);
+}
+export async function setActiveWorkspaceOwner(ownerId) {
+  const { data: { session } } = await supabase.auth.getSession();
+  setActiveWorkspaceOwnerSync(session?.user?.id, ownerId);
 }
 
 async function getAuthHeaders() {
@@ -34,7 +52,7 @@ async function getAuthHeaders() {
   // Only attach the workspace header when it's set AND differs from the
   // actor's own id. Skipping it for the solo case keeps the request
   // identical to the pre-RBAC shape and saves the backend a DB lookup.
-  const activeOwner = getActiveWorkspaceOwner();
+  const activeOwner = getActiveWorkspaceOwnerSync(session.user?.id);
   if (activeOwner && session.user?.id && activeOwner !== session.user.id) {
     headers['X-Workspace-Owner'] = activeOwner;
   }

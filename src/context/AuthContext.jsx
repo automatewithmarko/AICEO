@@ -47,34 +47,35 @@ export function AuthProvider({ children }) {
 
     // Resolve workspace context (role + permissions + workspaces list).
     //
-    // Recovery path matters here: if localStorage points to a workspace
-    // the actor is no longer a member of (membership revoked, account
-    // switched in same browser, suspension), the request will 403 with
-    // X-Workspace-Owner. Without recovery, the actor would be silently
-    // stuck sending the bad header on every subsequent request and
-    // landing in a half-broken fallback state. So on ANY failure, we
-    // clear the persisted workspace and retry once — the retry omits
-    // the X-Workspace-Owner header and falls through to the actor's
-    // own workspace, which is always valid.
+    // Recovery path matters here: if the persisted active workspace is
+    // no longer one the actor is a member of (membership revoked,
+    // suspended), the request will 403 with X-Workspace-Owner. So on
+    // ANY failure we clear the persisted workspace and retry once —
+    // the retry omits the header and falls through to the actor's own
+    // workspace, which is always valid.
     let wsCtx = null;
     try {
       wsCtx = await getWorkspaceMe();
     } catch {
-      setActiveWorkspaceOwner(null);
+      await setActiveWorkspaceOwner(null);
       try { wsCtx = await getWorkspaceMe(); } catch { wsCtx = null; }
     }
     // Belt-and-suspenders: even on success, if the persisted owner
     // isn't in the workspace list, drop it and re-fetch.
     if (wsCtx) {
-      const persisted = getActiveWorkspaceOwner();
+      const persisted = await getActiveWorkspaceOwner();
       const validOwners = new Set((wsCtx.workspaces || []).map((w) => w.ownerId));
       if (persisted && !validOwners.has(persisted)) {
-        setActiveWorkspaceOwner(null);
+        await setActiveWorkspaceOwner(null);
         try { wsCtx = await getWorkspaceMe(); } catch { /* keep prev */ }
       }
     }
 
-    // Fetch billing plan (includes plan, subscription, and credits)
+    // Fetch billing plan (includes plan, subscription, and credits).
+    // This reflects the EFFECTIVE workspace's billing — for a member
+    // acting in someone else's workspace, that's the owner's plan. So
+    // a member never sees "no plan" pricing as long as the workspace
+    // they're acting in is paid up.
     let billingInfo = null;
     let billingOk = false;
     try {
@@ -85,6 +86,32 @@ export function AuthProvider({ children }) {
       // for credits/plan display, but DON'T flip planResolved — the
       // OnboardingFunnel needs an authoritative signal before it can know
       // whether to render the Plans overlay.
+    }
+
+    // Smart default — if the actor has NEVER explicitly chosen a
+    // workspace AND has no active billing in their own workspace AND
+    // is a member of someone else's workspace, default to that
+    // membership instead of dropping them on the OnboardingFunnel
+    // pricing page in their empty own workspace. Invitee-style users
+    // who joined someone's paid plan don't expect to be sold their
+    // own subscription on every login.
+    //
+    // Runs only when wsCtx.isOwner — meaning the prior fetches went
+    // against the actor's own workspace, so billingInfo describes
+    // their own subscription. After the switch, we re-fetch both so
+    // the rest of buildUser sees the NEW workspace's plan + credits.
+    if (wsCtx && wsCtx.isOwner) {
+      const persisted = await getActiveWorkspaceOwner();
+      const hasOwnPlan = !!billingInfo?.subscription?.has_active_monthly;
+      const otherMemberships = (wsCtx.workspaces || []).filter((w) => w.ownerId !== authUser.id);
+      if (!persisted && !hasOwnPlan && otherMemberships.length > 0) {
+        await setActiveWorkspaceOwner(otherMemberships[0].ownerId);
+        try { wsCtx = await getWorkspaceMe(); } catch { /* keep prev */ }
+        try {
+          billingInfo = await getBillingPlan();
+          billingOk = true;
+        } catch { /* keep prev billingInfo */ }
+      }
     }
 
     let plan = null;
@@ -224,11 +251,16 @@ export function AuthProvider({ children }) {
   // new workspace. The page itself stays on whatever route it was on;
   // Layout's permission guard will redirect if the new workspace
   // doesn't allow it.
+  //
+  // We persist the actual ownerId (even when it's the actor's own
+  // user_id) instead of clearing localStorage — that way an explicit
+  // choice of "stay in own workspace" is remembered across sign-outs
+  // and overrides the smart-default heuristic on next sign-in.
   const switchWorkspace = useCallback(async (ownerId) => {
-    setActiveWorkspaceOwner(ownerId === user?.id ? null : ownerId);
+    await setActiveWorkspaceOwner(ownerId);
     const { data: { session } } = await supabase.auth.getSession();
     await buildUser(session);
-  }, [user?.id]);
+  }, []);
 
   const refreshCredits = useCallback(async () => {
     try {
@@ -273,6 +305,10 @@ export function AuthProvider({ children }) {
   // `redirectTo` lets callers (currently InviteAccept) override Supabase's
   // default post-confirmation URL so the user lands back on /invite/:token
   // after clicking the email link, rather than the project's catch-all.
+  //
+  // localStorage is now scoped per actor_id (see lib/api.js), so a brand
+  // new signup gets its own key namespace automatically — no clearing
+  // needed.
   const signup = async (email, password, fullName, { redirectTo } = {}) => {
     // The legacy signup wrote a phantom { plan, status:'active' } row into
     // subscriptions BEFORE any payment. The new 4-step funnel can't tolerate
@@ -280,11 +316,6 @@ export function AuthProvider({ children }) {
     // setup-fee gate". Signup now only creates the auth user; the
     // subscription row is upserted by the Stripe webhook on the first
     // checkout.session.completed (mode=payment) event.
-    //
-    // Clear stale workspace-scoped browser state before signup so that the
-    // brand-new account doesn't inherit a previous user's active workspace
-    // selection (see the matching clear in logout()).
-    setActiveWorkspaceOwner(null);
     const options = {
       data: { full_name: fullName || 'New User' },
     };
@@ -301,13 +332,9 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    // Clear workspace-scoped browser state BEFORE signOut so the next
-    // account on this browser doesn't inherit the previous user's
-    // active workspace selection. Without this, a logout-then-signup
-    // flow makes the new user's first /api/workspace/me call carry an
-    // X-Workspace-Owner header pointing at a workspace they're not a
-    // member of — which 403s and breaks invite acceptance.
-    setActiveWorkspaceOwner(null);
+    // localStorage is now scoped per actor_id, so cross-account leakage
+    // can't happen even without a clear here. The actor's preference
+    // is preserved for next sign-in.
     await supabase.auth.signOut();
   };
 

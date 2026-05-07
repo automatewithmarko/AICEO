@@ -60,7 +60,7 @@ export default function InviteAccept() {
         // Switch active workspace to the one we just joined, then bounce
         // to the dashboard. switchWorkspace also re-runs the auth pipeline
         // so the sidebar/permissions reflect the new role immediately.
-        setActiveWorkspaceOwner(result.workspace.ownerId);
+        await setActiveWorkspaceOwner(result.workspace.ownerId);
         await switchWorkspace(result.workspace.ownerId);
         setWorkspaceInfo(result.workspace);
         setStatus('success');
