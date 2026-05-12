@@ -423,7 +423,7 @@ wss.on('connection', async (clientWs, req, userId) => {
           audio: {
             input: {
               format: { type: 'audio/pcm', rate: 24000 },
-              turn_detection: null,
+              turn_detection: { type: 'semantic_vad' },
             },
             output: {
               format: { type: 'audio/pcm', rate: 24000 },
