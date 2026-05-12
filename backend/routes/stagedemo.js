@@ -441,8 +441,15 @@ wss.on('connection', async (clientWs, req, userId) => {
 
     // Proxy: OpenAI → Client
     openaiWs.on('message', (data) => {
+      const str = data.toString();
+      try {
+        const evt = JSON.parse(str);
+        if (evt.type === 'error' || evt.type === 'session.updated' || evt.type === 'session.created') {
+          console.log('[stagedemo-ws] OpenAI event:', evt.type, JSON.stringify(evt).slice(0, 500));
+        }
+      } catch {}
       if (clientWs.readyState === WsWebSocket.OPEN) {
-        clientWs.send(data.toString());
+        clientWs.send(str);
       }
     });
 
