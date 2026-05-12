@@ -107,17 +107,17 @@ export default function StageDemo() {
     },
     onTranscript: (role, delta) => {
       if (role === 'ai') {
-        // Buffer transcript and drip it out to match speech pace
+        // Buffer transcript and drip one character at a time to match speech pace
         captionBufferRef.current += delta;
         if (!captionTimerRef.current) {
           const drip = () => {
             const buf = captionBufferRef.current;
             if (!buf) { captionTimerRef.current = null; return; }
-            // Release ~3 chars at a time (~speech pace)
-            const chunk = buf.slice(0, 3);
-            captionBufferRef.current = buf.slice(3);
-            setCaption(prev => prev + chunk);
-            captionTimerRef.current = setTimeout(drip, 60);
+            const ch = buf[0];
+            captionBufferRef.current = buf.slice(1);
+            setCaption(prev => prev + ch);
+            // ~150 wpm = ~12.5 chars/sec = 80ms per char
+            captionTimerRef.current = setTimeout(drip, 80);
           };
           drip();
         }
