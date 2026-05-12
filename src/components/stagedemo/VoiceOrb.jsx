@@ -43,7 +43,7 @@ function Blob({ audioLevel = 0, bassLevel = 0, isActive = false }) {
 
   return (
     <mesh ref={meshRef}>
-      <icosahedronGeometry args={[2.5, 64]} />
+      <icosahedronGeometry args={[1.4, 64]} />
       <shaderMaterial
         ref={materialRef}
         vertexShader={vertexShader}
