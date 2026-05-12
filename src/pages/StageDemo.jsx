@@ -228,15 +228,23 @@ export default function StageDemo() {
     return () => window.removeEventListener('keydown', handleKey);
   }, []);
 
-  // Cleanup on unmount
+  // Fresh session on every mount — reset everything
   useEffect(() => {
+    setPhase('idle');
+    setIsConnected(false);
+    setArtifact(null);
+    artifactRef.current = null;
+    setCaption('');
+    setError(null);
+    setOrbScale(1);
+
     return () => {
       disconnect();
       cleanupAudio();
       clearTimeout(generateTimeoutRef.current);
       if (captionTimerRef.current) clearTimeout(captionTimerRef.current);
     };
-  }, [disconnect, cleanupAudio]);
+  }, []);
 
   const handleCloseArtifact = () => {
     artifactRef.current = null;

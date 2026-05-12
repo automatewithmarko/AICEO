@@ -342,19 +342,20 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
     });
     const finalContent = result?.content || '';
 
-    // Parse agent output — agents return JSON with { type, html, summary }
+    // Parse agent output — agents return JSON with { type, html, summary, frames }
     let html = finalContent;
     let title = agentName;
+    let frames = [];
     try {
-      // Try to parse as JSON (newsletter/landing-page agents output JSON)
       const parsed = JSON.parse(finalContent);
       if (parsed.html) html = parsed.html;
       if (parsed.summary) title = parsed.summary;
+      if (parsed.frames) frames = parsed.frames;
     } catch {
       // Not JSON — might be raw HTML, use as-is
     }
 
-    res.json({ html, agent: agentName, title });
+    res.json({ html, agent: agentName, title, frames });
   } catch (err) {
     console.error('[stagedemo] generate error:', err);
     res.status(500).json({ error: 'generation_failed', detail: err.message });
