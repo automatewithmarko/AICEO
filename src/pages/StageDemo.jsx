@@ -682,7 +682,7 @@ export default function StageDemo() {
       {isConnected && (
         <div className="stagedemo-mobile-bar" style={{
           position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
-          display: 'none', alignItems: 'center', gap: 16, zIndex: 300,
+          display: 'none', alignItems: 'center', gap: 16, zIndex: hasArtifact ? 200 : 300,
         }}>
           {/* Artifact toggle */}
           {artifact && (
