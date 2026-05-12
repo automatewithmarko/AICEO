@@ -426,10 +426,10 @@ wss.on('connection', async (clientWs, req, userId) => {
             },
             output: {
               format: { type: 'audio/pcm', rate: 24000 },
-              voice: 'ash',
+              voice: 'ember',
             },
           },
-          reasoning: { effort: 'low' },
+          reasoning: { effort: 'minimal' },
           tools,
           tool_choice: 'auto',
         },
