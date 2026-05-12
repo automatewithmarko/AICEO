@@ -348,13 +348,19 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
     let frames = [];
     try {
       const parsed = JSON.parse(finalContent);
+      console.log('[stagedemo] Agent response type:', parsed.type, 'keys:', Object.keys(parsed));
       if (parsed.html) html = parsed.html;
       if (parsed.summary) title = parsed.summary;
       if (parsed.frames) frames = parsed.frames;
+      // If agent returned a question instead of content, pass it through
+      if (parsed.type === 'question') {
+        return res.json({ html: null, agent: agentName, title: parsed.text || 'Question', frames: [], question: parsed });
+      }
     } catch {
-      // Not JSON — might be raw HTML, use as-is
+      console.log('[stagedemo] Agent returned non-JSON, length:', finalContent.length);
     }
 
+    console.log('[stagedemo] Returning:', { agent: agentName, title, htmlLen: html?.length, framesCount: frames.length });
     res.json({ html, agent: agentName, title, frames });
   } catch (err) {
     console.error('[stagedemo] generate error:', err);
