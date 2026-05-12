@@ -5,14 +5,6 @@ import { motion } from 'framer-motion';
 export default function ArtifactReveal({ html, title, onClose }) {
   const iframeRef = useRef(null);
 
-  useEffect(() => {
-    if (!iframeRef.current || !html) return;
-    const doc = iframeRef.current.contentDocument;
-    doc.open();
-    doc.write(html);
-    doc.close();
-  }, [html]);
-
   return (
     <motion.div
       initial={{ opacity: 0, x: 100 }}
@@ -46,7 +38,7 @@ export default function ArtifactReveal({ html, title, onClose }) {
         }}>x</button>
       </div>
       <div style={{ flex: 1, background: '#fff' }}>
-        <iframe ref={iframeRef} sandbox="allow-scripts"
+        <iframe ref={iframeRef} srcDoc={html} sandbox="allow-scripts"
           style={{ width: '100%', height: '100%', border: 'none' }} title="Artifact Preview" />
       </div>
     </motion.div>
