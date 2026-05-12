@@ -24,6 +24,7 @@ import FormResponses from './pages/FormResponses';
 import FormPlayer from './pages/FormPlayer';
 import MicrosoftPages from './pages/MicrosoftPages';
 import Docs from './pages/Docs';
+import StageDemo from './pages/StageDemo';
 
 function App() {
   const { user, loading } = useAuth();
@@ -58,6 +59,7 @@ function App() {
       <Route path="/terms" element={<MicrosoftPages />} />
       <Route path="/shared/:token" element={<SharedMeeting />} />
       <Route path="/f/:slug" element={<FormPlayer />} />
+      <Route path="/stagedemo" element={<StageDemo />} />
       <Route element={<Layout />}>
         <Route path="/ai-ceo" element={<AiCeo />} />
         <Route path="/ai-ceo/:sessionId" element={<AiCeo />} />

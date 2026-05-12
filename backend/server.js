@@ -28,6 +28,7 @@ import calendarRoutes from './routes/calendar.js';
 import carouselTemplateRoutes from './routes/carousel-templates.js';
 import billingRoutes from './routes/billing.js';
 import adminRoutes from './routes/admin.js';
+import stagedemoRoutes from './routes/stagedemo.js';
 import { startEmailSync } from './services/email-sync.js';
 
 const app = express();
@@ -1076,6 +1077,13 @@ app.use((req, res, next) => {
   next();
 });
 app.use(adminRoutes);
+
+// ─── Stage Demo routes (auth required) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/stagedemo')) return requireAuth(req, res, next);
+  next();
+});
+app.use(stagedemoRoutes);
 
 // ─── Webhook routes (no auth — external services) ───
 app.use(webhookRoutes);
