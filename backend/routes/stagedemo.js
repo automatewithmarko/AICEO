@@ -425,7 +425,7 @@ wss.on('connection', async (clientWs, req, userId) => {
               turn_detection: null,
             },
             output: {
-              format: { type: 'audio/pcm' },
+              format: { type: 'audio/pcm', rate: 24000 },
               voice: 'ash',
             },
           },
