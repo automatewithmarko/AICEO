@@ -392,7 +392,7 @@ export default function StageDemo() {
               <rect x="3" y="3" width="18" height="18" rx="2" />
               <line x1="9" y1="3" x2="9" y2="21" />
             </svg>
-            <span>Show preview{artifact?.title ? ` · ${artifact.title}` : ''}</span>
+            <span>Show preview{artifact?.title ? ` · ${artifact.title.split(/\s+/).slice(0, 3).join(' ')}` : ''}</span>
           </button>
         )}
         {/* Captions toggle — only shown while a session is live. Default
@@ -664,7 +664,7 @@ export default function StageDemo() {
                   color: 'rgba(255,255,255,0.5)', fontSize: 13,
                   fontFamily: "'JetBrains Mono', monospace", letterSpacing: 1,
                 }}>
-                  {artifact?.title || 'Generated Asset'}
+                  {(artifact?.title || 'Generated Asset').split(/\s+/).slice(0, 4).join(' ')}
                 </span>
                 <span style={{
                   padding: '2px 8px', borderRadius: 50,
@@ -712,7 +712,7 @@ export default function StageDemo() {
             </div>
 
             {/* Content */}
-            <div style={{ flex: 1, background: '#fff', borderRadius: '0 0 16px 16px', overflow: 'hidden' }}>
+            <div style={{ flex: 1, minHeight: 0, background: '#fff', borderRadius: '0 0 16px 16px', overflow: 'hidden' }}>
               {artifact?.type === 'story_sequence' && artifact?.frames?.length > 0 ? (
                 <div style={{
                   display: 'flex', gap: 16, padding: 24, overflowX: 'auto',
