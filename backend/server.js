@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import Busboy from 'busboy';
@@ -29,6 +30,7 @@ import carouselTemplateRoutes from './routes/carousel-templates.js';
 import billingRoutes from './routes/billing.js';
 import adminRoutes from './routes/admin.js';
 import workspaceRoutes from './routes/workspace.js';
+import stagedemoRoutes, { handleStagedemoUpgrade } from './routes/stagedemo.js';
 import { startEmailSync } from './services/email-sync.js';
 import { resolveContext } from './services/workspace.js';
 
@@ -1205,10 +1207,28 @@ app.use((req, res, next) => {
 });
 app.use(workspaceRoutes);
 
+// ─── Stage Demo routes (auth required) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/stagedemo')) return requireAuth(req, res, next);
+  next();
+});
+app.use(stagedemoRoutes);
+
 // ─── Webhook routes (no auth — external services) ───
 app.use(webhookRoutes);
 
-app.listen(PORT, () => {
+const server = http.createServer(app);
+
+// WebSocket upgrade handler for stage demo voice proxy
+server.on('upgrade', (req, socket, head) => {
+  if (req.url?.startsWith('/ws/stagedemo')) {
+    handleStagedemoUpgrade(req, socket, head);
+  } else {
+    socket.destroy();
+  }
+});
+
+server.listen(PORT, () => {
   console.log(`AICEO backend running on port ${PORT}`);
   startEmailSync();
 });
