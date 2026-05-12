@@ -767,6 +767,47 @@
   color: var(--text-secondary);
 }
 
+/* ── Hamburger menu toggle (hidden on desktop) ── */
+.ap-mobile-menu-toggle {
+  display: none;
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-white);
+  color: var(--text-primary);
+  align-items: center; justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ── Mobile dropdown ── */
+.ap-mobile-dropdown {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-light, #f8f8fa);
+}
+.ap-mobile-dropdown-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px;
+  border: none; border-radius: 8px;
+  background: none;
+  color: var(--text-primary);
+  font-size: 14px; font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.ap-mobile-dropdown-item:hover {
+  background: rgba(0,0,0,0.04);
+}
+.ap-mobile-dropdown-item:disabled {
+  opacity: 0.5; cursor: default;
+}
+
 /* ── Mobile ── */
 @media (max-width: 768px) {
   .ap-header {
@@ -775,30 +816,34 @@
 
   .ap-back-btn {
     display: flex;
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    background: var(--bg-light, #f0f0f2);
+    color: var(--text-primary);
   }
 
   .ap-close {
     display: none;
   }
 
-  .ap-header-right {
-    flex-wrap: wrap;
-    gap: 6px;
+  /* Hide all toolbar buttons on mobile — they go in the hamburger dropdown */
+  .ap-header-right .ap-btn,
+  .ap-header-right .ap-account-select {
+    display: none;
   }
 
-  .ap-account-select {
-    max-width: 120px;
+  .ap-mobile-menu-toggle {
+    display: flex;
+  }
+
+  .ap-mobile-dropdown {
+    display: flex;
   }
 
   .ap-email,
   .ap-content-post,
   .ap-markdown {
     padding: 16px;
-  }
-
-  .ap-header-right {
-    flex-wrap: wrap;
-    gap: 4px;
   }
 }
 
