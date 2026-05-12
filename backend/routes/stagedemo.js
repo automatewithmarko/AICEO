@@ -322,6 +322,28 @@ function buildRealtimeTools() {
         },
       },
     },
+    {
+      type: 'function',
+      name: 'get_payment_history',
+      description: 'Recent Stripe payments, charges, and active subscriptions. Use when the user asks "any payments?", "show my Stripe", "who paid?", "revenue from Stripe", or about payment/subscription history.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'How many payments to return (default 10, max 20).' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_recent_calls',
+      description: 'Recent meeting recordings and call transcripts. Use when the user asks "any meetings?", "what calls did I have?", "show my recordings", or anything about past meetings/calls.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'How many to return (default 5, max 10).' },
+        },
+      },
+    },
   ];
 }
 
@@ -336,6 +358,8 @@ const LOOKUP_TOOLS = new Set([
   'get_recent_emails',
   'get_content_calendar',
   'get_form_responses',
+  'get_recent_calls',
+  'get_payment_history',
 ]);
 
 // Demo-safety wrapper: every tool must return within 4s. On timeout or
@@ -543,6 +567,65 @@ async function toolGetFormResponses(userId, args) {
   return { ok: true, count: results.length, forms: results };
 }
 
+async function toolGetPaymentHistory(userId, args) {
+  const limit = Math.min(args?.limit || 10, 20);
+  const { data: payments } = await supabase
+    .from('integration_data')
+    .select('title, content, metadata, synced_at')
+    .eq('user_id', userId)
+    .eq('provider', 'stripe')
+    .eq('data_type', 'payment')
+    .order('synced_at', { ascending: false })
+    .limit(limit);
+
+  const { data: subs } = await supabase
+    .from('integration_data')
+    .select('title, metadata, synced_at')
+    .eq('user_id', userId)
+    .eq('provider', 'stripe')
+    .eq('data_type', 'subscription')
+    .limit(10);
+
+  if (!payments?.length && !subs?.length) return { ok: true, payments: [], subscriptions: [], message: 'No Stripe data found. Make sure Stripe is connected in Settings > Integrations.' };
+
+  return {
+    ok: true,
+    payments: (payments || []).map(p => ({
+      title: p.title,
+      amount: p.metadata?.amount ? (p.metadata.amount / 100).toFixed(2) : null,
+      currency: p.metadata?.currency?.toUpperCase() || 'USD',
+      status: p.metadata?.status,
+      email: p.metadata?.receipt_email,
+      date: p.metadata?.created ? new Date(p.metadata.created * 1000).toISOString() : p.synced_at,
+    })),
+    active_subscriptions: (subs || []).map(s => s.title),
+  };
+}
+
+async function toolGetRecentCalls(userId, args) {
+  const limit = Math.min(args?.limit || 5, 10);
+  const { data: calls } = await supabase
+    .from('sales_calls')
+    .select('id, title, participants, duration, created_at, summary, action_items')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (!calls?.length) return { ok: true, count: 0, calls: [] };
+  return {
+    ok: true,
+    count: calls.length,
+    calls: calls.map(c => ({
+      id: c.id,
+      title: c.title,
+      participants: c.participants,
+      duration_min: c.duration ? Math.round(c.duration / 60) : null,
+      date: c.created_at,
+      summary: c.summary?.slice(0, 200) || null,
+      action_items: c.action_items?.slice(0, 3) || [],
+    })),
+  };
+}
+
 // Dispatch — invoked from the WS handler when OpenAI calls a lookup tool.
 async function executeLookupTool(name, args, userId) {
   return runWithTimeout(name, async () => {
@@ -554,6 +637,8 @@ async function executeLookupTool(name, args, userId) {
       case 'get_recent_emails': return toolGetRecentEmails(userId, args);
       case 'get_content_calendar': return toolGetContentCalendar(userId, args);
       case 'get_form_responses': return toolGetFormResponses(userId, args);
+      case 'get_recent_calls': return toolGetRecentCalls(userId, args);
+      case 'get_payment_history': return toolGetPaymentHistory(userId, args);
       default: return { ok: false, reason: 'unknown_tool' };
     }
   });
