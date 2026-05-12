@@ -282,25 +282,25 @@ export default function StageDemo() {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
           >
-            <div style={{ position: 'absolute', inset: 0 }}>
-              {/* Glow rings — centered via absolute positioning */}
+            <div style={{ width: 500, height: 500, position: 'relative', overflow: 'visible' }}>
+              {/* Glow rings */}
               <div style={{
                 position: 'absolute', top: '50%', left: '50%',
-                width: 700, height: 700, transform: 'translate(-50%, -50%)',
+                width: 600, height: 600, transform: 'translate(-50%, -50%)',
                 borderRadius: '50%',
                 border: `1px solid rgba(220,50,60,${isActive ? 0.2 : 0.06})`,
                 transition: 'all 0.5s', pointerEvents: 'none',
               }} />
               <div style={{
                 position: 'absolute', top: '50%', left: '50%',
-                width: 800, height: 800, transform: 'translate(-50%, -50%)',
+                width: 700, height: 700, transform: 'translate(-50%, -50%)',
                 borderRadius: '50%',
                 border: `1px solid rgba(220,50,60,${isActive ? 0.12 : 0.03})`,
                 transition: 'all 0.5s', pointerEvents: 'none',
               }} />
               <div style={{
                 position: 'absolute', top: '50%', left: '50%',
-                width: 940, height: 940, transform: 'translate(-50%, -50%)',
+                width: 840, height: 840, transform: 'translate(-50%, -50%)',
                 borderRadius: '50%',
                 border: `1px solid rgba(220,50,60,${isActive ? 0.06 : 0.01})`,
                 transition: 'all 0.5s', pointerEvents: 'none',
