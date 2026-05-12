@@ -282,22 +282,28 @@ export default function StageDemo() {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
           >
-            <div style={{ width: 550, height: 550, position: 'relative' }}>
-              {/* Glow rings */}
+            <div style={{ position: 'absolute', inset: 0 }}>
+              {/* Glow rings — centered via absolute positioning */}
               <div style={{
-                position: 'absolute', inset: -40, borderRadius: '50%',
+                position: 'absolute', top: '50%', left: '50%',
+                width: 700, height: 700, transform: 'translate(-50%, -50%)',
+                borderRadius: '50%',
                 border: `1px solid rgba(220,50,60,${isActive ? 0.2 : 0.06})`,
-                transition: 'all 0.5s',
+                transition: 'all 0.5s', pointerEvents: 'none',
               }} />
               <div style={{
-                position: 'absolute', inset: -80, borderRadius: '50%',
+                position: 'absolute', top: '50%', left: '50%',
+                width: 800, height: 800, transform: 'translate(-50%, -50%)',
+                borderRadius: '50%',
                 border: `1px solid rgba(220,50,60,${isActive ? 0.12 : 0.03})`,
-                transition: 'all 0.5s',
+                transition: 'all 0.5s', pointerEvents: 'none',
               }} />
               <div style={{
-                position: 'absolute', inset: -140, borderRadius: '50%',
+                position: 'absolute', top: '50%', left: '50%',
+                width: 940, height: 940, transform: 'translate(-50%, -50%)',
+                borderRadius: '50%',
                 border: `1px solid rgba(220,50,60,${isActive ? 0.06 : 0.01})`,
-                transition: 'all 0.5s',
+                transition: 'all 0.5s', pointerEvents: 'none',
               }} />
 
               <VoiceOrb audioLevel={audioLevel} bassLevel={bassLevel} isActive={isActive} />
