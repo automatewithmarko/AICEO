@@ -60,14 +60,18 @@ export default function StageDemo() {
 
     // create_content — AI already wrote the content, just display it
     if (toolName === 'create_content') {
-      const images = [];
+      const isCarousel = args.content_type === 'carousel';
+      const needsImage = ['instagram_post', 'linkedin_post', 'carousel'].includes(args.content_type);
+      const platform = args.content_type === 'linkedin_post' ? 'linkedin' : 'instagram';
+
       const newArtifact = {
         type: 'content_post',
         title: args.title || 'Content',
         content: args.content,
         agentSource: args.content_type || 'content',
         frames: [],
-        images,
+        images: [],
+        pendingImages: needsImage ? (isCarousel ? (args.content.split(/\n---\n/).length || 1) : 1) : 0,
       };
       artifactRef.current = newArtifact;
       setArtifact(newArtifact);
@@ -76,20 +80,71 @@ export default function StageDemo() {
 
       sendToolResult(callId, `Content created and displayed. Tell the user what you wrote.`);
 
-      // Generate image if requested
-      if (args.image_prompt) {
-        const platform = args.content_type === 'instagram_post' ? 'instagram' : args.content_type === 'linkedin_post' ? 'linkedin' : 'instagram';
-        generateImage(args.image_prompt, platform, null).then(result => {
-          if (result.image) {
-            const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-            setArtifact(prev => {
-              if (!prev) return null;
-              const updated = { ...prev, images: [...(prev.images || []), { src }] };
-              artifactRef.current = updated;
-              return updated;
-            });
+      // Generate images
+      if (needsImage) {
+        (async () => {
+          // Load brand data
+          let brandData = null;
+          try {
+            const { data: { session: authSession } } = await supabase.auth.getSession();
+            if (authSession?.user) {
+              const { data: bdArr } = await supabase.from('brand_dna').select('*').eq('user_id', authSession.user.id).limit(1);
+              if (bdArr?.[0]) {
+                const bd = bdArr[0];
+                brandData = {
+                  photoUrls: bd.photo_urls?.length ? [bd.photo_urls[0]] : [],
+                  logoUrl: null,
+                  colors: bd.colors || {},
+                  mainFont: bd.main_font || null,
+                };
+              }
+            }
+          } catch {}
+
+          if (isCarousel) {
+            // Generate one image per slide
+            const slides = args.content.split(/\n---\n/).filter(Boolean);
+            await Promise.all(slides.map(async (slide, idx) => {
+              const slidePrompt = args.image_prompt
+                ? `${args.image_prompt}\n\nSlide ${idx + 1} of ${slides.length}:\n${slide.trim()}`
+                : `Create a clean, bold social media carousel slide. Slide ${idx + 1} of ${slides.length}.\n\nContent: ${slide.trim()}\n\nUse brand colors. Bold headline text, minimal design, professional.`;
+              try {
+                const result = await generateImage(slidePrompt, platform, brandData);
+                if (result.image) {
+                  const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+                  setArtifact(prev => {
+                    if (!prev) return null;
+                    const updated = { ...prev, images: [...(prev.images || []), { src, idx }], pendingImages: (prev.pendingImages || 1) - 1 };
+                    artifactRef.current = updated;
+                    return updated;
+                  });
+                }
+              } catch (err) {
+                console.error(`Carousel slide ${idx + 1} image failed:`, err.message);
+                setArtifact(prev => prev ? { ...prev, pendingImages: (prev.pendingImages || 1) - 1 } : null);
+              }
+            }));
+          } else {
+            // Single image for post
+            const imgPrompt = args.image_prompt
+              || `Create a striking social media image for this ${platform} post:\n\n${args.content.slice(0, 300)}\n\nUse brand colors. Bold, eye-catching, professional. No text overlay unless it adds value.`;
+            try {
+              const result = await generateImage(imgPrompt, platform, brandData);
+              if (result.image) {
+                const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+                setArtifact(prev => {
+                  if (!prev) return null;
+                  const updated = { ...prev, images: [{ src, idx: 0 }], pendingImages: 0 };
+                  artifactRef.current = updated;
+                  return updated;
+                });
+              }
+            } catch (err) {
+              console.error('Post image generation failed:', err.message);
+              setArtifact(prev => prev ? { ...prev, pendingImages: 0 } : null);
+            }
           }
-        }).catch(() => {});
+        })();
       }
       return;
     }
