@@ -106,6 +106,16 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         console.log('[voice] Session ready');
         break;
 
+      case 'input_audio_buffer.speech_started':
+        // User started speaking — cancel AI response for barge-in
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'response.cancel' }));
+        }
+        // Stop any queued audio playback
+        playbackTimeRef.current = 0;
+        onAiSpeakingChange?.(false);
+        break;
+
       case 'response.audio.delta':
       case 'response.output_audio.delta':
         // AI audio chunk — play it
