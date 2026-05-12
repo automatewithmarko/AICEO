@@ -107,27 +107,32 @@ export default function StageDemo() {
     },
     onTranscript: (role, delta) => {
       if (role === 'ai') {
-        // Buffer transcript and reveal word by word
+        // Buffer transcript and reveal sentence by sentence
         captionBufferRef.current += delta;
         if (!captionTimerRef.current) {
           const drip = () => {
             const buf = captionBufferRef.current;
             if (!buf) { captionTimerRef.current = null; return; }
-            // Find next word boundary (space, comma, period, etc.)
-            const match = buf.match(/^\s*\S+[\s,.\-!?;:]*/);
-            const word = match ? match[0] : buf[0];
-            captionBufferRef.current = buf.slice(word.length);
-            setCaption(prev => {
-              const updated = prev + word;
-              // Keep only last ~80 chars (roughly 2 lines) so it doesn't overflow
-              if (updated.length > 80) {
-                const trimPoint = updated.indexOf(' ', updated.length - 80);
-                return trimPoint > 0 ? updated.slice(trimPoint + 1) : updated.slice(-80);
-              }
-              return updated;
-            });
-            // ~150 wpm = ~2.5 words/sec = 400ms per word
-            captionTimerRef.current = setTimeout(drip, 400);
+            // Look for a sentence boundary (. ! ? or comma for clauses)
+            const sentenceEnd = buf.search(/[.!?]\s/);
+            if (sentenceEnd >= 0) {
+              // Release up to and including the sentence end
+              const chunk = buf.slice(0, sentenceEnd + 2);
+              captionBufferRef.current = buf.slice(sentenceEnd + 2);
+              setCaption(chunk.trim());
+              // Show each sentence for ~3 seconds
+              captionTimerRef.current = setTimeout(drip, 3000);
+            } else if (buf.length > 120) {
+              // No sentence end found but buffer is long — release at last space
+              const spaceIdx = buf.lastIndexOf(' ', 120);
+              const chunk = buf.slice(0, spaceIdx > 0 ? spaceIdx : 120);
+              captionBufferRef.current = buf.slice(chunk.length);
+              setCaption(chunk.trim());
+              captionTimerRef.current = setTimeout(drip, 3000);
+            } else {
+              // Wait for more text to arrive
+              captionTimerRef.current = setTimeout(drip, 200);
+            }
           };
           drip();
         }
