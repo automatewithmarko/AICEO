@@ -213,6 +213,26 @@ export default function StageDemo() {
       position: 'fixed', inset: 0, background: '#000',
       overflow: 'hidden', userSelect: 'none', cursor: 'default',
     }}>
+      {/* Pulsing red gradient background */}
+      <motion.div
+        animate={{
+          opacity: isActive ? [0.15, 0.3, 0.15] : 0,
+          scale: isActive ? [1, 1.05, 1] : 1,
+        }}
+        transition={{
+          duration: 3,
+          repeat: Infinity,
+          ease: 'easeInOut',
+        }}
+        style={{
+          position: 'absolute',
+          inset: '-20%',
+          background: 'radial-gradient(ellipse at center, rgba(180,30,40,0.4) 0%, rgba(80,10,20,0.15) 40%, transparent 70%)',
+          pointerEvents: 'none',
+          zIndex: 0,
+        }}
+      />
+
       {/* HUD */}
       <div style={{
         position: 'absolute', top: 20, left: 24,
@@ -262,16 +282,21 @@ export default function StageDemo() {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
           >
-            <div style={{ width: 400, height: 400, position: 'relative' }}>
+            <div style={{ width: 550, height: 550, position: 'relative' }}>
               {/* Glow rings */}
               <div style={{
                 position: 'absolute', inset: -40, borderRadius: '50%',
-                border: `1px solid rgba(220,50,60,${isActive ? 0.15 : 0.06})`,
+                border: `1px solid rgba(220,50,60,${isActive ? 0.2 : 0.06})`,
                 transition: 'all 0.5s',
               }} />
               <div style={{
                 position: 'absolute', inset: -80, borderRadius: '50%',
-                border: `1px solid rgba(220,50,60,${isActive ? 0.08 : 0.03})`,
+                border: `1px solid rgba(220,50,60,${isActive ? 0.12 : 0.03})`,
+                transition: 'all 0.5s',
+              }} />
+              <div style={{
+                position: 'absolute', inset: -140, borderRadius: '50%',
+                border: `1px solid rgba(220,50,60,${isActive ? 0.06 : 0.01})`,
                 transition: 'all 0.5s',
               }} />
 

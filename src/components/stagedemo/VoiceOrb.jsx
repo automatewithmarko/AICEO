@@ -20,19 +20,19 @@ function Blob({ audioLevel = 0, bassLevel = 0, isActive = false }) {
     const t = state.clock.getElapsedTime();
     materialRef.current.uniforms.uTime.value = t;
 
-    // Smooth audio values
-    const target = isActive ? audioLevel : 0.05;
+    // Smooth audio values — much more reactive when active
+    const target = isActive ? audioLevel * 1.5 : 0.05;
     const current = materialRef.current.uniforms.uAudioLevel.value;
-    materialRef.current.uniforms.uAudioLevel.value += (target - current) * 0.15;
+    materialRef.current.uniforms.uAudioLevel.value += (target - current) * 0.25;
 
-    const bassTarget = isActive ? bassLevel : 0.02;
+    const bassTarget = isActive ? bassLevel * 2.0 : 0.02;
     const bassCurrent = materialRef.current.uniforms.uBassLevel.value;
-    materialRef.current.uniforms.uBassLevel.value += (bassTarget - bassCurrent) * 0.12;
+    materialRef.current.uniforms.uBassLevel.value += (bassTarget - bassCurrent) * 0.2;
 
-    // Scale displacement based on activity
-    const dispTarget = isActive ? 0.5 + audioLevel * 0.5 : 0.3;
+    // Scale displacement — much more aggressive morphing when active
+    const dispTarget = isActive ? 0.7 + audioLevel * 1.2 : 0.3;
     const dispCurrent = materialRef.current.uniforms.uDisplacement.value;
-    materialRef.current.uniforms.uDisplacement.value += (dispTarget - dispCurrent) * 0.1;
+    materialRef.current.uniforms.uDisplacement.value += (dispTarget - dispCurrent) * 0.15;
 
     // Gentle rotation
     if (meshRef.current) {
@@ -43,7 +43,7 @@ function Blob({ audioLevel = 0, bassLevel = 0, isActive = false }) {
 
   return (
     <mesh ref={meshRef}>
-      <icosahedronGeometry args={[1.8, 64]} />
+      <icosahedronGeometry args={[2.5, 64]} />
       <shaderMaterial
         ref={materialRef}
         vertexShader={vertexShader}
@@ -59,8 +59,8 @@ function Blob({ audioLevel = 0, bassLevel = 0, isActive = false }) {
 export default function VoiceOrb({ audioLevel, bassLevel, isActive, scale = 1 }) {
   return (
     <Canvas
-      camera={{ position: [0, 0, 5], fov: 45 }}
-      style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+      camera={{ position: [0, 0, 6], fov: 45 }}
+      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2 }}
       gl={{ alpha: true, antialias: true }}
     >
       <ambientLight intensity={0.2} />
