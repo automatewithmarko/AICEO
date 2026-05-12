@@ -37,6 +37,7 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
   const micSourceRef = useRef(null);
   const isCapturingRef = useRef(false);
   const playbackTimeRef = useRef(0);
+  const activeSourcesRef = useRef([]);
   const reconnectAttemptsRef = useRef(0);
   const currentResponseIdRef = useRef(null);
 
@@ -108,11 +109,10 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
 
       case 'input_audio_buffer.speech_started':
         // User started speaking — cancel AI response for barge-in
+        stopPlayback();
         if (wsRef.current?.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({ type: 'response.cancel' }));
         }
-        // Stop any queued audio playback
-        playbackTimeRef.current = 0;
         onAiSpeakingChange?.(false);
         break;
 
@@ -151,7 +151,9 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         break;
 
       case 'error':
-        console.error('[voice] Server error:', msg.error);
+        if (msg.error?.code !== 'response_cancel_not_active') {
+          console.error('[voice] Server error:', msg.error);
+        }
         break;
 
       default:
@@ -161,6 +163,15 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         break;
     }
   }, [onToolCall, onAiSpeakingChange, onTranscript]);
+
+  // Stop all queued/playing AI audio
+  const stopPlayback = useCallback(() => {
+    for (const s of activeSourcesRef.current) {
+      try { s.stop(); } catch {}
+    }
+    activeSourcesRef.current = [];
+    playbackTimeRef.current = 0;
+  }, []);
 
   // Play an AI audio chunk through the playback analyser
   const playAudioChunk = useCallback((base64Audio) => {
@@ -174,12 +185,17 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
 
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.connect(analyser); // analyser is already connected to destination
+    source.connect(analyser);
 
     const now = ctx.currentTime;
     if (playbackTimeRef.current < now) playbackTimeRef.current = now;
     source.start(playbackTimeRef.current);
     playbackTimeRef.current += buffer.duration;
+
+    activeSourcesRef.current.push(source);
+    source.onended = () => {
+      activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
+    };
   }, [audioCtxRef, playbackAnalyserRef]);
 
   // Start capturing mic audio (push-to-talk: call on space down)

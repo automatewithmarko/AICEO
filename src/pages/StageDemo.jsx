@@ -25,7 +25,7 @@ export default function StageDemo() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [bassLevel, setBassLevel] = useState(0);
   const [frequencyData, setFrequencyData] = useState(null);
-  const [textInput, setTextInput] = useState('');
+  // const [textInput, setTextInput] = useState(''); // removed — voice only
   const [caption, setCaption] = useState('');
   const captionBufferRef = useRef('');
   const captionTimerRef = useRef(null);
@@ -384,12 +384,13 @@ export default function StageDemo() {
             }}
           >
             <span style={{
-              color: 'rgba(255,255,255,0.75)',
-              fontSize: 18,
+              color: '#fff',
+              fontSize: 28,
               fontFamily: 'system-ui, -apple-system, sans-serif',
-              fontWeight: 400,
-              lineHeight: 1.5,
-              textShadow: '0 2px 12px rgba(0,0,0,0.8)',
+              fontWeight: 700,
+              lineHeight: 1.4,
+              textShadow: '0 2px 20px rgba(0,0,0,0.9), 0 4px 40px rgba(0,0,0,0.5)',
+              letterSpacing: -0.3,
             }}>
               {caption}
             </span>
@@ -427,41 +428,6 @@ export default function StageDemo() {
           <ArtifactReveal key="artifact" html={artifactHtml} title={artifactTitle} onClose={handleCloseArtifact} />
         )}
       </AnimatePresence>
-
-      {/* Text input (for testing without mic) */}
-      {isConnected && phase !== 'artifact' && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!textInput.trim()) return;
-            sendText(textInput.trim());
-            setTextInput('');
-            setPhase('speaking');
-          }}
-          style={{
-            position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)',
-            display: 'flex', gap: 8, zIndex: 100, width: 480,
-          }}
-        >
-          <input
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            placeholder="Type a message..."
-            style={{
-              flex: 1, padding: '10px 16px',
-              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-              borderRadius: 24, color: '#fff', fontSize: 13, fontFamily: 'monospace',
-              outline: 'none',
-            }}
-          />
-          <button type="submit" style={{
-            padding: '10px 20px', background: 'rgba(220,50,60,0.2)',
-            border: '1px solid rgba(220,50,60,0.3)', borderRadius: 24,
-            color: 'rgba(255,255,255,0.6)', fontSize: 12, fontFamily: 'monospace',
-            cursor: 'pointer', letterSpacing: 1,
-          }}>Send</button>
-        </form>
-      )}
 
       {/* Error overlay */}
       {error && (
