@@ -427,7 +427,7 @@ wss.on('connection', async (clientWs, req, userId) => {
             },
             output: {
               format: { type: 'audio/pcm', rate: 24000 },
-              voice: 'ember',
+              voice: 'verse',
             },
           },
           reasoning: { effort: 'medium' },

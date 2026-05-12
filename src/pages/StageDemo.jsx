@@ -130,55 +130,21 @@ export default function StageDemo() {
     return () => cancelAnimationFrame(animFrameRef.current);
   }, [phase, getMicFrequencyData, getPlaybackFrequencyData, getLevel]);
 
-  // Connect voice on first interaction
+  // Connect voice and start always-on mic (semantic VAD handles turn detection)
   const handleActivate = useCallback(async () => {
     if (isConnected) return;
     try {
       await initAudio();
       try { await connectMic(); } catch { /* mic not required for text mode */ }
       await connect();
+      startCapture(); // mic stays on — semantic VAD handles turns
       setIsConnected(true);
+      setPhase('listening');
     } catch (err) {
       console.error('[stagedemo] Activation failed:', err);
       setError(err.message);
     }
-  }, [isConnected, initAudio, connectMic, connect]);
-
-  // Keyboard handler (space = push-to-talk)
-  useEffect(() => {
-    const handleKeyDown = async (e) => {
-      // Don't capture space when typing in the text input
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      if (e.code !== 'Space' || e.repeat) return;
-      e.preventDefault();
-      spaceDownRef.current = true;
-
-      if (!isConnected) {
-        await handleActivate();
-      }
-
-      setPhase('listening');
-      startCapture();
-    };
-
-    const handleKeyUp = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      if (e.code !== 'Space') return;
-      e.preventDefault();
-      if (!spaceDownRef.current) return;
-      spaceDownRef.current = false;
-
-      stopCapture();
-      setPhase('speaking');
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [isConnected, handleActivate, startCapture, stopCapture]);
+  }, [isConnected, initAudio, connectMic, connect, startCapture]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -368,41 +334,10 @@ export default function StageDemo() {
             }}
           >
             <span style={{
-              padding: '4px 10px', border: '1px solid rgba(255,255,255,0.15)',
-              borderRadius: 4, color: 'rgba(255,255,255,0.4)',
-              fontFamily: 'monospace', fontSize: 12,
-            }}>SPACE</span>
-            <span style={{
               color: 'rgba(255,255,255,0.25)', fontFamily: 'monospace',
               fontSize: 12, letterSpacing: 2, textTransform: 'uppercase',
-            }}>or tap to brief your CEO</span>
+            }}>Tap to brief your CEO</span>
           </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Done speaking button */}
-      <AnimatePresence>
-        {phase === 'listening' && (
-          <motion.button
-            key="done-btn"
-            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-            onClick={() => {
-              spaceDownRef.current = false;
-              stopCapture();
-              setPhase('speaking');
-            }}
-            style={{
-              position: 'absolute', bottom: 80, left: '50%', transform: 'translateX(-50%)',
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '10px 24px', background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.1)', borderRadius: 24,
-              color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace',
-              fontSize: 12, cursor: 'pointer', zIndex: 100,
-            }}
-          >
-            <div style={{ width: 8, height: 8, borderRadius: 2, background: '#dc323c' }} />
-            Done speaking
-          </motion.button>
         )}
       </AnimatePresence>
 

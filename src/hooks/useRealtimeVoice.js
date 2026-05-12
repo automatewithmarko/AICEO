@@ -207,11 +207,10 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
     micProcessorRef.current = processor;
   }, [audioCtxRef]);
 
-  // Stop capturing (push-to-talk: call on space up)
+  // Stop capturing mic (for cleanup/disconnect only — VAD handles turns)
   const stopCapture = useCallback(() => {
     isCapturingRef.current = false;
 
-    // Disconnect mic processor
     if (micProcessorRef.current) {
       micProcessorRef.current.disconnect();
       micProcessorRef.current = null;
@@ -220,12 +219,6 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
       micSourceRef.current.source.disconnect();
       micSourceRef.current.stream.getTracks().forEach(t => t.stop());
       micSourceRef.current = null;
-    }
-
-    // Commit the audio buffer and request a response
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
-      wsRef.current.send(JSON.stringify({ type: 'response.create' }));
     }
   }, []);
 
