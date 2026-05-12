@@ -62,10 +62,18 @@ If the user asks where to do something, name the tab. Don't recite the full list
 What you can DO right now in this conversation:
 - Build a marketing artifact for them via the generate_* tools (newsletter, landing page, squeeze page, lead magnet, story sequence, DM automation). After the 4-question discovery flow.
 - Edit the artifact currently on screen via edit_artifact.
+- Pull LIVE DATA from their account via the get_* tools (sales summary, top outliers, contacts, emails, content calendar, form responses, overall dashboard).
 - Answer strategy / advice / business questions using their Brand DNA and Soul Notes.
 
+WHEN TO USE TOOLS:
+- For ANYTHING numerical, recent, or specific to the user's account ("how's revenue?", "any new contacts?", "what's in my inbox?", "what's viral right now?") → CALL the matching get_* tool. Never guess numbers. Never bluff "I don't have access" — you do, use the tool.
+- For identity / brand / preferences / who they are → trust what's already in this prompt (Brand DNA, Soul Notes, Products).
+- After calling a tool, speak the result naturally in one short sentence. Don't read fields aloud, summarize ("Up 15% this week, 12 deals.").
+- If a tool returns ok:false, just move on with something like "I can't pull that right now" — DO NOT say "timeout" or "error" or anything technical. Audience is watching.
+- Empty results are fine: "Nothing scheduled this week" / "No new contacts" — just say it plainly.
+
 What you CANNOT do yet in this conversation (don't promise these — point them to the relevant tab instead):
-- Publish to LinkedIn / Instagram, schedule posts, deploy a site, send email, look up live sales numbers, image generation. These live in other tabs of AICEO or are coming soon to this conversation.
+- Publish to LinkedIn / Instagram, schedule posts, deploy a site, send email, generate images. These live in other tabs of AICEO or are coming soon to this conversation.
 
 WORKFLOW — MARKETING ASSETS:
 When the user wants to create a newsletter, landing page, squeeze page, story sequence, lead magnet, or DM automation:
@@ -231,7 +239,326 @@ function buildRealtimeTools() {
         required: ['instruction'],
       },
     },
+
+    // ─── PHASE 2: Lookup tools — server-side, fast, read-only ───
+    // Each runs in the WS handler with a 4s timeout and returns
+    // { ok: true, ... } on success or { ok: false, reason } on failure.
+    // The voice prompt teaches the bot to handle ok:false gracefully.
+    {
+      type: 'function',
+      name: 'get_dashboard_stats',
+      description: 'Quick high-level snapshot: total revenue, number of sales, contacts, sent emails, social posts this month. Use when the user asks "how are things going?", "what are my numbers?", or any general overview question.',
+      parameters: { type: 'object', properties: {} },
+    },
+    {
+      type: 'function',
+      name: 'get_sales_summary',
+      description: 'Aggregated sales: total revenue, deal count, average deal size, growth vs previous period. Use for "how\'s revenue?", "what are sales like this week?", etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          period: {
+            type: 'string',
+            description: 'Time window: today, week, month, quarter, year, all. Defaults to month.',
+            enum: ['today', 'week', 'month', 'quarter', 'year', 'all'],
+          },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_top_outliers',
+      description: 'Top viral posts/videos from creators the user is tracking, sorted by views multiplier. Use when the user asks "what\'s working?", "what should I post about?", or "show me viral stuff".',
+      parameters: {
+        type: 'object',
+        properties: {
+          platform: { type: 'string', description: 'Filter by platform: youtube, tiktok, instagram, linkedin. Omit for all.' },
+          limit: { type: 'number', description: 'How many to return (default 5, max 10).' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_recent_contacts',
+      description: 'List of contacts in the CRM. Use when the user asks "who are my contacts?", "find <name>", or "any new leads?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          search: { type: 'string', description: 'Filter by name, email, or company (substring match).' },
+          limit: { type: 'number', description: 'How many to return (default 10, max 25).' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_recent_emails',
+      description: 'Recent emails from the user\'s connected mailbox. Use when the user asks "what\'s in my inbox?", "any new emails?", or "who emailed me?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          folder: { type: 'string', description: 'Folder: inbox, sent. Defaults to inbox.', enum: ['inbox', 'sent'] },
+          limit: { type: 'number', description: 'How many to return (default 5, max 15).' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_content_calendar',
+      description: 'Upcoming and recent scheduled social media posts. Use when the user asks "what\'s scheduled?", "what\'s going out this week?", or "anything coming up?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          days: { type: 'number', description: 'Look-ahead window in days (default 14, max 60).' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_form_responses',
+      description: 'Summary of recent responses across the user\'s forms. Use when the user asks "any new form responses?", "who signed up?", or about a specific form.',
+      parameters: {
+        type: 'object',
+        properties: {
+          formId: { type: 'string', description: 'Specific form ID. Omit for all forms.' },
+          limit: { type: 'number', description: 'How many to return per form (default 5, max 20).' },
+        },
+      },
+    },
   ];
+}
+
+// ─── PHASE 2: Tool registry + dispatch ──────────────────────────────
+// Tools that resolve server-side (lookups). Generators / edit stay on
+// the frontend path because they need to update the artifact panel.
+const LOOKUP_TOOLS = new Set([
+  'get_dashboard_stats',
+  'get_sales_summary',
+  'get_top_outliers',
+  'get_recent_contacts',
+  'get_recent_emails',
+  'get_content_calendar',
+  'get_form_responses',
+]);
+
+// Demo-safety wrapper: every tool must return within 4s. On timeout or
+// throw, we return a sanitized {ok:false} that the model is prompted
+// to handle gracefully ("I can't pull that right now, let me skip
+// ahead") rather than speaking a raw error to a live audience.
+async function runWithTimeout(name, fn, ms = 4000) {
+  let timer;
+  try {
+    const result = await Promise.race([
+      Promise.resolve().then(fn),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'TIMEOUT' })), ms);
+      }),
+    ]);
+    return result;
+  } catch (err) {
+    console.error(`[stagedemo-tool] ${name} failed:`, err.code || err.message);
+    return { ok: false, reason: err.code === 'TIMEOUT' ? 'timeout' : 'lookup_failed' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Period helpers used by sales aggregations.
+function startOfPeriod(period) {
+  const now = new Date();
+  switch (period) {
+    case 'today': return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    case 'week': { const d = new Date(now); d.setDate(d.getDate() - 7); return d; }
+    case 'month': return new Date(now.getFullYear(), now.getMonth(), 1);
+    case 'quarter': { const q = Math.floor(now.getMonth() / 3) * 3; return new Date(now.getFullYear(), q, 1); }
+    case 'year': return new Date(now.getFullYear(), 0, 1);
+    case 'all': default: return new Date(0);
+  }
+}
+
+// ─── Individual lookup implementations ──────────────────────────────
+// Each returns a small JSON object the model can speak from. Keep
+// responses TIGHT — a verbose tool result tempts a verbose answer.
+
+async function toolGetDashboardStats(userId) {
+  const [salesRes, contactsRes, postsRes] = await Promise.all([
+    supabase.from('sales').select('amount').eq('user_id', userId),
+    supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+    supabase.from('social_posts').select('id', { count: 'exact', head: true }).eq('user_id', userId).gte('published_at', startOfPeriod('month').toISOString()),
+  ]);
+  const sales = salesRes.data || [];
+  const revenue = sales.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  return {
+    ok: true,
+    revenue_total: Math.round(revenue),
+    deals_total: sales.length,
+    contacts_total: contactsRes.count || 0,
+    posts_this_month: postsRes.count || 0,
+  };
+}
+
+async function toolGetSalesSummary(userId, args) {
+  const period = args.period || 'month';
+  const start = startOfPeriod(period).toISOString();
+  // Pull current and previous window for growth comparison.
+  const periodMs = Date.now() - new Date(start).getTime();
+  const prevStart = new Date(new Date(start).getTime() - periodMs).toISOString();
+
+  const [currRes, prevRes] = await Promise.all([
+    supabase.from('sales').select('amount').eq('user_id', userId).gte('created_at', start),
+    supabase.from('sales').select('amount').eq('user_id', userId).gte('created_at', prevStart).lt('created_at', start),
+  ]);
+  const curr = (currRes.data || []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const prev = (prevRes.data || []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const growthPct = prev > 0 ? Math.round(((curr - prev) / prev) * 100) : null;
+  return {
+    ok: true,
+    period,
+    revenue: Math.round(curr),
+    deals: (currRes.data || []).length,
+    avg_deal: currRes.data?.length ? Math.round(curr / currRes.data.length) : 0,
+    growth_vs_previous_pct: growthPct,
+  };
+}
+
+async function toolGetTopOutliers(userId, args) {
+  const limit = Math.min(Math.max(args.limit || 5, 1), 10);
+  let q = supabase
+    .from('outlier_videos')
+    .select('title, url, platform, views, views_multiplier, outlier_creators!inner(display_name, username)')
+    .eq('user_id', userId)
+    .eq('is_outlier', true)
+    .order('views_multiplier', { ascending: false })
+    .limit(limit);
+  if (args.platform) q = q.eq('platform', args.platform);
+  const { data } = await q;
+  return {
+    ok: true,
+    count: data?.length || 0,
+    items: (data || []).map((v) => ({
+      title: v.title,
+      creator: v.outlier_creators?.display_name || v.outlier_creators?.username,
+      platform: v.platform,
+      views: v.views,
+      multiplier: v.views_multiplier ? `${v.views_multiplier.toFixed(1)}x` : null,
+    })),
+  };
+}
+
+async function toolGetRecentContacts(userId, args) {
+  const limit = Math.min(Math.max(args.limit || 10, 1), 25);
+  let q = supabase
+    .from('contacts')
+    .select('first_name, last_name, email, company, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (args.search) {
+    const term = `%${args.search}%`;
+    q = q.or(`first_name.ilike.${term},last_name.ilike.${term},email.ilike.${term},company.ilike.${term}`);
+  }
+  const { data } = await q;
+  return {
+    ok: true,
+    count: data?.length || 0,
+    contacts: (data || []).map((c) => ({
+      name: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.email,
+      email: c.email,
+      company: c.company,
+    })),
+  };
+}
+
+async function toolGetRecentEmails(userId, args) {
+  const folder = args.folder || 'inbox';
+  const limit = Math.min(Math.max(args.limit || 5, 1), 15);
+  const { data } = await supabase
+    .from('emails')
+    .select('subject, from_email, to_emails, date, snippet')
+    .eq('user_id', userId)
+    .eq('folder', folder)
+    .order('date', { ascending: false })
+    .limit(limit);
+  return {
+    ok: true,
+    folder,
+    count: data?.length || 0,
+    emails: (data || []).map((e) => ({
+      subject: e.subject,
+      from: e.from_email,
+      preview: (e.snippet || '').slice(0, 120),
+      received: e.date,
+    })),
+  };
+}
+
+async function toolGetContentCalendar(userId, args) {
+  const days = Math.min(Math.max(args.days || 14, 1), 60);
+  const start = new Date();
+  const end = new Date(start.getTime() + days * 24 * 3600 * 1000);
+  const { data } = await supabase
+    .from('social_posts')
+    .select('platform, scheduled_at, published_at, status, title')
+    .eq('user_id', userId)
+    .or(`scheduled_at.gte.${start.toISOString()},published_at.gte.${start.toISOString()}`)
+    .lte('scheduled_at', end.toISOString())
+    .order('scheduled_at', { ascending: true })
+    .limit(25);
+  return {
+    ok: true,
+    window_days: days,
+    count: data?.length || 0,
+    posts: (data || []).map((p) => ({
+      platform: p.platform,
+      when: p.scheduled_at || p.published_at,
+      status: p.status,
+      title: p.title,
+    })),
+  };
+}
+
+async function toolGetFormResponses(userId, args) {
+  const limit = Math.min(Math.max(args.limit || 5, 1), 20);
+  let formsQuery = supabase
+    .from('forms')
+    .select('id, title')
+    .eq('user_id', userId);
+  if (args.formId) formsQuery = formsQuery.eq('id', args.formId);
+  const { data: forms } = await formsQuery.limit(10);
+  if (!forms?.length) return { ok: true, count: 0, forms: [] };
+
+  const results = await Promise.all(
+    forms.map(async (f) => {
+      const { data: responses, count } = await supabase
+        .from('form_responses')
+        .select('created_at', { count: 'exact' })
+        .eq('form_id', f.id)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      return {
+        form_id: f.id,
+        title: f.title,
+        total_responses: count || 0,
+        latest_at: responses?.[0]?.created_at || null,
+      };
+    })
+  );
+  return { ok: true, count: results.length, forms: results };
+}
+
+// Dispatch — invoked from the WS handler when OpenAI calls a lookup tool.
+async function executeLookupTool(name, args, userId) {
+  return runWithTimeout(name, async () => {
+    switch (name) {
+      case 'get_dashboard_stats': return toolGetDashboardStats(userId);
+      case 'get_sales_summary': return toolGetSalesSummary(userId, args);
+      case 'get_top_outliers': return toolGetTopOutliers(userId, args);
+      case 'get_recent_contacts': return toolGetRecentContacts(userId, args);
+      case 'get_recent_emails': return toolGetRecentEmails(userId, args);
+      case 'get_content_calendar': return toolGetContentCalendar(userId, args);
+      case 'get_form_responses': return toolGetFormResponses(userId, args);
+      default: return { ok: false, reason: 'unknown_tool' };
+    }
+  });
 }
 
 // ─── Endpoint 1: Create ephemeral session ───
@@ -487,15 +814,47 @@ wss.on('connection', async (clientWs, req, userId) => {
       clientWs.send(JSON.stringify({ type: 'session.created' }));
     });
 
-    // Proxy: OpenAI → Client
-    openaiWs.on('message', (data) => {
+    // Proxy: OpenAI → Client (with server-side interception for lookup tools)
+    openaiWs.on('message', async (data) => {
       const str = data.toString();
-      try {
-        const evt = JSON.parse(str);
+      let evt = null;
+      try { evt = JSON.parse(str); } catch { /* binary frame, just forward */ }
+
+      if (evt) {
         if (evt.type === 'error' || evt.type === 'session.updated' || evt.type === 'session.created') {
           console.log('[stagedemo-ws] OpenAI event:', evt.type, JSON.stringify(evt).slice(0, 500));
         }
-      } catch {}
+
+        // ─── Server-side lookup tool dispatch ───
+        // Generators / edit_artifact still bounce through the frontend
+        // because they update the artifact panel. Lookups (sales,
+        // outliers, contacts, emails, calendar, forms, dashboard) run
+        // here for low-latency round-trip and so the frontend never
+        // sees them (no UI surface to update).
+        if (evt.type === 'response.function_call_arguments.done' && LOOKUP_TOOLS.has(evt.name)) {
+          let parsedArgs = {};
+          try { parsedArgs = JSON.parse(evt.arguments || '{}'); } catch { /* fall through with empty args */ }
+          console.log(`[stagedemo-ws] Lookup tool: ${evt.name}`, parsedArgs);
+          const result = await executeLookupTool(evt.name, parsedArgs, userId);
+
+          if (openaiWs.readyState === WsWebSocket.OPEN) {
+            openaiWs.send(JSON.stringify({
+              type: 'conversation.item.create',
+              item: {
+                type: 'function_call_output',
+                call_id: evt.call_id,
+                output: JSON.stringify(result),
+              },
+            }));
+            openaiWs.send(JSON.stringify({ type: 'response.create' }));
+          }
+          // Don't forward this tool call event to the client — no UI
+          // surface and we don't want the frontend's onToolCall handler
+          // to attempt /api/stagedemo/generate for a lookup.
+          return;
+        }
+      }
+
       if (clientWs.readyState === WsWebSocket.OPEN) {
         clientWs.send(str);
       }
