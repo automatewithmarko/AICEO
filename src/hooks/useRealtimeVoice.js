@@ -138,6 +138,12 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         onAiSpeakingChange?.(false);
         break;
 
+      case 'response.audio_transcript.done':
+      case 'response.output_audio_transcript.done':
+        // GA API sends full transcript at end, not deltas — use for captions
+        if (msg.transcript) onTranscript?.('ai_full', msg.transcript);
+        break;
+
       case 'response.function_call_arguments.done':
         // Tool call complete — execute it
         console.log('[voice] Tool call:', msg.name, msg.arguments);

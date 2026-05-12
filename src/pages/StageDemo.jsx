@@ -14,6 +14,7 @@ export default function StageDemo() {
   // State machine: idle | listening | speaking | generating | artifact
   const [phase, setPhase] = useState('idle');
   const [artifact, setArtifact] = useState(null);
+  const artifactRef = useRef(null);
   const [orbScale, setOrbScale] = useState(1);
   const [error, setError] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -60,7 +61,7 @@ export default function StageDemo() {
         body: JSON.stringify({
           tool: toolName,
           args,
-          currentHtml: artifact?.content || undefined,
+          currentHtml: artifactRef.current?.content || undefined,
         }),
       });
 
@@ -74,13 +75,15 @@ export default function StageDemo() {
       const isNewsletter = agentName === 'newsletter';
       const isLanding = agentName === 'landing-page' || agentName === 'squeeze-page';
       const isStory = agentName === 'story-sequence';
-      setArtifact({
+      const newArtifact = {
         type: isNewsletter ? 'newsletter' : isStory ? 'story_sequence' : 'html_template',
         title: data.title || agentName,
         content: data.html,
         agentSource: agentName,
         frames: data.frames || [],
-      });
+      };
+      artifactRef.current = newArtifact;
+      setArtifact(newArtifact);
 
       sendToolResult(callId, `Successfully generated ${data.agent}. The user can now see it on screen. Tell them what you built and ask if they want any changes.`);
 
@@ -111,37 +114,46 @@ export default function StageDemo() {
         if (captionTimerRef.current) { clearTimeout(captionTimerRef.current); captionTimerRef.current = null; }
       }
     },
-    onTranscript: (role, delta) => {
+    onTranscript: (role, data) => {
       if (role === 'ai') {
-        // Buffer transcript and reveal sentence by sentence
-        captionBufferRef.current += delta;
+        // Incremental delta — buffer and drip
+        captionBufferRef.current += data;
         if (!captionTimerRef.current) {
           const drip = () => {
             const buf = captionBufferRef.current;
             if (!buf) { captionTimerRef.current = null; return; }
-            // Look for a sentence boundary (. ! ? or comma for clauses)
             const sentenceEnd = buf.search(/[.!?]\s/);
             if (sentenceEnd >= 0) {
-              // Release up to and including the sentence end
               const chunk = buf.slice(0, sentenceEnd + 2);
               captionBufferRef.current = buf.slice(sentenceEnd + 2);
               setCaption(chunk.trim());
-              // Show each sentence for ~3 seconds
               captionTimerRef.current = setTimeout(drip, 3000);
             } else if (buf.length > 120) {
-              // No sentence end found but buffer is long — release at last space
               const spaceIdx = buf.lastIndexOf(' ', 120);
               const chunk = buf.slice(0, spaceIdx > 0 ? spaceIdx : 120);
               captionBufferRef.current = buf.slice(chunk.length);
               setCaption(chunk.trim());
               captionTimerRef.current = setTimeout(drip, 3000);
             } else {
-              // Wait for more text to arrive
               captionTimerRef.current = setTimeout(drip, 200);
             }
           };
           drip();
         }
+      } else if (role === 'ai_full') {
+        // Full transcript from GA API — show as sentences cycling through
+        captionBufferRef.current = '';
+        if (captionTimerRef.current) { clearTimeout(captionTimerRef.current); captionTimerRef.current = null; }
+        // Split into sentences and cycle
+        const sentences = data.match(/[^.!?]+[.!?]+/g) || [data];
+        let i = 0;
+        const show = () => {
+          if (i >= sentences.length) { setCaption(''); captionTimerRef.current = null; return; }
+          setCaption(sentences[i].trim());
+          i++;
+          captionTimerRef.current = setTimeout(show, 3000);
+        };
+        show();
       }
     },
   });
@@ -227,6 +239,7 @@ export default function StageDemo() {
   }, [disconnect, cleanupAudio]);
 
   const handleCloseArtifact = () => {
+    artifactRef.current = null;
     setArtifact(null);
     setPhase('listening');
     setOrbScale(1);
@@ -467,7 +480,11 @@ export default function StageDemo() {
               artifact={artifact}
               onClose={handleCloseArtifact}
               onContentChange={(newContent) => {
-                setArtifact(prev => prev ? { ...prev, content: newContent } : null);
+                setArtifact(prev => {
+                  const updated = prev ? { ...prev, content: newContent } : null;
+                  artifactRef.current = updated;
+                  return updated;
+                });
               }}
             />
           </motion.div>
