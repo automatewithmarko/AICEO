@@ -213,7 +213,7 @@ router.post('/api/stagedemo/session', async (req, res) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-realtime-preview',
+        model: 'gpt-realtime-2',
         voice: 'ash',
         modalities: ['audio', 'text'],
         instructions: systemPrompt,
@@ -405,7 +405,7 @@ wss.on('connection', async (clientWs, req, userId) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-realtime-preview',
+        model: 'gpt-realtime-2',
         voice: 'ash',
         modalities: ['audio', 'text'],
         instructions: systemPrompt,
@@ -428,7 +428,7 @@ wss.on('connection', async (clientWs, req, userId) => {
 
     // Connect to OpenAI Realtime with proper headers (Node.js supports headers)
     const openaiWs = new WsWebSocket(
-      'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview',
+      'wss://api.openai.com/v1/realtime?model=gpt-realtime-2',
       {
         headers: {
           'Authorization': `Bearer ${ephemeralKey}`,
