@@ -311,18 +311,26 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
   const sendToolResult = useCallback((callId, result) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-    // Add the tool result as a conversation item
-    wsRef.current.send(JSON.stringify({
-      type: 'conversation.item.create',
-      item: {
-        type: 'function_call_output',
-        call_id: callId,
-        output: typeof result === 'string' ? result : JSON.stringify(result),
-      },
-    }));
+    // Cancel any in-flight response that VAD may have triggered during generation
+    wsRef.current.send(JSON.stringify({ type: 'response.cancel' }));
+    // Clear any audio that accumulated in the buffer during generation
+    wsRef.current.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
 
-    // Request a new response (AI will speak confirmation)
-    wsRef.current.send(JSON.stringify({ type: 'response.create' }));
+    // Small delay to let cancel settle, then send tool result
+    setTimeout(() => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+      wsRef.current.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: callId,
+          output: typeof result === 'string' ? result : JSON.stringify(result),
+        },
+      }));
+
+      wsRef.current.send(JSON.stringify({ type: 'response.create' }));
+    }, 200);
   }, []);
 
   // Disconnect
