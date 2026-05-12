@@ -636,21 +636,16 @@ export default function StageDemo() {
       {/* Mockup rain (generating) — 3D cards fly in from depth */}
       <MockupRain active={showCardLoader} />
 
-      {/* Artifact panel — slides in from right */}
+      {/* Artifact panel — desktop: right side, mobile: fullscreen modal */}
       <AnimatePresence>
         {hasArtifact && (
           <motion.div
             key="artifact-panel"
+            className="stagedemo-artifact-panel"
             initial={{ opacity: 0, x: 100 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 100 }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            style={{
-              position: 'fixed', top: 0, right: 0, bottom: 0,
-              width: '55vw',
-              zIndex: 50,
-              background: '#111',
-            }}
           >
             <ArtifactPanel
               artifact={artifact}
@@ -683,18 +678,18 @@ export default function StageDemo() {
         </div>
       )}
 
-      {/* Mobile bottom bar — mic + artifact button, only on small screens */}
-      {isConnected && hasCollapsedArtifact && (
+      {/* Mobile artifact toggle — beside mic, toggles fullscreen modal */}
+      {isConnected && artifact && (
         <button
           type="button"
-          onClick={handleExpandArtifact}
+          onClick={hasArtifact ? handleCollapseArtifact : handleExpandArtifact}
           className="stagedemo-mobile-mic"
           style={{
             position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(calc(-50% - 44px))',
             width: 52, height: 52, borderRadius: '50%',
-            background: 'rgba(220,50,60,0.2)',
-            border: '2px solid rgba(220,50,60,0.45)',
-            color: 'rgba(255,200,205,0.95)',
+            background: hasArtifact ? 'rgba(255,255,255,0.1)' : 'rgba(220,50,60,0.2)',
+            border: `2px solid ${hasArtifact ? 'rgba(255,255,255,0.2)' : 'rgba(220,50,60,0.45)'}`,
+            color: hasArtifact ? 'rgba(255,255,255,0.8)' : 'rgba(255,200,205,0.95)',
             display: 'none',
             alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer', zIndex: 300,
@@ -702,10 +697,16 @@ export default function StageDemo() {
             transition: 'all 0.2s',
           }}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <line x1="9" y1="3" x2="9" y2="21" />
-          </svg>
+          {hasArtifact ? (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 6l12 12M18 6L6 18"/>
+            </svg>
+          ) : (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1="9" y1="3" x2="9" y2="21" />
+            </svg>
+          )}
         </button>
       )}
       {isConnected && (
@@ -756,9 +757,21 @@ export default function StageDemo() {
       )}
 
       <style>{`
+        .stagedemo-artifact-panel {
+          position: fixed; top: 0; right: 0; bottom: 0;
+          width: 55vw;
+          z-index: 50;
+          background: #111;
+        }
         @media (max-width: 768px) {
           .stagedemo-hud { display: none !important; }
           .stagedemo-mobile-mic { display: flex !important; }
+          .stagedemo-artifact-panel {
+            width: 100vw !important;
+            top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+            border-radius: 0 !important;
+            z-index: 250 !important;
+          }
         }
       `}</style>
     </div>
