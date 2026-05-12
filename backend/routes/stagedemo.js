@@ -19,6 +19,7 @@ function buildVoiceSystemPrompt(context) {
 
 VOICE RULES:
 - Keep responses SHORT. 2-3 sentences max per turn. You're in a real-time conversation, not writing an essay.
+- Speak at a brisk, energetic pace. No long pauses. No drawn-out words. Be punchy and fast like a quick-witted founder.
 - Be direct and opinionated. "Do this" not "you might consider."
 - No corporate speak, no filler ("Great question!", "Absolutely!").
 - No em dashes. Use commas, periods, or new sentences.
@@ -429,7 +430,7 @@ wss.on('connection', async (clientWs, req, userId) => {
               voice: 'ember',
             },
           },
-          reasoning: { effort: 'minimal' },
+          reasoning: { effort: 'medium' },
           tools,
           tool_choice: 'auto',
         },
