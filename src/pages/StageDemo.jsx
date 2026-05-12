@@ -6,7 +6,6 @@ import { useRealtimeVoice } from '../hooks/useRealtimeVoice';
 import { supabase } from '../lib/supabase';
 import VoiceOrb from '../components/stagedemo/VoiceOrb';
 import MockupRain from '../components/stagedemo/MockupRain';
-import ArtifactPanel from '../components/ArtifactPanel';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -636,28 +635,126 @@ export default function StageDemo() {
       {/* Mockup rain (generating) — 3D cards fly in from depth */}
       <MockupRain active={showCardLoader} />
 
-      {/* Artifact panel — desktop: right side, mobile: fullscreen modal */}
+      {/* Artifact modal — dark themed, custom for stage demo */}
       <AnimatePresence>
         {hasArtifact && (
           <motion.div
-            key="artifact-panel"
+            key="artifact-modal"
             className="stagedemo-artifact-panel"
-            initial={{ opacity: 0, x: 100 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 100 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 220 }}
           >
-            <ArtifactPanel
-              artifact={artifact}
-              onClose={handleCollapseArtifact}
-              onContentChange={(newContent) => {
-                setArtifact(prev => {
-                  const updated = prev ? { ...prev, content: newContent } : null;
-                  artifactRef.current = updated;
-                  return updated;
-                });
-              }}
-            />
+            {/* Dark toolbar */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '14px 20px',
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              background: 'rgba(255,255,255,0.02)',
+              flexShrink: 0,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff5f56', cursor: 'pointer' }} onClick={handleCollapseArtifact} />
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ffbd2e' }} />
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#27c93f' }} />
+                </div>
+                <span style={{
+                  color: 'rgba(255,255,255,0.5)', fontSize: 13,
+                  fontFamily: "'JetBrains Mono', monospace", letterSpacing: 1,
+                }}>
+                  {artifact?.title || 'Generated Asset'}
+                </span>
+                <span style={{
+                  padding: '2px 8px', borderRadius: 50,
+                  background: 'rgba(255,255,255,0.06)',
+                  color: 'rgba(255,255,255,0.35)',
+                  fontSize: 10, fontFamily: "'JetBrains Mono', monospace",
+                  letterSpacing: 1, textTransform: 'uppercase',
+                }}>
+                  {artifact?.agentSource || 'output'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(artifact?.content || '');
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '6px 12px', borderRadius: 6,
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    color: 'rgba(255,255,255,0.5)',
+                    fontSize: 11, fontFamily: "'JetBrains Mono', monospace",
+                    cursor: 'pointer', letterSpacing: 1,
+                  }}
+                >
+                  Copy
+                </button>
+                <button
+                  onClick={handleCollapseArtifact}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 32, height: 32, borderRadius: 8,
+                    background: 'rgba(255,255,255,0.06)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    color: 'rgba(255,255,255,0.6)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M6 6l12 12M18 6L6 18"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div style={{ flex: 1, background: '#fff', borderRadius: '0 0 16px 16px', overflow: 'hidden' }}>
+              {artifact?.type === 'story_sequence' && artifact?.frames?.length > 0 ? (
+                <div style={{
+                  display: 'flex', gap: 16, padding: 24, overflowX: 'auto',
+                  height: '100%', alignItems: 'center', background: '#0a0a0f',
+                }}>
+                  {artifact.frames.map((frame, i) => (
+                    <div key={i} style={{
+                      flexShrink: 0, width: 220, borderRadius: 12,
+                      background: '#111', border: '1px solid rgba(255,255,255,0.08)',
+                      overflow: 'hidden',
+                    }}>
+                      {frame.image_prompt && (
+                        <div style={{
+                          height: 300, background: 'linear-gradient(135deg, #1a0a15, #0a0a1a)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          padding: 16,
+                        }}>
+                          <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, textAlign: 'center' }}>
+                            {frame.image_prompt}
+                          </span>
+                        </div>
+                      )}
+                      <div style={{ padding: 14 }}>
+                        <div style={{ color: '#fff', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                          {frame.title || `Frame ${i + 1}`}
+                        </div>
+                        <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, lineHeight: 1.4 }}>
+                          {frame.caption}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <iframe
+                  srcDoc={artifact?.content || ''}
+                  sandbox="allow-scripts"
+                  style={{ width: '100%', height: '100%', border: 'none' }}
+                  title="Artifact Preview"
+                />
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -760,18 +857,23 @@ export default function StageDemo() {
 
       <style>{`
         .stagedemo-artifact-panel {
-          position: fixed; top: 0; right: 0; bottom: 0;
+          position: fixed;
+          top: 24px; right: 24px; bottom: 24px;
           width: 55vw;
           z-index: 50;
-          background: #111;
+          background: #0d0d11;
+          border-radius: 16px;
+          border: 1px solid rgba(255,255,255,0.06);
+          box-shadow: 0 40px 100px rgba(0,0,0,0.7), 0 0 80px rgba(233,25,69,0.06);
+          display: flex; flex-direction: column;
+          overflow: hidden;
         }
         @media (max-width: 768px) {
           .stagedemo-hud { display: none !important; }
           .stagedemo-mobile-bar { display: flex !important; }
           .stagedemo-artifact-panel {
-            width: 100vw !important;
-            top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
-            border-radius: 0 !important;
+            width: auto !important;
+            top: 12px !important; left: 12px !important; right: 12px !important; bottom: 12px !important;
             z-index: 250 !important;
           }
         }
