@@ -56,6 +56,65 @@ export default function StageDemo() {
   // Tool call handler
   const handleToolCall = useCallback(async (toolName, args, callId) => {
     console.log('[stagedemo] Tool call:', toolName, args);
+
+    // create_content — AI already wrote the content, just display it
+    if (toolName === 'create_content') {
+      const isCarousel = args.content_type === 'carousel';
+      const slides = isCarousel ? args.content.split(/\n---\n|^---$/m).filter(Boolean) : null;
+
+      // Build styled HTML for the content
+      const contentHtml = isCarousel
+        ? `<!DOCTYPE html><html><head><style>
+            body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #000; color: #fff; }
+            .carousel { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; height: 100vh; }
+            .slide { min-width: 100vw; scroll-snap-align: start; display: flex; align-items: center; justify-content: center; padding: 40px; font-size: 22px; line-height: 1.5; text-align: center; border-right: 1px solid rgba(255,255,255,0.1); }
+            .slide:nth-child(odd) { background: linear-gradient(135deg, #1a0a15, #0a0a1a); }
+            .slide:nth-child(even) { background: linear-gradient(135deg, #0a0a1a, #0a1a15); }
+          </style></head><body><div class="carousel">${slides.map((s, i) => `<div class="slide"><div><strong>Slide ${i + 1}</strong><br/><br/>${s.trim().replace(/\n/g, '<br/>')}</div></div>`).join('')}</div></body></html>`
+        : `<!DOCTYPE html><html><head><style>
+            body { font-family: system-ui, sans-serif; margin: 0; padding: 32px; background: #fff; color: #111; line-height: 1.6; }
+            .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; background: #f0f0f0; color: #666; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
+            h1 { font-size: 20px; margin: 0 0 16px; }
+            .content { font-size: 16px; white-space: pre-wrap; }
+          </style></head><body>
+            <span class="badge">${args.content_type?.replace('_', ' ') || 'Content'}</span>
+            <h1>${args.title || 'Untitled'}</h1>
+            <div class="content">${args.content.replace(/</g, '&lt;').replace(/\n/g, '<br/>')}</div>
+          </body></html>`;
+
+      const newArtifact = {
+        type: 'html_template',
+        title: args.title || 'Content',
+        content: contentHtml,
+        agentSource: args.content_type || 'content',
+        frames: [],
+      };
+      artifactRef.current = newArtifact;
+      setArtifact(newArtifact);
+      setArtifactCollapsed(false);
+      setPhase('artifact');
+
+      sendToolResult(callId, `Content created and displayed. Tell the user what you wrote.`);
+
+      // Generate image if requested
+      if (args.image_prompt) {
+        const platform = args.content_type === 'instagram_post' ? 'instagram' : args.content_type === 'linkedin_post' ? 'linkedin' : 'instagram';
+        generateImage(args.image_prompt, platform, null).then(result => {
+          if (result.image) {
+            const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+            const imgHtml = contentHtml.replace('</body>', `<div style="margin-top:24px;border-radius:12px;overflow:hidden"><img src="${src}" style="width:100%;display:block"/></div></body>`);
+            setArtifact(prev => {
+              if (!prev) return null;
+              const updated = { ...prev, content: imgHtml };
+              artifactRef.current = updated;
+              return updated;
+            });
+          }
+        }).catch(() => {});
+      }
+      return;
+    }
+
     setPhase('generating');
     setOrbScale(0.3);
 

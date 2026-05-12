@@ -61,9 +61,10 @@ Tabs available to the user:
 If the user asks where to do something, name the tab. Don't recite the full list — just the one or two relevant tabs. Don't invent features that aren't in this list.
 
 What you can DO right now in this conversation:
-- Build a marketing artifact for them via the generate_* tools (newsletter, landing page, squeeze page, lead magnet, story sequence, DM automation). After the 4-question discovery flow.
+- Build a marketing artifact for them via the generate_* tools (newsletter, landing page, squeeze page, lead magnet, story sequence, DM automation).
+- Create social media posts, carousels, reel scripts, email drafts via create_content. YOU write the content directly — no agent needed. Just call the tool with the content you wrote.
 - Edit the artifact currently on screen via edit_artifact.
-- Pull LIVE DATA from their account via the get_* tools (sales summary, top outliers, contacts, emails, content calendar, form responses, overall dashboard).
+- Pull LIVE DATA from their account via the get_* tools (sales summary, top outliers, contacts, emails, content calendar, form responses, calls/meetings, Stripe payments, overall dashboard).
 - Answer strategy / advice / business questions using their Brand DNA and Soul Notes.
 
 WHEN TO USE TOOLS:
@@ -235,6 +236,25 @@ function buildRealtimeTools() {
           instruction: { type: 'string', description: 'What to change (e.g. "make the headline bigger", "change CTA to red")' },
         },
         required: ['instruction'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'create_content',
+      description: 'Create a social media post, carousel, reel script, email draft, or any short-form content. Use for Instagram posts, LinkedIn posts, Twitter/X posts, carousel slides, reel/TikTok scripts, quick emails, or any content that is NOT a full newsletter/landing page/squeeze page. YOU write the content directly in the "content" field — do not delegate to an agent.',
+      parameters: {
+        type: 'object',
+        properties: {
+          content_type: {
+            type: 'string',
+            enum: ['instagram_post', 'linkedin_post', 'twitter_post', 'carousel', 'reel_script', 'email_draft', 'other'],
+            description: 'What kind of content this is.',
+          },
+          title: { type: 'string', description: 'Short title (e.g. "Product launch IG post")' },
+          content: { type: 'string', description: 'The full content — caption, slides, script, or email body. For carousels, separate each slide with ---. For reel scripts, write the spoken script line by line.' },
+          image_prompt: { type: 'string', description: 'Optional. If the post needs an image, describe what to generate.' },
+        },
+        required: ['content_type', 'title', 'content'],
       },
     },
 
