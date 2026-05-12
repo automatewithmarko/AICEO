@@ -100,8 +100,10 @@ export default function StageDemo() {
   // Voice hook
   const {
     status: voiceStatus,
+    isMuted,
     connect, disconnect,
     startCapture, stopCapture,
+    toggleMute,
     sendText, sendToolResult,
   } = useRealtimeVoice({
     audioCtxRef,
@@ -319,7 +321,53 @@ export default function StageDemo() {
         }}>AI CEO</span>
       </div>
 
-      <div style={{ position: 'absolute', top: 20, right: 24, zIndex: 200 }}>
+      <div style={{
+        position: 'absolute', top: 20, right: 24, zIndex: 200,
+        display: 'flex', alignItems: 'center', gap: 14,
+      }}>
+        {/* Mute toggle — only shown while a session is live. Honest mute:
+            flips the MediaStream track so the browser mic indicator
+            turns off too. See useRealtimeVoice.setMuted. */}
+        {isConnected && (
+          <button
+            type="button"
+            onClick={toggleMute}
+            aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+            aria-pressed={isMuted}
+            title={isMuted ? 'Unmute' : 'Mute'}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 10px',
+              background: isMuted ? 'rgba(220,50,60,0.18)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${isMuted ? 'rgba(220,50,60,0.45)' : 'rgba(255,255,255,0.1)'}`,
+              borderRadius: 8,
+              color: isMuted ? 'rgba(255,150,160,0.95)' : 'rgba(255,255,255,0.6)',
+              fontFamily: 'monospace', fontSize: 11, letterSpacing: 2,
+              textTransform: 'uppercase', cursor: 'pointer',
+              transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+            }}
+          >
+            {isMuted ? (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="2" y1="2" x2="22" y2="22" />
+                <path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" />
+                <path d="M5 10v2a7 7 0 0 0 12 5" />
+                <path d="M15 9.34V4a3 3 0 0 0-5.68-1.33" />
+                <path d="M9 9v3a3 3 0 0 0 5.12 2.12" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+                <line x1="8" y1="23" x2="16" y2="23" />
+              </svg>
+            ) : (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+                <line x1="8" y1="23" x2="16" y2="23" />
+              </svg>
+            )}
+            <span>{isMuted ? 'Muted' : 'Mic'}</span>
+          </button>
+        )}
         <span style={{
           color: 'rgba(255,255,255,0.15)', fontFamily: 'monospace',
           fontSize: 11, letterSpacing: 2,

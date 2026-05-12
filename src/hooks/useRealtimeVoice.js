@@ -32,6 +32,14 @@ function pcm16Base64ToFloat32(base64) {
 
 export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall, onAiSpeakingChange, onTranscript }) {
   const [status, setStatus] = useState('disconnected'); // disconnected | connecting | connected | error
+  // Mic mute state. Two layers of enforcement so muting is honest:
+  //  1. isMutedRef short-circuits the audioprocess callback (no PCM
+  //     samples sent to OpenAI — VAD sees pure silence).
+  //  2. stream.getAudioTracks()[0].enabled = false at the MediaStream
+  //     level so the BROWSER's mic indicator turns off too. Reassures
+  //     the user the mic is genuinely off, not just being ignored.
+  const [isMuted, setIsMuted] = useState(false);
+  const isMutedRef = useRef(false);
   const wsRef = useRef(null);
   const micProcessorRef = useRef(null);
   const micSourceRef = useRef(null);
@@ -227,10 +235,13 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
     const source = ctx.createMediaStreamSource(stream);
     micSourceRef.current = { source, stream };
 
+    // Honour mute that was set BEFORE capture started.
+    stream.getAudioTracks().forEach((t) => { t.enabled = !isMutedRef.current; });
+
     // Use ScriptProcessor for mic capture (simpler than AudioWorklet, works everywhere)
     const processor = ctx.createScriptProcessor(4096, 1, 1);
     processor.onaudioprocess = (e) => {
-      if (!isCapturingRef.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+      if (!isCapturingRef.current || isMutedRef.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
       const input = e.inputBuffer.getChannelData(0);
       const base64 = float32ToPcm16Base64(input);
       wsRef.current.send(JSON.stringify({
@@ -258,6 +269,27 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
       micSourceRef.current = null;
     }
   }, []);
+
+  // Toggle mute. Honest mute — flips both the JS-side gate and the
+  // MediaStream track.enabled so the browser's mic indicator turns off.
+  // Also clears any in-flight input audio buffer on OpenAI's side so a
+  // half-captured utterance doesn't get committed after unmute.
+  const setMuted = useCallback((muted) => {
+    const next = !!muted;
+    isMutedRef.current = next;
+    setIsMuted(next);
+    if (micSourceRef.current?.stream) {
+      micSourceRef.current.stream.getAudioTracks().forEach((t) => { t.enabled = !next; });
+    }
+    if (next && wsRef.current?.readyState === WebSocket.OPEN) {
+      // Drop whatever's in the input buffer so muting mid-utterance doesn't
+      // leave a partial sentence queued. response.cancel is harmless when
+      // no response is active (server returns response_cancel_not_active
+      // which we already ignore in handleServerEvent).
+      wsRef.current.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
+    }
+  }, []);
+  const toggleMute = useCallback(() => setMuted(!isMutedRef.current), [setMuted]);
 
   // Send a text message (AI will respond with voice)
   const sendText = useCallback((text) => {
@@ -313,10 +345,13 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
 
   return {
     status,
+    isMuted,
     connect,
     disconnect,
     startCapture,
     stopCapture,
+    setMuted,
+    toggleMute,
     sendText,
     sendToolResult,
   };
