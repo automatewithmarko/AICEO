@@ -6,6 +6,7 @@ import { useRealtimeVoice } from '../hooks/useRealtimeVoice';
 import { supabase } from '../lib/supabase';
 import VoiceOrb from '../components/stagedemo/VoiceOrb';
 import MockupRain from '../components/stagedemo/MockupRain';
+import ArtifactPanel from '../components/ArtifactPanel';
 import { generateImage } from '../lib/api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -59,35 +60,14 @@ export default function StageDemo() {
 
     // create_content — AI already wrote the content, just display it
     if (toolName === 'create_content') {
-      const isCarousel = args.content_type === 'carousel';
-      const slides = isCarousel ? args.content.split(/\n---\n|^---$/m).filter(Boolean) : null;
-
-      // Build styled HTML for the content
-      const contentHtml = isCarousel
-        ? `<!DOCTYPE html><html><head><style>
-            body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #000; color: #fff; }
-            .carousel { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; height: 100vh; }
-            .slide { min-width: 100vw; scroll-snap-align: start; display: flex; align-items: center; justify-content: center; padding: 40px; font-size: 22px; line-height: 1.5; text-align: center; border-right: 1px solid rgba(255,255,255,0.1); }
-            .slide:nth-child(odd) { background: linear-gradient(135deg, #1a0a15, #0a0a1a); }
-            .slide:nth-child(even) { background: linear-gradient(135deg, #0a0a1a, #0a1a15); }
-          </style></head><body><div class="carousel">${slides.map((s, i) => `<div class="slide"><div><strong>Slide ${i + 1}</strong><br/><br/>${s.trim().replace(/\n/g, '<br/>')}</div></div>`).join('')}</div></body></html>`
-        : `<!DOCTYPE html><html><head><style>
-            body { font-family: system-ui, sans-serif; margin: 0; padding: 32px; background: #fff; color: #111; line-height: 1.6; }
-            .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; background: #f0f0f0; color: #666; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
-            h1 { font-size: 20px; margin: 0 0 16px; }
-            .content { font-size: 16px; white-space: pre-wrap; }
-          </style></head><body>
-            <span class="badge">${args.content_type?.replace('_', ' ') || 'Content'}</span>
-            <h1>${args.title || 'Untitled'}</h1>
-            <div class="content">${args.content.replace(/</g, '&lt;').replace(/\n/g, '<br/>')}</div>
-          </body></html>`;
-
+      const images = [];
       const newArtifact = {
-        type: 'html_template',
+        type: 'content_post',
         title: args.title || 'Content',
-        content: contentHtml,
+        content: args.content,
         agentSource: args.content_type || 'content',
         frames: [],
+        images,
       };
       artifactRef.current = newArtifact;
       setArtifact(newArtifact);
@@ -102,10 +82,9 @@ export default function StageDemo() {
         generateImage(args.image_prompt, platform, null).then(result => {
           if (result.image) {
             const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-            const imgHtml = contentHtml.replace('</body>', `<div style="margin-top:24px;border-radius:12px;overflow:hidden"><img src="${src}" style="width:100%;display:block"/></div></body>`);
             setArtifact(prev => {
               if (!prev) return null;
-              const updated = { ...prev, content: imgHtml };
+              const updated = { ...prev, images: [...(prev.images || []), { src }] };
               artifactRef.current = updated;
               return updated;
             });
@@ -774,140 +753,28 @@ export default function StageDemo() {
       {/* Mockup rain (generating) — 3D cards fly in from depth */}
       <MockupRain active={showCardLoader} />
 
-      {/* Artifact modal — dark themed, custom for stage demo */}
+      {/* Artifact panel — uses real ArtifactPanel for accurate rendering */}
       <AnimatePresence>
         {hasArtifact && (
           <motion.div
-            key="artifact-modal"
+            key="artifact-panel"
             className="stagedemo-artifact-panel"
             initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ type: 'spring', damping: 28, stiffness: 220 }}
           >
-            {/* Dark toolbar */}
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '14px 20px',
-              borderBottom: '1px solid rgba(255,255,255,0.06)',
-              background: 'rgba(255,255,255,0.02)',
-              flexShrink: 0,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff5f56', cursor: 'pointer' }} onClick={handleCollapseArtifact} />
-                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ffbd2e' }} />
-                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#27c93f' }} />
-                </div>
-                <span style={{
-                  color: 'rgba(255,255,255,0.5)', fontSize: 13,
-                  fontFamily: "'JetBrains Mono', monospace", letterSpacing: 1,
-                }}>
-                  {(artifact?.title || 'Generated Asset').split(/\s+/).slice(0, 4).join(' ')}
-                </span>
-                <span style={{
-                  padding: '2px 8px', borderRadius: 50,
-                  background: 'rgba(255,255,255,0.06)',
-                  color: 'rgba(255,255,255,0.35)',
-                  fontSize: 10, fontFamily: "'JetBrains Mono', monospace",
-                  letterSpacing: 1, textTransform: 'uppercase',
-                }}>
-                  {artifact?.agentSource || 'output'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(artifact?.content || '');
-                  }}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 5,
-                    padding: '6px 12px', borderRadius: 6,
-                    background: 'rgba(255,255,255,0.05)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    color: 'rgba(255,255,255,0.5)',
-                    fontSize: 11, fontFamily: "'JetBrains Mono', monospace",
-                    cursor: 'pointer', letterSpacing: 1,
-                  }}
-                >
-                  Copy
-                </button>
-                <button
-                  onClick={handleCollapseArtifact}
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    width: 32, height: 32, borderRadius: 8,
-                    background: 'rgba(255,255,255,0.06)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    color: 'rgba(255,255,255,0.6)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <path d="M6 6l12 12M18 6L6 18"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div style={{ flex: 1, minHeight: 0, background: '#fff', borderRadius: '0 0 16px 16px', overflow: 'hidden' }}>
-              {artifact?.type === 'story_sequence' && artifact?.frames?.length > 0 ? (
-                <div style={{
-                  display: 'flex', gap: 16, padding: 24, overflowX: 'auto',
-                  height: '100%', alignItems: 'center', background: '#0a0a0f',
-                }}>
-                  {artifact.frames.map((frame, i) => (
-                    <div key={i} style={{
-                      flexShrink: 0, width: 240, height: '85%', borderRadius: 16,
-                      background: '#111', border: '1px solid rgba(255,255,255,0.08)',
-                      overflow: 'hidden', display: 'flex', flexDirection: 'column',
-                      position: 'relative',
-                    }}>
-                      <div style={{
-                        flex: 1, background: 'linear-gradient(135deg, #1a0a15, #0a0a1a)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        position: 'relative', overflow: 'hidden',
-                      }}>
-                        {frame.loading ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                            <div style={{
-                              width: 28, height: 28, border: '2px solid rgba(233,25,69,0.3)',
-                              borderTopColor: '#e91945', borderRadius: '50%',
-                              animation: 'spin 1s linear infinite',
-                            }} />
-                            <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Generating...</span>
-                          </div>
-                        ) : frame.imageSrc ? (
-                          <img src={frame.imageSrc} alt={frame.caption || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        ) : frame.error ? (
-                          <span style={{ color: '#ef4444', fontSize: 12 }}>Failed</span>
-                        ) : (
-                          <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, padding: 16, textAlign: 'center' }}>
-                            {frame.image_prompt}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ padding: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                        <div style={{ color: '#fff', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                          {frame.title || `Frame ${i + 1}`}
-                        </div>
-                        <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, lineHeight: 1.4 }}>
-                          {frame.caption}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <iframe
-                  srcDoc={artifact?.content || ''}
-                  sandbox="allow-scripts"
-                  style={{ width: '100%', height: '100%', border: 'none' }}
-                  title="Artifact Preview"
-                />
-              )}
-            </div>
+            <ArtifactPanel
+              artifact={artifact}
+              onClose={handleCollapseArtifact}
+              onContentChange={(newContent) => {
+                setArtifact(prev => {
+                  const updated = prev ? { ...prev, content: newContent } : null;
+                  artifactRef.current = updated;
+                  return updated;
+                });
+              }}
+            />
           </motion.div>
         )}
       </AnimatePresence>
