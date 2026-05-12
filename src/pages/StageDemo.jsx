@@ -160,17 +160,23 @@ export default function StageDemo() {
     },
   });
 
-  // Audio visualization loop — always active when connected
+  // Audio visualization loop — always active when connected.
+  //
+  // When the mic is muted, we deliberately feed zeros instead of mic
+  // frequency data so the Three.js orb doesn't fluctuate from ambient
+  // analyser noise / smoothing tail / any low-level signal leakage.
+  // Playback (AI speaking) viz is unaffected — mute is mic-only.
   useEffect(() => {
+    const SILENT = new Uint8Array(128);
     const loop = () => {
-      const isListening = phase === 'listening';
+      const isListening = phase === 'listening' && !isMuted;
       const isSpeaking = phase === 'speaking' || phase === 'artifact' || phase === 'generating';
 
       const data = isListening
         ? getMicFrequencyData()
         : isSpeaking
           ? getPlaybackFrequencyData()
-          : new Uint8Array(128);
+          : SILENT;
 
       setFrequencyData(data);
       setAudioLevel(getLevel(data));
@@ -184,7 +190,7 @@ export default function StageDemo() {
 
     animFrameRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, [phase, getMicFrequencyData, getPlaybackFrequencyData, getLevel]);
+  }, [phase, isMuted, getMicFrequencyData, getPlaybackFrequencyData, getLevel]);
 
   // Connect voice and start always-on mic (semantic VAD handles turn detection)
   const handleActivate = useCallback(async () => {
