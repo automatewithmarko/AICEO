@@ -107,6 +107,7 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         break;
 
       case 'response.audio.delta':
+      case 'response.output_audio.delta':
         // AI audio chunk — play it
         if (msg.delta) {
           playAudioChunk(msg.delta);
@@ -115,11 +116,13 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         break;
 
       case 'response.audio_transcript.delta':
+      case 'response.output_audio_transcript.delta':
         // AI speech transcript
         onTranscript?.('ai', msg.delta);
         break;
 
       case 'response.audio.done':
+      case 'response.output_audio.done':
         onAiSpeakingChange?.(false);
         break;
 
@@ -142,6 +145,9 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         break;
 
       default:
+        if (msg.type && !msg.type.startsWith('input_audio_buffer')) {
+          console.log('[voice] Event:', msg.type);
+        }
         break;
     }
   }, [onToolCall, onAiSpeakingChange, onTranscript]);
