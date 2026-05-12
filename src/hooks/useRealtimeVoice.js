@@ -55,26 +55,10 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
       const token = await getToken();
       if (!token) throw new Error('Not authenticated');
 
-      // Get ephemeral key from backend
-      const res = await fetch(`${API_URL}/api/stagedemo/session`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!res.ok) throw new Error(`Session creation failed: ${res.status}`);
-      const { ephemeralKey } = await res.json();
-
-      // Connect WebSocket to OpenAI Realtime
-      const ws = new WebSocket(
-        'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview',
-        [
-          'openai-insecure-api-key.' + ephemeralKey,
-          'openai-beta.realtime-v1',
-        ]
-      );
+      // Connect to our backend WebSocket proxy (which connects to OpenAI server-side)
+      const wsProtocol = API_URL.startsWith('https') ? 'wss' : 'ws';
+      const wsHost = API_URL.replace(/^https?:\/\//, '');
+      const ws = new WebSocket(`${wsProtocol}://${wsHost}/ws/stagedemo?token=${encodeURIComponent(token)}`);
 
       ws.onopen = () => {
         console.log('[voice] WebSocket connected');
@@ -203,7 +187,7 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
     // Use ScriptProcessor for mic capture (simpler than AudioWorklet, works everywhere)
     const processor = ctx.createScriptProcessor(4096, 1, 1);
     processor.onaudioprocess = (e) => {
-      if (!isCapturingRef.current || !wsRef.current) return;
+      if (!isCapturingRef.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
       const input = e.inputBuffer.getChannelData(0);
       const base64 = float32ToPcm16Base64(input);
       wsRef.current.send(JSON.stringify({

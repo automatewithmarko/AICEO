@@ -1,9 +1,13 @@
 // backend/routes/stagedemo.js
 import { Router } from 'express';
+import { WebSocketServer, WebSocket as WsWebSocket } from 'ws';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { loadUserContext } from '../services/context.js';
 import { getAgent } from '../agents/registry.js';
-
 import { executeAgent } from '../agents/base-agent.js';
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const JWKS = SUPABASE_URL ? createRemoteJWKSet(new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`)) : null;
 
 const router = Router();
 
@@ -353,6 +357,129 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
   } catch (err) {
     console.error('[stagedemo] generate error:', err);
     res.status(500).json({ error: 'generation_failed', detail: err.message });
+  }
+});
+
+// ─── WebSocket proxy: browser → our server → OpenAI Realtime ───
+const wss = new WebSocketServer({ noServer: true });
+
+async function verifyToken(token) {
+  if (!token || !JWKS) return null;
+  try {
+    const { payload } = await jwtVerify(token, JWKS, { issuer: `${SUPABASE_URL}/auth/v1` });
+    return payload.sub || null;
+  } catch { return null; }
+}
+
+export function handleStagedemoUpgrade(req, socket, head) {
+  // Extract token from query string
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const token = url.searchParams.get('token');
+
+  verifyToken(token).then((userId) => {
+    if (!userId) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    wss.handleUpgrade(req, socket, head, (clientWs) => {
+      wss.emit('connection', clientWs, req, userId);
+    });
+  });
+}
+
+wss.on('connection', async (clientWs, req, userId) => {
+  console.log('[stagedemo-ws] Client connected, userId:', userId);
+
+  try {
+    // Load context and create ephemeral session
+    const context = await loadUserContext(userId);
+    const systemPrompt = buildVoiceSystemPrompt(context);
+    const tools = buildRealtimeTools();
+
+    const sessionRes = await fetch('https://api.openai.com/v1/realtime/sessions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-realtime-preview',
+        voice: 'ash',
+        modalities: ['audio', 'text'],
+        instructions: systemPrompt,
+        turn_detection: null,
+        tools,
+        input_audio_format: 'pcm16',
+        output_audio_format: 'pcm16',
+      }),
+    });
+
+    if (!sessionRes.ok) {
+      const err = await sessionRes.text();
+      console.error('[stagedemo-ws] Session creation failed:', err);
+      clientWs.close(1011, 'Session creation failed');
+      return;
+    }
+
+    const session = await sessionRes.json();
+    const ephemeralKey = session.client_secret.value;
+
+    // Connect to OpenAI Realtime with proper headers (Node.js supports headers)
+    const openaiWs = new WsWebSocket(
+      'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview',
+      {
+        headers: {
+          'Authorization': `Bearer ${ephemeralKey}`,
+          'OpenAI-Beta': 'realtime=v1',
+        },
+      }
+    );
+
+    openaiWs.on('open', () => {
+      console.log('[stagedemo-ws] Connected to OpenAI Realtime');
+      clientWs.send(JSON.stringify({ type: 'session.created' }));
+    });
+
+    // Proxy: OpenAI → Client
+    openaiWs.on('message', (data) => {
+      if (clientWs.readyState === WsWebSocket.OPEN) {
+        clientWs.send(data.toString());
+      }
+    });
+
+    // Proxy: Client → OpenAI
+    clientWs.on('message', (data) => {
+      if (openaiWs.readyState === WsWebSocket.OPEN) {
+        openaiWs.send(data.toString());
+      }
+    });
+
+    // Cleanup
+    openaiWs.on('close', (code, reason) => {
+      console.log('[stagedemo-ws] OpenAI closed:', code, reason?.toString());
+      if (clientWs.readyState === WsWebSocket.OPEN) clientWs.close(1000, 'OpenAI disconnected');
+    });
+
+    openaiWs.on('error', (err) => {
+      console.error('[stagedemo-ws] OpenAI error:', err.message);
+      if (clientWs.readyState === WsWebSocket.OPEN) clientWs.close(1011, 'OpenAI error');
+    });
+
+    clientWs.on('close', () => {
+      console.log('[stagedemo-ws] Client disconnected');
+      if (openaiWs.readyState === WsWebSocket.OPEN) openaiWs.close();
+    });
+
+    clientWs.on('error', (err) => {
+      console.error('[stagedemo-ws] Client error:', err.message);
+      if (openaiWs.readyState === WsWebSocket.OPEN) openaiWs.close();
+    });
+
+  } catch (err) {
+    console.error('[stagedemo-ws] Setup error:', err);
+    clientWs.close(1011, 'Setup failed');
   }
 });
 
