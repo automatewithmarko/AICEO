@@ -588,7 +588,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             {type === 'newsletter' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
-            {type === 'content_post' && <ContentPostRenderer content={content} images={images} />}
+            {type === 'content_post' && <ContentPostRenderer content={content} images={images} pendingImages={artifact.pendingImages} />}
             {type === 'code_block' && <CodeRenderer content={content} />}
             {type === 'markdown_doc' && <MarkdownRenderer content={content} />}
           </>
@@ -1157,9 +1157,10 @@ function HtmlRenderer({ content, iframeRef, editMapRef, skipIframeWriteRef }) {
   );
 }
 
-function ContentPostRenderer({ content, images }) {
+function ContentPostRenderer({ content, images, pendingImages }) {
   const list = Array.isArray(images) ? images : [];
   const total = list.length;
+  const isLoading = (pendingImages || 0) > 0 && total === 0;
   const [index, setIndex] = useState(Math.max(0, total - 1));
   const prevTotalRef = useRef(total);
 
@@ -1173,10 +1174,17 @@ function ContentPostRenderer({ content, images }) {
 
   return (
     <div className="ap-content-post">
-      {total > 0 && (
+      {(total > 0 || isLoading) && (
         <div className="ap-post-viewer">
           <div className="ap-post-stage">
-            {active && <img src={active.src} alt="" className="ap-post-image" />}
+            {isLoading ? (
+              <div className="ap-post-loading">
+                <div className="ap-post-loading-spinner" />
+                <span>Generating image...</span>
+              </div>
+            ) : active ? (
+              <img src={active.src} alt="" className="ap-post-image" />
+            ) : null}
           </div>
           {total > 1 && (
             <div className="ap-post-controls">
