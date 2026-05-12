@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { loadUserContext } from '../services/context.js';
 import { getAgent } from '../agents/registry.js';
-import { buildBrandContext } from '../agents/brand-context.js';
+
 import { executeAgent } from '../agents/base-agent.js';
 
 const router = Router();
@@ -281,6 +281,11 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
         }),
       });
 
+      if (!editRes.ok) {
+        const errText = await editRes.text();
+        console.error('[stagedemo] Anthropic edit failed:', errText);
+        return res.status(502).json({ error: 'edit_failed' });
+      }
       const editData = await editRes.json();
       const editedHtml = editData.content?.[0]?.text || currentHtml;
       return res.json({ html: editedHtml, agent: 'edit', title: 'Edited artifact' });
@@ -325,12 +330,12 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
     const messages = [{ role: 'user', content: taskDescription }];
 
     // Execute agent (non-streaming — collect full output)
-    let finalContent = '';
-    await executeAgent({
+    const result = await executeAgent({
       agent: { ...agent, systemPrompt: fullSystemPrompt },
       messages,
-      onChunk: (content) => { finalContent = content; },
+      onChunk: () => {},
     });
+    const finalContent = result?.content || '';
 
     // Parse agent output — agents return JSON with { type, html, summary }
     let html = finalContent;
