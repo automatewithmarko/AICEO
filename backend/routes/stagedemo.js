@@ -415,6 +415,7 @@ wss.on('connection', async (clientWs, req, userId) => {
       openaiWs.send(JSON.stringify({
         type: 'session.update',
         session: {
+          type: 'conversation',
           voice: 'ash',
           modalities: ['audio', 'text'],
           instructions: systemPrompt,
