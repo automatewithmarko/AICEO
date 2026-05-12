@@ -411,18 +411,27 @@ wss.on('connection', async (clientWs, req, userId) => {
     openaiWs.on('open', () => {
       console.log('[stagedemo-ws] Connected to OpenAI Realtime');
 
-      // Configure session via session.update event
+      // Configure session via session.update event (GA API schema)
       openaiWs.send(JSON.stringify({
         type: 'session.update',
         session: {
-          type: 'conversation',
-          voice: 'ash',
-          modalities: ['audio', 'text'],
+          type: 'realtime',
+          model: 'gpt-realtime-2',
+          output_modalities: ['text', 'audio'],
           instructions: systemPrompt,
-          turn_detection: null,
+          audio: {
+            input: {
+              format: { type: 'audio/pcm', rate: 24000 },
+              turn_detection: null,
+            },
+            output: {
+              format: { type: 'audio/pcm' },
+              voice: 'ash',
+            },
+          },
+          reasoning: { effort: 'low' },
           tools,
-          input_audio_format: 'pcm16',
-          output_audio_format: 'pcm16',
+          tool_choice: 'auto',
         },
       }));
 
