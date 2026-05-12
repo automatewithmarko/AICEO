@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { WebSocketServer, WebSocket as WsWebSocket } from 'ws';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { supabase } from '../services/storage.js';
 import { loadUserContext } from '../services/context.js';
 import { getAgent } from '../agents/registry.js';
 import { executeAgent } from '../agents/base-agent.js';
