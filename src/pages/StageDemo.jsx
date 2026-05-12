@@ -27,12 +27,13 @@ export default function StageDemo() {
   const [caption, setCaption] = useState('');
   const captionBufferRef = useRef('');
   const captionTimerRef = useRef(null);
-  // Captions on/off. Default on (good for audience during a stage demo);
-  // tiny CC button in the HUD flips it. Mirrored to a ref so the
-  // onTranscript callback can short-circuit without being rebuilt on
-  // every toggle (which would tear down the websocket message handler).
-  const [captionsEnabled, setCaptionsEnabled] = useState(true);
-  const captionsEnabledRef = useRef(true);
+  // Captions on/off. Default OFF for a cleaner stage — tiny CC button
+  // in the HUD turns them on if needed (audience accessibility, etc.).
+  // Mirrored to a ref so the onTranscript callback can short-circuit
+  // without being rebuilt on every toggle (which would tear down the
+  // websocket message handler).
+  const [captionsEnabled, setCaptionsEnabled] = useState(false);
+  const captionsEnabledRef = useRef(false);
   useEffect(() => { captionsEnabledRef.current = captionsEnabled; }, [captionsEnabled]);
 
   const animFrameRef = useRef(null);
