@@ -417,7 +417,7 @@ wss.on('connection', async (clientWs, req, userId) => {
         session: {
           type: 'realtime',
           model: 'gpt-realtime-2',
-          output_modalities: ['text', 'audio'],
+          output_modalities: ['audio'],
           instructions: systemPrompt,
           audio: {
             input: {
