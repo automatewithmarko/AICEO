@@ -239,6 +239,22 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
     }
   }, []);
 
+  // Send a text message (AI will respond with voice)
+  const sendText = useCallback((text) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    wsRef.current.send(JSON.stringify({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text }],
+      },
+    }));
+
+    wsRef.current.send(JSON.stringify({ type: 'response.create' }));
+  }, []);
+
   // Send tool result back to OpenAI so it can speak the confirmation
   const sendToolResult = useCallback((callId, result) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -281,6 +297,7 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
     disconnect,
     startCapture,
     stopCapture,
+    sendText,
     sendToolResult,
   };
 }

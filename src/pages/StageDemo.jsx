@@ -25,6 +25,7 @@ export default function StageDemo() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [bassLevel, setBassLevel] = useState(0);
   const [frequencyData, setFrequencyData] = useState(null);
+  const [textInput, setTextInput] = useState('');
 
   const animFrameRef = useRef(null);
   const spaceDownRef = useRef(false);
@@ -90,7 +91,7 @@ export default function StageDemo() {
     status: voiceStatus,
     connect, disconnect,
     startCapture, stopCapture,
-    sendToolResult,
+    sendText, sendToolResult,
   } = useRealtimeVoice({
     audioCtxRef,
     playbackAnalyserRef,
@@ -134,7 +135,7 @@ export default function StageDemo() {
     if (isConnected) return;
     try {
       await initAudio();
-      await connectMic();
+      try { await connectMic(); } catch { /* mic not required for text mode */ }
       await connect();
       setIsConnected(true);
     } catch (err) {
@@ -146,6 +147,8 @@ export default function StageDemo() {
   // Keyboard handler (space = push-to-talk)
   useEffect(() => {
     const handleKeyDown = async (e) => {
+      // Don't capture space when typing in the text input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.code !== 'Space' || e.repeat) return;
       e.preventDefault();
       spaceDownRef.current = true;
@@ -159,6 +162,7 @@ export default function StageDemo() {
     };
 
     const handleKeyUp = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.code !== 'Space') return;
       e.preventDefault();
       if (!spaceDownRef.current) return;
@@ -389,6 +393,41 @@ export default function StageDemo() {
           <VoiceBar key="voice-bar" frequencyData={frequencyData} isListening={spaceDownRef.current} onEndSession={handleEndSession} />
         )}
       </AnimatePresence>
+
+      {/* Text input (for testing without mic) */}
+      {isConnected && phase !== 'artifact' && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!textInput.trim()) return;
+            sendText(textInput.trim());
+            setTextInput('');
+            setPhase('speaking');
+          }}
+          style={{
+            position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)',
+            display: 'flex', gap: 8, zIndex: 100, width: 480,
+          }}
+        >
+          <input
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            placeholder="Type a message..."
+            style={{
+              flex: 1, padding: '10px 16px',
+              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 24, color: '#fff', fontSize: 13, fontFamily: 'monospace',
+              outline: 'none',
+            }}
+          />
+          <button type="submit" style={{
+            padding: '10px 20px', background: 'rgba(220,50,60,0.2)',
+            border: '1px solid rgba(220,50,60,0.3)', borderRadius: 24,
+            color: 'rgba(255,255,255,0.6)', fontSize: 12, fontFamily: 'monospace',
+            cursor: 'pointer', letterSpacing: 1,
+          }}>Send</button>
+        </form>
+      )}
 
       {/* Error overlay */}
       {error && (
