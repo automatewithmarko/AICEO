@@ -107,17 +107,27 @@ export default function StageDemo() {
     },
     onTranscript: (role, delta) => {
       if (role === 'ai') {
-        // Buffer transcript and drip one character at a time to match speech pace
+        // Buffer transcript and reveal word by word
         captionBufferRef.current += delta;
         if (!captionTimerRef.current) {
           const drip = () => {
             const buf = captionBufferRef.current;
             if (!buf) { captionTimerRef.current = null; return; }
-            const ch = buf[0];
-            captionBufferRef.current = buf.slice(1);
-            setCaption(prev => prev + ch);
-            // ~150 wpm = ~12.5 chars/sec = 80ms per char
-            captionTimerRef.current = setTimeout(drip, 80);
+            // Find next word boundary (space, comma, period, etc.)
+            const match = buf.match(/^\s*\S+[\s,.\-!?;:]*/);
+            const word = match ? match[0] : buf[0];
+            captionBufferRef.current = buf.slice(word.length);
+            setCaption(prev => {
+              const updated = prev + word;
+              // Keep only last ~80 chars (roughly 2 lines) so it doesn't overflow
+              if (updated.length > 80) {
+                const trimPoint = updated.indexOf(' ', updated.length - 80);
+                return trimPoint > 0 ? updated.slice(trimPoint + 1) : updated.slice(-80);
+              }
+              return updated;
+            });
+            // ~150 wpm = ~2.5 words/sec = 400ms per word
+            captionTimerRef.current = setTimeout(drip, 400);
           };
           drip();
         }
