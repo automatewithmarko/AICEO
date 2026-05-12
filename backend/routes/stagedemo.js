@@ -393,52 +393,38 @@ wss.on('connection', async (clientWs, req, userId) => {
   console.log('[stagedemo-ws] Client connected, userId:', userId);
 
   try {
-    // Load context and create ephemeral session
+    // Load context and build session config
     const context = await loadUserContext(userId);
     const systemPrompt = buildVoiceSystemPrompt(context);
     const tools = buildRealtimeTools();
 
-    const sessionRes = await fetch('https://api.openai.com/v1/realtime/sessions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-realtime-preview-2025-06-03',
-        voice: 'ash',
-        modalities: ['audio', 'text'],
-        instructions: systemPrompt,
-        turn_detection: null,
-        tools,
-        input_audio_format: 'pcm16',
-        output_audio_format: 'pcm16',
-      }),
-    });
-
-    if (!sessionRes.ok) {
-      const err = await sessionRes.text();
-      console.error('[stagedemo-ws] Session creation failed:', err);
-      clientWs.close(1011, 'Session creation failed');
-      return;
-    }
-
-    const session = await sessionRes.json();
-    const ephemeralKey = session.client_secret.value;
-
-    // Connect to OpenAI Realtime with proper headers (Node.js supports headers)
+    // Connect directly to OpenAI Realtime with API key (server-to-server, no ephemeral token needed)
     const openaiWs = new WsWebSocket(
-      'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2025-06-03',
+      'wss://api.openai.com/v1/realtime?model=gpt-realtime-2',
       {
         headers: {
-          'Authorization': `Bearer ${ephemeralKey}`,
-          'OpenAI-Beta': 'realtime=v1',
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
         },
       }
     );
 
     openaiWs.on('open', () => {
       console.log('[stagedemo-ws] Connected to OpenAI Realtime');
+
+      // Configure session via session.update event
+      openaiWs.send(JSON.stringify({
+        type: 'session.update',
+        session: {
+          voice: 'ash',
+          modalities: ['audio', 'text'],
+          instructions: systemPrompt,
+          turn_detection: null,
+          tools,
+          input_audio_format: 'pcm16',
+          output_audio_format: 'pcm16',
+        },
+      }));
+
       clientWs.send(JSON.stringify({ type: 'session.created' }));
     });
 
