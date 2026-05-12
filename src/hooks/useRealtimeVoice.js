@@ -127,8 +127,10 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
 
       case 'response.audio_transcript.delta':
       case 'response.output_audio_transcript.delta':
+      case 'response.text.delta':
+      case 'response.output_text.delta':
         // AI speech transcript
-        onTranscript?.('ai', msg.delta);
+        if (msg.delta) onTranscript?.('ai', msg.delta);
         break;
 
       case 'response.audio.done':
@@ -157,8 +159,11 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         break;
 
       default:
-        if (msg.type && !msg.type.startsWith('input_audio_buffer')) {
-          console.log('[voice] Event:', msg.type);
+        if (msg.type?.includes('transcript') && msg.delta) {
+          // Catch any transcript delta event we might have missed
+          onTranscript?.('ai', msg.delta);
+        } else if (msg.type && !msg.type.startsWith('input_audio_buffer') && !msg.type.startsWith('response.content_part') && !msg.type.startsWith('conversation.item') && !msg.type.startsWith('rate_limits')) {
+          console.log('[voice] Event:', msg.type, msg.delta ? '(has delta)' : '');
         }
         break;
     }
