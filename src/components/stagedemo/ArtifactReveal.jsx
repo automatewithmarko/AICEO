@@ -15,12 +15,13 @@ export default function ArtifactReveal({ html, title, onClose }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.85, y: 40 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.9, y: 30 }}
-      transition={{ type: 'spring', damping: 22, stiffness: 180 }}
+      initial={{ opacity: 0, x: 100 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 100 }}
+      transition={{ type: 'spring', damping: 25, stiffness: 200 }}
       style={{
-        position: 'fixed', top: 40, left: 40, right: 40, bottom: 100,
+        position: 'fixed', top: 24, right: 24, bottom: 24,
+        width: '55vw',
         display: 'flex', flexDirection: 'column', borderRadius: 16, overflow: 'hidden',
         background: '#111', border: '1px solid rgba(255,255,255,0.08)',
         boxShadow: '0 32px 80px rgba(0,0,0,0.6), 0 0 120px rgba(220,50,60,0.08)', zIndex: 50,

@@ -73,10 +73,9 @@ export default function StageDemo() {
       setArtifactTitle(data.title || toolName.replace('generate_', ''));
       setArtifactAgent(data.agent);
 
-      sendToolResult(callId, `Successfully generated ${data.agent}. The user can now see it on screen.`);
+      sendToolResult(callId, `Successfully generated ${data.agent}. The user can now see it on screen. Tell them what you built and ask if they want any changes.`);
 
-      // Show artifact after card animation
-      setTimeout(() => setPhase('artifact'), 2500);
+      setPhase('artifact');
     } catch (err) {
       console.error('[stagedemo] Generation error:', err);
       clearTimeout(generateTimeoutRef.current);
@@ -97,18 +96,18 @@ export default function StageDemo() {
     playbackAnalyserRef,
     onToolCall: handleToolCall,
     onAiSpeakingChange: (speaking) => {
-      if (speaking && phase !== 'generating' && phase !== 'artifact') {
-        setPhase('speaking');
+      if (speaking && phase !== 'generating') {
+        setPhase(artifactHtml ? 'artifact' : 'speaking');
       }
     },
     onTranscript: () => {},
   });
 
-  // Audio visualization loop
+  // Audio visualization loop — always active when connected
   useEffect(() => {
     const loop = () => {
       const isListening = phase === 'listening';
-      const isSpeaking = phase === 'speaking';
+      const isSpeaking = phase === 'speaking' || phase === 'artifact' || phase === 'generating';
 
       const data = isListening
         ? getMicFrequencyData()
@@ -156,7 +155,8 @@ export default function StageDemo() {
   }, [disconnect, cleanupAudio]);
 
   const handleCloseArtifact = () => {
-    setPhase('idle');
+    setArtifactHtml(null);
+    setPhase('listening');
     setOrbScale(1);
   };
 
@@ -169,9 +169,8 @@ export default function StageDemo() {
     setOrbScale(1);
   };
 
-  const isActive = phase === 'listening' || phase === 'speaking';
-  const showOrb = phase !== 'artifact';
-  const showArtifact = phase === 'artifact' && artifactHtml;
+  const isActive = phase === 'listening' || phase === 'speaking' || phase === 'artifact' || phase === 'generating';
+  const hasArtifact = phase === 'artifact' && artifactHtml;
   const showCardLoader = phase === 'generating';
 
   return (
@@ -234,20 +233,18 @@ export default function StageDemo() {
         }}>V1.0 | CONFIDENTIAL</span>
       </div>
 
-      {/* Orb */}
-      <AnimatePresence>
-        {showOrb && (
-          <motion.div
-            key="orb"
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: orbScale }}
-            exit={{ opacity: 0, scale: 0.2 }}
-            transition={{ type: 'spring', damping: 20, stiffness: 100 }}
-            style={{
-              position: 'absolute', inset: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >
+      {/* Orb — always visible, shifts left when artifact shows */}
+      <motion.div
+        animate={{
+          x: hasArtifact ? '-25vw' : 0,
+          scale: hasArtifact ? 0.6 : orbScale,
+        }}
+        transition={{ type: 'spring', damping: 22, stiffness: 120 }}
+        style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
             <div style={{ width: 500, height: 500, position: 'relative', overflow: 'visible' }}>
               {/* Glow rings */}
               <div style={{
@@ -292,9 +289,7 @@ export default function StageDemo() {
                 </motion.div>
               )}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </motion.div>
 
       {/* Listening badge */}
       <AnimatePresence>
@@ -346,17 +341,10 @@ export default function StageDemo() {
         {showCardLoader && <CardLoader key="card-loader" />}
       </AnimatePresence>
 
-      {/* Artifact panel */}
+      {/* Artifact panel — slides in from right */}
       <AnimatePresence>
-        {showArtifact && (
+        {hasArtifact && (
           <ArtifactReveal key="artifact" html={artifactHtml} title={artifactTitle} onClose={handleCloseArtifact} />
-        )}
-      </AnimatePresence>
-
-      {/* Voice bar (during artifact view) */}
-      <AnimatePresence>
-        {phase === 'artifact' && (
-          <VoiceBar key="voice-bar" frequencyData={frequencyData} isListening={spaceDownRef.current} onEndSession={handleEndSession} />
         )}
       </AnimatePresence>
 
