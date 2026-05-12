@@ -15,6 +15,11 @@ export default function StageDemo() {
   const [phase, setPhase] = useState('idle');
   const [artifact, setArtifact] = useState(null);
   const artifactRef = useRef(null);
+  // When true, the panel is hidden but `artifact` is kept so the user
+  // can re-open the generated artifact. Previously hitting the close
+  // (X) inside the panel destroyed the artifact entirely, losing the
+  // generated landing page / newsletter / etc.
+  const [artifactCollapsed, setArtifactCollapsed] = useState(false);
   const [orbScale, setOrbScale] = useState(1);
   const [error, setError] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -92,6 +97,9 @@ export default function StageDemo() {
       };
       artifactRef.current = newArtifact;
       setArtifact(newArtifact);
+      // Always pop the panel open on a fresh generation, even if the
+      // user had collapsed a previous artifact.
+      setArtifactCollapsed(false);
 
       sendToolResult(callId, `Successfully generated ${data.agent}. The user can now see it on screen. Tell them what you built and ask if they want any changes.`);
 
@@ -266,11 +274,20 @@ export default function StageDemo() {
     };
   }, []);
 
-  const handleCloseArtifact = () => {
-    artifactRef.current = null;
-    setArtifact(null);
+  // Panel X button — COLLAPSE, not destroy. The artifact stays in
+  // state so a "Show preview" pill (in the HUD when collapsed) can
+  // bring it back. A new generation replaces it; ending the session
+  // clears it entirely. Solves the "I closed the preview and lost
+  // my landing page" trap.
+  const handleCollapseArtifact = () => {
+    setArtifactCollapsed(true);
     setPhase('listening');
     setOrbScale(1);
+  };
+
+  const handleExpandArtifact = () => {
+    setArtifactCollapsed(false);
+    setPhase('artifact');
   };
 
   const handleEndSession = () => {
@@ -279,11 +296,19 @@ export default function StageDemo() {
     setPhase('idle');
     setIsConnected(false);
     setArtifact(null);
+    artifactRef.current = null;
+    setArtifactCollapsed(false);
     setOrbScale(1);
   };
 
   const isActive = phase === 'listening' || phase === 'speaking' || phase === 'artifact' || phase === 'generating';
-  const hasArtifact = phase === 'artifact' && artifact;
+  // "Has artifact and is visible". Hidden-but-kept (collapsed) doesn't
+  // count — orb returns to centre, panel is unmounted, "Show preview"
+  // pill takes over until the user expands again.
+  const hasArtifact = phase === 'artifact' && artifact && !artifactCollapsed;
+  // Separate signal — "we still have a saved artifact the user can
+  // bring back". Drives the Show-preview pill in the HUD.
+  const hasCollapsedArtifact = !!artifact && artifactCollapsed;
   const showCardLoader = phase === 'generating';
 
   return (
@@ -343,6 +368,34 @@ export default function StageDemo() {
         position: 'absolute', top: 20, right: 24, zIndex: 200,
         display: 'flex', alignItems: 'center', gap: 10,
       }}>
+        {/* Show-preview pill — only when an artifact is collapsed.
+            One click brings the panel back; new generations also pop
+            it open automatically. */}
+        {isConnected && hasCollapsedArtifact && (
+          <button
+            type="button"
+            onClick={handleExpandArtifact}
+            title="Show the artifact you just generated"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 12px',
+              background: 'rgba(220,50,60,0.18)',
+              border: '1px solid rgba(220,50,60,0.45)',
+              borderRadius: 8,
+              color: 'rgba(255,200,205,0.95)',
+              fontFamily: 'monospace', fontSize: 11, letterSpacing: 2,
+              textTransform: 'uppercase', cursor: 'pointer',
+              transition: 'background 0.15s, border-color 0.15s',
+              maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1="9" y1="3" x2="9" y2="21" />
+            </svg>
+            <span>Show preview{artifact?.title ? ` · ${artifact.title}` : ''}</span>
+          </button>
+        )}
         {/* Captions toggle — only shown while a session is live. Default
             on for audience accessibility; off when the user wants a
             cleaner stage. Clears any in-flight caption + buffer + drip
@@ -603,7 +656,7 @@ export default function StageDemo() {
           >
             <ArtifactPanel
               artifact={artifact}
-              onClose={handleCloseArtifact}
+              onClose={handleCollapseArtifact}
               onContentChange={(newContent) => {
                 setArtifact(prev => {
                   const updated = prev ? { ...prev, content: newContent } : null;
