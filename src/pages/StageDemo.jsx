@@ -336,8 +336,8 @@ export default function StageDemo() {
         }}
       />
 
-      {/* HUD */}
-      <div style={{
+      {/* HUD — hidden on mobile */}
+      <div className="stagedemo-hud" style={{
         position: 'absolute', top: 20, left: 24,
         display: 'flex', alignItems: 'center', gap: 8, zIndex: 200,
       }}>
@@ -354,7 +354,7 @@ export default function StageDemo() {
         </span>
       </div>
 
-      <div style={{
+      <div className="stagedemo-hud" style={{
         position: 'absolute', top: 20, left: '50%',
         transform: 'translateX(-50%)', zIndex: 200,
       }}>
@@ -364,7 +364,7 @@ export default function StageDemo() {
         }}>AI CEO</span>
       </div>
 
-      <div style={{
+      <div className="stagedemo-hud" style={{
         position: 'absolute', top: 20, right: 24, zIndex: 200,
         display: 'flex', alignItems: 'center', gap: 10,
       }}>
@@ -683,7 +683,31 @@ export default function StageDemo() {
         </div>
       )}
 
-      {/* Mobile mic toggle — bottom center, only on small screens */}
+      {/* Mobile bottom bar — mic + artifact button, only on small screens */}
+      {isConnected && hasCollapsedArtifact && (
+        <button
+          type="button"
+          onClick={handleExpandArtifact}
+          className="stagedemo-mobile-mic"
+          style={{
+            position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(calc(-50% - 44px))',
+            width: 52, height: 52, borderRadius: '50%',
+            background: 'rgba(220,50,60,0.2)',
+            border: '2px solid rgba(220,50,60,0.45)',
+            color: 'rgba(255,200,205,0.95)',
+            display: 'none',
+            alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', zIndex: 300,
+            boxShadow: '0 0 20px rgba(220,50,60,0.3)',
+            transition: 'all 0.2s',
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <line x1="9" y1="3" x2="9" y2="21" />
+          </svg>
+        </button>
+      )}
       {isConnected && (
         <button
           type="button"
@@ -733,6 +757,7 @@ export default function StageDemo() {
 
       <style>{`
         @media (max-width: 768px) {
+          .stagedemo-hud { display: none !important; }
           .stagedemo-mobile-mic { display: flex !important; }
         }
       `}</style>
