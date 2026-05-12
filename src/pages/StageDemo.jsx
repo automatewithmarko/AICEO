@@ -26,6 +26,7 @@ export default function StageDemo() {
   const [bassLevel, setBassLevel] = useState(0);
   const [frequencyData, setFrequencyData] = useState(null);
   const [textInput, setTextInput] = useState('');
+  const [caption, setCaption] = useState('');
 
   const animFrameRef = useRef(null);
   const spaceDownRef = useRef(false);
@@ -96,11 +97,18 @@ export default function StageDemo() {
     playbackAnalyserRef,
     onToolCall: handleToolCall,
     onAiSpeakingChange: (speaking) => {
-      if (speaking && phase !== 'generating') {
-        setPhase(artifactHtml ? 'artifact' : 'speaking');
+      if (speaking) {
+        setCaption('');
+        if (phase !== 'generating') {
+          setPhase(artifactHtml ? 'artifact' : 'speaking');
+        }
       }
     },
-    onTranscript: () => {},
+    onTranscript: (role, delta) => {
+      if (role === 'ai') {
+        setCaption(prev => prev + delta);
+      }
+    },
   });
 
   // Audio visualization loop — always active when connected
@@ -313,6 +321,39 @@ export default function StageDemo() {
               color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace',
               fontSize: 12, letterSpacing: 3, textTransform: 'uppercase',
             }}>Listening</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Live captions */}
+      <AnimatePresence>
+        {caption && isConnected && (
+          <motion.div
+            key="caption"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            style={{
+              position: 'absolute',
+              bottom: hasArtifact ? 60 : 100,
+              left: hasArtifact ? 24 : '50%',
+              transform: hasArtifact ? 'none' : 'translateX(-50%)',
+              maxWidth: hasArtifact ? '40vw' : '60vw',
+              textAlign: 'center',
+              zIndex: 100,
+              pointerEvents: 'none',
+            }}
+          >
+            <span style={{
+              color: 'rgba(255,255,255,0.75)',
+              fontSize: 18,
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              fontWeight: 400,
+              lineHeight: 1.5,
+              textShadow: '0 2px 12px rgba(0,0,0,0.8)',
+            }}>
+              {caption}
+            </span>
           </motion.div>
         )}
       </AnimatePresence>

@@ -46,7 +46,7 @@ export default function ArtifactReveal({ html, title, onClose }) {
         }}>x</button>
       </div>
       <div style={{ flex: 1, background: '#fff' }}>
-        <iframe ref={iframeRef} sandbox="allow-same-origin"
+        <iframe ref={iframeRef} sandbox="allow-same-origin allow-scripts"
           style={{ width: '100%', height: '100%', border: 'none' }} title="Artifact Preview" />
       </div>
     </motion.div>
