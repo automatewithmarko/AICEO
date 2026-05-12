@@ -5,7 +5,7 @@ import { useAudioAnalyser } from '../hooks/useAudioAnalyser';
 import { useRealtimeVoice } from '../hooks/useRealtimeVoice';
 import { supabase } from '../lib/supabase';
 import VoiceOrb from '../components/stagedemo/VoiceOrb';
-import CardLoader from '../components/stagedemo/CardLoader';
+import MockupRain from '../components/stagedemo/MockupRain';
 import ArtifactPanel from '../components/ArtifactPanel';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -633,10 +633,8 @@ export default function StageDemo() {
         )}
       </AnimatePresence>
 
-      {/* Card loader (generating) */}
-      <AnimatePresence>
-        {showCardLoader && <CardLoader key="card-loader" />}
-      </AnimatePresence>
+      {/* Mockup rain (generating) — 3D cards fly in from depth */}
+      <MockupRain active={showCardLoader} />
 
       {/* Artifact panel — slides in from right */}
       <AnimatePresence>
