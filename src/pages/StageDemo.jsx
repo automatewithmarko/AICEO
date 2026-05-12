@@ -6,6 +6,7 @@ import { useRealtimeVoice } from '../hooks/useRealtimeVoice';
 import { supabase } from '../lib/supabase';
 import VoiceOrb from '../components/stagedemo/VoiceOrb';
 import MockupRain from '../components/stagedemo/MockupRain';
+import { generateImage } from '../lib/api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -87,20 +88,99 @@ export default function StageDemo() {
       const isNewsletter = agentName === 'newsletter';
       const isLanding = agentName === 'landing-page' || agentName === 'squeeze-page';
       const isStory = agentName === 'story-sequence';
+
+      // Story sequences: set up frames with loading state, then generate images
+      const storyFrames = isStory && data.frames?.length
+        ? data.frames.map((f, i) => ({ ...f, imageSrc: null, loading: true, id: i }))
+        : data.frames || [];
+
       const newArtifact = {
         type: isNewsletter ? 'newsletter' : isStory ? 'story_sequence' : 'html_template',
         title: data.title || agentName,
         content: data.html,
         agentSource: agentName,
-        frames: data.frames || [],
+        frames: storyFrames,
       };
       artifactRef.current = newArtifact;
       setArtifact(newArtifact);
-      // Always pop the panel open on a fresh generation, even if the
-      // user had collapsed a previous artifact.
       setArtifactCollapsed(false);
 
       sendToolResult(callId, `Successfully generated ${data.agent}. The user can now see it on screen. Tell them what you built and ask if they want any changes.`);
+
+      // Generate images in the background (story frames + HTML placeholders)
+      if (isStory && storyFrames.length) {
+        // Load brand data for image generation
+        let brandData = null;
+        try {
+          const { data: { session: authSession } } = await supabase.auth.getSession();
+          if (authSession?.user) {
+            const { data: bdArr } = await supabase.from('brand_dna').select('*').eq('user_id', authSession.user.id).limit(1);
+            if (bdArr?.[0]) {
+              brandData = {
+                photoUrls: bdArr[0].photo_urls?.length ? [bdArr[0].photo_urls[0]] : [],
+                logoUrl: null,
+                colors: bdArr[0].colors || {},
+                mainFont: bdArr[0].main_font || null,
+              };
+            }
+          }
+        } catch {}
+
+        const visualStyle = storyFrames[0]?.visual_style || '';
+        Promise.all(storyFrames.map(async (frame, idx) => {
+          const captionText = frame.caption || frame.title || '';
+          const captionInstruction = captionText
+            ? `\n\nTEXT OVERLAY: Render ONE white pill text sticker with "${captionText}" in black bold sans-serif, centered upper third. No Instagram UI.`
+            : '';
+          const prompt = `${visualStyle ? `VISUAL STYLE: ${visualStyle}\n\n` : ''}Frame ${idx + 1} of ${storyFrames.length} in a cohesive Instagram Story sequence.\n\n${frame.image_prompt}${captionInstruction}`;
+          try {
+            const result = await generateImage(prompt, 'instagram_story', brandData);
+            if (result.image && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(result.image.mimeType)) {
+              const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+              setArtifact(prev => {
+                if (!prev) return null;
+                const updated = { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, imageSrc: src, loading: false } : f) };
+                artifactRef.current = updated;
+                return updated;
+              });
+            }
+          } catch (err) {
+            console.error(`Story frame ${idx + 1} image failed:`, err.message);
+            setArtifact(prev => {
+              if (!prev) return null;
+              const updated = { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, loading: false, error: true } : f) };
+              artifactRef.current = updated;
+              return updated;
+            });
+          }
+        }));
+      }
+
+      // Generate images for {{GENERATE:...}} placeholders in HTML
+      if (data.html?.includes('{{GENERATE:')) {
+        (async () => {
+          let html = data.html;
+          const matches = [...html.matchAll(/\{\{GENERATE:([\s\S]*?)\}\}/g)];
+          for (const match of matches) {
+            try {
+              const platform = isNewsletter ? 'newsletter' : 'landing_page';
+              const result = await generateImage(match[1].trim(), platform, null);
+              if (result.image) {
+                const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+                html = html.replace(match[0], src);
+              }
+            } catch {}
+          }
+          if (html !== data.html) {
+            setArtifact(prev => {
+              if (!prev) return null;
+              const updated = { ...prev, content: html };
+              artifactRef.current = updated;
+              return updated;
+            });
+          }
+        })();
+      }
 
       setPhase('artifact');
     } catch (err) {
@@ -720,26 +800,40 @@ export default function StageDemo() {
                 }}>
                   {artifact.frames.map((frame, i) => (
                     <div key={i} style={{
-                      flexShrink: 0, width: 220, borderRadius: 12,
+                      flexShrink: 0, width: 240, height: '85%', borderRadius: 16,
                       background: '#111', border: '1px solid rgba(255,255,255,0.08)',
-                      overflow: 'hidden',
+                      overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                      position: 'relative',
                     }}>
-                      {frame.image_prompt && (
-                        <div style={{
-                          height: 300, background: 'linear-gradient(135deg, #1a0a15, #0a0a1a)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          padding: 16,
-                        }}>
-                          <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, textAlign: 'center' }}>
+                      <div style={{
+                        flex: 1, background: 'linear-gradient(135deg, #1a0a15, #0a0a1a)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        position: 'relative', overflow: 'hidden',
+                      }}>
+                        {frame.loading ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                            <div style={{
+                              width: 28, height: 28, border: '2px solid rgba(233,25,69,0.3)',
+                              borderTopColor: '#e91945', borderRadius: '50%',
+                              animation: 'spin 1s linear infinite',
+                            }} />
+                            <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>Generating...</span>
+                          </div>
+                        ) : frame.imageSrc ? (
+                          <img src={frame.imageSrc} alt={frame.caption || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : frame.error ? (
+                          <span style={{ color: '#ef4444', fontSize: 12 }}>Failed</span>
+                        ) : (
+                          <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, padding: 16, textAlign: 'center' }}>
                             {frame.image_prompt}
                           </span>
-                        </div>
-                      )}
-                      <div style={{ padding: 14 }}>
-                        <div style={{ color: '#fff', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                        )}
+                      </div>
+                      <div style={{ padding: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div style={{ color: '#fff', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
                           {frame.title || `Frame ${i + 1}`}
                         </div>
-                        <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, lineHeight: 1.4 }}>
+                        <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, lineHeight: 1.4 }}>
                           {frame.caption}
                         </div>
                       </div>
@@ -856,6 +950,7 @@ export default function StageDemo() {
       )}
 
       <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
         .stagedemo-artifact-panel {
           position: fixed;
           top: 24px; right: 24px; bottom: 24px;
