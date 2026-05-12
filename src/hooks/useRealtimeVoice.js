@@ -48,6 +48,8 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
   const activeSourcesRef = useRef([]);
   const reconnectAttemptsRef = useRef(0);
   const currentResponseIdRef = useRef(null);
+  // Accumulate function call argument deltas (GA API sends them incrementally)
+  const fnCallAccRef = useRef({});
 
   // Get auth token
   const getToken = useCallback(async () => {
@@ -152,15 +154,25 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         if (msg.transcript) onTranscript?.('ai_full', msg.transcript);
         break;
 
-      case 'response.function_call_arguments.done':
-        // Tool call complete — execute it
-        console.log('[voice] Tool call:', msg.name, msg.arguments);
+      case 'response.function_call_arguments.delta':
+        // Accumulate argument deltas for this call_id
+        if (msg.call_id && msg.delta) {
+          fnCallAccRef.current[msg.call_id] = (fnCallAccRef.current[msg.call_id] || '') + msg.delta;
+        }
+        break;
+
+      case 'response.function_call_arguments.done': {
+        // Use accumulated deltas if .done doesn't include full arguments
+        const fullArgs = msg.arguments || fnCallAccRef.current[msg.call_id] || '{}';
+        delete fnCallAccRef.current[msg.call_id];
+        console.log('[voice] Tool call:', msg.name, fullArgs.slice(0, 200));
         if (onToolCall) {
           let args = {};
-          try { args = JSON.parse(msg.arguments); } catch {}
+          try { args = JSON.parse(fullArgs); } catch {}
           onToolCall(msg.name, args, msg.call_id);
         }
         break;
+      }
 
       case 'response.done':
         currentResponseIdRef.current = null;
