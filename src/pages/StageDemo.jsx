@@ -27,6 +27,13 @@ export default function StageDemo() {
   const [caption, setCaption] = useState('');
   const captionBufferRef = useRef('');
   const captionTimerRef = useRef(null);
+  // Captions on/off. Default on (good for audience during a stage demo);
+  // tiny CC button in the HUD flips it. Mirrored to a ref so the
+  // onTranscript callback can short-circuit without being rebuilt on
+  // every toggle (which would tear down the websocket message handler).
+  const [captionsEnabled, setCaptionsEnabled] = useState(true);
+  const captionsEnabledRef = useRef(true);
+  useEffect(() => { captionsEnabledRef.current = captionsEnabled; }, [captionsEnabled]);
 
   const animFrameRef = useRef(null);
   const spaceDownRef = useRef(false);
@@ -117,6 +124,10 @@ export default function StageDemo() {
       }
     },
     onTranscript: (role, data) => {
+      // Bail out early if captions are off. We still receive the
+      // transcript events from OpenAI (they ride the same WebSocket as
+      // the audio); we just don't bother buffering or rendering them.
+      if (!captionsEnabledRef.current) return;
       if (role === 'ai') {
         // Incremental delta — buffer and drip
         captionBufferRef.current += data;
@@ -329,8 +340,59 @@ export default function StageDemo() {
 
       <div style={{
         position: 'absolute', top: 20, right: 24, zIndex: 200,
-        display: 'flex', alignItems: 'center', gap: 14,
+        display: 'flex', alignItems: 'center', gap: 10,
       }}>
+        {/* Captions toggle — only shown while a session is live. Default
+            on for audience accessibility; off when the user wants a
+            cleaner stage. Clears any in-flight caption + buffer + drip
+            timer on the way down so a half-rendered sentence doesn't
+            stick around. */}
+        {isConnected && (
+          <button
+            type="button"
+            onClick={() => {
+              const next = !captionsEnabled;
+              setCaptionsEnabled(next);
+              if (!next) {
+                captionBufferRef.current = '';
+                if (captionTimerRef.current) {
+                  clearTimeout(captionTimerRef.current);
+                  captionTimerRef.current = null;
+                }
+                setCaption('');
+              }
+            }}
+            aria-label={captionsEnabled ? 'Turn captions off' : 'Turn captions on'}
+            aria-pressed={!captionsEnabled}
+            title={captionsEnabled ? 'Hide captions' : 'Show captions'}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 10px',
+              background: captionsEnabled ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
+              border: `1px solid ${captionsEnabled ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)'}`,
+              borderRadius: 8,
+              color: captionsEnabled ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)',
+              fontFamily: 'monospace', fontSize: 11, letterSpacing: 2,
+              textTransform: 'uppercase', cursor: 'pointer',
+              transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+            }}
+          >
+            <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 13, height: 13 }} aria-hidden="true">
+              <span style={{
+                fontFamily: 'monospace', fontSize: 10, fontWeight: 700,
+                letterSpacing: 0, lineHeight: 1,
+                opacity: captionsEnabled ? 1 : 0.55,
+              }}>CC</span>
+              {!captionsEnabled && (
+                <span style={{
+                  position: 'absolute', left: -1, right: -1, top: '50%',
+                  height: 1, background: 'currentColor', transform: 'rotate(-18deg)',
+                }} />
+              )}
+            </span>
+            <span>{captionsEnabled ? 'CC' : 'CC off'}</span>
+          </button>
+        )}
         {/* Mute toggle — only shown while a session is live. Honest mute:
             flips the MediaStream track so the browser mic indicator
             turns off too. See useRealtimeVoice.setMuted. */}
@@ -466,7 +528,7 @@ export default function StageDemo() {
 
       {/* Live captions */}
       <AnimatePresence>
-        {caption && isConnected && (
+        {caption && isConnected && captionsEnabled && (
           <motion.div
             key="caption"
             initial={{ opacity: 0, y: 10 }}
