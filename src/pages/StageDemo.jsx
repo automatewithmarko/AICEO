@@ -890,7 +890,11 @@ export default function StageDemo() {
       {isConnected && (
         <div className="stagedemo-mobile-bar" style={{
           position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
-          display: 'none', alignItems: 'center', gap: 16, zIndex: hasArtifact ? 200 : 300,
+          // Always above the mobile artifact panel (z=250) so mute /
+          // show-preview controls stay reachable while the panel is
+          // open. Previously dropped to 200 when hasArtifact, which put
+          // it BELOW the panel and hid the mic toggle on mobile.
+          display: 'none', alignItems: 'center', gap: 16, zIndex: 300,
         }}>
           {/* Artifact toggle */}
           {artifact && (
