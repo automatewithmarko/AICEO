@@ -24,6 +24,13 @@ export default function StageDemo() {
   const [orbScale, setOrbScale] = useState(1);
   const [error, setError] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  // Count of currently-in-flight server-side tools (lookups, action
+  // tools that resolve without a frontend artifact). Drives the loader
+  // animation for tools that never hit handleToolCall — without this
+  // the user sees zero feedback while the bot fetches data or
+  // schedules a post. Counter, not boolean, so concurrent tool calls
+  // don't fight each other (rare but cheap insurance).
+  const [serverToolBusy, setServerToolBusy] = useState(0);
 
   // Audio data for visualizations
   const [audioLevel, setAudioLevel] = useState(0);
@@ -309,6 +316,19 @@ export default function StageDemo() {
         if (captionTimerRef.current) { clearTimeout(captionTimerRef.current); captionTimerRef.current = null; }
       }
     },
+    onServerTool: (phase, name /*, ok */) => {
+      // Surfaced from our own WS proxy whenever the bot calls a
+      // server-side tool (lookup / schedule_post / etc.). Bumps the
+      // in-flight counter so the loader (MockupRain) renders even
+      // though the frontend's handleToolCall never fires for these.
+      if (phase === 'start') {
+        console.log('[stagedemo] server tool start:', name);
+        setServerToolBusy((n) => n + 1);
+      } else if (phase === 'end') {
+        console.log('[stagedemo] server tool end:', name);
+        setServerToolBusy((n) => Math.max(0, n - 1));
+      }
+    },
     onTranscript: (role, data) => {
       // Bail out early if captions are off. We still receive the
       // transcript events from OpenAI (they ride the same WebSocket as
@@ -486,7 +506,11 @@ export default function StageDemo() {
   // Separate signal — "we still have a saved artifact the user can
   // bring back". Drives the Show-preview pill in the HUD.
   const hasCollapsedArtifact = !!artifact && artifactCollapsed;
-  const showCardLoader = phase === 'generating';
+  // Show the loader whenever the bot is actively working — both
+  // frontend-dispatched generators (phase='generating') and server-side
+  // tools (serverToolBusy>0). For very fast lookups this flashes briefly,
+  // which is the intent: every tool call gets visible feedback.
+  const showCardLoader = phase === 'generating' || serverToolBusy > 0;
 
   return (
     <div style={{
