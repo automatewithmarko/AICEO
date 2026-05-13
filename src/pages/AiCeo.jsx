@@ -1197,8 +1197,18 @@ export default function AiCeo() {
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                 setArtifact(prev => {
+                  // Existing artifact: append the new image to whatever
+                  // type the panel is already showing. Don't reshape it.
                   if (prev) return { ...prev, images: [...(prev.images || []), { src }] };
-                  const newArt = { id: Date.now(), type: 'content_post', title: 'Generated Image', content: '', images: [{ src }] };
+                  // Fresh panel: use the new 'image' artifact type. This
+                  // gets a clean centered viewer (no fake Instagram
+                  // phone mockup) — generate_image with no platform
+                  // context isn't social content, so don't pretend it
+                  // is. Platform-targeted content (create_content with
+                  // instagram_post / linkedin_post / etc.) keeps the
+                  // 'content_post' type where the social wrapper makes
+                  // sense.
+                  const newArt = { id: Date.now(), type: 'image', title: 'Generated Image', content: '', images: [{ src }] };
                   setPanelOpen(true);
                   if (isMobileRef.current) setMobileArtifactOpen(true);
                   return newArt;
@@ -1208,7 +1218,7 @@ export default function AiCeo() {
                 // panel after they close it.
                 setMessages(prev => prev.map(m =>
                   m.id === assistantMsgId
-                    ? { ...m, hasArtifact: true, artifactTitle: 'Open preview', artifactType: 'content_post' }
+                    ? { ...m, hasArtifact: true, artifactTitle: 'Open preview', artifactType: 'image' }
                     : m
                 ));
               }

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download, ChevronRight, History, Undo2 } from 'lucide-react';
+import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download, ChevronRight, History, Undo2, Maximize2, Image as ImageIcon } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
@@ -589,6 +589,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
             {type === 'content_post' && <ContentPostRenderer content={content} images={images} pendingImages={artifact.pendingImages} agentSource={agentSource} />}
+            {type === 'image' && <ImageRenderer images={images} pendingImages={artifact.pendingImages} title={title} />}
             {type === 'code_block' && <CodeRenderer content={content} />}
             {type === 'markdown_doc' && <MarkdownRenderer content={content} />}
           </>
@@ -1266,6 +1267,96 @@ function ContentPostRenderer({ content, images, pendingImages, agentSource }) {
             {captionLong && !captionExpanded && (
               <button className="ap-social-more-link" onClick={() => setCaptionExpanded(true)}>more</button>
             )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ImageRenderer — clean centered viewer for plain generated images.
+// No social-mockup chrome, no fake username, no follow button. Used
+// when the user asked "generate me an image of X" — i.e. the bot's
+// generate_image tool with no platform context. Platform-targeted
+// content (instagram_post / linkedin_post / etc.) keeps using
+// ContentPostRenderer where the social wrapper is meaningful.
+function ImageRenderer({ images, pendingImages, title }) {
+  const list = useMemo(
+    () => [...(Array.isArray(images) ? images : [])].sort((a, b) => (a.idx || 0) - (b.idx || 0)),
+    [images]
+  );
+  const total = list.length;
+  const isLoading = (pendingImages || 0) > 0 && total === 0;
+  const [idx, setIdx] = useState(0);
+  const current = total > 0 ? list[Math.min(idx, total - 1)] : null;
+
+  useEffect(() => {
+    if (idx > total - 1) setIdx(Math.max(0, total - 1));
+  }, [total, idx]);
+
+  const handleDownload = async () => {
+    if (!current?.src) return;
+    try {
+      const res = await fetch(current.src, { mode: 'cors' });
+      const blob = await res.blob();
+      const ext = (blob.type.split('/')[1] || 'png').split('+')[0];
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      const base = (title || 'image').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'image';
+      a.download = `${base}${total > 1 ? `-${idx + 1}` : ''}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+    } catch (err) {
+      console.error('Image download failed:', err);
+      window.open(current.src, '_blank', 'noopener');
+    }
+  };
+
+  const handleFullscreen = () => {
+    if (!current?.src) return;
+    window.open(current.src, '_blank', 'noopener');
+  };
+
+  return (
+    <div className="ap-image-viewer">
+      <div className="ap-image-stage">
+        {isLoading ? (
+          <div className="ap-post-loading">
+            <span>Generating</span>
+          </div>
+        ) : current ? (
+          <>
+            <img src={current.src} alt={title || 'Generated image'} className="ap-image-img" />
+            {total > 1 && (
+              <>
+                <span className="ap-image-counter">{idx + 1}/{total}</span>
+                {idx > 0 && (
+                  <button className="ap-image-nav ap-image-nav--prev" onClick={() => setIdx((i) => i - 1)} aria-label="Previous">
+                    <ChevronLeft size={18} />
+                  </button>
+                )}
+                {idx < total - 1 && (
+                  <button className="ap-image-nav ap-image-nav--next" onClick={() => setIdx((i) => i + 1)} aria-label="Next">
+                    <ChevronRight size={18} />
+                  </button>
+                )}
+              </>
+            )}
+            <div className="ap-image-tools">
+              <button className="ap-image-tool" onClick={handleFullscreen} title="Open in new tab">
+                <Maximize2 size={14} />
+              </button>
+              <button className="ap-image-tool" onClick={handleDownload} title="Download">
+                <Download size={14} />
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="ap-post-loading">
+            <span>No image</span>
           </div>
         )}
       </div>
