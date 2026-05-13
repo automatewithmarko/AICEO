@@ -67,15 +67,33 @@ export default function StageDemo() {
 
     // create_content — AI already wrote the content, just display it
     if (toolName === 'create_content') {
-      const isCarousel = args.content_type === 'carousel';
-      const needsImage = ['instagram_post', 'linkedin_post', 'carousel'].includes(args.content_type);
-      const platform = args.content_type === 'linkedin_post' ? 'linkedin' : 'instagram';
+      // Loose-match the content_type so model drift ('linkedin' vs
+      // 'linkedin_post', 'instagram' vs 'instagram_post') doesn't make
+      // a LinkedIn post render with Instagram chrome. Defaults to
+      // instagram-flavoured behaviour for anything unrecognised.
+      const ct = String(args.content_type || '').toLowerCase();
+      const isCarousel = ct.includes('carousel');
+      const isLinkedin = ct.includes('linkedin');
+      const isInstagram = ct.includes('instagram') || ct.includes('insta');
+      const isSocial = isLinkedin || isInstagram || isCarousel;
+      const needsImage = isSocial;
+      const platform = isLinkedin ? 'linkedin' : 'instagram';
+      // Normalise agentSource so ArtifactPanel's SocialPreview
+      // dispatcher (which also pattern-matches on /linkedin/) routes
+      // correctly even if the model dropped the _post suffix.
+      const normalisedSource = isCarousel
+        ? 'carousel'
+        : isLinkedin
+          ? 'linkedin_post'
+          : isInstagram
+            ? 'instagram_post'
+            : (args.content_type || 'content');
 
       const newArtifact = {
         type: 'content_post',
         title: args.title || 'Content',
         content: args.content,
-        agentSource: args.content_type || 'content',
+        agentSource: normalisedSource,
         frames: [],
         images: [],
         pendingImages: needsImage ? (isCarousel ? (args.content.split(/\n---\n/).length || 1) : 1) : 0,

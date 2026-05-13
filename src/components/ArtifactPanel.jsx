@@ -593,10 +593,14 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
               <SocialPreview
                 msg={{
                   // Adapter — flatten the artifact shape into the
-                  // msg-shape SocialPreview expects. agentSource maps
-                  // to platform; everything else passes through.
+                  // msg-shape SocialPreview expects. Loose substring
+                  // match on agentSource so 'linkedin_post',
+                  // 'linkedin-post', plain 'linkedin', etc. all route
+                  // to the LinkedIn variant (some models drop the
+                  // _post suffix when emitting the enum value).
+                  // Default everything else to instagram.
                   id: artifact.id || `content-${type}-${(content || '').length}`,
-                  platform: agentSource === 'linkedin_post' ? 'linkedin' : 'instagram',
+                  platform: /linkedin/i.test(String(agentSource || '')) ? 'linkedin' : 'instagram',
                   images: images || [],
                   content: content || '',
                   pendingImages: artifact.pendingImages,
