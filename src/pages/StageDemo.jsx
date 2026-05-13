@@ -5,7 +5,7 @@ import { useAudioAnalyser } from '../hooks/useAudioAnalyser';
 import { useRealtimeVoice } from '../hooks/useRealtimeVoice';
 import { supabase } from '../lib/supabase';
 import VoiceOrb from '../components/stagedemo/VoiceOrb';
-import MockupRain from '../components/stagedemo/MockupRain';
+import CardLoader from '../components/stagedemo/CardLoader';
 import ArtifactPanel from '../components/ArtifactPanel';
 import { generateImage } from '../lib/api';
 
@@ -319,7 +319,7 @@ export default function StageDemo() {
     onServerTool: (phase, name /*, ok */) => {
       // Surfaced from our own WS proxy whenever the bot calls a
       // server-side tool (lookup / schedule_post / etc.). Bumps the
-      // in-flight counter so the loader (MockupRain) renders even
+      // in-flight counter so the loader (CardLoader) renders even
       // though the frontend's handleToolCall never fires for these.
       if (phase === 'start') {
         console.log('[stagedemo] server tool start:', name);
@@ -834,8 +834,15 @@ export default function StageDemo() {
         )}
       </AnimatePresence>
 
-      {/* Mockup rain (generating) — 3D cards fly in from depth */}
-      <MockupRain active={showCardLoader} />
+      {/* Loader (generating + any server tool in flight) — soft faded
+          translucent cards drifting in. The previous MockupRain swap
+          looked too high-contrast against the dark stage; reverted to
+          the original CardLoader, which uses 4% white fills + blurred
+          backdrop and reads as cinematic. Wrapped in AnimatePresence
+          so it fades in/out cleanly even for very brief server tools. */}
+      <AnimatePresence>
+        {showCardLoader && <CardLoader key="loader" />}
+      </AnimatePresence>
 
       {/* Artifact panel — uses real ArtifactPanel for accurate rendering */}
       <AnimatePresence>
