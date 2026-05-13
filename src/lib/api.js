@@ -2,12 +2,61 @@ import { supabase } from './supabase';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+// ─── Active workspace selection ──────────────────────────────────────
+// The current user can be a member of multiple workspaces (their own
+// + any they were invited to). The active workspace is stored in
+// localStorage as the owner_user_id of the workspace they're acting in.
+//
+// The key is SCOPED PER USER (`aiceo_active_workspace_<actorId>`) so
+// account-A's preference can't leak into account-B's session if they
+// share a browser. This was the root cause of the early "not_a_member"
+// bug — a single shared key meant a brand-new signup inherited the
+// previous user's workspace pointer and 403'd every request.
+const KEY_PREFIX = 'aiceo_active_workspace_';
+
+function workspaceKey(actorId) { return `${KEY_PREFIX}${actorId}`; }
+
+// Synchronous variants take an explicit actorId — used by getAuthHeaders
+// after it has the session in hand. Returns null when actorId is falsy
+// so callers don't have to special-case logged-out state.
+function getActiveWorkspaceOwnerSync(actorId) {
+  if (!actorId) return null;
+  try { return localStorage.getItem(workspaceKey(actorId)) || null; } catch { return null; }
+}
+function setActiveWorkspaceOwnerSync(actorId, ownerId) {
+  if (!actorId) return;
+  try {
+    if (ownerId) localStorage.setItem(workspaceKey(actorId), ownerId);
+    else localStorage.removeItem(workspaceKey(actorId));
+  } catch { /* ignore */ }
+}
+
+// Async variants resolve the actor from the current Supabase session.
+// These are the public API — most callers don't have actorId at hand
+// and would otherwise have to plumb it through.
+export async function getActiveWorkspaceOwner() {
+  const { data: { session } } = await supabase.auth.getSession();
+  return getActiveWorkspaceOwnerSync(session?.user?.id);
+}
+export async function setActiveWorkspaceOwner(ownerId) {
+  const { data: { session } } = await supabase.auth.getSession();
+  setActiveWorkspaceOwnerSync(session?.user?.id, ownerId);
+}
+
 async function getAuthHeaders() {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) return {};
-  return {
+  const headers = {
     Authorization: `Bearer ${session.access_token}`,
   };
+  // Only attach the workspace header when it's set AND differs from the
+  // actor's own id. Skipping it for the solo case keeps the request
+  // identical to the pre-RBAC shape and saves the backend a DB lookup.
+  const activeOwner = getActiveWorkspaceOwnerSync(session.user?.id);
+  if (activeOwner && session.user?.id && activeOwner !== session.user.id) {
+    headers['X-Workspace-Owner'] = activeOwner;
+  }
+  return headers;
 }
 
 /**
@@ -86,6 +135,21 @@ export async function streamFromBackend(endpoint, body, callbacks = {}, signal) 
         switch (event.type) {
           case 'text_delta':
             if (onTextDelta) onTextDelta(event.content);
+            break;
+          case 'debug_prompt':
+            // Backend echoes the assembled system prompt + last user
+            // message so it can be inspected from browser DevTools.
+            // Grouped collapsed so it doesn't dominate the console.
+            try {
+              const groupLabel = `[prompt] ${event.site || ''}${event.agent ? ' / ' + event.agent : ''} (model=${event.model || '?'})`;
+              console.groupCollapsed(groupLabel);
+              if (event.systemPrompt) console.log('--- systemPrompt ---\n' + event.systemPrompt);
+              if (event.lastUser) console.log('--- lastUser ---\n' + event.lastUser);
+              if (event.editInstruction) console.log('--- editInstruction ---\n' + event.editInstruction);
+              if (event.taskDescription) console.log('--- taskDescription ---\n' + event.taskDescription);
+              if (event.fileHtmlLen) console.log('fileHtmlLen:', event.fileHtmlLen);
+              console.groupEnd();
+            } catch { /* console API quirks — ignore */ }
             break;
           case 'status':
             if (onStatus) onStatus(event.text);
@@ -1448,3 +1512,40 @@ export async function createBillingPortalSession() {
   }
   return res.json();
 }
+
+// ─── Workspace / RBAC ────────────────────────────────────────────────
+
+async function jsonRequest(method, path, body) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 204) return null;
+  let parsed = null;
+  try { parsed = await res.json(); } catch { /* non-JSON */ }
+  if (!res.ok) {
+    const err = new Error(parsed?.error || `Request failed (${res.status})`);
+    err.status = res.status;
+    err.body = parsed;
+    throw err;
+  }
+  return parsed;
+}
+
+export const getWorkspaceMe         = ()                  => jsonRequest('GET',    '/api/workspace/me');
+export const getWorkspaceMembers    = ()                  => jsonRequest('GET',    '/api/workspace/members');
+export const updateWorkspaceMember  = (id, patch)         => jsonRequest('PATCH',  `/api/workspace/members/${id}`, patch);
+export const removeWorkspaceMember  = (id)                => jsonRequest('DELETE', `/api/workspace/members/${id}`);
+export const getWorkspaceRoles      = ()                  => jsonRequest('GET',    '/api/workspace/roles');
+export const updateWorkspaceRole    = (key, patch)        => jsonRequest('PUT',    `/api/workspace/roles/${key}`, patch);
+export const createWorkspaceRole    = (payload)           => jsonRequest('POST',   '/api/workspace/roles', payload);
+export const deleteWorkspaceRole    = (key)               => jsonRequest('DELETE', `/api/workspace/roles/${key}`);
+export const getWorkspaceInvites    = ()                  => jsonRequest('GET',    '/api/workspace/invites');
+export const createWorkspaceInvite  = (email, role_key)   => jsonRequest('POST',   '/api/workspace/invites', { email, role_key });
+export const revokeWorkspaceInvite  = (id)                => jsonRequest('DELETE', `/api/workspace/invites/${id}`);
+export const resendWorkspaceInvite  = (id)                => jsonRequest('POST',   `/api/workspace/invites/${id}/resend`);
+export const lookupWorkspaceInvite  = (token)             => jsonRequest('GET',    `/api/workspace/invites/lookup/${token}`);
+export const acceptWorkspaceInvite  = (token)             => jsonRequest('POST',   '/api/workspace/invites/accept', { token });
+export const leaveWorkspace         = (ownerId)           => jsonRequest('DELETE', `/api/workspace/leave/${ownerId}`);

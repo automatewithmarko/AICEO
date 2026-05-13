@@ -70,41 +70,52 @@ function CreditsIcon({ size = 16 }) {
   return <ImgIcon src="/icon-credits.png" alt="Credits" size={size} />;
 }
 
+// `tab` is the permission key checked against the user's workspace
+// permissions. Items without `tab` are unconditionally visible
+// (coming-soon teasers). Children inherit the parent's tab key.
+//
+// SYNC: tab keys here MUST match backend/services/workspace.js TAB_KEYS,
+// src/components/Layout.jsx ROUTE_TAB_MAP, and
+// src/components/TeamSettings.jsx TAB_LABELS. See the comment above
+// TAB_KEYS in workspace.js for the canonical list.
 const navItems = [
-  { to: '/ai-ceo', label: 'AI CEO', icon: AiCeoIcon },
-  { to: '/dashboard', label: 'Dashboard', icon: DashboardIcon },
+  { to: '/ai-ceo', label: 'AI CEO', icon: AiCeoIcon, tab: 'ai-ceo' },
+  { to: '/dashboard', label: 'Dashboard', icon: DashboardIcon, tab: 'dashboard' },
   {
     label: 'Content',
     icon: ContentIcon,
+    tab: 'content',
     children: [
       { to: '/content', label: 'Create Content', icon: CreateContentIcon },
       { to: '/outlier-detector', label: 'Outlier Detector', icon: OutlierDetectorIcon },
       { to: '/content-calendar', label: 'Content Calendar', icon: ContentCalendarIcon },
     ],
   },
-  { to: '/marketing', label: 'Marketing AI', icon: MarketingIcon },
+  { to: '/marketing', label: 'Marketing AI', icon: MarketingIcon, tab: 'marketing' },
   {
     label: 'Sales',
     icon: SalesIcon,
+    tab: 'sales',
     children: [
       { to: '/sales', label: 'Sales Overview', icon: SalesIcon },
       { to: '/products', label: 'Products', icon: ProductsIcon },
       { to: '/meetings', label: 'Call Recording', icon: ({ size }) => <CallRecordingIcon size={size * 1.4} /> },
     ],
   },
-  { to: '/inbox', label: 'Inbox', icon: InboxIcon },
-  { to: '/forms', label: 'Forms', icon: ({ size }) => <ImgIcon src="/icon-forms.svg" alt="Forms" size={size} /> },
-  { to: '/crm', label: 'CRM', icon: CrmIcon },
+  { to: '/inbox', label: 'Inbox', icon: InboxIcon, tab: 'inbox' },
+  { to: '/forms', label: 'Forms', icon: ({ size }) => <ImgIcon src="/icon-forms.svg" alt="Forms" size={size} />, tab: 'forms' },
+  { to: '/crm', label: 'CRM', icon: CrmIcon, tab: 'crm' },
   { label: 'Accounting', icon: AccountingIcon, comingSoon: true },
   { label: 'Press Placement', icon: PressPlacementIcon, comingSoon: true },
   { label: 'Reviews', icon: ReviewsIcon, comingSoon: true },
 ];
 
 export default function Sidebar() {
-  const { user, credits, logout } = useAuth();
+  const { user, credits, logout, can, workspace, switchWorkspace } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [openDropdowns, setOpenDropdowns] = useState({});
 
   const toggleDropdown = (label) => {
@@ -114,6 +125,17 @@ export default function Sidebar() {
   const isDropdownActive = (item) => {
     return item.children?.some((child) => location.pathname === child.to);
   };
+
+  // Filter nav items by the current workspace's permissions. Owner sees
+  // everything; members only see tabs whose `tab` key is in their
+  // permission set. Coming-soon teasers (no `tab`) always render.
+  const visibleNavItems = navItems.filter((item) => {
+    if (!item.tab) return true;
+    return can(item.tab);
+  });
+
+  const workspaces = workspace?.workspaces || [];
+  const showWorkspaceSwitcher = workspaces.length > 1;
 
   return (
     <aside className="sidebar">
@@ -128,7 +150,7 @@ export default function Sidebar() {
         </div>
 
         <nav className="sidebar-nav">
-          {navItems.map((item) =>
+          {visibleNavItems.map((item) =>
             item.children ? (
               <div key={item.label} className="sidebar-dropdown">
                 <div className={`sidebar-link sidebar-link--dropdown ${isDropdownActive(item) ? 'sidebar-link--active' : ''}`}>
@@ -205,15 +227,68 @@ export default function Sidebar() {
                   <span className="profile-email">{user?.email}</span>
                 </div>
               </div>
+              {showWorkspaceSwitcher && (
+                <>
+                  <div className="profile-divider" />
+                  <div className="profile-menu-section-label">Workspace</div>
+                  <button
+                    className="profile-menu-item"
+                    onClick={() => setWorkspaceMenuOpen((v) => !v)}
+                  >
+                    <span style={{ flex: 1, textAlign: 'left' }}>
+                      {workspaces.find((w) => w.ownerId === workspace?.activeOwnerId)?.label || 'Workspace'}
+                      {' '}
+                      <span style={{ opacity: 0.6, fontSize: 11 }}>
+                        ({workspace?.role})
+                      </span>
+                    </span>
+                    {workspaceMenuOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                  {workspaceMenuOpen && workspaces.map((w) => (
+                    <button
+                      key={w.ownerId}
+                      className={`profile-menu-item ${w.ownerId === workspace?.activeOwnerId ? 'profile-menu-item--active' : ''}`}
+                      style={{ paddingLeft: 28, fontSize: 12 }}
+                      onClick={async () => {
+                        setWorkspaceMenuOpen(false);
+                        setProfileOpen(false);
+                        await switchWorkspace(w.ownerId);
+                        navigate('/dashboard');
+                      }}
+                    >
+                      <span style={{ flex: 1, textAlign: 'left' }}>
+                        {w.label}
+                        <span style={{ opacity: 0.6, marginLeft: 6, fontSize: 11 }}>· {w.role}</span>
+                      </span>
+                    </button>
+                  ))}
+                </>
+              )}
               <div className="profile-divider" />
-              <button className="profile-menu-item" onClick={() => { navigate('/billing'); setProfileOpen(false); }}>
+              {/* Billing is personal, not workspace-scoped — every signed-in
+                  user has their own subscription to manage. If the actor is
+                  currently acting in someone else's workspace, switch back
+                  to their own first so the /billing page shows their plan
+                  rather than the host workspace's. */}
+              <button
+                className="profile-menu-item"
+                onClick={async () => {
+                  setProfileOpen(false);
+                  if (!workspace?.isOwner && user?.id) {
+                    await switchWorkspace(user.id);
+                  }
+                  navigate('/billing');
+                }}
+              >
                 <CreditCard size={16} />
                 <span>Billing & Credits</span>
               </button>
-              <button className="profile-menu-item" onClick={() => { navigate('/settings'); setProfileOpen(false); }}>
-                <Settings size={16} />
-                <span>Settings</span>
-              </button>
+              {(workspace?.isOwner || workspace?.canManageMembers) && (
+                <button className="profile-menu-item" onClick={() => { navigate('/settings'); setProfileOpen(false); }}>
+                  <Settings size={16} />
+                  <span>Settings</span>
+                </button>
+              )}
               <button className="profile-menu-item profile-menu-item--danger" onClick={logout}>
                 <LogOut size={16} />
                 <span>Sign Out</span>

@@ -598,10 +598,10 @@ export default function StageDemo() {
           </button>
         )}
         {/* Captions toggle — only shown while a session is live. Default
-            on for audience accessibility; off when the user wants a
-            cleaner stage. Clears any in-flight caption + buffer + drip
-            timer on the way down so a half-rendered sentence doesn't
-            stick around. */}
+            off (cleaner stage); button turns them on when needed for
+            audience accessibility. Clears any in-flight caption +
+            buffer + drip timer on the way down so a half-rendered
+            sentence doesn't stick around. */}
         {isConnected && (
           <button
             type="button"

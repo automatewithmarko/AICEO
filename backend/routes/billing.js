@@ -3,6 +3,7 @@ import { supabase } from '../services/storage.js';
 import { getUserPlan, getPlans } from '../services/plans.js';
 import { getCreditCosts, addCredits } from '../services/credits.js';
 import { stripe as getStripe, getStripePriceId } from '../services/stripe.js';
+import { requireOwner } from '../middleware/workspace.js';
 
 const router = Router();
 
@@ -50,30 +51,35 @@ router.get('/api/billing/plan', async (req, res) => {
   try {
     const planInfo = await getUserPlan(userId);
 
-    // Fetch full plan row for display_name
+    // Fetch full plan row for display_name. .maybeSingle() so a stale
+    // planInfo.plan that no longer exists in the plans table doesn't
+    // 406 the whole endpoint — it just returns no plan.
     let planRow = null;
     if (planInfo.plan) {
       const { data } = await supabase
         .from('plans')
         .select('*')
         .eq('id', planInfo.plan)
-        .single();
+        .maybeSingle();
       planRow = data;
     }
 
-    // Fetch subscription for period dates
+    // Fetch subscription for period dates. .maybeSingle() — fresh
+    // signups have no row, and we want a clean null in the response
+    // rather than a 406 from PostgREST.
     const { data: sub } = await supabase
       .from('subscriptions')
       .select('*')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
-    // Fetch current credit balance
+    // Same story for credits: brand-new accounts have no credits row
+    // until their first webhook seeds one.
     const { data: creditRow } = await supabase
       .from('credits')
       .select('balance')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     res.json({
       plan: planRow ? {
@@ -199,7 +205,7 @@ router.get('/api/billing/costs', async (_req, res) => {
 //
 // Body: { plan: 'complete' | 'diamond', boost?: boolean }
 // Returns: { url } — frontend redirects the browser to it.
-router.post('/api/billing/checkout', async (req, res) => {
+router.post('/api/billing/checkout', requireOwner, async (req, res) => {
   const userId = req.user?.id;
   if (!userId || userId === 'anonymous') {
     return res.status(401).json({ error: 'Auth required' });
@@ -315,7 +321,7 @@ router.post('/api/billing/checkout', async (req, res) => {
 //   1. subscriptions.stripe_customer_id (existing active/past user)
 //   2. profiles.stripe_customer_id (written by webhook / checkout)
 // Both are kept in sync so this is usually a single-row read.
-router.post('/api/billing/portal', async (req, res) => {
+router.post('/api/billing/portal', requireOwner, async (req, res) => {
   const userId = req.user?.id;
   if (!userId || userId === 'anonymous') {
     return res.status(401).json({ error: 'Auth required' });
@@ -392,7 +398,7 @@ function isValidPlan(p) {
 // ─── POST /api/billing/checkout/setup — one-time setup fee ───
 // Body: { plan: 'complete' | 'diamond' }
 // Returns: { url } — Stripe Checkout URL the frontend redirects to.
-router.post('/api/billing/checkout/setup', async (req, res) => {
+router.post('/api/billing/checkout/setup', requireOwner, async (req, res) => {
   const userId = req.user?.id;
   if (!userId || userId === 'anonymous') {
     return res.status(401).json({ error: 'Auth required' });
@@ -481,7 +487,7 @@ router.post('/api/billing/checkout/setup', async (req, res) => {
 // flow tight.
 const INSTALLMENT_KEYS = ['3x', '6x'];
 
-router.post('/api/billing/checkout/installment', async (req, res) => {
+router.post('/api/billing/checkout/installment', requireOwner, async (req, res) => {
   const userId = req.user?.id;
   if (!userId || userId === 'anonymous') {
     return res.status(401).json({ error: 'Auth required' });
@@ -571,7 +577,7 @@ router.post('/api/billing/checkout/installment', async (req, res) => {
 // ─── POST /api/billing/meeting/booked — confirm the user picked a time ───
 // Body: {} (no payload — user is identified via auth token)
 // Idempotent: returns 200 whether this is the first time or a re-confirmation.
-router.post('/api/billing/meeting/booked', async (req, res) => {
+router.post('/api/billing/meeting/booked', requireOwner, async (req, res) => {
   const userId = req.user?.id;
   if (!userId || userId === 'anonymous') {
     return res.status(401).json({ error: 'Auth required' });
@@ -642,7 +648,7 @@ router.post('/api/billing/meeting/booked', async (req, res) => {
 // Body: {} (plan is determined by the user's setup-fee payment, NOT by
 // the client — this prevents a user from paying $1997 for Complete then
 // quietly subscribing to a different recurring tier).
-router.post('/api/billing/checkout/monthly', async (req, res) => {
+router.post('/api/billing/checkout/monthly', requireOwner, async (req, res) => {
   const userId = req.user?.id;
   if (!userId || userId === 'anonymous') {
     return res.status(401).json({ error: 'Auth required' });

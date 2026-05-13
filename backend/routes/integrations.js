@@ -10,6 +10,7 @@ import * as netlify from '../services/integrations/netlify.js';
 import * as boosend from '../services/integrations/boosend.js';
 import * as linkedinApi from '../services/linkedin-api.js';
 import { requireFeature } from '../middleware/gate.js';
+import { requireOwner } from '../middleware/workspace.js';
 
 const router = Router();
 
@@ -183,7 +184,7 @@ router.post('/api/integrations/linkedin/post', requireFeature('linkedin_posting'
 });
 
 // Disconnect LinkedIn
-router.delete('/api/integrations/linkedin', async (req, res) => {
+router.delete('/api/integrations/linkedin', requireOwner, async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
@@ -215,7 +216,7 @@ router.get('/api/integrations', async (req, res) => {
 });
 
 // ─── Connect an integration ───
-router.post('/api/integrations/:provider/connect', async (req, res) => {
+router.post('/api/integrations/:provider/connect', requireOwner, async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
@@ -280,7 +281,7 @@ router.post('/api/integrations/:provider/connect', async (req, res) => {
 });
 
 // ─── Disconnect an integration ───
-router.delete('/api/integrations/:provider', async (req, res) => {
+router.delete('/api/integrations/:provider', requireOwner, async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 

@@ -29,8 +29,10 @@ import calendarRoutes from './routes/calendar.js';
 import carouselTemplateRoutes from './routes/carousel-templates.js';
 import billingRoutes from './routes/billing.js';
 import adminRoutes from './routes/admin.js';
+import workspaceRoutes from './routes/workspace.js';
 import stagedemoRoutes, { handleStagedemoUpgrade } from './routes/stagedemo.js';
 import { startEmailSync } from './services/email-sync.js';
+import { resolveContext } from './services/workspace.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -70,44 +72,107 @@ const JWKS = SUPABASE_URL
   ? createRemoteJWKSet(new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`))
   : null;
 
-async function requireAuth(req, res, next) {
+// Verify the Supabase JWT and return a minimal payload. Shared between
+// the full requireAuth (which then resolves workspace context) and
+// requireAuthOnly (which doesn't — used by endpoints that must work
+// even when the actor's persisted workspace is stale, e.g. the invite
+// acceptance endpoint that's the recovery mechanism for that exact
+// state).
+async function verifyJwt(req, res) {
   const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token || token === 'undefined') {
-    // No credentials at all — the route handler decides whether
-    // anonymous is acceptable (some endpoints allow it, some 401).
-    req.user = { id: 'anonymous' };
-    return next();
-  }
+  if (!token || token === 'undefined') return { kind: 'anonymous' };
 
   if (!JWKS) {
     console.error('[auth] SUPABASE_URL not set — cannot verify token');
-    return res.status(503).json({ error: 'auth_unavailable', reason: 'supabase_url_missing' });
+    res.status(503).json({ error: 'auth_unavailable', reason: 'supabase_url_missing' });
+    return { kind: 'sent_response' };
   }
 
   try {
     const { payload } = await jwtVerify(token, JWKS, {
-      // Supabase tokens always carry this issuer.
       issuer: `${SUPABASE_URL}/auth/v1`,
     });
     if (!payload.sub) {
-      return res.status(401).json({ error: 'invalid_token', reason: 'no_sub' });
+      res.status(401).json({ error: 'invalid_token', reason: 'no_sub' });
+      return { kind: 'sent_response' };
     }
-    req.user = {
-      id: payload.sub,
-      email: payload.email || null,
-      role: payload.role || null,
-    };
-    return next();
+    return { kind: 'ok', actorId: payload.sub, email: payload.email || null, authRole: payload.role || null };
   } catch (err) {
-    // jose error codes: ERR_JWT_EXPIRED, ERR_JWS_SIGNATURE_VERIFICATION_FAILED,
-    // ERR_JWKS_NO_MATCHING_KEY, ERR_JWT_CLAIM_VALIDATION_FAILED, etc.
-    // Logged at info level — a routine expired token should not be noisy.
     const code = err.code || err.message;
-    if (code !== 'ERR_JWT_EXPIRED') {
-      console.log('[auth] JWKS verify failed:', code);
-    }
-    return res.status(401).json({ error: 'invalid_token', reason: code });
+    if (code !== 'ERR_JWT_EXPIRED') console.log('[auth] JWKS verify failed:', code);
+    res.status(401).json({ error: 'invalid_token', reason: code });
+    return { kind: 'sent_response' };
   }
+}
+
+async function requireAuth(req, res, next) {
+  const v = await verifyJwt(req, res);
+  if (v.kind === 'sent_response') return;
+  if (v.kind === 'anonymous') {
+    req.user = { id: 'anonymous' };
+    return next();
+  }
+
+  const actorId = v.actorId;
+  const requestedOwner = req.headers['x-workspace-owner'] || req.query.workspace || null;
+
+  // Resolve workspace context. `req.user.id` is the EFFECTIVE owner —
+  // every existing route reads/writes against this, so a member acting
+  // in someone else's workspace transparently sees the owner's data.
+  // `req.user.actorId` is the real auth user (use for self-only writes
+  // like notifications, profile updates).
+  let ctx;
+  try {
+    ctx = await resolveContext(actorId, requestedOwner);
+  } catch (err) {
+    if (err.code === 'NOT_A_MEMBER') {
+      return res.status(403).json({ error: 'not_a_member' });
+    }
+    if (err.code === 'SUSPENDED') {
+      return res.status(403).json({ error: 'membership_suspended' });
+    }
+    console.error('[auth] resolveContext failed:', err.message);
+    return res.status(500).json({ error: 'workspace_context_failed' });
+  }
+
+  req.user = {
+    id: ctx.ownerId,
+    ownerId: ctx.ownerId,
+    actorId,
+    email: v.email,
+    authRole: v.authRole,
+    role: ctx.role,
+    permissions: ctx.permissions,
+    isOwner: ctx.isOwner,
+    canManageMembers: ctx.canManageMembers,
+  };
+  return next();
+}
+
+// Thin auth: JWT-only, no workspace resolution. Use for endpoints that
+// must work even when the actor's persisted workspace pointer is bad.
+// Sets req.user with actorId + email + a minimal `id`/`isOwner`
+// shape so existing helpers don't crash, but DOES NOT enforce
+// membership against any X-Workspace-Owner header.
+async function requireAuthOnly(req, res, next) {
+  const v = await verifyJwt(req, res);
+  if (v.kind === 'sent_response') return;
+  if (v.kind === 'anonymous') {
+    req.user = { id: 'anonymous' };
+    return next();
+  }
+  req.user = {
+    id: v.actorId,
+    actorId: v.actorId,
+    ownerId: v.actorId,
+    email: v.email,
+    authRole: v.authRole,
+    role: 'owner',
+    permissions: [],
+    isOwner: true,
+    canManageMembers: true,
+  };
+  return next();
 }
 
 // Health check
@@ -868,13 +933,32 @@ app.post('/api/outlier/scan/:creatorId', requireAuth, async (req, res) => {
   }
 });
 
+// Helper: gate a path-prefix on a tab permission. Owner always passes;
+// members must have the tab key in their workspace_roles permission set.
+// Anonymous (no token) gets a 401 from the check itself.
+function gateOnTab(prefix, tabKey) {
+  return (req, res, next) => {
+    if (!req.path.startsWith(prefix)) return next();
+    const u = req.user;
+    if (!u || u.id === 'anonymous') return res.status(401).json({ error: 'Authentication required' });
+    if (u.isOwner) return next();
+    if (Array.isArray(u.permissions) && u.permissions.includes(tabKey)) return next();
+    return res.status(403).json({ error: 'permission_denied', tab: tabKey });
+  };
+}
+
 // ─── Email routes (auth applied per-route inside) ───
+// Inbox tab gating — applies to the read/write surface that powers the
+// Inbox UI. The OAuth callback paths (/api/email/outlook/callback etc.)
+// stay open so the redirect can land before the user is fully attached
+// to a workspace.
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/email')) {
     return requireAuth(req, res, next);
   }
   next();
 });
+app.use(gateOnTab('/api/email', 'inbox'));
 app.use(emailRoutes);
 
 // ─── Integration routes (auth required) ───
@@ -891,13 +975,16 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/sales')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/sales', 'sales'));
 app.use(salesRoutes);
 
 // ─── Products routes (auth required) ───
+// Products lives under the Sales tab in the sidebar; gate on the same key.
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/products')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/products', 'sales'));
 app.use(productRoutes);
 
 // ─── Contacts/CRM routes (auth required) ───
@@ -905,6 +992,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/contacts')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/contacts', 'crm'));
 app.use(contactRoutes);
 
 // ─── Generate routes (auth required) ───
@@ -919,6 +1007,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/orchestrate')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/orchestrate', 'ai-ceo'));
 app.use(orchestrateRoutes);
 
 // ─── BooSend automation routes (auth required) ───
@@ -926,6 +1015,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/boosend')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/boosend', 'marketing'));
 app.use(boosendRoutes);
 
 // ─── CEO Notifications ───
@@ -1035,6 +1125,12 @@ app.use((req, res, next) => {
   }
   next();
 });
+// Tab gate skips public form-player paths; only the management surface
+// is gated by the 'forms' permission.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/forms') || req.path.startsWith('/api/forms/public')) return next();
+  return gateOnTab('/api/forms', 'forms')(req, res, next);
+});
 app.use(formRoutes);
 
 // ─── Dashboard stats route (auth required) ───
@@ -1042,6 +1138,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/dashboard-stats')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/dashboard-stats', 'dashboard'));
 app.use(dashboardRoutes);
 
 // ─── Artifact version history (auth required) ───
@@ -1052,10 +1149,12 @@ app.use((req, res, next) => {
 app.use(artifactVersionRoutes);
 
 // ─── Calendar routes (auth required) ───
+// Content Calendar is part of the Content tab; gate accordingly.
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/calendar')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/calendar', 'content'));
 app.use(calendarRoutes);
 
 // ─── Carousel templates (auth required) ───
@@ -1063,21 +1162,50 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/carousel-templates')) return requireAuth(req, res, next);
   next();
 });
+app.use(gateOnTab('/api/carousel-templates', 'marketing'));
 app.use(carouselTemplateRoutes);
 
 // ─── Billing routes (auth required, except /plans and /costs which are public-ish) ───
+// Billing is owner-only — workspace members never see Billing in the UI
+// and the backend rejects them too. The /plans and /costs endpoints are
+// catalog reads with no user-specific data, so the owner gate inside
+// billingRoutes is per-handler rather than blanket.
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/billing')) return requireAuth(req, res, next);
   next();
 });
 app.use(billingRoutes);
 
-// ─── Admin routes (auth + admin check required) ───
+// ─── Admin routes (auth + platform-admin check required) ───
+// "Platform admin" (Esforge employees) — separate concept from
+// workspace admin. Gated by requireAdmin inside adminRoutes.
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/admin')) return requireAuth(req, res, next);
   next();
 });
 app.use(adminRoutes);
+
+// ─── Workspace routes (members, roles, invites — auth required) ───
+// Two paths bypass workspace resolution intentionally:
+//
+//   POST /api/workspace/invites/accept
+//   GET  /api/workspace/invites/lookup/:token (preview, public-ish)
+//
+// These must work even when the actor's persisted X-Workspace-Owner
+// header points at a workspace they're not a member of — accept is
+// literally the recovery mechanism for that state, and lookup runs
+// before any acceptance has happened.
+app.use((req, res, next) => {
+  if (
+    req.path === '/api/workspace/invites/accept' ||
+    req.path.startsWith('/api/workspace/invites/lookup/')
+  ) {
+    return requireAuthOnly(req, res, next);
+  }
+  if (req.path.startsWith('/api/workspace')) return requireAuth(req, res, next);
+  next();
+});
+app.use(workspaceRoutes);
 
 // ─── Stage Demo routes (auth required) ───
 app.use((req, res, next) => {

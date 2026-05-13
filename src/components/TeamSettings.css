@@ -1,0 +1,242 @@
+.team-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.team-card {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+.team-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.team-card-header h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  flex: 1;
+}
+.team-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+.team-card-action {
+  background: transparent;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.team-card-action:hover { background: var(--hover, #f9fafb); }
+
+/* Invite form */
+.team-invite-form {
+  display: grid;
+  grid-template-columns: 1fr 160px auto;
+  gap: 8px;
+}
+.team-invite-form input,
+.team-invite-form select {
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  font-size: 13px;
+  background: var(--input-bg, #fff);
+}
+.team-invite-form button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary, #111);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.team-invite-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.team-invite-link {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--hover, #f9fafb);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.team-invite-link span { display: block; margin-bottom: 6px; opacity: 0.7; }
+.team-invite-link-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.team-invite-link-row code {
+  flex: 1;
+  font-size: 11px;
+  padding: 6px 8px;
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.team-invite-link-row button {
+  background: transparent;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.team-error {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #fef2f2;
+  color: #991b1b;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+/* List rows (members + invites) */
+.team-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.team-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border-soft, #f1f5f9);
+}
+.team-row:last-child { border-bottom: none; }
+.team-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.team-row-name { font-size: 13px; font-weight: 500; }
+.team-row-meta { font-size: 11px; opacity: 0.6; }
+.team-row-select {
+  padding: 4px 8px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  font-size: 12px;
+  background: var(--input-bg, #fff);
+}
+.team-row-action {
+  background: transparent;
+  border: none;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.team-row-action:hover { opacity: 1; background: var(--hover, #f9fafb); }
+
+.team-settings-empty {
+  font-size: 12px;
+  opacity: 0.6;
+  margin: 0;
+  padding: 12px 0;
+}
+
+/* New role drawer */
+.team-new-role {
+  background: var(--hover, #f9fafb);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.team-new-role-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.team-new-role-fields input {
+  padding: 6px 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.team-new-role-fields button {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary, #111);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.team-new-role-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.team-tab-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Permission matrix */
+.team-perm-matrix {
+  overflow-x: auto;
+}
+.team-perm-matrix table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.team-perm-matrix th,
+.team-perm-matrix td {
+  padding: 8px 6px;
+  text-align: center;
+  border-bottom: 1px solid var(--border-soft, #f1f5f9);
+  white-space: nowrap;
+}
+.team-perm-matrix th:first-child,
+.team-perm-matrix td:first-child {
+  text-align: left;
+  font-weight: 500;
+}
+.team-perm-matrix th { font-size: 11px; opacity: 0.7; font-weight: 500; }
+.team-perm-row--owner { background: var(--hover, #fafbfc); }
+.team-perm-row--owner td:first-child { font-weight: 600; }
+.team-perm-on { color: #16a34a; }
+.team-perm-tag {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--border-soft, #f1f5f9);
+  border-radius: 8px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+.team-perm-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.team-perm-actions button {
+  padding: 4px 10px;
+  font-size: 11px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--primary, #111);
+  color: #fff;
+  cursor: pointer;
+}
+.team-perm-actions button:disabled { opacity: 0.5; }

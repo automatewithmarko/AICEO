@@ -61,10 +61,15 @@ router.get('/api/admin/users/:id', requireAdmin, async (req, res) => {
     const { data: authData, error: authErr } = await supabase.auth.admin.getUserById(userId);
     if (authErr || !authData?.user) return res.status(404).json({ error: 'User not found' });
 
+    // .maybeSingle() so the admin detail page works for accounts that
+    // never paid (no subscription row), never received credits (no
+    // credits row), or never had a profile populated. Previously each
+    // missing row caused a 406 that was caught by the outer try/catch
+    // and surfaced as a generic 500.
     const [profileRes, subRes, creditRes, txRes] = await Promise.all([
-      supabase.from('profiles').select('full_name, avatar_url, created_at').eq('id', userId).single(),
-      supabase.from('subscriptions').select('*').eq('user_id', userId).single(),
-      supabase.from('credits').select('balance').eq('user_id', userId).single(),
+      supabase.from('profiles').select('full_name, avatar_url, created_at').eq('id', userId).maybeSingle(),
+      supabase.from('subscriptions').select('*').eq('user_id', userId).maybeSingle(),
+      supabase.from('credits').select('balance').eq('user_id', userId).maybeSingle(),
       supabase.from('credit_transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(50),
     ]);
 

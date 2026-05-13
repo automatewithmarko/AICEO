@@ -1,0 +1,3 @@
+-- Placeholder for pre-existing migration 20260307202151 applied via raw SQL.
+-- Schema is live on remote; this file exists so the CLI's local/remote
+-- migration history sync check passes for new pushes.

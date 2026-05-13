@@ -12,6 +12,7 @@
 // Server enforces the order so a tampered client can't skip a step.
 
 import { useEffect, useState, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Check, Crown, Star, Loader2, CalendarCheck, ArrowRight, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -113,7 +114,8 @@ function getCalendlyUrl(plan) {
 }
 
 export default function OnboardingFunnel() {
-  const { refreshUser, planData, planResolved } = useAuth();
+  const { user, refreshUser, planData, planResolved, workspace, switchWorkspace, logout } = useAuth();
+  const location = useLocation();
   // Local copy of subscription state so we can re-poll after the user
   // returns from a Stripe Checkout success URL without waiting for the
   // top-level AuthContext refresh to complete.
@@ -179,6 +181,25 @@ export default function OnboardingFunnel() {
       : 'setup';
   }, [sub, freeYearActive]);
 
+  // Skip the funnel on invite-acceptance pages — the invitee shouldn't
+  // be force-fed pricing in the middle of joining a workspace, and the
+  // funnel overlay would otherwise hide the InviteAccept UI entirely.
+  if (location.pathname.startsWith('/invite/')) return null;
+
+  // Skip the funnel when the actor is acting in someone else's workspace
+  // (member, not owner). Members consume the workspace owner's plan, so
+  // their personal billing state is irrelevant — only the owner is
+  // expected to complete the setup → meeting → monthly funnel.
+  if (workspace && !workspace.isOwner && workspace.activeOwnerId !== user?.id) return null;
+
+  // Don't render until /api/billing/plan has returned 2xx at least once
+  // for this session. Without this guard, a transient 401/5xx caused the
+  // Plans overlay to flash over the dashboards of paying users (their
+  // real subscription was reduced to null when the fetch failed). The
+  // post-checkout poll inside the loadingState branch flips planResolved
+  // back to true, so this guard never blocks the success-URL flow.
+  if (!planResolved && !loadingState) return null;
+
   // Don't render until /api/billing/plan has returned 2xx at least once
   // for this session. Without this guard, a transient 401/5xx caused the
   // Plans overlay to flash over the dashboards of paying users (their
@@ -197,9 +218,75 @@ export default function OnboardingFunnel() {
   // polling settles.
   if (stepKey === 'done' && !loadingState) return null;
 
+  // Escape hatch: if the user has memberships in OTHER workspaces, surface
+  // a one-click switch back to one of them. Without this, a user who lands
+  // here (no plan in their own workspace) is trapped — every URL they
+  // navigate to renders behind this fullscreen backdrop.
+  const otherWorkspaces = (workspace?.workspaces || []).filter(
+    (w) => w.ownerId !== user?.id
+  );
+
   return (
     <div className="of-backdrop">
       <div className="of-stepper">
+        {/* Always-available sign-out so a user trapped on this fullscreen
+            overlay (no plan, no other workspaces) isn't locked into the
+            app. The sidebar is hidden behind the backdrop, so without
+            this button the only way out would be browser DevTools. */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <button
+            onClick={logout}
+            style={{
+              background: 'transparent',
+              border: '1px solid #cbd5e1',
+              borderRadius: 6,
+              padding: '4px 10px',
+              fontSize: 11,
+              color: '#475569',
+              cursor: 'pointer',
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+        {otherWorkspaces.length > 0 && (
+          <div style={{
+            background: '#f1f5f9',
+            border: '1px solid #cbd5e1',
+            borderRadius: 10,
+            padding: '10px 14px',
+            marginBottom: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            fontSize: 13,
+          }}>
+            <span style={{ opacity: 0.85 }}>
+              You're a member of {otherWorkspaces.length === 1 ? 'another workspace' : `${otherWorkspaces.length} other workspaces`}
+              {' '}— switch to {otherWorkspaces.length === 1 ? 'it' : 'one'} if you don't need a personal AICEO subscription right now.
+            </span>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {otherWorkspaces.map((w) => (
+                <button
+                  key={w.ownerId}
+                  onClick={async () => { await switchWorkspace(w.ownerId); }}
+                  style={{
+                    padding: '6px 12px',
+                    background: '#111',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Switch to {w.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <Stepper current={loadingState ? 'setup' : stepKey} freeYear={freeYearActive} />
         {loadingState ? (
           <div className="of-finalising">

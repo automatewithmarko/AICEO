@@ -3,10 +3,19 @@ import { useAuth } from '../context/AuthContext';
 import { describeAuthError } from '../lib/supabase';
 import './LoginScreen.css';
 
-export default function LoginScreen() {
+// `defaultMode` — initial form ('login' or 'signup'). Invitees default
+// to 'signup' since they typically don't have an account.
+// `signupRedirectTo` — passed through to Supabase as emailRedirectTo
+// so confirmation links return the user to the right page (used by
+// the invite-acceptance flow to preserve /invite/:token).
+// `lockedEmail` — when set (used by the invite flow), the email field
+// is pre-filled and READ-ONLY in BOTH modes. Prevents the case where
+// an invitee types the wrong address, creates a phantom account, then
+// gets bounced by the backend's email-mismatch check on accept.
+export default function LoginScreen({ defaultMode = 'login', signupRedirectTo = null, lockedEmail = null } = {}) {
   const { login, signup } = useAuth();
-  const [mode, setMode] = useState('login'); // 'login' | 'signup'
-  const [email, setEmail] = useState('');
+  const [mode, setMode] = useState(defaultMode); // 'login' | 'signup'
+  const [email, setEmail] = useState(lockedEmail || '');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -30,12 +39,18 @@ export default function LoginScreen() {
     }
   };
 
-  const handleSignup = async (plan) => {
+  const handleSignup = async () => {
     setError('');
     setSubmitting(true);
     try {
-      await signup(email, password, plan, name);
-      setConfirmEmail(true);
+      const result = await signup(email, password, name, { redirectTo: signupRedirectTo });
+      // If Supabase email confirmation is OFF, signUp returns a session
+      // immediately and AuthContext picks it up — no need to show the
+      // "Check Your Email" dead-end. Only show it when the user genuinely
+      // has to act on a confirmation email before logging in.
+      if (!result?.session) {
+        setConfirmEmail(true);
+      }
     } catch (err) {
       setError(describeAuthError(err));
     } finally {
@@ -93,13 +108,14 @@ export default function LoginScreen() {
             <p className="login-subtext">Sign in to your AI CEO dashboard</p>
             <form className="login-form" onSubmit={handleLogin}>
               <div className="form-group">
-                <label htmlFor="email">Email</label>
+                <label htmlFor="email">Email{lockedEmail && <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.6 }}>(from your invite)</span>}</label>
                 <input
                   id="email"
                   type="email"
                   placeholder="you@company.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => !lockedEmail && setEmail(e.target.value)}
+                  readOnly={!!lockedEmail}
                   required
                 />
               </div>
@@ -136,7 +152,7 @@ export default function LoginScreen() {
 
             <form
               className="signup-fields"
-              onSubmit={(e) => { e.preventDefault(); handleSignup(null); }}
+              onSubmit={(e) => { e.preventDefault(); handleSignup(); }}
             >
               <div className="form-group">
                 <label htmlFor="signup-name">Full Name</label>
@@ -150,13 +166,14 @@ export default function LoginScreen() {
                 />
               </div>
               <div className="form-group">
-                <label htmlFor="signup-email">Email</label>
+                <label htmlFor="signup-email">Email{lockedEmail && <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.6 }}>(from your invite — can't be changed)</span>}</label>
                 <input
                   id="signup-email"
                   type="email"
                   placeholder="you@company.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => !lockedEmail && setEmail(e.target.value)}
+                  readOnly={!!lockedEmail}
                   required
                 />
               </div>

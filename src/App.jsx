@@ -24,6 +24,7 @@ import FormResponses from './pages/FormResponses';
 import FormPlayer from './pages/FormPlayer';
 import MicrosoftPages from './pages/MicrosoftPages';
 import Docs from './pages/Docs';
+import InviteAccept from './pages/InviteAccept';
 import StageDemo from './pages/StageDemo';
 
 function App() {
@@ -45,6 +46,7 @@ function App() {
         <Route path="/terms" element={<MicrosoftPages />} />
         <Route path="/shared/:token" element={<SharedMeeting />} />
         <Route path="/f/:slug" element={<FormPlayer />} />
+        <Route path="/invite/:token" element={<InviteAccept />} />
         <Route path="*" element={<LoginScreen />} />
       </Routes>
     );
@@ -59,6 +61,7 @@ function App() {
       <Route path="/terms" element={<MicrosoftPages />} />
       <Route path="/shared/:token" element={<SharedMeeting />} />
       <Route path="/f/:slug" element={<FormPlayer />} />
+      <Route path="/invite/:token" element={<InviteAccept />} />
       <Route path="/stagedemo" element={<StageDemo />} />
       <Route element={<Layout />}>
         <Route path="/ai-ceo" element={<AiCeo />} />

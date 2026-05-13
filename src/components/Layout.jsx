@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { navItems } from './Sidebar';
 import { useAuth } from '../context/AuthContext';
@@ -10,6 +10,33 @@ import CreditPill from './CreditPill';
 import MobileProfileButton from './MobileProfileButton';
 import NotificationBell from './NotificationBell';
 import './Layout.css';
+
+// Route-prefix → tab-key map used by the permission guard. Order matters:
+// more-specific prefixes must come BEFORE shorter ones (e.g.
+// /content-calendar before /content). Routes not listed are unprotected
+// (Docs, Shared meeting, Form player handled outside Layout).
+//
+// SYNC: tab values here MUST match backend/services/workspace.js TAB_KEYS,
+// src/components/Sidebar.jsx navItems[].tab, and
+// src/components/TeamSettings.jsx TAB_LABELS.
+const ROUTE_TAB_MAP = [
+  { prefix: '/ai-ceo',           tab: 'ai-ceo' },
+  { prefix: '/dashboard',        tab: 'dashboard' },
+  { prefix: '/content-calendar', tab: 'content' },
+  { prefix: '/outlier-detector', tab: 'content' },
+  { prefix: '/content',          tab: 'content' },
+  { prefix: '/marketing',        tab: 'marketing' },
+  { prefix: '/inbox',            tab: 'inbox' },
+  { prefix: '/sales',            tab: 'sales' },
+  { prefix: '/products',         tab: 'sales' },
+  { prefix: '/meetings',         tab: 'sales' },
+  { prefix: '/forms',            tab: 'forms' },
+  { prefix: '/crm',              tab: 'crm' },
+];
+
+function tabForPath(pathname) {
+  return ROUTE_TAB_MAP.find((r) => pathname.startsWith(r.prefix))?.tab || null;
+}
 
 function TopBar({ accounts, selectedAccountId, setSelectedAccountId, onAddAccount, onRemoveAccount }) {
   const location = useLocation();
@@ -151,9 +178,45 @@ function isMobile() {
 export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { workspace, can } = useAuth();
   const touchRef = useRef({ startX: 0, startY: 0, swiping: false });
   const [slideDir, setSlideDir] = useState(null); // 'left' or 'right'
   const prevPath = useRef(location.pathname);
+
+  // First tab the active workspace can see. Used as the redirect target
+  // when a member lands on a denied URL. Falls back to /dashboard
+  // (which itself will redirect again if denied — eventually settling
+  // on whatever the user can see, or staying empty if nothing).
+  const firstAllowedPath = useMemo(() => {
+    if (!workspace) return '/dashboard';
+    if (workspace.isOwner) return '/dashboard';
+    const order = ['dashboard', 'ai-ceo', 'content', 'marketing', 'inbox', 'sales', 'crm', 'forms'];
+    for (const t of order) {
+      if (workspace.permissions?.includes(t)) {
+        return ROUTE_TAB_MAP.find((r) => r.tab === t)?.prefix || '/dashboard';
+      }
+    }
+    return '/dashboard';
+  }, [workspace]);
+
+  // Permission guard: if the current route maps to a tab the user
+  // can't see, bounce them to firstAllowedPath. Settings/Billing get
+  // their own gates (admin-or-owner / owner-only).
+  useEffect(() => {
+    if (!workspace) return;
+    if (location.pathname.startsWith('/billing') && !workspace.isOwner) {
+      navigate(firstAllowedPath, { replace: true });
+      return;
+    }
+    if (location.pathname.startsWith('/settings') && !workspace.isOwner && !workspace.canManageMembers) {
+      navigate(firstAllowedPath, { replace: true });
+      return;
+    }
+    const tab = tabForPath(location.pathname);
+    if (tab && !can(tab)) {
+      navigate(firstAllowedPath, { replace: true });
+    }
+  }, [location.pathname, workspace, can, navigate, firstAllowedPath]);
 
   // Email account state (shared with Inbox via outlet context)
   const [emailAccounts, setEmailAccounts] = useState([]);

@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, ChevronDown, FileText, Loader, Plus, Dna, Calendar } from 'lucide-react';
 import ColorWheelPicker from '../components/ColorWheelPicker';
 import FontSelector from '../components/FontSelector';
+import TeamSettings from '../components/TeamSettings';
 import { uploadBrandDnaFiles, uploadContextFiles, getIntegrations, connectIntegration, disconnectIntegration, getLinkedInAuthUrl, disconnectLinkedIn, getEmailAccounts, addEmailAccount, deleteEmailAccount, syncEmailAccount, getOutlookAuthUrl, connectOutlookCallback } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
@@ -31,7 +32,7 @@ const DOC_TYPES = [
 ];
 
 export default function Settings() {
-  const { user, credits, features, planData } = useAuth();
+  const { user, credits, features, planData, workspace } = useAuth();
   const [passwordReset, setPasswordReset] = useState(false);
   const [integrations, setIntegrations] = useState({});
   const [integrationsLoading, setIntegrationsLoading] = useState(true);
@@ -782,6 +783,15 @@ export default function Settings() {
         </div>
       </div>
 
+      {/* Team Section — invite members, manage roles & permissions.
+          The component itself shows a friendly empty state for non-admins. */}
+      {(workspace?.isOwner || workspace?.canManageMembers) && (
+        <div className="settings-section">
+          <h2 className="settings-section-title">Team</h2>
+          <TeamSettings />
+        </div>
+      )}
+
       {/* Integrations Section */}
       <div className="settings-section">
         <h2 className="settings-section-title">Integrations</h2>
@@ -814,7 +824,17 @@ export default function Settings() {
                         : integrations[nt.id]?.is_active ? 'Connected' : 'Not connected'}
                   </span>
                 </div>
-                {nt.id === 'linkedin' ? (
+                {/* Connect / Disconnect controls are owner-only — third-party
+                    credentials belong to the workspace owner, and disconnecting
+                    them (e.g. Stripe, LinkedIn) breaks live customer flows.
+                    Workspace admins / members see the connection status but no
+                    action button. Backend enforces the same; this is just so
+                    the UI doesn't tempt them. */}
+                {!workspace?.isOwner ? (
+                  <span style={{ fontSize: 11, opacity: 0.55, fontStyle: 'italic' }}>
+                    Owner only
+                  </span>
+                ) : nt.id === 'linkedin' ? (
                   integrations.linkedin?.is_active ? (
                     <button
                       className="settings-btn settings-btn--danger"
