@@ -63,6 +63,7 @@ If the user asks where to do something, name the tab. Don't recite the full list
 What you can DO right now in this conversation:
 - Build a marketing artifact for them via the generate_* tools (newsletter, landing page, squeeze page, lead magnet, story sequence, DM automation).
 - Create social media posts, carousels, reel scripts, email drafts via create_content. YOU write the content directly — no agent needed. Just call the tool with the content you wrote.
+- Generate a single image from a prompt via generate_image. Use for "make me an image of …", "give me a mockup", "show me what … would look like". Square is the safe default aspect; only ask about aspect if the request is ambiguous (story vs landscape).
 - Edit the artifact currently on screen via edit_artifact.
 - Pull LIVE DATA from their account via the get_* tools (sales summary, top outliers, contacts, emails, content calendar, form responses, calls/meetings, Stripe payments, overall dashboard).
 - Answer strategy / advice / business questions using their Brand DNA and Soul Notes.
@@ -75,7 +76,7 @@ WHEN TO USE TOOLS:
 - Empty results are fine: "Nothing scheduled this week" / "No new contacts" — just say it plainly.
 
 What you CANNOT do yet in this conversation (don't promise these — point them to the relevant tab instead):
-- Publish to LinkedIn / Instagram, schedule posts, deploy a site, send email, generate images. These live in other tabs of AICEO or are coming soon to this conversation.
+- Publish to LinkedIn / Instagram, schedule posts, deploy a site, send email. These live in other tabs of AICEO or are coming soon to this conversation.
 
 WORKFLOW — MARKETING ASSETS:
 When the user wants to create a newsletter, landing page, squeeze page, story sequence, lead magnet, or DM automation:
@@ -236,6 +237,23 @@ function buildRealtimeTools() {
           instruction: { type: 'string', description: 'What to change (e.g. "make the headline bigger", "change CTA to red")' },
         },
         required: ['instruction'],
+      },
+    },
+    {
+      type: 'function',
+      name: 'generate_image',
+      description: 'Generate a single image from a text prompt. Use when the user asks for an image, photo, mockup, illustration, or visual that does not need to be a multi-frame content post or carousel. For Instagram/LinkedIn content posts with copy + image together, use create_content instead.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'Detailed description of the image to generate. Be specific about subject, style, mood, lighting.' },
+          aspect: {
+            type: 'string',
+            description: 'Aspect ratio. Square is the safe default.',
+            enum: ['square', 'portrait', 'landscape', 'story'],
+          },
+        },
+        required: ['prompt'],
       },
     },
     {
@@ -513,21 +531,29 @@ async function toolGetRecentContacts(userId, args) {
 async function toolGetRecentEmails(userId, args) {
   const folder = args.folder || 'inbox';
   const limit = Math.min(Math.max(args.limit || 5, 1), 15);
-  const { data } = await supabase
+  // NOTE: emails table has body_text, NOT snippet. Earlier version
+  // selected a 'snippet' column that doesn't exist — PostgREST 4xx'd
+  // the request silently, our caller saw data:null, and the bot said
+  // "no emails" even though the inbox was full.
+  const { data, error } = await supabase
     .from('emails')
-    .select('subject, from_email, to_emails, date, snippet')
+    .select('subject, from_email, from_name, date, body_text')
     .eq('user_id', userId)
     .eq('folder', folder)
     .order('date', { ascending: false })
     .limit(limit);
+  if (error) {
+    console.error('[stagedemo-tool] get_recent_emails:', error.message);
+    return { ok: false, reason: 'lookup_failed' };
+  }
   return {
     ok: true,
     folder,
     count: data?.length || 0,
     emails: (data || []).map((e) => ({
       subject: e.subject,
-      from: e.from_email,
-      preview: (e.snippet || '').slice(0, 120),
+      from: e.from_name || e.from_email,
+      preview: (e.body_text || '').replace(/\s+/g, ' ').trim().slice(0, 120),
       received: e.date,
     })),
   };
@@ -765,6 +791,68 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
       const editData = await editRes.json();
       const editedHtml = editData.content?.[0]?.text || currentHtml;
       return res.json({ html: editedHtml, agent: 'edit', title: 'Edited artifact' });
+    }
+
+    // ─── Phase 3 — Image generation ──────────────────────────────
+    // Server-to-server proxy to /api/generate/image (Gemini). Returns
+    // base64 image data; we wrap it in a minimal HTML page so the
+    // existing ArtifactPanel html_template renderer can show it
+    // without any new artifact type or frontend changes. The original
+    // endpoint already enforces credits + brand context; we just pass
+    // the user's JWT through.
+    if (tool === 'generate_image') {
+      if (!args.prompt) return res.status(400).json({ error: 'prompt_required' });
+      const aspectToPlatform = {
+        square: 'instagram',
+        portrait: 'linkedin_carousel',
+        landscape: 'youtube',
+        story: 'instagram_story',
+      };
+      const platform = aspectToPlatform[args.aspect] || 'instagram';
+      const authHeader = req.headers.authorization || '';
+      const internalPort = process.env.PORT || 3001;
+
+      let imgRes;
+      try {
+        imgRes = await fetch(`http://127.0.0.1:${internalPort}/api/generate/image`, {
+          method: 'POST',
+          headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: args.prompt, platform }),
+        });
+      } catch (err) {
+        console.error('[stagedemo] image gen request threw:', err.message);
+        return res.status(502).json({ error: 'image_failed', detail: 'internal_fetch_failed' });
+      }
+
+      if (!imgRes.ok) {
+        const errText = await imgRes.text().catch(() => '');
+        console.error('[stagedemo] image gen failed:', imgRes.status, errText.slice(0, 300));
+        return res.status(imgRes.status).json({ error: 'image_failed', detail: errText.slice(0, 200) });
+      }
+      const imgData = await imgRes.json();
+      if (!imgData?.image?.data) {
+        return res.status(502).json({ error: 'image_failed', detail: 'no_image_data' });
+      }
+
+      // Embed as data URL — keeps the pipeline single-hop and avoids a
+      // round-trip to Supabase storage. ~500KB-1.5MB base64 for 1K
+      // images; the artifact panel renders fine.
+      const mime = imgData.image.mimeType || 'image/png';
+      const dataUrl = `data:${mime};base64,${imgData.image.data}`;
+      const title = args.prompt.split(/\s+/).slice(0, 4).join(' ');
+      const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><style>
+  html,body{margin:0;height:100%;background:#0a0a0a;color:#eee;font-family:system-ui,-apple-system,sans-serif}
+  .wrap{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;gap:14px}
+  img{max-width:100%;max-height:80vh;object-fit:contain;display:block;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
+  .caption{opacity:0.5;font-size:13px;text-align:center;max-width:560px;line-height:1.45}
+</style></head><body>
+  <div class="wrap">
+    <img src="${dataUrl}" alt=""/>
+    <div class="caption">${args.prompt.replace(/[<>&"]/g, (c) => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}</div>
+  </div>
+</body></html>`;
+      return res.json({ html, agent: 'image', title });
     }
 
     // Map tool name to agent name
