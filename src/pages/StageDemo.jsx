@@ -78,7 +78,10 @@ export default function StageDemo() {
       setArtifactCollapsed(false);
       setPhase('artifact');
 
-      sendToolResult(callId, `Content created and displayed. Tell the user what you wrote.`);
+      // CRITICAL: do NOT instruct the bot to read the content. The preview
+      // panel shows it visually — speaking the full post body out loud is
+      // an audiobook nobody asked for. One short confirmation, that's it.
+      sendToolResult(callId, `Content is on screen. Say ONE short line like "Done, take a look" — do NOT read the post body out loud. Only describe what's on screen if the user explicitly asks.`);
 
       // Generate images
       if (needsImage) {
@@ -198,7 +201,9 @@ export default function StageDemo() {
       setArtifact(newArtifact);
       setArtifactCollapsed(false);
 
-      sendToolResult(callId, `Successfully generated ${data.agent}. The user can now see it on screen. Tell them what you built and ask if they want any changes.`);
+      // One short line — the user can read the artifact themselves. Do NOT
+      // describe or read the generated content aloud unless they ask.
+      sendToolResult(callId, `${data.agent} is on screen. Say ONE short line like "Done, what do you think?" — do NOT read the content out loud.`);
 
       // Generate images in the background (story frames + HTML placeholders)
       if (isStory && storyFrames.length) {

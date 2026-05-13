@@ -72,8 +72,16 @@ WHEN TO USE TOOLS:
 - For ANYTHING numerical, recent, or specific to the user's account ("how's revenue?", "any new contacts?", "what's in my inbox?", "what's viral right now?") → CALL the matching get_* tool. Never guess numbers. Never bluff "I don't have access" — you do, use the tool.
 - For identity / brand / preferences / who they are → trust what's already in this prompt (Brand DNA, Soul Notes, Products).
 - After calling a tool, speak the result naturally in one short sentence. Don't read fields aloud, summarize ("Up 15% this week, 12 deals.").
-- If a tool returns ok:false, just move on with something like "I can't pull that right now" — DO NOT say "timeout" or "error" or anything technical. Audience is watching.
 - Empty results are fine: "Nothing scheduled this week" / "No new contacts" — just say it plainly.
+
+NEVER READ GENERATED CONTENT OUT LOUD:
+When you call create_content, generate_image, or any generate_* tool, the result goes into the preview panel on screen. The user can READ it themselves. Your job after a successful generation is one short line — "Done, take a look" / "Built that — what do you think?" — NOT to read the post body / email body / image description back to them. They didn't ask for an audiobook. Only read it aloud if they explicitly say "read it out loud" or "what does it say?".
+
+HANDLING TOOL FAILURES (action tools — schedule, deploy, publish, send):
+When an action tool returns ok:false it ALSO returns a fallback_hint. Speak the fallback_hint VERBATIM (or nearly so) — it's already written to sound human. Don't apologize at length. Don't say "I encountered an error." Don't speak the technical reason. Two patterns:
+- retryable:true (timeouts, network blips) → end with "Want me to try again?"
+- retryable:false (auth expired, integration not connected, invalid input) → speak the hint, which already includes how to do it manually inside AICEO. Don't add more.
+For READ tools (get_*), ok:false is silent — just say "I can't pull that right now" and move on.
 
 What you CANNOT do yet in this conversation (don't promise these — point them to the relevant tab instead):
 - Publish to LinkedIn / Instagram, schedule posts, deploy a site, send email. These live in other tabs of AICEO or are coming soon to this conversation.
@@ -382,12 +390,35 @@ function buildRealtimeTools() {
         },
       },
     },
+
+    // ─── PHASE 3 — Action tools — server-side, with graceful fallback ───
+    {
+      type: 'function',
+      name: 'schedule_post',
+      description: 'Schedule a social media post for a future date/time. Adds it to the Content Calendar so it shows up there. Use when the user says "schedule this for tomorrow at 9am", "queue this for Tuesday", "post this next week". If the user just made a content post via create_content, you already have the content — reuse it.',
+      parameters: {
+        type: 'object',
+        properties: {
+          platform: { type: 'string', description: 'Where to publish: instagram, linkedin, facebook, twitter, tiktok, youtube. Ask the user if unclear.' },
+          scheduled_at: { type: 'string', description: 'ISO 8601 datetime, e.g. "2026-05-15T09:00:00Z". Convert relative phrases ("tomorrow 9am", "Tuesday at 3pm") to an absolute timestamp before calling. Assume UTC if no timezone is given.' },
+          content: { type: 'string', description: 'The post body / caption text.' },
+          title: { type: 'string', description: 'Optional short label for the calendar entry. Defaults to the first line of content.' },
+        },
+        required: ['platform', 'scheduled_at', 'content'],
+      },
+    },
   ];
 }
 
-// ─── PHASE 2: Tool registry + dispatch ──────────────────────────────
-// Tools that resolve server-side (lookups). Generators / edit stay on
-// the frontend path because they need to update the artifact panel.
+// ─── PHASE 2+3: Tool registry + dispatch ────────────────────────────
+// SERVER_SIDE_TOOLS resolve inside the WS handler — no frontend
+// round-trip. Includes:
+//   - lookups (get_*) — read-only data fetches
+//   - actions (schedule_*, save_*, etc) — small writes with no UI
+//     artifact, just a verbal confirmation or fallback hint.
+// Generators (generate_*, create_content, edit_artifact, future
+// deploy_to_netlify) stay on the frontend dispatch path because they
+// need to update the artifact panel.
 const LOOKUP_TOOLS = new Set([
   'get_dashboard_stats',
   'get_sales_summary',
@@ -398,7 +429,17 @@ const LOOKUP_TOOLS = new Set([
   'get_form_responses',
   'get_recent_calls',
   'get_payment_history',
+  // Phase 3 actions that also dispatch server-side (no UI artifact).
+  'schedule_post',
 ]);
+
+// Helper for action-tool failures. Shape is the contract the bot
+// reads — fallback_hint becomes the verbatim spoken response, so it
+// MUST sound human and include the manual AICEO escape path when
+// retry won't help.
+function actionFail(reason, fallback_hint, { retryable = false } = {}) {
+  return { ok: false, reason, retryable, fallback_hint };
+}
 
 // Demo-safety wrapper: every tool must return within 4s. On timeout or
 // throw, we return a sanitized {ok:false} that the model is prompted
@@ -672,6 +713,49 @@ async function toolGetRecentCalls(userId, args) {
   };
 }
 
+// ─── PHASE 3 — Action tool implementations ──────────────────────────
+
+async function toolSchedulePost(userId, args) {
+  if (!args?.platform) return actionFail('missing_platform', "I need to know where to post it — Instagram, LinkedIn, somewhere else?");
+  if (!args?.scheduled_at) return actionFail('missing_time', "I need a date and time to schedule it for. When do you want it to go out?");
+  if (!args?.content) return actionFail('missing_content', "I don't have the post text. Tell me what to schedule.");
+
+  const when = new Date(args.scheduled_at);
+  if (isNaN(when.getTime())) {
+    return actionFail('invalid_date', "I couldn't make sense of that date. Try giving me a specific day and time.");
+  }
+  if (when.getTime() < Date.now() - 60_000) {
+    return actionFail('past_date', "That's in the past. Pick a future date and I'll queue it up.");
+  }
+
+  const title = (args.title || args.content.split('\n')[0] || '').slice(0, 80);
+  const platform = String(args.platform).toLowerCase().trim();
+
+  const { error } = await supabase.from('social_posts').insert({
+    user_id: userId,
+    platform,
+    title,
+    caption: args.content,
+    scheduled_at: when.toISOString(),
+    status: 'scheduled',
+  });
+
+  if (error) {
+    console.error('[stagedemo-tool] schedule_post insert failed:', error.message);
+    return actionFail(
+      'db_failed',
+      "Couldn't save that to the calendar right now. You can add it manually in Content → Content Calendar — just click '+ New post', paste the text, and pick the time.",
+      { retryable: true },
+    );
+  }
+  return {
+    ok: true,
+    platform,
+    scheduled_at: when.toISOString(),
+    summary: `${platform} post scheduled for ${when.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}.`,
+  };
+}
+
 // Dispatch — invoked from the WS handler when OpenAI calls a lookup tool.
 async function executeLookupTool(name, args, userId) {
   return runWithTimeout(name, async () => {
@@ -685,6 +769,7 @@ async function executeLookupTool(name, args, userId) {
       case 'get_form_responses': return toolGetFormResponses(userId, args);
       case 'get_recent_calls': return toolGetRecentCalls(userId, args);
       case 'get_payment_history': return toolGetPaymentHistory(userId, args);
+      case 'schedule_post': return toolSchedulePost(userId, args);
       default: return { ok: false, reason: 'unknown_tool' };
     }
   });
