@@ -1207,8 +1207,7 @@ function ContentPostRenderer({ content, images, pendingImages, agentSource }) {
         <div className={`ap-social-media${isLinkedin ? ' ap-social-media--li' : ''}`}>
           {isLoading ? (
             <div className="ap-post-loading">
-              <div className="ap-post-loading-spinner" />
-              <span>Generating image...</span>
+              <span>Generating</span>
             </div>
           ) : current ? (
             <>
@@ -1369,9 +1368,7 @@ function StorySequenceRenderer({ frames }) {
 
         <div className="ap-story-frame">
           {frame.loading ? (
-            <div className="ap-story-frame-loading">
-              <div className="ap-story-spinner" />
-            </div>
+            <div className="ap-story-frame-loading" />
           ) : frame.imageSrc ? (
             <img src={frame.imageSrc} alt={frame.caption || ''} className="ap-story-frame-img" />
           ) : frame.error ? (

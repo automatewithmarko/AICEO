@@ -681,27 +681,51 @@
   font-size: 14px; cursor: pointer; padding: 0; margin-left: 4px;
 }
 
+/* Soft cinematic shimmer used while an image is generating.
+   Replaces the old red-spinner placeholder which felt jarring next to
+   the stagedemo's dark aesthetic. Same animation re-used for story
+   frames below — keeps every "image is loading" surface visually
+   consistent across the panel. */
 .ap-post-loading {
+  position: absolute;
+  inset: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  color: rgba(255,255,255,0.4);
-  font-size: 13px;
+  justify-content: center;
+  background: #0b0b0c;
+  overflow: hidden;
+  color: rgba(255,255,255,0.32);
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-weight: 500;
 }
-
+.ap-post-loading::before {
+  content: "";
+  position: absolute;
+  inset: -60%;
+  background: linear-gradient(
+    115deg,
+    transparent 38%,
+    rgba(255,255,255,0.025) 46%,
+    rgba(255,255,255,0.085) 50%,
+    rgba(255,255,255,0.025) 54%,
+    transparent 62%
+  );
+  animation: ap-img-shimmer 2.8s linear infinite;
+  pointer-events: none;
+}
+/* The legacy spinner div is still rendered by ContentPostRenderer.
+   We hide it instead of touching the JSX — the shimmer above is the
+   whole visual now. */
 .ap-post-loading-spinner {
-  width: 32px;
-  height: 32px;
-  border: 2.5px solid rgba(255,255,255,0.1);
-  border-top-color: var(--brand-red, #e91945);
-  border-radius: 50%;
-  animation: ap-post-spin 0.8s linear infinite;
+  display: none;
 }
 
-@keyframes ap-post-spin {
-  to { transform: rotate(360deg); }
+@keyframes ap-img-shimmer {
+  0%   { transform: translate(-30%, -30%); }
+  100% { transform: translate(30%, 30%); }
 }
 
 .ap-post-image {
@@ -1532,32 +1556,35 @@
   display: block;
 }
 
+/* Story-frame image placeholder — share the same soft cinematic
+   shimmer as the content-post placeholder (defined above). The
+   previous purple gradient + spinning circle felt out of place
+   against the otherwise muted dark panel. */
 .ap-story-frame-loading {
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
-  animation: apStoryPulse 2s ease-in-out infinite;
+  position: relative;
+  background: #0b0b0c;
+  overflow: hidden;
 }
-
+.ap-story-frame-loading::before {
+  content: "";
+  position: absolute;
+  inset: -60%;
+  background: linear-gradient(
+    115deg,
+    transparent 38%,
+    rgba(255,255,255,0.025) 46%,
+    rgba(255,255,255,0.085) 50%,
+    rgba(255,255,255,0.025) 54%,
+    transparent 62%
+  );
+  animation: ap-img-shimmer 2.8s linear infinite;
+  pointer-events: none;
+}
+/* Hide the legacy spinner div; the shimmer is the whole visual. */
 .ap-story-spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid rgba(255,255,255,0.15);
-  border-top-color: rgba(255,255,255,0.7);
-  border-radius: 50%;
-  animation: apStorySpin 0.8s linear infinite;
-}
-
-@keyframes apStorySpin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes apStoryPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+  display: none;
 }
 
 .ap-story-frame-empty {
