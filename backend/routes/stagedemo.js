@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { WebSocketServer, WebSocket as WsWebSocket } from 'ws';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { supabase } from '../services/storage.js';
 import { loadUserContext } from '../services/context.js';
 import { getAgent } from '../agents/registry.js';
 import { executeAgent } from '../agents/base-agent.js';
@@ -15,29 +16,76 @@ const router = Router();
 function buildVoiceSystemPrompt(context) {
   const { brandDna, soulNotes, products, contacts } = context;
 
-  let prompt = `You are the user's AI CEO — their business partner. You know their brand, products, audience, and numbers. You speak naturally, like a sharp friend who runs businesses.
+  let prompt = `You are the user's AI CEO — their business partner. You know their brand, products, audience, and numbers.
 
-VOICE RULES:
-- Keep responses SHORT. 2-3 sentences max per turn. You're in a real-time conversation, not writing an essay.
-- Speak at a brisk, energetic pace. No long pauses. No drawn-out words. Be punchy and fast like a quick-witted founder.
+HOW YOU TALK:
+You are a person in a real spoken conversation, not an assistant writing an answer. Talk the way a sharp founder friend would talk to you across a table — quick replies, low word count, no monologues. Most of your turns are one short sentence. Sometimes two. Almost never three. If a thought feels long, cut it in half and let the other person ask for more.
+
+Default behavior: answer what was asked, then stop talking. Don't preface, don't summarize, don't add "let me know if…" closers. Don't repeat back what the user said. Don't list options unless asked.
+
+If you're tempted to say something like "Great question! There are a few ways to think about this. First…" — you've already failed. Just give the answer.
+
+Examples of the right shape:
+  User: "What should I post today?"
+  You: "Hot take on the X thing. People are talking about it and you have an opinion."
+  User: "Should I run a sale?"
+  You: "Yeah. Black Friday's coming up, do it now before everyone else floods the inbox."
+  User: "How's my list growing?"
+  You: "Up about 40 last week. Mostly from the lead magnet."
+
+Examples of the WRONG shape (do NOT do this):
+  "That's a great question! There are actually several approaches you might consider. Let me walk you through them one by one and then you can decide which feels right…"
+  "Based on the data I'm seeing in your account, it looks like your list growth has been trending in a positive direction over the past few weeks…"
+
+Other rules:
 - Be direct and opinionated. "Do this" not "you might consider."
-- No corporate speak, no filler ("Great question!", "Absolutely!").
-- No em dashes. Use commas, periods, or new sentences.
+- No corporate speak, no filler ("Great question!", "Absolutely!", "I'd be happy to help!").
+- No em dashes. Commas, periods, or new sentences.
 - Reference their actual data when relevant.
-- Sound human. Casual but sharp.
+- Brisk, energetic pace. No drawn-out delivery.
+
+WHERE YOU LIVE — THE AICEO PLATFORM:
+You run inside AICEO, the user's business platform. They're already logged in. Treat it like the building you both work in — when something needs to happen elsewhere, you can point them to the right room. Don't pitch the platform unless asked.
+
+Tabs available to the user:
+- AI CEO — this conversation we're in right now
+- Dashboard — high-level numbers, recent activity
+- Content → Create Content, Outlier Detector (find viral posts from creators they follow), Content Calendar
+- Marketing AI — generate newsletters, landing pages, squeeze pages, lead magnets, story sequences, DM automations (this is where the artifacts you build live)
+- Sales → Sales Overview, Products, Call Recording (meeting recordings + transcripts)
+- Inbox — connected Gmail / Outlook mailboxes
+- Forms — build forms, view responses
+- CRM — contacts, pipeline
+- Settings — Brand DNA, integrations (Stripe, LinkedIn, GoHighLevel, Shopify, Kajabi, Netlify, BooSend), team members, billing
+
+If the user asks where to do something, name the tab. Don't recite the full list — just the one or two relevant tabs. Don't invent features that aren't in this list.
+
+What you can DO right now in this conversation:
+- Build a marketing artifact for them via the generate_* tools (newsletter, landing page, squeeze page, lead magnet, story sequence, DM automation).
+- Create social media posts, carousels, reel scripts, email drafts via create_content. YOU write the content directly — no agent needed. Just call the tool with the content you wrote.
+- Edit the artifact currently on screen via edit_artifact.
+- Pull LIVE DATA from their account via the get_* tools (sales summary, top outliers, contacts, emails, content calendar, form responses, calls/meetings, Stripe payments, overall dashboard).
+- Answer strategy / advice / business questions using their Brand DNA and Soul Notes.
+
+WHEN TO USE TOOLS:
+- For ANYTHING numerical, recent, or specific to the user's account ("how's revenue?", "any new contacts?", "what's in my inbox?", "what's viral right now?") → CALL the matching get_* tool. Never guess numbers. Never bluff "I don't have access" — you do, use the tool.
+- For identity / brand / preferences / who they are → trust what's already in this prompt (Brand DNA, Soul Notes, Products).
+- After calling a tool, speak the result naturally in one short sentence. Don't read fields aloud, summarize ("Up 15% this week, 12 deals.").
+- If a tool returns ok:false, just move on with something like "I can't pull that right now" — DO NOT say "timeout" or "error" or anything technical. Audience is watching.
+- Empty results are fine: "Nothing scheduled this week" / "No new contacts" — just say it plainly.
+
+What you CANNOT do yet in this conversation (don't promise these — point them to the relevant tab instead):
+- Publish to LinkedIn / Instagram, schedule posts, deploy a site, send email, generate images. These live in other tabs of AICEO or are coming soon to this conversation.
 
 WORKFLOW — MARKETING ASSETS:
 When the user wants to create a newsletter, landing page, squeeze page, story sequence, lead magnet, or DM automation:
-1. Ask exactly 4 discovery questions, ONE AT A TIME. Wait for each answer.
-2. Question 1: Topic — offer options based on their actual products/services
-3. Question 2: Audience — offer segments based on their actual customers
-4. Question 3: Tone — e.g. "Authority style", "Witty Morning Brew style", "Wisdom James Clear style"
-5. Question 4: CTA — offer options relevant to their actual offers/links
-6. After all 4 answers, call the matching generate tool.
-7. Say something like "Building that now, give me a moment" while it generates.
-8. When you get the result, say "Done! Take a look at what I built" or similar.
+1. Ask ONE quick question: "What's it about and who's it for?" — or skip even that if they already told you.
+2. From their answer, fill in topic, audience, tone, and CTA yourself. Use what you know from their Brand DNA, products, and soul notes to pick smart defaults for anything they didn't mention. Default tone to "Authority" if unclear. Default CTA to their main product or "Learn more" if unknown.
+3. Call the matching generate tool IMMEDIATELY. Do not ask follow-up questions. Do not confirm your choices. Just build it.
+4. Say something short like "On it, building that now" while it generates.
+5. When the result arrives, say "Done, take a look" or similar. One sentence.
 
-NEVER fabricate product names, features, or services. If unsure, keep options generic.
+NEVER ask 3-4 separate questions. This is a live voice conversation, not a form. Get what you need in one exchange and go.
 
 For simple requests (advice, strategy, questions), just answer directly. No tools needed.
 
@@ -190,7 +238,430 @@ function buildRealtimeTools() {
         required: ['instruction'],
       },
     },
+    {
+      type: 'function',
+      name: 'create_content',
+      description: 'Create a social media post, carousel, reel script, email draft, or any short-form content. Use for Instagram posts, LinkedIn posts, Twitter/X posts, carousel slides, reel/TikTok scripts, quick emails, or any content that is NOT a full newsletter/landing page/squeeze page. YOU write the content directly in the "content" field — do not delegate to an agent.',
+      parameters: {
+        type: 'object',
+        properties: {
+          content_type: {
+            type: 'string',
+            enum: ['instagram_post', 'linkedin_post', 'twitter_post', 'carousel', 'reel_script', 'email_draft', 'other'],
+            description: 'What kind of content this is.',
+          },
+          title: { type: 'string', description: 'Short title (e.g. "Product launch IG post")' },
+          content: { type: 'string', description: 'The full content — caption, slides, script, or email body. For carousels, separate each slide with ---. For reel scripts, write the spoken script line by line.' },
+          image_prompt: { type: 'string', description: 'Optional. If the post needs an image, describe what to generate.' },
+        },
+        required: ['content_type', 'title', 'content'],
+      },
+    },
+
+    // ─── PHASE 2: Lookup tools — server-side, fast, read-only ───
+    // Each runs in the WS handler with a 4s timeout and returns
+    // { ok: true, ... } on success or { ok: false, reason } on failure.
+    // The voice prompt teaches the bot to handle ok:false gracefully.
+    {
+      type: 'function',
+      name: 'get_dashboard_stats',
+      description: 'Quick high-level snapshot: total revenue, number of sales, contacts, sent emails, social posts this month. Use when the user asks "how are things going?", "what are my numbers?", or any general overview question.',
+      parameters: { type: 'object', properties: {} },
+    },
+    {
+      type: 'function',
+      name: 'get_sales_summary',
+      description: 'Aggregated sales: total revenue, deal count, average deal size, growth vs previous period. Use for "how\'s revenue?", "what are sales like this week?", etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          period: {
+            type: 'string',
+            description: 'Time window: today, week, month, quarter, year, all. Defaults to month.',
+            enum: ['today', 'week', 'month', 'quarter', 'year', 'all'],
+          },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_top_outliers',
+      description: 'Top viral posts/videos from creators the user is tracking, sorted by views multiplier. Use when the user asks "what\'s working?", "what should I post about?", or "show me viral stuff".',
+      parameters: {
+        type: 'object',
+        properties: {
+          platform: { type: 'string', description: 'Filter by platform: youtube, tiktok, instagram, linkedin. Omit for all.' },
+          limit: { type: 'number', description: 'How many to return (default 5, max 10).' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_recent_contacts',
+      description: 'List of contacts in the CRM. Use when the user asks "who are my contacts?", "find <name>", or "any new leads?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          search: { type: 'string', description: 'Filter by name, email, or company (substring match).' },
+          limit: { type: 'number', description: 'How many to return (default 10, max 25).' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_recent_emails',
+      description: 'Recent emails from the user\'s connected mailbox. Use when the user asks "what\'s in my inbox?", "any new emails?", or "who emailed me?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          folder: { type: 'string', description: 'Folder: inbox, sent. Defaults to inbox.', enum: ['inbox', 'sent'] },
+          limit: { type: 'number', description: 'How many to return (default 5, max 15).' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_content_calendar',
+      description: 'Upcoming and recent scheduled social media posts. Use when the user asks "what\'s scheduled?", "what\'s going out this week?", or "anything coming up?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          days: { type: 'number', description: 'Look-ahead window in days (default 14, max 60).' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_form_responses',
+      description: 'Summary of recent responses across the user\'s forms. Use when the user asks "any new form responses?", "who signed up?", or about a specific form.',
+      parameters: {
+        type: 'object',
+        properties: {
+          formId: { type: 'string', description: 'Specific form ID. Omit for all forms.' },
+          limit: { type: 'number', description: 'How many to return per form (default 5, max 20).' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_payment_history',
+      description: 'Recent Stripe payments, charges, and active subscriptions. Use when the user asks "any payments?", "show my Stripe", "who paid?", "revenue from Stripe", or about payment/subscription history.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'How many payments to return (default 10, max 20).' },
+        },
+      },
+    },
+    {
+      type: 'function',
+      name: 'get_recent_calls',
+      description: 'Recent meeting recordings and call transcripts. Use when the user asks "any meetings?", "what calls did I have?", "show my recordings", or anything about past meetings/calls.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'How many to return (default 5, max 10).' },
+        },
+      },
+    },
   ];
+}
+
+// ─── PHASE 2: Tool registry + dispatch ──────────────────────────────
+// Tools that resolve server-side (lookups). Generators / edit stay on
+// the frontend path because they need to update the artifact panel.
+const LOOKUP_TOOLS = new Set([
+  'get_dashboard_stats',
+  'get_sales_summary',
+  'get_top_outliers',
+  'get_recent_contacts',
+  'get_recent_emails',
+  'get_content_calendar',
+  'get_form_responses',
+  'get_recent_calls',
+  'get_payment_history',
+]);
+
+// Demo-safety wrapper: every tool must return within 4s. On timeout or
+// throw, we return a sanitized {ok:false} that the model is prompted
+// to handle gracefully ("I can't pull that right now, let me skip
+// ahead") rather than speaking a raw error to a live audience.
+async function runWithTimeout(name, fn, ms = 4000) {
+  let timer;
+  try {
+    const result = await Promise.race([
+      Promise.resolve().then(fn),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'TIMEOUT' })), ms);
+      }),
+    ]);
+    return result;
+  } catch (err) {
+    console.error(`[stagedemo-tool] ${name} failed:`, err.code || err.message);
+    return { ok: false, reason: err.code === 'TIMEOUT' ? 'timeout' : 'lookup_failed' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Period helpers used by sales aggregations.
+function startOfPeriod(period) {
+  const now = new Date();
+  switch (period) {
+    case 'today': return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    case 'week': { const d = new Date(now); d.setDate(d.getDate() - 7); return d; }
+    case 'month': return new Date(now.getFullYear(), now.getMonth(), 1);
+    case 'quarter': { const q = Math.floor(now.getMonth() / 3) * 3; return new Date(now.getFullYear(), q, 1); }
+    case 'year': return new Date(now.getFullYear(), 0, 1);
+    case 'all': default: return new Date(0);
+  }
+}
+
+// ─── Individual lookup implementations ──────────────────────────────
+// Each returns a small JSON object the model can speak from. Keep
+// responses TIGHT — a verbose tool result tempts a verbose answer.
+
+async function toolGetDashboardStats(userId) {
+  const [salesRes, contactsRes, postsRes] = await Promise.all([
+    supabase.from('sales').select('amount').eq('user_id', userId),
+    supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+    supabase.from('social_posts').select('id', { count: 'exact', head: true }).eq('user_id', userId).gte('published_at', startOfPeriod('month').toISOString()),
+  ]);
+  const sales = salesRes.data || [];
+  const revenue = sales.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  return {
+    ok: true,
+    revenue_total: Math.round(revenue),
+    deals_total: sales.length,
+    contacts_total: contactsRes.count || 0,
+    posts_this_month: postsRes.count || 0,
+  };
+}
+
+async function toolGetSalesSummary(userId, args) {
+  const period = args.period || 'month';
+  const start = startOfPeriod(period).toISOString();
+  // Pull current and previous window for growth comparison.
+  const periodMs = Date.now() - new Date(start).getTime();
+  const prevStart = new Date(new Date(start).getTime() - periodMs).toISOString();
+
+  const [currRes, prevRes] = await Promise.all([
+    supabase.from('sales').select('amount').eq('user_id', userId).gte('created_at', start),
+    supabase.from('sales').select('amount').eq('user_id', userId).gte('created_at', prevStart).lt('created_at', start),
+  ]);
+  const curr = (currRes.data || []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const prev = (prevRes.data || []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const growthPct = prev > 0 ? Math.round(((curr - prev) / prev) * 100) : null;
+  return {
+    ok: true,
+    period,
+    revenue: Math.round(curr),
+    deals: (currRes.data || []).length,
+    avg_deal: currRes.data?.length ? Math.round(curr / currRes.data.length) : 0,
+    growth_vs_previous_pct: growthPct,
+  };
+}
+
+async function toolGetTopOutliers(userId, args) {
+  const limit = Math.min(Math.max(args.limit || 5, 1), 10);
+  let q = supabase
+    .from('outlier_videos')
+    .select('title, url, platform, views, views_multiplier, outlier_creators!inner(display_name, username)')
+    .eq('user_id', userId)
+    .eq('is_outlier', true)
+    .order('views_multiplier', { ascending: false })
+    .limit(limit);
+  if (args.platform) q = q.eq('platform', args.platform);
+  const { data } = await q;
+  return {
+    ok: true,
+    count: data?.length || 0,
+    items: (data || []).map((v) => ({
+      title: v.title,
+      creator: v.outlier_creators?.display_name || v.outlier_creators?.username,
+      platform: v.platform,
+      views: v.views,
+      multiplier: v.views_multiplier ? `${v.views_multiplier.toFixed(1)}x` : null,
+    })),
+  };
+}
+
+async function toolGetRecentContacts(userId, args) {
+  const limit = Math.min(Math.max(args.limit || 10, 1), 25);
+  let q = supabase
+    .from('contacts')
+    .select('first_name, last_name, email, company, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (args.search) {
+    const term = `%${args.search}%`;
+    q = q.or(`first_name.ilike.${term},last_name.ilike.${term},email.ilike.${term},company.ilike.${term}`);
+  }
+  const { data } = await q;
+  return {
+    ok: true,
+    count: data?.length || 0,
+    contacts: (data || []).map((c) => ({
+      name: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.email,
+      email: c.email,
+      company: c.company,
+    })),
+  };
+}
+
+async function toolGetRecentEmails(userId, args) {
+  const folder = args.folder || 'inbox';
+  const limit = Math.min(Math.max(args.limit || 5, 1), 15);
+  const { data } = await supabase
+    .from('emails')
+    .select('subject, from_email, to_emails, date, snippet')
+    .eq('user_id', userId)
+    .eq('folder', folder)
+    .order('date', { ascending: false })
+    .limit(limit);
+  return {
+    ok: true,
+    folder,
+    count: data?.length || 0,
+    emails: (data || []).map((e) => ({
+      subject: e.subject,
+      from: e.from_email,
+      preview: (e.snippet || '').slice(0, 120),
+      received: e.date,
+    })),
+  };
+}
+
+async function toolGetContentCalendar(userId, args) {
+  const days = Math.min(Math.max(args.days || 14, 1), 60);
+  const start = new Date();
+  const end = new Date(start.getTime() + days * 24 * 3600 * 1000);
+  const { data } = await supabase
+    .from('social_posts')
+    .select('platform, scheduled_at, published_at, status, title')
+    .eq('user_id', userId)
+    .or(`scheduled_at.gte.${start.toISOString()},published_at.gte.${start.toISOString()}`)
+    .lte('scheduled_at', end.toISOString())
+    .order('scheduled_at', { ascending: true })
+    .limit(25);
+  return {
+    ok: true,
+    window_days: days,
+    count: data?.length || 0,
+    posts: (data || []).map((p) => ({
+      platform: p.platform,
+      when: p.scheduled_at || p.published_at,
+      status: p.status,
+      title: p.title,
+    })),
+  };
+}
+
+async function toolGetFormResponses(userId, args) {
+  const limit = Math.min(Math.max(args.limit || 5, 1), 20);
+  let formsQuery = supabase
+    .from('forms')
+    .select('id, title')
+    .eq('user_id', userId);
+  if (args.formId) formsQuery = formsQuery.eq('id', args.formId);
+  const { data: forms } = await formsQuery.limit(10);
+  if (!forms?.length) return { ok: true, count: 0, forms: [] };
+
+  const results = await Promise.all(
+    forms.map(async (f) => {
+      const { data: responses, count } = await supabase
+        .from('form_responses')
+        .select('created_at', { count: 'exact' })
+        .eq('form_id', f.id)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      return {
+        form_id: f.id,
+        title: f.title,
+        total_responses: count || 0,
+        latest_at: responses?.[0]?.created_at || null,
+      };
+    })
+  );
+  return { ok: true, count: results.length, forms: results };
+}
+
+async function toolGetPaymentHistory(userId, args) {
+  const limit = Math.min(args?.limit || 10, 20);
+  const { data: payments } = await supabase
+    .from('integration_data')
+    .select('title, content, metadata, synced_at')
+    .eq('user_id', userId)
+    .eq('provider', 'stripe')
+    .eq('data_type', 'payment')
+    .order('synced_at', { ascending: false })
+    .limit(limit);
+
+  const { data: subs } = await supabase
+    .from('integration_data')
+    .select('title, metadata, synced_at')
+    .eq('user_id', userId)
+    .eq('provider', 'stripe')
+    .eq('data_type', 'subscription')
+    .limit(10);
+
+  if (!payments?.length && !subs?.length) return { ok: true, payments: [], subscriptions: [], message: 'No Stripe data found. Make sure Stripe is connected in Settings > Integrations.' };
+
+  return {
+    ok: true,
+    payments: (payments || []).map(p => ({
+      title: p.title,
+      amount: p.metadata?.amount ? (p.metadata.amount / 100).toFixed(2) : null,
+      currency: p.metadata?.currency?.toUpperCase() || 'USD',
+      status: p.metadata?.status,
+      email: p.metadata?.receipt_email,
+      date: p.metadata?.created ? new Date(p.metadata.created * 1000).toISOString() : p.synced_at,
+    })),
+    active_subscriptions: (subs || []).map(s => s.title),
+  };
+}
+
+async function toolGetRecentCalls(userId, args) {
+  const limit = Math.min(args?.limit || 5, 10);
+  const { data: calls } = await supabase
+    .from('sales_calls')
+    .select('id, title, participants, duration, created_at, summary, action_items')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (!calls?.length) return { ok: true, count: 0, calls: [] };
+  return {
+    ok: true,
+    count: calls.length,
+    calls: calls.map(c => ({
+      id: c.id,
+      title: c.title,
+      participants: c.participants,
+      duration_min: c.duration ? Math.round(c.duration / 60) : null,
+      date: c.created_at,
+      summary: c.summary?.slice(0, 200) || null,
+      action_items: c.action_items?.slice(0, 3) || [],
+    })),
+  };
+}
+
+// Dispatch — invoked from the WS handler when OpenAI calls a lookup tool.
+async function executeLookupTool(name, args, userId) {
+  return runWithTimeout(name, async () => {
+    switch (name) {
+      case 'get_dashboard_stats': return toolGetDashboardStats(userId);
+      case 'get_sales_summary': return toolGetSalesSummary(userId, args);
+      case 'get_top_outliers': return toolGetTopOutliers(userId, args);
+      case 'get_recent_contacts': return toolGetRecentContacts(userId, args);
+      case 'get_recent_emails': return toolGetRecentEmails(userId, args);
+      case 'get_content_calendar': return toolGetContentCalendar(userId, args);
+      case 'get_form_responses': return toolGetFormResponses(userId, args);
+      case 'get_recent_calls': return toolGetRecentCalls(userId, args);
+      case 'get_payment_history': return toolGetPaymentHistory(userId, args);
+      default: return { ok: false, reason: 'unknown_tool' };
+    }
+  });
 }
 
 // ─── Endpoint 1: Create ephemeral session ───
@@ -446,15 +917,47 @@ wss.on('connection', async (clientWs, req, userId) => {
       clientWs.send(JSON.stringify({ type: 'session.created' }));
     });
 
-    // Proxy: OpenAI → Client
-    openaiWs.on('message', (data) => {
+    // Proxy: OpenAI → Client (with server-side interception for lookup tools)
+    openaiWs.on('message', async (data) => {
       const str = data.toString();
-      try {
-        const evt = JSON.parse(str);
+      let evt = null;
+      try { evt = JSON.parse(str); } catch { /* binary frame, just forward */ }
+
+      if (evt) {
         if (evt.type === 'error' || evt.type === 'session.updated' || evt.type === 'session.created') {
           console.log('[stagedemo-ws] OpenAI event:', evt.type, JSON.stringify(evt).slice(0, 500));
         }
-      } catch {}
+
+        // ─── Server-side lookup tool dispatch ───
+        // Generators / edit_artifact still bounce through the frontend
+        // because they update the artifact panel. Lookups (sales,
+        // outliers, contacts, emails, calendar, forms, dashboard) run
+        // here for low-latency round-trip and so the frontend never
+        // sees them (no UI surface to update).
+        if (evt.type === 'response.function_call_arguments.done' && LOOKUP_TOOLS.has(evt.name)) {
+          let parsedArgs = {};
+          try { parsedArgs = JSON.parse(evt.arguments || '{}'); } catch { /* fall through with empty args */ }
+          console.log(`[stagedemo-ws] Lookup tool: ${evt.name}`, parsedArgs);
+          const result = await executeLookupTool(evt.name, parsedArgs, userId);
+
+          if (openaiWs.readyState === WsWebSocket.OPEN) {
+            openaiWs.send(JSON.stringify({
+              type: 'conversation.item.create',
+              item: {
+                type: 'function_call_output',
+                call_id: evt.call_id,
+                output: JSON.stringify(result),
+              },
+            }));
+            openaiWs.send(JSON.stringify({ type: 'response.create' }));
+          }
+          // Don't forward this tool call event to the client — no UI
+          // surface and we don't want the frontend's onToolCall handler
+          // to attempt /api/stagedemo/generate for a lookup.
+          return;
+        }
+      }
+
       if (clientWs.readyState === WsWebSocket.OPEN) {
         clientWs.send(str);
       }

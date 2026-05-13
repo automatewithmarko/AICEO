@@ -48,6 +48,8 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
   const activeSourcesRef = useRef([]);
   const reconnectAttemptsRef = useRef(0);
   const currentResponseIdRef = useRef(null);
+  // Accumulate function call argument deltas (GA API sends them incrementally)
+  const fnCallAccRef = useRef({});
 
   // Get auth token
   const getToken = useCallback(async () => {
@@ -152,15 +154,25 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         if (msg.transcript) onTranscript?.('ai_full', msg.transcript);
         break;
 
-      case 'response.function_call_arguments.done':
-        // Tool call complete — execute it
-        console.log('[voice] Tool call:', msg.name, msg.arguments);
+      case 'response.function_call_arguments.delta':
+        // Accumulate argument deltas for this call_id
+        if (msg.call_id && msg.delta) {
+          fnCallAccRef.current[msg.call_id] = (fnCallAccRef.current[msg.call_id] || '') + msg.delta;
+        }
+        break;
+
+      case 'response.function_call_arguments.done': {
+        // Use accumulated deltas if .done doesn't include full arguments
+        const fullArgs = msg.arguments || fnCallAccRef.current[msg.call_id] || '{}';
+        delete fnCallAccRef.current[msg.call_id];
+        console.log('[voice] Tool call:', msg.name, fullArgs.slice(0, 200));
         if (onToolCall) {
           let args = {};
-          try { args = JSON.parse(msg.arguments); } catch {}
+          try { args = JSON.parse(fullArgs); } catch {}
           onToolCall(msg.name, args, msg.call_id);
         }
         break;
+      }
 
       case 'response.done':
         currentResponseIdRef.current = null;
@@ -311,18 +323,26 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
   const sendToolResult = useCallback((callId, result) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-    // Add the tool result as a conversation item
-    wsRef.current.send(JSON.stringify({
-      type: 'conversation.item.create',
-      item: {
-        type: 'function_call_output',
-        call_id: callId,
-        output: typeof result === 'string' ? result : JSON.stringify(result),
-      },
-    }));
+    // Cancel any in-flight response that VAD may have triggered during generation
+    wsRef.current.send(JSON.stringify({ type: 'response.cancel' }));
+    // Clear any audio that accumulated in the buffer during generation
+    wsRef.current.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
 
-    // Request a new response (AI will speak confirmation)
-    wsRef.current.send(JSON.stringify({ type: 'response.create' }));
+    // Small delay to let cancel settle, then send tool result
+    setTimeout(() => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+      wsRef.current.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: callId,
+          output: typeof result === 'string' ? result : JSON.stringify(result),
+        },
+      }));
+
+      wsRef.current.send(JSON.stringify({ type: 'response.create' }));
+    }, 200);
   }, []);
 
   // Disconnect

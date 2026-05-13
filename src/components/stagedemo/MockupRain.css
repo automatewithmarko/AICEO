@@ -1,0 +1,205 @@
+/* MockupRain — ported from AICEO-SHELL */
+:root {
+  --accent: #e91945;
+  --accent-hot: #ff4d75;
+}
+
+.mockups-stage {
+  position: absolute;
+  inset: 0;
+  perspective: 1400px;
+  perspective-origin: 50% 42%;
+  pointer-events: none;
+  z-index: 6;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 500ms ease;
+}
+.mockups-stage.show { opacity: 1; }
+
+.mockup-card {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 320px;
+  height: 420px;
+  margin-left: -160px;
+  margin-top: -240px;
+  transform-style: preserve-3d;
+  will-change: transform, opacity;
+  animation: cardFly 3.6s cubic-bezier(.42, .05, .9, .92) forwards;
+  filter: drop-shadow(0 30px 80px rgba(0,0,0,0.55)) drop-shadow(0 0 30px rgba(233,25,69,0.18));
+}
+@keyframes cardFly {
+  0% {
+    transform: translate3d(0px, 0px, -2400px) rotate(var(--r, 0deg)) scale(var(--s, 1));
+    opacity: 0;
+  }
+  14% { opacity: 0.95; }
+  72% {
+    transform: translate3d(
+      calc(var(--dx, 0px) * 0.55),
+      calc(var(--dy, 0px) * 0.55),
+      160px
+    ) rotate(var(--r, 0deg)) scale(var(--s, 1));
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--dx, 0px), var(--dy, 0px), 700px)
+               rotate(var(--r, 0deg)) scale(var(--s, 1));
+    opacity: 0;
+  }
+}
+
+/* base card */
+.mk {
+  width: 100%; height: 100%;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #fff;
+  color: #18181b;
+  position: relative;
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.08),
+    0 1px 0 rgba(255,255,255,0.7) inset;
+  font-family: 'Instrument Sans', system-ui, sans-serif;
+}
+.mk .mk-line { height: 8px; border-radius: 4px; background: #e4e4e7; margin: 6px 0; }
+.mk .mk-line.short { width: 60%; }
+
+/* Landing */
+.mk-landing .mk-topbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px; border-bottom: 1px solid #f1f1f3;
+}
+.mk-landing .mk-logo {
+  width: 22px; height: 22px; border-radius: 6px;
+  background: linear-gradient(135deg, #0f0f12, #404048);
+  flex-shrink: 0;
+}
+.mk-landing .mk-nav { display: flex; gap: 12px; flex: 1; margin-left: 6px; }
+.mk-landing .mk-nav i { width: 28px; height: 6px; border-radius: 3px; background: #d4d4d8; }
+.mk-landing .mk-cta { width: 58px; height: 22px; border-radius: 11px; background: #0f0f12; flex-shrink: 0; }
+.mk-landing .mk-hero { padding: 22px 22px 18px; }
+.mk-landing .mk-eyebrow {
+  width: 36%; height: 8px; border-radius: 4px;
+  background: var(--accent); margin-bottom: 14px;
+}
+.mk-landing .mk-h1 { height: 20px; border-radius: 5px; background: #18181b; margin: 7px 0; }
+.mk-landing .mk-h1.short { width: 50%; }
+.mk-landing .mk-sub { height: 8px; border-radius: 4px; background: #a1a1aa; margin: 6px 0; }
+.mk-landing .mk-sub.short { width: 60%; }
+.mk-landing .mk-btns { display: flex; gap: 10px; margin-top: 18px; }
+.mk-landing .mk-btn { width: 100px; height: 32px; border-radius: 16px; }
+.mk-landing .mk-btn.primary { background: var(--accent); }
+.mk-landing .mk-btn.ghost { background: transparent; border: 1px solid #d4d4d8; }
+.mk-landing .mk-features {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
+  padding: 0 22px 22px;
+}
+.mk-landing .mk-tile {
+  aspect-ratio: 1; border-radius: 10px;
+  background: linear-gradient(140deg, #f4f4f5, #d4d4d8);
+}
+
+/* Email */
+.mk-email .mk-mailbar {
+  display: flex; align-items: center;
+  padding: 14px 18px; border-bottom: 1px solid #f1f1f3;
+}
+.mk-email .mk-back { width: 16px; height: 12px; border-radius: 3px; background: #71717a; }
+.mk-email .mk-mailicons { margin-left: auto; display: flex; gap: 10px; }
+.mk-email .mk-mailicons span { width: 14px; height: 14px; border-radius: 50%; background: #d4d4d8; }
+.mk-email .mk-sender { display: flex; gap: 12px; padding: 18px 18px 6px; align-items: center; }
+.mk-email .mk-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #6b0a1f);
+  flex-shrink: 0;
+}
+.mk-email .mk-sender-lines { flex: 1; }
+.mk-email .mk-name { width: 55%; height: 11px; border-radius: 4px; background: #18181b; }
+.mk-email .mk-time { width: 30%; height: 8px; border-radius: 4px; background: #a1a1aa; margin-top: 6px; }
+.mk-email .mk-subject { margin: 16px 18px 10px; height: 14px; border-radius: 4px; background: #18181b; width: 78%; }
+.mk-email .mk-body { padding: 0 18px; }
+.mk-email .mk-body .mk-line { background: #d4d4d8; }
+.mk-email .mk-gap { height: 10px; }
+.mk-email .mk-mail-cta { padding: 14px 18px; display: flex; }
+.mk-email .mk-btn.primary { width: 92px; height: 32px; border-radius: 16px; background: var(--accent); }
+
+/* Revenue */
+.mk-revenue {
+  background: #0a0a10;
+  color: #fff;
+  padding: 18px 20px;
+  display: flex; flex-direction: column;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.06),
+    0 1px 0 rgba(255,255,255,0.1) inset;
+}
+.mk-revenue .mk-revhead { display: flex; justify-content: space-between; align-items: center; }
+.mk-revenue .mk-revtag { width: 90px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.45); }
+.mk-revenue .mk-revdots { display: flex; gap: 4px; }
+.mk-revenue .mk-revdots i { width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,0.5); }
+.mk-revenue .mk-revbig { width: 64%; height: 34px; border-radius: 6px; background: #fff; margin-top: 18px; }
+.mk-revenue .mk-revdelta { width: 38%; height: 10px; border-radius: 4px; background: #2bd576; margin-top: 8px; }
+.mk-revenue .mk-chart {
+  display: flex; align-items: flex-end; gap: 8px;
+  height: 170px; margin-top: 24px; padding: 0 2px;
+}
+.mk-revenue .mk-bar {
+  flex: 1;
+  background: linear-gradient(180deg, var(--accent), #6b0a1f);
+  border-radius: 4px 4px 0 0;
+  box-shadow: 0 0 10px rgba(233,25,69,0.4);
+}
+.mk-revenue .mk-revfooter { display: flex; gap: 18px; margin-top: 16px; }
+.mk-revenue .mk-legend { width: 70px; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.28); }
+
+/* Instagram */
+.mk-insta .mk-igtop { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+.mk-insta .mk-igavatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: conic-gradient(from 0deg, #ff6a00, var(--accent), #a020f0, #ff6a00);
+  padding: 2px; box-sizing: border-box;
+  position: relative; flex-shrink: 0;
+}
+.mk-insta .mk-igavatar::after {
+  content: ''; position: absolute; inset: 2px;
+  border-radius: 50%; background: #f4f4f5;
+  border: 2px solid #fff;
+}
+.mk-insta .mk-igmeta { flex: 1; }
+.mk-insta .mk-igname { width: 55%; height: 10px; border-radius: 4px; background: #18181b; }
+.mk-insta .mk-iglocation { width: 36%; height: 7px; border-radius: 3px; background: #a1a1aa; margin-top: 5px; }
+.mk-insta .mk-igdots { display: flex; flex-direction: column; gap: 2px; }
+.mk-insta .mk-igdots i { width: 3px; height: 3px; border-radius: 50%; background: #71717a; }
+.mk-insta .mk-igphoto {
+  aspect-ratio: 1; width: 100%;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255,255,255,0.35), transparent 50%),
+    linear-gradient(135deg, #ff6a00 0%, var(--accent) 50%, #4d1a8a 100%);
+  position: relative;
+}
+.mk-insta .mk-igphoto::after {
+  content: ''; position: absolute; inset: 35% 40%;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.25);
+  filter: blur(14px);
+}
+.mk-insta .mk-igactions {
+  display: flex; align-items: center;
+  padding: 12px 14px 4px;
+}
+.mk-insta .mk-igicons { display: flex; gap: 14px; }
+.mk-insta .mk-igicons span { width: 20px; height: 20px; display: block; }
+.mk-insta .mk-ig-heart { background: #18181b; clip-path: path('M10 18 L2 9 A4.5 4.5 0 0 1 10 5 A4.5 4.5 0 0 1 18 9 Z'); }
+.mk-insta .mk-ig-comment { border: 1.5px solid #18181b; border-radius: 50%; background: transparent; }
+.mk-insta .mk-ig-send { background: #18181b; clip-path: polygon(0 0, 100% 50%, 0 100%, 25% 50%); }
+.mk-insta .mk-igbookmark {
+  margin-left: auto;
+  width: 14px; height: 18px;
+  background: #18181b;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 75%, 0 100%);
+}
+.mk-insta .mk-iglikes { width: 38%; height: 10px; border-radius: 4px; background: #18181b; margin: 8px 14px 4px; }
+.mk-insta .mk-igcaption { width: 82%; height: 8px; border-radius: 4px; background: #71717a; margin: 6px 14px; }
+.mk-insta .mk-igcaption.short { width: 50%; }

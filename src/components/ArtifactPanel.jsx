@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download, ChevronRight, History, Undo2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -431,12 +431,14 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
     }
   };
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <div className="ap">
       <div className="ap-header">
         <div className="ap-header-left">
           <button className="ap-back-btn" onClick={onClose}>
-            <ChevronLeft size={18} />
+            <X size={20} />
           </button>
           {renderIcon()}
           <span
@@ -513,9 +515,44 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             </button>
           )}
 
+          <button className="ap-mobile-menu-toggle" onClick={() => setMobileMenuOpen(v => !v)} aria-label="Menu">
+            {mobileMenuOpen ? <X size={18} /> : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+              </svg>
+            )}
+          </button>
           <button className="ap-close" onClick={onClose} aria-label="Close panel"><X size={18} /></button>
         </div>
       </div>
+
+      {/* Mobile dropdown menu */}
+      {mobileMenuOpen && (
+        <div className="ap-mobile-dropdown" onClick={() => setMobileMenuOpen(false)}>
+          {isHtml && (
+            <>
+              <button className="ap-mobile-dropdown-item" onClick={openImportModal}>Import Template</button>
+              <button className="ap-mobile-dropdown-item" onClick={openSaveModal}>Save Template</button>
+              {isNewsletter && <button className="ap-mobile-dropdown-item" onClick={openSendModal}><Mail size={14} /> Send Email</button>}
+              <button className="ap-mobile-dropdown-item" onClick={openHistory}><History size={14} /> History</button>
+              <button className="ap-mobile-dropdown-item" onClick={handleDownload}><Download size={14} /> Download</button>
+              <button className="ap-mobile-dropdown-item" onClick={() => handleCopy()}>
+                {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy Code</>}
+              </button>
+              {isLanding && (
+                <button className="ap-mobile-dropdown-item" onClick={handleDeploy} disabled={deploying}>
+                  {deploying ? 'Deploying...' : deployResult ? 'Redeploy' : 'Deploy to Netlify'}
+                </button>
+              )}
+            </>
+          )}
+          {!isHtml && type !== 'email' && (
+            <button className="ap-mobile-dropdown-item" onClick={() => handleCopy()}>
+              {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy</>}
+            </button>
+          )}
+        </div>
+      )}
 
       {sendError && <div className="ap-error">{sendError}</div>}
 
@@ -551,7 +588,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             {type === 'newsletter' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
-            {type === 'content_post' && <ContentPostRenderer content={content} images={images} />}
+            {type === 'content_post' && <ContentPostRenderer content={content} images={images} pendingImages={artifact.pendingImages} agentSource={agentSource} />}
             {type === 'code_block' && <CodeRenderer content={content} />}
             {type === 'markdown_doc' && <MarkdownRenderer content={content} />}
           </>
@@ -1120,66 +1157,119 @@ function HtmlRenderer({ content, iframeRef, editMapRef, skipIframeWriteRef }) {
   );
 }
 
-function ContentPostRenderer({ content, images }) {
-  const list = Array.isArray(images) ? images : [];
+function ContentPostRenderer({ content, images, pendingImages, agentSource }) {
+  const list = useMemo(() => [...(Array.isArray(images) ? images : [])].sort((a, b) => (a.idx || 0) - (b.idx || 0)), [images]);
   const total = list.length;
-  const [index, setIndex] = useState(Math.max(0, total - 1));
+  const isLoading = (pendingImages || 0) > 0 && total === 0;
+  const [idx, setIdx] = useState(0);
+  const [captionExpanded, setCaptionExpanded] = useState(false);
   const prevTotalRef = useRef(total);
 
   useEffect(() => {
-    if (total > prevTotalRef.current) setIndex(total - 1);
-    if (index > total - 1) setIndex(Math.max(0, total - 1));
+    if (total > prevTotalRef.current) setIdx(total - 1);
+    if (idx > total - 1) setIdx(Math.max(0, total - 1));
     prevTotalRef.current = total;
-  }, [total, index]);
+  }, [total, idx]);
 
-  const active = total > 0 ? list[Math.min(index, total - 1)] : null;
+  const isLinkedin = agentSource === 'linkedin_post';
+  const current = total > 0 ? list[Math.min(idx, total - 1)] : null;
+  const caption = content || '';
+  const FOLD = isLinkedin ? 210 : 125;
+  const captionLong = caption.length > FOLD;
+  const captionText = captionLong && !captionExpanded ? caption.slice(0, FOLD).trimEnd() + '…' : caption;
 
   return (
-    <div className="ap-content-post">
-      {total > 0 && (
-        <div className="ap-post-viewer">
-          <div className="ap-post-stage">
-            {active && <img src={active.src} alt="" className="ap-post-image" />}
-          </div>
-          {total > 1 && (
-            <div className="ap-post-controls">
-              <button
-                type="button"
-                className="ap-post-nav"
-                onClick={() => setIndex((i) => (i - 1 + total) % total)}
-                aria-label="Previous image"
-              >
-                <ChevronLeft size={18} />
-              </button>
-              <span className="ap-post-counter">{index + 1} / {total}</span>
-              <button
-                type="button"
-                className="ap-post-nav"
-                onClick={() => setIndex((i) => (i + 1) % total)}
-                aria-label="Next image"
-              >
-                <ChevronRight size={18} />
-              </button>
-            </div>
+    <div className="ap-social-preview">
+      <div className="ap-social-phone">
+        {/* Post header */}
+        <div className="ap-social-post-header">
+          {isLinkedin ? (
+            <>
+              <div className="ap-social-avatar ap-social-avatar--li">in</div>
+              <div className="ap-social-names">
+                <span className="ap-social-displayname">Your Brand</span>
+                <span className="ap-social-sub">Author · Just now</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="ap-social-avatar-ring">
+                <div className="ap-social-avatar">·</div>
+              </div>
+              <span className="ap-social-username">your_brand</span>
+              <span className="ap-social-follow">Following</span>
+            </>
           )}
-          {total > 1 && (
-            <div className="ap-post-thumbs">
-              {list.map((img, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  className={`ap-post-thumb ${i === index ? 'is-active' : ''}`}
-                  onClick={() => setIndex(i)}
-                  aria-label={`Show image ${i + 1}`}
-                >
-                  <img src={img.src} alt="" />
+          <span className="ap-social-more">⋯</span>
+        </div>
+
+        {/* Media area */}
+        <div className={`ap-social-media${isLinkedin ? ' ap-social-media--li' : ''}`}>
+          {isLoading ? (
+            <div className="ap-post-loading">
+              <div className="ap-post-loading-spinner" />
+              <span>Generating image...</span>
+            </div>
+          ) : current ? (
+            <>
+              <img src={current.src} alt={`Slide ${idx + 1}`} className="ap-social-slide" />
+              {total > 1 && (
+                <span className="ap-social-counter">{idx + 1}/{total}</span>
+              )}
+              {idx > 0 && (
+                <button className="ap-social-nav ap-social-nav--prev" onClick={() => setIdx(i => i - 1)}>
+                  <ChevronLeft size={18} />
                 </button>
-              ))}
+              )}
+              {idx < total - 1 && (
+                <button className="ap-social-nav ap-social-nav--next" onClick={() => setIdx(i => i + 1)}>
+                  <ChevronRight size={18} />
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="ap-post-loading">
+              <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>No image</span>
             </div>
           )}
         </div>
-      )}
-      {content && <div className="ap-post-text">{content}</div>}
+
+        {/* Dots */}
+        {total > 1 && (
+          <div className="ap-social-dots">
+            {list.map((_, i) => (
+              <span key={i} className={`ap-social-dot${i === idx ? ' ap-social-dot--active' : ''}`} onClick={() => setIdx(i)} />
+            ))}
+          </div>
+        )}
+
+        {/* Action icons */}
+        {isLinkedin ? (
+          <div className="ap-social-li-actions">
+            <span>👍 Like</span><span>💬 Comment</span><span>🔄 Repost</span><span>📤 Send</span>
+          </div>
+        ) : (
+          <div className="ap-social-ig-actions">
+            <div className="ap-social-ig-left">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </div>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+          </div>
+        )}
+
+        {/* Caption */}
+        {caption && (
+          <div className="ap-social-caption">
+            {!isLinkedin && <strong className="ap-social-caption-user">your_brand </strong>}
+            <span style={{ whiteSpace: 'pre-wrap' }}>{captionText}</span>
+            {captionLong && !captionExpanded && (
+              <button className="ap-social-more-link" onClick={() => setCaptionExpanded(true)}>more</button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
