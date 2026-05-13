@@ -30,7 +30,7 @@ function pcm16Base64ToFloat32(base64) {
   return float32;
 }
 
-export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall, onAiSpeakingChange, onTranscript }) {
+export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall, onAiSpeakingChange, onTranscript, onServerTool }) {
   const [status, setStatus] = useState('disconnected'); // disconnected | connecting | connected | error
   // Mic mute state. Two layers of enforcement so muting is honest:
   //  1. isMutedRef short-circuits the audioprocess callback (no PCM
@@ -117,6 +117,17 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         console.log('[voice] Session ready');
         break;
 
+      // Custom envelope events from our own WS proxy — emitted around
+      // server-side tool execution (lookups, schedule_post, etc.) so the
+      // UI can show a loader for tools that never reach the frontend's
+      // onToolCall dispatch.
+      case 'aiceo_tool_start':
+        onServerTool?.('start', msg.name);
+        break;
+      case 'aiceo_tool_end':
+        onServerTool?.('end', msg.name, msg.ok);
+        break;
+
       case 'input_audio_buffer.speech_started':
         // User started speaking — cancel AI response for barge-in
         stopPlayback();
@@ -193,7 +204,7 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         }
         break;
     }
-  }, [onToolCall, onAiSpeakingChange, onTranscript]);
+  }, [onToolCall, onAiSpeakingChange, onTranscript, onServerTool]);
 
   // Stop all queued/playing AI audio
   const stopPlayback = useCallback(() => {

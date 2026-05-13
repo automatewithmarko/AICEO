@@ -1111,6 +1111,18 @@ wss.on('connection', async (clientWs, req, userId) => {
           let parsedArgs = {};
           try { parsedArgs = JSON.parse(evt.arguments || '{}'); } catch { /* fall through with empty args */ }
           console.log(`[stagedemo-ws] Lookup tool: ${evt.name}`, parsedArgs);
+
+          // Server-side tools never reach the frontend's onToolCall, so
+          // the loader animation (which only fires on phase='generating'
+          // set in handleToolCall) wouldn't show. Emit custom envelope
+          // events around the dispatch so the client can render the
+          // same MockupRain animation it shows for frontend-dispatched
+          // generators. start/end framing → fade-in + fade-out works
+          // even for very fast lookups.
+          if (clientWs.readyState === WsWebSocket.OPEN) {
+            clientWs.send(JSON.stringify({ type: 'aiceo_tool_start', name: evt.name }));
+          }
+
           const result = await executeLookupTool(evt.name, parsedArgs, userId);
 
           if (openaiWs.readyState === WsWebSocket.OPEN) {
@@ -1123,6 +1135,10 @@ wss.on('connection', async (clientWs, req, userId) => {
               },
             }));
             openaiWs.send(JSON.stringify({ type: 'response.create' }));
+          }
+
+          if (clientWs.readyState === WsWebSocket.OPEN) {
+            clientWs.send(JSON.stringify({ type: 'aiceo_tool_end', name: evt.name, ok: result?.ok !== false }));
           }
           // Don't forward this tool call event to the client — no UI
           // surface and we don't want the frontend's onToolCall handler
