@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download, ChevronRight, History, Undo2, Maximize2, Image as ImageIcon } from 'lucide-react';
+import SocialPreview from './SocialPreview';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
@@ -10,7 +11,7 @@ import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, sessionId = null }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, sessionId = null, brandDna = null, user = null }) {
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -588,7 +589,23 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             {type === 'newsletter' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
-            {type === 'content_post' && <ContentPostRenderer content={content} images={images} pendingImages={artifact.pendingImages} agentSource={agentSource} />}
+            {type === 'content_post' && (
+              <SocialPreview
+                msg={{
+                  // Adapter — flatten the artifact shape into the
+                  // msg-shape SocialPreview expects. agentSource maps
+                  // to platform; everything else passes through.
+                  id: artifact.id || `content-${type}-${(content || '').length}`,
+                  platform: agentSource === 'linkedin_post' ? 'linkedin' : 'instagram',
+                  images: images || [],
+                  content: content || '',
+                  pendingImages: artifact.pendingImages,
+                }}
+                brandDna={brandDna}
+                user={user}
+                showHeader={false}
+              />
+            )}
             {type === 'image' && <ImageRenderer images={images} pendingImages={artifact.pendingImages} title={title} />}
             {type === 'code_block' && <CodeRenderer content={content} />}
             {type === 'markdown_doc' && <MarkdownRenderer content={content} />}
@@ -1158,128 +1175,13 @@ function HtmlRenderer({ content, iframeRef, editMapRef, skipIframeWriteRef }) {
   );
 }
 
-function ContentPostRenderer({ content, images, pendingImages, agentSource }) {
-  const list = useMemo(() => [...(Array.isArray(images) ? images : [])].sort((a, b) => (a.idx || 0) - (b.idx || 0)), [images]);
-  const total = list.length;
-  const isLoading = (pendingImages || 0) > 0 && total === 0;
-  const [idx, setIdx] = useState(0);
-  const [captionExpanded, setCaptionExpanded] = useState(false);
-  const prevTotalRef = useRef(total);
-
-  useEffect(() => {
-    if (total > prevTotalRef.current) setIdx(total - 1);
-    if (idx > total - 1) setIdx(Math.max(0, total - 1));
-    prevTotalRef.current = total;
-  }, [total, idx]);
-
-  const isLinkedin = agentSource === 'linkedin_post';
-  const current = total > 0 ? list[Math.min(idx, total - 1)] : null;
-  const caption = content || '';
-  const FOLD = isLinkedin ? 210 : 125;
-  const captionLong = caption.length > FOLD;
-  const captionText = captionLong && !captionExpanded ? caption.slice(0, FOLD).trimEnd() + '…' : caption;
-
-  return (
-    <div className="ap-social-preview">
-      <div className="ap-social-phone">
-        {/* Post header */}
-        <div className="ap-social-post-header">
-          {isLinkedin ? (
-            <>
-              <div className="ap-social-avatar ap-social-avatar--li">in</div>
-              <div className="ap-social-names">
-                <span className="ap-social-displayname">Your Brand</span>
-                <span className="ap-social-sub">Author · Just now</span>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="ap-social-avatar-ring">
-                <div className="ap-social-avatar">·</div>
-              </div>
-              <span className="ap-social-username">your_brand</span>
-              <span className="ap-social-follow">Following</span>
-            </>
-          )}
-          <span className="ap-social-more">⋯</span>
-        </div>
-
-        {/* Media area */}
-        <div className={`ap-social-media${isLinkedin ? ' ap-social-media--li' : ''}`}>
-          {isLoading ? (
-            <div className="ap-post-loading">
-              <span>Generating</span>
-            </div>
-          ) : current ? (
-            <>
-              <img src={current.src} alt={`Slide ${idx + 1}`} className="ap-social-slide" />
-              {total > 1 && (
-                <span className="ap-social-counter">{idx + 1}/{total}</span>
-              )}
-              {idx > 0 && (
-                <button className="ap-social-nav ap-social-nav--prev" onClick={() => setIdx(i => i - 1)}>
-                  <ChevronLeft size={18} />
-                </button>
-              )}
-              {idx < total - 1 && (
-                <button className="ap-social-nav ap-social-nav--next" onClick={() => setIdx(i => i + 1)}>
-                  <ChevronRight size={18} />
-                </button>
-              )}
-            </>
-          ) : (
-            <div className="ap-post-loading">
-              <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>No image</span>
-            </div>
-          )}
-        </div>
-
-        {/* Dots */}
-        {total > 1 && (
-          <div className="ap-social-dots">
-            {list.map((_, i) => (
-              <span key={i} className={`ap-social-dot${i === idx ? ' ap-social-dot--active' : ''}`} onClick={() => setIdx(i)} />
-            ))}
-          </div>
-        )}
-
-        {/* Action icons */}
-        {isLinkedin ? (
-          <div className="ap-social-li-actions">
-            <span>👍 Like</span><span>💬 Comment</span><span>🔄 Repost</span><span>📤 Send</span>
-          </div>
-        ) : (
-          <div className="ap-social-ig-actions">
-            <div className="ap-social-ig-left">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-            </div>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-          </div>
-        )}
-
-        {/* Caption */}
-        {caption && (
-          <div className="ap-social-caption">
-            {!isLinkedin && <strong className="ap-social-caption-user">your_brand </strong>}
-            <span style={{ whiteSpace: 'pre-wrap' }}>{captionText}</span>
-            {captionLong && !captionExpanded && (
-              <button className="ap-social-more-link" onClick={() => setCaptionExpanded(true)}>more</button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ImageRenderer — clean centered viewer for plain generated images.
 // No social-mockup chrome, no fake username, no follow button. Used
 // when the user asked "generate me an image of X" — i.e. the bot's
 // generate_image tool with no platform context. Platform-targeted
-// content (instagram_post / linkedin_post / etc.) keeps using
-// ContentPostRenderer where the social wrapper is meaningful.
+// content (instagram_post / linkedin_post / etc.) routes to
+// SocialPreview (shared with the Content page) where the social
+// wrapper is meaningful.
 function ImageRenderer({ images, pendingImages, title }) {
   const list = useMemo(
     () => [...(Array.isArray(images) ? images : [])].sort((a, b) => (a.idx || 0) - (b.idx || 0)),

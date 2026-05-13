@@ -100,7 +100,7 @@ function stripCeoContextBlocks(content) {
 
 // ── Component ──
 export default function AiCeo() {
-  const { hasFeature } = useAuth();
+  const { hasFeature, user } = useAuth();
   const inboxCtx = useOutletContext() || {};
   const emailAccounts = inboxCtx.accounts || [];
   const { sessionId: urlSessionId } = useParams();
@@ -2110,6 +2110,7 @@ export default function AiCeo() {
               key={artifact?.id}
               artifact={artifact}
               emailAccounts={emailAccounts}
+              user={user}
               onClose={() => setPanelOpen(false)}
               onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
               onContentChange={(html) => setArtifact(prev => prev ? { ...prev, content: html } : prev)}
@@ -2126,6 +2127,7 @@ export default function AiCeo() {
             key={`mobile-${artifact?.id}`}
             artifact={artifact}
             emailAccounts={emailAccounts}
+            user={user}
             onClose={() => setMobileArtifactOpen(false)}
             onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
             onContentChange={(html) => setArtifact(prev => prev ? { ...prev, content: html } : prev)}
