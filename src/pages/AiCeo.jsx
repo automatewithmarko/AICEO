@@ -131,6 +131,13 @@ export default function AiCeo() {
   const [renameDraft, setRenameDraft] = useState('');
   const [creditsDepleted, setCreditsDepleted] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  // Cached Brand DNA — fetched once on mount, passed to ArtifactPanel
+  // so the shared SocialPreview can render the user's real brand
+  // avatar + display name + username instead of the 'your_brand'
+  // fallback. Same row that the inline story-image flow already loads
+  // ad-hoc; lifting it to component state lets every consumer reuse
+  // the result without re-querying.
+  const [brandDna, setBrandDna] = useState(null);
   // Files attached to the next outbound message. Same shape Marketing
   // uses so the two pages can converge on a shared helper later.
   // Images keep a data URL for preview; documents keep their text
@@ -169,6 +176,30 @@ export default function AiCeo() {
   const sessionIdRef = useRef(null);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+
+  // Fetch Brand DNA once on mount so SocialPreview (rendered inside
+  // ArtifactPanel for content_post artifacts) can show the user's real
+  // brand identity. Fire-and-forget — preview falls back gracefully
+  // to 'your_brand' placeholder while in flight or if absent.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) return;
+        const { data } = await supabase
+          .from('brand_dna')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .order('updated_at', { ascending: true })
+          .limit(1);
+        if (!cancelled && data?.[0]) setBrandDna(data[0]);
+      } catch (err) {
+        console.error('[AiCeo] Brand DNA load failed:', err.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const hasMessages = messages.length > 0;
   const showPanel = panelOpen && artifact && !isMobile;
@@ -2111,6 +2142,7 @@ export default function AiCeo() {
               artifact={artifact}
               emailAccounts={emailAccounts}
               user={user}
+              brandDna={brandDna}
               onClose={() => setPanelOpen(false)}
               onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
               onContentChange={(html) => setArtifact(prev => prev ? { ...prev, content: html } : prev)}
@@ -2128,6 +2160,7 @@ export default function AiCeo() {
             artifact={artifact}
             emailAccounts={emailAccounts}
             user={user}
+            brandDna={brandDna}
             onClose={() => setMobileArtifactOpen(false)}
             onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
             onContentChange={(html) => setArtifact(prev => prev ? { ...prev, content: html } : prev)}
