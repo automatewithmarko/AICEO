@@ -902,11 +902,12 @@ export default function StageDemo() {
             left: hasArtifact ? 24 : '50%',
             transform: hasArtifact ? 'none' : 'translateX(-50%)',
             width: hasArtifact ? 'calc(45vw - 48px)' : 'min(520px, calc(100vw - 48px))',
-            display: 'flex', alignItems: 'center', gap: 0,
+            display: 'flex', alignItems: 'center',
             background: 'rgba(255,255,255,0.04)',
             border: '1px solid rgba(255,255,255,0.08)',
             borderRadius: 28,
-            padding: '4px 4px 4px 18px',
+            padding: '4px 5px 4px 18px',
+            gap: 4,
             backdropFilter: 'blur(16px)',
             zIndex: 100,
             transition: 'left 0.4s ease, width 0.4s ease, transform 0.4s ease',
@@ -923,6 +924,39 @@ export default function StageDemo() {
               padding: '10px 0',
             }}
           />
+          {/* Mute toggle */}
+          <button
+            type="button"
+            onClick={toggleMute}
+            title={isMuted ? 'Unmute' : 'Mute'}
+            style={{
+              width: 36, height: 36, borderRadius: '50%',
+              background: isMuted ? 'rgba(220,50,60,0.2)' : 'rgba(255,255,255,0.06)',
+              border: `1px solid ${isMuted ? 'rgba(220,50,60,0.4)' : 'rgba(255,255,255,0.08)'}`,
+              color: isMuted ? '#ff6b7a' : 'rgba(255,255,255,0.4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', flexShrink: 0,
+              transition: 'all 0.2s',
+            }}
+          >
+            {isMuted ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="2" y1="2" x2="22" y2="22" />
+                <path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" />
+                <path d="M5 10v2a7 7 0 0 0 12 5" />
+                <path d="M15 9.34V4a3 3 0 0 0-5.68-1.33" />
+                <path d="M9 9v3a3 3 0 0 0 5.12 2.12" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+              </svg>
+            )}
+          </button>
+          {/* Send */}
           <button
             type="submit"
             disabled={!textInput.trim()}
