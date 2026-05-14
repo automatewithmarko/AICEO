@@ -1061,7 +1061,13 @@ export default function StageDemo() {
         @media (max-width: 768px) {
           .stagedemo-hud { display: none !important; }
           .stagedemo-mobile-bar { display: flex !important; }
-          .stagedemo-text-input { display: none !important; }
+          .stagedemo-text-input {
+            bottom: 100px !important;
+            left: 16px !important;
+            right: 16px !important;
+            width: auto !important;
+            transform: none !important;
+          }
           .stagedemo-artifact-panel {
             width: auto !important;
             top: 12px !important; left: 12px !important; right: 12px !important; bottom: 12px !important;
