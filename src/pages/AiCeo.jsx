@@ -100,7 +100,7 @@ function stripCeoContextBlocks(content) {
 
 // ── Component ──
 export default function AiCeo() {
-  const { hasFeature } = useAuth();
+  const { hasFeature, user } = useAuth();
   const inboxCtx = useOutletContext() || {};
   const emailAccounts = inboxCtx.accounts || [];
   const { sessionId: urlSessionId } = useParams();
@@ -131,6 +131,13 @@ export default function AiCeo() {
   const [renameDraft, setRenameDraft] = useState('');
   const [creditsDepleted, setCreditsDepleted] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  // Cached Brand DNA — fetched once on mount, passed to ArtifactPanel
+  // so the shared SocialPreview can render the user's real brand
+  // avatar + display name + username instead of the 'your_brand'
+  // fallback. Same row that the inline story-image flow already loads
+  // ad-hoc; lifting it to component state lets every consumer reuse
+  // the result without re-querying.
+  const [brandDna, setBrandDna] = useState(null);
   // Files attached to the next outbound message. Same shape Marketing
   // uses so the two pages can converge on a shared helper later.
   // Images keep a data URL for preview; documents keep their text
@@ -169,6 +176,30 @@ export default function AiCeo() {
   const sessionIdRef = useRef(null);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+
+  // Fetch Brand DNA once on mount so SocialPreview (rendered inside
+  // ArtifactPanel for content_post artifacts) can show the user's real
+  // brand identity. Fire-and-forget — preview falls back gracefully
+  // to 'your_brand' placeholder while in flight or if absent.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) return;
+        const { data } = await supabase
+          .from('brand_dna')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .order('updated_at', { ascending: true })
+          .limit(1);
+        if (!cancelled && data?.[0]) setBrandDna(data[0]);
+      } catch (err) {
+        console.error('[AiCeo] Brand DNA load failed:', err.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const hasMessages = messages.length > 0;
   const showPanel = panelOpen && artifact && !isMobile;
@@ -1197,8 +1228,18 @@ export default function AiCeo() {
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                 setArtifact(prev => {
+                  // Existing artifact: append the new image to whatever
+                  // type the panel is already showing. Don't reshape it.
                   if (prev) return { ...prev, images: [...(prev.images || []), { src }] };
-                  const newArt = { id: Date.now(), type: 'content_post', title: 'Generated Image', content: '', images: [{ src }] };
+                  // Fresh panel: use the new 'image' artifact type. This
+                  // gets a clean centered viewer (no fake Instagram
+                  // phone mockup) — generate_image with no platform
+                  // context isn't social content, so don't pretend it
+                  // is. Platform-targeted content (create_content with
+                  // instagram_post / linkedin_post / etc.) keeps the
+                  // 'content_post' type where the social wrapper makes
+                  // sense.
+                  const newArt = { id: Date.now(), type: 'image', title: 'Generated Image', content: '', images: [{ src }] };
                   setPanelOpen(true);
                   if (isMobileRef.current) setMobileArtifactOpen(true);
                   return newArt;
@@ -1208,7 +1249,7 @@ export default function AiCeo() {
                 // panel after they close it.
                 setMessages(prev => prev.map(m =>
                   m.id === assistantMsgId
-                    ? { ...m, hasArtifact: true, artifactTitle: 'Open preview', artifactType: 'content_post' }
+                    ? { ...m, hasArtifact: true, artifactTitle: 'Open preview', artifactType: 'image' }
                     : m
                 ));
               }
@@ -2100,6 +2141,8 @@ export default function AiCeo() {
               key={artifact?.id}
               artifact={artifact}
               emailAccounts={emailAccounts}
+              user={user}
+              brandDna={brandDna}
               onClose={() => setPanelOpen(false)}
               onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
               onContentChange={(html) => setArtifact(prev => prev ? { ...prev, content: html } : prev)}
@@ -2116,6 +2159,8 @@ export default function AiCeo() {
             key={`mobile-${artifact?.id}`}
             artifact={artifact}
             emailAccounts={emailAccounts}
+            user={user}
+            brandDna={brandDna}
             onClose={() => setMobileArtifactOpen(false)}
             onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
             onContentChange={(html) => setArtifact(prev => prev ? { ...prev, content: html } : prev)}

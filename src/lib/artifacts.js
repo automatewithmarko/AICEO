@@ -3,6 +3,7 @@ export const ARTIFACT_TYPES = {
   newsletter: { label: 'Newsletter', icon: 'Mail' },
   html_template: { label: 'Template', icon: 'FileText' },
   content_post: { label: 'Post', icon: 'PenTool' },
+  image: { label: 'Image', icon: 'Image' },
   code_block: { label: 'Code', icon: 'Code' },
   markdown_doc: { label: 'Document', icon: 'FileText' },
 };

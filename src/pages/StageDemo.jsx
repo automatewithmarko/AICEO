@@ -5,7 +5,7 @@ import { useAudioAnalyser } from '../hooks/useAudioAnalyser';
 import { useRealtimeVoice } from '../hooks/useRealtimeVoice';
 import { supabase } from '../lib/supabase';
 import VoiceOrb from '../components/stagedemo/VoiceOrb';
-import CardLoader from '../components/stagedemo/CardLoader';
+import MockupRain from '../components/stagedemo/MockupRain';
 import ArtifactPanel from '../components/ArtifactPanel';
 import { generateImage } from '../lib/api';
 
@@ -67,15 +67,33 @@ export default function StageDemo() {
 
     // create_content — AI already wrote the content, just display it
     if (toolName === 'create_content') {
-      const isCarousel = args.content_type === 'carousel';
-      const needsImage = ['instagram_post', 'linkedin_post', 'carousel'].includes(args.content_type);
-      const platform = args.content_type === 'linkedin_post' ? 'linkedin' : 'instagram';
+      // Loose-match the content_type so model drift ('linkedin' vs
+      // 'linkedin_post', 'instagram' vs 'instagram_post') doesn't make
+      // a LinkedIn post render with Instagram chrome. Defaults to
+      // instagram-flavoured behaviour for anything unrecognised.
+      const ct = String(args.content_type || '').toLowerCase();
+      const isCarousel = ct.includes('carousel');
+      const isLinkedin = ct.includes('linkedin');
+      const isInstagram = ct.includes('instagram') || ct.includes('insta');
+      const isSocial = isLinkedin || isInstagram || isCarousel;
+      const needsImage = isSocial;
+      const platform = isLinkedin ? 'linkedin' : 'instagram';
+      // Normalise agentSource so ArtifactPanel's SocialPreview
+      // dispatcher (which also pattern-matches on /linkedin/) routes
+      // correctly even if the model dropped the _post suffix.
+      const normalisedSource = isCarousel
+        ? 'carousel'
+        : isLinkedin
+          ? 'linkedin_post'
+          : isInstagram
+            ? 'instagram_post'
+            : (args.content_type || 'content');
 
       const newArtifact = {
         type: 'content_post',
         title: args.title || 'Content',
         content: args.content,
-        agentSource: args.content_type || 'content',
+        agentSource: normalisedSource,
         frames: [],
         images: [],
         pendingImages: needsImage ? (isCarousel ? (args.content.split(/\n---\n/).length || 1) : 1) : 0,
@@ -319,7 +337,7 @@ export default function StageDemo() {
     onServerTool: (phase, name /*, ok */) => {
       // Surfaced from our own WS proxy whenever the bot calls a
       // server-side tool (lookup / schedule_post / etc.). Bumps the
-      // in-flight counter so the loader (CardLoader) renders even
+      // in-flight counter so the loader (MockupRain) renders even
       // though the frontend's handleToolCall never fires for these.
       if (phase === 'start') {
         console.log('[stagedemo] server tool start:', name);
@@ -834,15 +852,13 @@ export default function StageDemo() {
         )}
       </AnimatePresence>
 
-      {/* Loader (generating + any server tool in flight) — soft faded
-          translucent cards drifting in. The previous MockupRain swap
-          looked too high-contrast against the dark stage; reverted to
-          the original CardLoader, which uses 4% white fills + blurred
-          backdrop and reads as cinematic. Wrapped in AnimatePresence
-          so it fades in/out cleanly even for very brief server tools. */}
-      <AnimatePresence>
-        {showCardLoader && <CardLoader key="loader" />}
-      </AnimatePresence>
+      {/* Loader (generating + any server tool in flight) — MockupRain
+          3D cards flying in from depth. User preferred this over the
+          faded CardLoader after side-by-side testing; the higher
+          contrast reads better at stage distance. MockupRain manages
+          its own enter/exit animation via the `active` prop, so no
+          AnimatePresence wrapper needed. */}
+      <MockupRain active={showCardLoader} />
 
       {/* Artifact panel — uses real ArtifactPanel for accurate rendering */}
       <AnimatePresence>
