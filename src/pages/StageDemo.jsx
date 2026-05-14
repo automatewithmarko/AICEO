@@ -36,7 +36,7 @@ export default function StageDemo() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [bassLevel, setBassLevel] = useState(0);
   const [frequencyData, setFrequencyData] = useState(null);
-  // const [textInput, setTextInput] = useState(''); // removed — voice only
+  const [textInput, setTextInput] = useState('');
   const [caption, setCaption] = useState('');
   const captionBufferRef = useRef('');
   const captionTimerRef = useRef(null);
@@ -886,6 +886,64 @@ export default function StageDemo() {
         )}
       </AnimatePresence>
 
+      {/* Text input — always visible when connected */}
+      {isConnected && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!textInput.trim()) return;
+            sendText(textInput.trim());
+            setTextInput('');
+          }}
+          className="stagedemo-text-input"
+          style={{
+            position: 'fixed',
+            bottom: hasArtifact ? 24 : 32,
+            left: hasArtifact ? 24 : '50%',
+            transform: hasArtifact ? 'none' : 'translateX(-50%)',
+            width: hasArtifact ? 'calc(45vw - 48px)' : 'min(520px, calc(100vw - 48px))',
+            display: 'flex', alignItems: 'center', gap: 0,
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 28,
+            padding: '4px 4px 4px 18px',
+            backdropFilter: 'blur(16px)',
+            zIndex: 100,
+            transition: 'left 0.4s ease, width 0.4s ease, transform 0.4s ease',
+          }}
+        >
+          <input
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            placeholder="Type a message..."
+            style={{
+              flex: 1, background: 'none', border: 'none', outline: 'none',
+              color: 'rgba(255,255,255,0.8)', fontSize: 14,
+              fontFamily: "'Instrument Sans', system-ui, sans-serif",
+              padding: '10px 0',
+            }}
+          />
+          <button
+            type="submit"
+            disabled={!textInput.trim()}
+            style={{
+              width: 36, height: 36, borderRadius: '50%',
+              background: textInput.trim() ? 'var(--accent, #e91945)' : 'rgba(255,255,255,0.06)',
+              border: 'none',
+              color: textInput.trim() ? '#fff' : 'rgba(255,255,255,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: textInput.trim() ? 'pointer' : 'default',
+              transition: 'background 0.2s, color 0.2s',
+              flexShrink: 0,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+            </svg>
+          </button>
+        </form>
+      )}
+
       {/* Error overlay */}
       {error && (
         <div
@@ -1003,6 +1061,7 @@ export default function StageDemo() {
         @media (max-width: 768px) {
           .stagedemo-hud { display: none !important; }
           .stagedemo-mobile-bar { display: flex !important; }
+          .stagedemo-text-input { display: none !important; }
           .stagedemo-artifact-panel {
             width: auto !important;
             top: 12px !important; left: 12px !important; right: 12px !important; bottom: 12px !important;
