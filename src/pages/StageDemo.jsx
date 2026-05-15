@@ -76,8 +76,7 @@ export default function StageDemo() {
       const isLinkedin = ct.includes('linkedin');
       const isInstagram = ct.includes('instagram') || ct.includes('insta');
       const isSocial = isLinkedin || isInstagram || isCarousel;
-      // LinkedIn is text-first — only generate image if AI explicitly requested one
-      const needsImage = isLinkedin ? !!args.image_prompt : isSocial;
+      const needsImage = isSocial;
       const platform = isLinkedin ? 'linkedin' : 'instagram';
       // Normalise agentSource so ArtifactPanel's SocialPreview
       // dispatcher (which also pattern-matches on /linkedin/) routes
@@ -153,8 +152,22 @@ export default function StageDemo() {
                 setArtifact(prev => prev ? { ...prev, pendingImages: (prev.pendingImages || 1) - 1 } : null);
               }
             }));
+          } else if (isLinkedin) {
+            // LinkedIn: use user's profile/brand photo directly — no AI generation, no text on image
+            const photoUrl = brandData?.photoUrls?.[0];
+            if (photoUrl) {
+              setArtifact(prev => {
+                if (!prev) return null;
+                const updated = { ...prev, images: [{ src: photoUrl, idx: 0 }], pendingImages: 0 };
+                artifactRef.current = updated;
+                return updated;
+              });
+            } else {
+              // No profile photo available — skip image
+              setArtifact(prev => prev ? { ...prev, pendingImages: 0 } : null);
+            }
           } else {
-            // Single image for post
+            // Instagram / other: generate image via AI
             const imgPrompt = args.image_prompt
               || `Create a striking social media image for this ${platform} post:\n\n${args.content.slice(0, 300)}\n\nUse brand colors. Bold, eye-catching, professional. No text overlay unless it adds value.`;
             try {
