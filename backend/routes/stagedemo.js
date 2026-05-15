@@ -986,13 +986,56 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
     });
     const finalContent = result?.content || '';
 
-    // Parse agent output — agents return JSON with { type, html, summary, frames }
+    // Parse agent output — agents return JSON with { type, html, summary, frames }.
+    //
+    // Agents (notably story-sequence) routinely wrap their output in
+    // markdown code fences (```json ... ```) despite the prompt saying
+    // not to. The previous single JSON.parse(finalContent) failed on
+    // the fences → frames stayed [] → "No story frames" in the
+    // preview. Defensive ladder mirrors the one in AiCeo.jsx:
+    //   1. raw parse
+    //   2. fix raw newlines/tabs inside strings, retry
+    //   3. strip markdown fences, retry
+    //   4. extract first top-level {...} substring, retry (handles
+    //      stray prose before/after the JSON object)
+    // All steps log which one succeeded so we can see real-world
+    // frequencies in the logs.
     let html = finalContent;
     let title = agentName;
     let frames = [];
-    try {
-      const parsed = JSON.parse(finalContent);
-      console.log('[stagedemo] Agent response type:', parsed.type, 'keys:', Object.keys(parsed));
+    let parsed = null;
+    let parseStrategy = null;
+
+    const tryParse = (text, label) => {
+      try { const p = JSON.parse(text); parseStrategy = label; return p; } catch { return null; }
+    };
+    // Step 1: raw
+    parsed = tryParse(finalContent, 'raw');
+    if (!parsed) {
+      // Step 2: escape raw newlines/tabs that appear INSIDE string literals
+      const fixNl = (s) => s.replace(/("(?:[^"\\]|\\.)*")|[\n\r\t]/g, (m, q) => q ? q : m === '\n' ? '\\n' : m === '\r' ? '\\r' : '\\t');
+      parsed = tryParse(fixNl(finalContent), 'fixNl');
+    }
+    if (!parsed) {
+      // Step 3: strip markdown code fences (anchored to start AND end)
+      let cleaned = finalContent.trim();
+      if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```(?:json)?\s*/i, '');
+      if (cleaned.endsWith('```')) cleaned = cleaned.replace(/\s*```$/, '');
+      parsed = tryParse(cleaned, 'stripFences');
+      if (!parsed) parsed = tryParse((cleaned.replace(/("(?:[^"\\]|\\.)*")|[\n\r\t]/g, (m, q) => q ? q : m === '\n' ? '\\n' : m === '\r' ? '\\r' : '\\t')), 'stripFences+fixNl');
+    }
+    if (!parsed) {
+      // Step 4: pull the first top-level {...} block out of whatever
+      // the agent emitted (intro text, suffix text, etc.)
+      const objMatch = finalContent.match(/\{[\s\S]*\}/);
+      if (objMatch) {
+        parsed = tryParse(objMatch[0], 'extractObject');
+        if (!parsed) parsed = tryParse(objMatch[0].replace(/("(?:[^"\\]|\\.)*")|[\n\r\t]/g, (m, q) => q ? q : m === '\n' ? '\\n' : m === '\r' ? '\\r' : '\\t'), 'extractObject+fixNl');
+      }
+    }
+
+    if (parsed) {
+      console.log(`[stagedemo] Agent parse OK via "${parseStrategy}" — type=${parsed.type} keys=${JSON.stringify(Object.keys(parsed))}`);
       if (parsed.html) html = parsed.html;
       if (parsed.summary) title = parsed.summary;
       if (parsed.frames) frames = parsed.frames;
@@ -1000,8 +1043,8 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
       if (parsed.type === 'question') {
         return res.json({ html: null, agent: agentName, title: parsed.text || 'Question', frames: [], question: parsed });
       }
-    } catch {
-      console.log('[stagedemo] Agent returned non-JSON, length:', finalContent.length, 'first 500:', finalContent.slice(0, 500));
+    } else {
+      console.log('[stagedemo] Agent output unparseable after all strategies; length:', finalContent.length, 'first 500:', finalContent.slice(0, 500));
     }
 
     console.log('[stagedemo] Returning:', { agent: agentName, title, htmlLen: html?.length, framesCount: frames.length });
