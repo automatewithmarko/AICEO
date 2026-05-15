@@ -173,15 +173,60 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         break;
 
       case 'response.function_call_arguments.done': {
-        // Use accumulated deltas if .done doesn't include full arguments
-        const fullArgs = msg.arguments || fnCallAccRef.current[msg.call_id] || '{}';
+        // Realtime API can deliver a truncated `msg.arguments` when the
+        // tool emission got cut off mid-stream — most commonly because
+        // the user barged in and we sent `response.cancel` (see the
+        // speech_started branch above). In that case `.delta`s stop
+        // and `.done` fires with whatever was accumulated, which can
+        // be invalid JSON. Try `msg.arguments` first, then fall back
+        // to our own deltas accumulator; if BOTH fail to parse, send
+        // an error result so the model retries instead of leaving us
+        // with empty args (which used to silently render Instagram
+        // chrome with no content / empty story frames).
+        const accArgs = fnCallAccRef.current[msg.call_id];
         delete fnCallAccRef.current[msg.call_id];
-        console.log('[voice] Tool call:', msg.name, fullArgs.slice(0, 200));
-        if (onToolCall) {
-          let args = {};
-          try { args = JSON.parse(fullArgs); } catch {}
-          onToolCall(msg.name, args, msg.call_id);
+
+        const candidates = [msg.arguments, accArgs].filter(Boolean);
+        let args = null;
+        let usedRaw = null;
+        for (const candidate of candidates) {
+          try {
+            args = JSON.parse(candidate);
+            usedRaw = candidate;
+            break;
+          } catch {}
         }
+
+        if (args === null) {
+          console.warn('[voice] Tool args unparseable — asking model to retry.', {
+            tool: msg.name,
+            call_id: msg.call_id,
+            msgArgs: typeof msg.arguments === 'string' ? msg.arguments.slice(0, 300) : msg.arguments,
+            accArgs: typeof accArgs === 'string' ? accArgs.slice(0, 300) : accArgs,
+          });
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            // Mirror sendToolResult's pattern: cancel + clear buffer,
+            // then small delay before sending the function_call_output.
+            try { wsRef.current.send(JSON.stringify({ type: 'response.cancel' })); } catch {}
+            try { wsRef.current.send(JSON.stringify({ type: 'input_audio_buffer.clear' })); } catch {}
+            setTimeout(() => {
+              if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+              wsRef.current.send(JSON.stringify({
+                type: 'conversation.item.create',
+                item: {
+                  type: 'function_call_output',
+                  call_id: msg.call_id,
+                  output: 'Tool call arguments were truncated/malformed JSON and could not be parsed. Retry the tool call with complete, valid JSON arguments.',
+                },
+              }));
+              wsRef.current.send(JSON.stringify({ type: 'response.create' }));
+            }, 200);
+          }
+          break;
+        }
+
+        console.log('[voice] Tool call:', msg.name, usedRaw.slice(0, 200));
+        if (onToolCall) onToolCall(msg.name, args, msg.call_id);
         break;
       }
 
