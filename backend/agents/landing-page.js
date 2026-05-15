@@ -899,7 +899,14 @@ export default {
   description: 'Designs and builds high-converting landing pages with brand-consistent design, section markers for editing. Use when the user asks for a landing page, sales page, or product page.',
   provider: 'anthropic',
   model: 'claude-sonnet-4-20250514',
-  maxTokens: 16000,
+  // Full landing pages (DR mode with all sections + testimonials +
+  // inline Tailwind utility classes) routinely run 12-15K output
+  // tokens. The previous 16000 cap was hitting truncation occasionally,
+  // which left the JSON wrapper mid-string → frontend parse failed
+  // → broken HTML in the preview ("shows code lines instead of UI"
+  // symptom). 32K gives comfortable headroom on Sonnet 4 without
+  // changing typical billing materially.
+  maxTokens: 32000,
   // Large landing-page HTML generations can go >60s before Anthropic emits
   // the first token (long system prompt + brand context + multi-turn
   // history). Bump the stream-idle watchdog so we don't abort mid-reply.

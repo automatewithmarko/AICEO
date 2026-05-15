@@ -88,7 +88,9 @@ export default {
   description: 'Creates high-converting opt-in/squeeze pages that capture leads. Use when the user asks for an opt-in page, squeeze page, or lead capture page.',
   provider: 'anthropic',
   model: 'claude-sonnet-4-20250514',
-  maxTokens: 16000,
+  // Same reasoning as landing-page — long DR-style squeeze pages
+  // were hitting the 16K cap mid-string and breaking the JSON wrap.
+  maxTokens: 32000,
   // Same first-token-latency headroom as landing-page — big HTML generation
   // with brand context can stall the stream for more than the default 60s.
   streamIdleTimeoutMs: 180_000,

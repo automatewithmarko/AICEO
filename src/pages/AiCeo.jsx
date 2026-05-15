@@ -822,7 +822,16 @@ export default function AiCeo() {
             try { html = JSON.parse('"' + html + '"'); } catch {
               html = html.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
             }
-            if (html.length > 50) {
+            // Sanity-gate the streaming preview: the lazy regex above
+            // can occasionally truncate mid-HTML at a CSS or JS '}'
+            // boundary, producing garbage that renders as visible
+            // code-lines in the iframe instead of UI. Only accept
+            // chunks that actually look like HTML (start with '<'
+            // and contain a real document/element marker). Drops the
+            // false-positive cases without affecting the happy path.
+            const trimmed = html.trim();
+            const looksLikeHtml = trimmed.startsWith('<') && /<(!doctype|html|body|head|div|section|main|header|nav)/i.test(trimmed.slice(0, 200));
+            if (html.length > 50 && looksLikeHtml) {
               const isNewsletter = agentName === 'newsletter' || content.includes('"type":"newsletter"') || content.includes('"type": "newsletter"');
               const streamTitle = isNewsletter ? 'Crafting your Newsletter...' : `Crafting your ${agentName === 'landing' ? 'Landing Page' : agentName === 'squeeze' ? 'Squeeze Page' : 'content'}...`;
               setArtifact(prev => ({
