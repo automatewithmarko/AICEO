@@ -267,14 +267,14 @@ function buildRealtimeTools() {
     {
       type: 'function',
       name: 'create_content',
-      description: 'Create a social media post, carousel, reel script, email draft, or any short-form content. Use for Instagram posts, LinkedIn posts, Twitter/X posts, carousel slides, reel/TikTok scripts, quick emails, or any content that is NOT a full newsletter/landing page/squeeze page. YOU write the content directly in the "content" field — do not delegate to an agent.',
+      description: 'Create a social media post, carousel, reel script, email draft, or any short-form content. YOU write the content directly in the "content" field.\n\nPLATFORM RULES:\n- "LinkedIn post" → content_type MUST be "linkedin_post". LinkedIn posts are primarily TEXT. Long-form thought leadership, stories, insights. Image is OPTIONAL.\n- "Instagram post" → content_type MUST be "instagram_post". Instagram posts are primarily VISUAL. Short caption + image is the norm.\n- "Carousel" → content_type "carousel". Separate slides with ---.\n- "Reel script" → content_type "reel_script". Line-by-line spoken script.\n- MATCH THE PLATFORM THE USER ASKED FOR. Do not default to instagram.',
       parameters: {
         type: 'object',
         properties: {
           content_type: {
             type: 'string',
             enum: ['instagram_post', 'linkedin_post', 'twitter_post', 'carousel', 'reel_script', 'email_draft', 'other'],
-            description: 'What kind of content this is.',
+            description: 'MUST match the platform the user asked for. "LinkedIn post" = linkedin_post. "Instagram post" = instagram_post. Never default to instagram when the user said LinkedIn.',
           },
           title: { type: 'string', description: 'Short title (e.g. "Product launch IG post")' },
           content: { type: 'string', description: 'The full content — caption, slides, script, or email body. For carousels, separate each slide with ---. For reel scripts, write the spoken script line by line.' },

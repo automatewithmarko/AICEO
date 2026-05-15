@@ -76,7 +76,8 @@ export default function StageDemo() {
       const isLinkedin = ct.includes('linkedin');
       const isInstagram = ct.includes('instagram') || ct.includes('insta');
       const isSocial = isLinkedin || isInstagram || isCarousel;
-      const needsImage = isSocial;
+      // LinkedIn is text-first — only generate image if AI explicitly requested one
+      const needsImage = isLinkedin ? !!args.image_prompt : isSocial;
       const platform = isLinkedin ? 'linkedin' : 'instagram';
       // Normalise agentSource so ArtifactPanel's SocialPreview
       // dispatcher (which also pattern-matches on /linkedin/) routes
