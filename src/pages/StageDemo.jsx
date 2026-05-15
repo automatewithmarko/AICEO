@@ -11,6 +11,61 @@ import { generateImage } from '../lib/api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+// ── Retry helpers — demo-safety nets for transient failures ────────
+//
+// Both helpers bail immediately on AbortError (user navigated away or
+// explicit cancel) and on HTTP 4xx (won't recover by retrying). They
+// retry on thrown network errors, HTTP 5xx, and the "200-but-empty"
+// shape that generateImage returns when Gemini safety-filters or hits
+// a transient upstream. Total worst-case added latency: ~1.7s
+// (500ms + 1200ms backoff between 3 attempts). Kept local to
+// StageDemo so blast radius is zero outside this file.
+
+const RETRY_BACKOFF_MS = [500, 1200]; // backoff BEFORE attempt 2, then 3
+const RETRY_MAX_ATTEMPTS = RETRY_BACKOFF_MS.length + 1;
+
+async function generateImageWithRetry(...args) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
+    try {
+      const result = await generateImage(...args);
+      if (result?.image) return result;
+      // 200 but no image — Gemini safety filter or transient. Retry
+      // by throwing through the same path as a real error.
+      lastErr = new Error('generateImage returned no image');
+    } catch (e) {
+      if (e?.name === 'AbortError') throw e;
+      lastErr = e;
+    }
+    if (attempt < RETRY_MAX_ATTEMPTS - 1) {
+      await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt]));
+    }
+  }
+  throw lastErr || new Error('generateImage failed after retries');
+}
+
+async function fetchJsonWithRetry(url, init) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      if (res.ok) return res.json();
+      // 4xx → client error, no point retrying. 5xx → retry.
+      if (res.status >= 400 && res.status < 500) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      lastErr = new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      if (e?.name === 'AbortError') throw e;
+      lastErr = e;
+    }
+    if (attempt < RETRY_MAX_ATTEMPTS - 1) {
+      await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt]));
+    }
+  }
+  throw lastErr || new Error('fetch failed after retries');
+}
+
 export default function StageDemo() {
   // State machine: idle | listening | speaking | generating | artifact
   const [phase, setPhase] = useState('idle');
@@ -137,7 +192,7 @@ export default function StageDemo() {
                 ? `${args.image_prompt}\n\nSlide ${idx + 1} of ${slides.length}:\n${slide.trim()}`
                 : `Create a clean, bold social media carousel slide. Slide ${idx + 1} of ${slides.length}.\n\nContent: ${slide.trim()}\n\nUse brand colors. Bold headline text, minimal design, professional.`;
               try {
-                const result = await generateImage(slidePrompt, platform, brandData);
+                const result = await generateImageWithRetry(slidePrompt, platform, brandData);
                 if (result.image) {
                   const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                   setArtifact(prev => {
@@ -171,7 +226,7 @@ export default function StageDemo() {
             const imgPrompt = args.image_prompt
               || `Create a striking social media image for this ${platform} post:\n\n${args.content.slice(0, 300)}\n\nUse brand colors. Bold, eye-catching, professional. No text overlay unless it adds value.`;
             try {
-              const result = await generateImage(imgPrompt, platform, brandData);
+              const result = await generateImageWithRetry(imgPrompt, platform, brandData);
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                 setArtifact(prev => {
@@ -200,7 +255,7 @@ export default function StageDemo() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
 
-      const res = await fetch(`${API_URL}/api/stagedemo/generate`, {
+      const data = await fetchJsonWithRetry(`${API_URL}/api/stagedemo/generate`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -212,9 +267,6 @@ export default function StageDemo() {
           currentHtml: artifactRef.current?.content || undefined,
         }),
       });
-
-      if (!res.ok) throw new Error(`Generation failed: ${res.status}`);
-      const data = await res.json();
 
       clearTimeout(generateTimeoutRef.current);
 
@@ -271,7 +323,7 @@ export default function StageDemo() {
             : '';
           const prompt = `${visualStyle ? `VISUAL STYLE: ${visualStyle}\n\n` : ''}Frame ${idx + 1} of ${storyFrames.length} in a cohesive Instagram Story sequence.\n\n${frame.image_prompt}${captionInstruction}`;
           try {
-            const result = await generateImage(prompt, 'instagram_story', brandData);
+            const result = await generateImageWithRetry(prompt, 'instagram_story', brandData);
             if (result.image && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(result.image.mimeType)) {
               const src = `data:${result.image.mimeType};base64,${result.image.data}`;
               setArtifact(prev => {
@@ -301,7 +353,7 @@ export default function StageDemo() {
           for (const match of matches) {
             try {
               const platform = isNewsletter ? 'newsletter' : 'landing_page';
-              const result = await generateImage(match[1].trim(), platform, null);
+              const result = await generateImageWithRetry(match[1].trim(), platform, null);
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                 html = html.replace(match[0], src);
