@@ -267,14 +267,14 @@ function buildRealtimeTools() {
     {
       type: 'function',
       name: 'create_content',
-      description: 'Create a social media post, carousel, reel script, email draft, or any short-form content. Use for Instagram posts, LinkedIn posts, Twitter/X posts, carousel slides, reel/TikTok scripts, quick emails, or any content that is NOT a full newsletter/landing page/squeeze page. YOU write the content directly in the "content" field — do not delegate to an agent.',
+      description: 'Create a social media post, carousel, reel script, email draft, or any short-form content. YOU write the content directly in the "content" field.\n\nPLATFORM RULES:\n- "LinkedIn post" → content_type MUST be "linkedin_post". LinkedIn posts are primarily TEXT. Long-form thought leadership, stories, insights. Image is OPTIONAL.\n- "Instagram post" → content_type MUST be "instagram_post". Instagram posts are primarily VISUAL. Short caption + image is the norm.\n- "Carousel" → content_type "carousel". Separate slides with ---.\n- "Reel script" → content_type "reel_script". Line-by-line spoken script.\n- MATCH THE PLATFORM THE USER ASKED FOR. Do not default to instagram.',
       parameters: {
         type: 'object',
         properties: {
           content_type: {
             type: 'string',
             enum: ['instagram_post', 'linkedin_post', 'twitter_post', 'carousel', 'reel_script', 'email_draft', 'other'],
-            description: 'What kind of content this is.',
+            description: 'MUST match the platform the user asked for. "LinkedIn post" = linkedin_post. "Instagram post" = instagram_post. Never default to instagram when the user said LinkedIn.',
           },
           title: { type: 'string', description: 'Short title (e.g. "Product launch IG post")' },
           content: { type: 'string', description: 'The full content — caption, slides, script, or email body. For carousels, separate each slide with ---. For reel scripts, write the spoken script line by line.' },
@@ -965,7 +965,7 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
 
     // Build task description from args (simulate what the CEO would pass)
     const taskParts = Object.entries(args).map(([k, v]) => `${k}: ${v}`);
-    const taskDescription = `Create this asset with the following details:\n${taskParts.join('\n')}\n\nThe CEO already asked the discovery questions. Skip questions and generate immediately.`;
+    const taskDescription = `Create this asset with the following details:\n${taskParts.join('\n')}\n\nCRITICAL: The CEO already asked ALL discovery questions. You MUST skip questions and generate the final output immediately. Do NOT ask any questions. Do NOT return a question JSON. Respond ONLY with the final generation JSON (type + html/frames + summary). Generate NOW.`;
 
     // Build products context if available
     let productsCtx = '';
@@ -1001,7 +1001,7 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
         return res.json({ html: null, agent: agentName, title: parsed.text || 'Question', frames: [], question: parsed });
       }
     } catch {
-      console.log('[stagedemo] Agent returned non-JSON, length:', finalContent.length);
+      console.log('[stagedemo] Agent returned non-JSON, length:', finalContent.length, 'first 500:', finalContent.slice(0, 500));
     }
 
     console.log('[stagedemo] Returning:', { agent: agentName, title, htmlLen: html?.length, framesCount: frames.length });

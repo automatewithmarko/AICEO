@@ -36,7 +36,7 @@ export default function StageDemo() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [bassLevel, setBassLevel] = useState(0);
   const [frequencyData, setFrequencyData] = useState(null);
-  // const [textInput, setTextInput] = useState(''); // removed — voice only
+  const [textInput, setTextInput] = useState('');
   const [caption, setCaption] = useState('');
   const captionBufferRef = useRef('');
   const captionTimerRef = useRef(null);
@@ -152,8 +152,22 @@ export default function StageDemo() {
                 setArtifact(prev => prev ? { ...prev, pendingImages: (prev.pendingImages || 1) - 1 } : null);
               }
             }));
+          } else if (isLinkedin) {
+            // LinkedIn: use user's profile/brand photo directly — no AI generation, no text on image
+            const photoUrl = brandData?.photoUrls?.[0];
+            if (photoUrl) {
+              setArtifact(prev => {
+                if (!prev) return null;
+                const updated = { ...prev, images: [{ src: photoUrl, idx: 0 }], pendingImages: 0 };
+                artifactRef.current = updated;
+                return updated;
+              });
+            } else {
+              // No profile photo available — skip image
+              setArtifact(prev => prev ? { ...prev, pendingImages: 0 } : null);
+            }
           } else {
-            // Single image for post
+            // Instagram / other: generate image via AI
             const imgPrompt = args.image_prompt
               || `Create a striking social media image for this ${platform} post:\n\n${args.content.slice(0, 300)}\n\nUse brand colors. Bold, eye-catching, professional. No text overlay unless it adds value.`;
             try {
@@ -886,6 +900,126 @@ export default function StageDemo() {
         )}
       </AnimatePresence>
 
+      {/* Text input — always visible when connected */}
+      {isConnected && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!textInput.trim()) return;
+            sendText(textInput.trim());
+            setTextInput('');
+          }}
+          className="stagedemo-text-input"
+          style={{
+            position: 'fixed',
+            bottom: hasArtifact ? 24 : 32,
+            left: hasArtifact ? 24 : '50%',
+            transform: hasArtifact ? 'none' : 'translateX(-50%)',
+            width: hasArtifact ? 'calc(45vw - 48px)' : 'min(520px, calc(100vw - 48px))',
+            display: 'flex', alignItems: 'center',
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 28,
+            padding: '4px 5px 4px 18px',
+            gap: 4,
+            backdropFilter: 'blur(16px)',
+            zIndex: 100,
+            transition: 'left 0.4s ease, width 0.4s ease, transform 0.4s ease',
+          }}
+        >
+          <input
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            placeholder="Type a message..."
+            style={{
+              flex: 1, background: 'none', border: 'none', outline: 'none',
+              color: 'rgba(255,255,255,0.8)', fontSize: 14,
+              fontFamily: "'Instrument Sans', system-ui, sans-serif",
+              padding: '10px 0',
+            }}
+          />
+          {/* Mute toggle */}
+          <button
+            type="button"
+            onClick={toggleMute}
+            title={isMuted ? 'Unmute' : 'Mute'}
+            style={{
+              width: 36, height: 36, borderRadius: '50%',
+              background: isMuted ? 'rgba(220,50,60,0.2)' : 'rgba(255,255,255,0.06)',
+              border: `1px solid ${isMuted ? 'rgba(220,50,60,0.4)' : 'rgba(255,255,255,0.08)'}`,
+              color: isMuted ? '#ff6b7a' : 'rgba(255,255,255,0.4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', flexShrink: 0,
+              transition: 'all 0.2s',
+            }}
+          >
+            {isMuted ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="2" y1="2" x2="22" y2="22" />
+                <path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" />
+                <path d="M5 10v2a7 7 0 0 0 12 5" />
+                <path d="M15 9.34V4a3 3 0 0 0-5.68-1.33" />
+                <path d="M9 9v3a3 3 0 0 0 5.12 2.12" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+              </svg>
+            )}
+          </button>
+          {/* Artifact toggle */}
+          {artifact && (
+            <button
+              type="button"
+              onClick={hasArtifact ? handleCollapseArtifact : handleExpandArtifact}
+              title={hasArtifact ? 'Hide preview' : 'Show preview'}
+              style={{
+                width: 36, height: 36, borderRadius: '50%',
+                background: hasArtifact ? 'rgba(255,255,255,0.1)' : 'rgba(220,50,60,0.15)',
+                border: `1px solid ${hasArtifact ? 'rgba(255,255,255,0.15)' : 'rgba(220,50,60,0.3)'}`,
+                color: hasArtifact ? 'rgba(255,255,255,0.6)' : 'rgba(255,200,205,0.9)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', flexShrink: 0,
+                transition: 'all 0.2s',
+              }}
+            >
+              {hasArtifact ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M6 6l12 12M18 6L6 18"/>
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <line x1="9" y1="3" x2="9" y2="21" />
+                </svg>
+              )}
+            </button>
+          )}
+          {/* Send */}
+          <button
+            type="submit"
+            disabled={!textInput.trim()}
+            style={{
+              width: 36, height: 36, borderRadius: '50%',
+              background: textInput.trim() ? 'var(--accent, #e91945)' : 'rgba(255,255,255,0.06)',
+              border: 'none',
+              color: textInput.trim() ? '#fff' : 'rgba(255,255,255,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: textInput.trim() ? 'pointer' : 'default',
+              transition: 'background 0.2s, color 0.2s',
+              flexShrink: 0,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+            </svg>
+          </button>
+        </form>
+      )}
+
       {/* Error overlay */}
       {error && (
         <div
@@ -902,84 +1036,6 @@ export default function StageDemo() {
         </div>
       )}
 
-      {/* Mobile bottom bar — centered row with gap */}
-      {isConnected && (
-        <div className="stagedemo-mobile-bar" style={{
-          position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
-          // Always above the mobile artifact panel (z=250) so mute /
-          // show-preview controls stay reachable while the panel is
-          // open. Previously dropped to 200 when hasArtifact, which put
-          // it BELOW the panel and hid the mic toggle on mobile.
-          display: 'none', alignItems: 'center', gap: 16, zIndex: 300,
-        }}>
-          {/* Artifact toggle */}
-          {artifact && (
-            <button
-              type="button"
-              onClick={hasArtifact ? handleCollapseArtifact : handleExpandArtifact}
-              style={{
-                width: 52, height: 52, borderRadius: '50%',
-                background: hasArtifact ? 'rgba(255,255,255,0.1)' : 'rgba(220,50,60,0.2)',
-                border: `2px solid ${hasArtifact ? 'rgba(255,255,255,0.2)' : 'rgba(220,50,60,0.45)'}`,
-                color: hasArtifact ? 'rgba(255,255,255,0.8)' : 'rgba(255,200,205,0.95)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer',
-                boxShadow: '0 0 20px rgba(220,50,60,0.3)',
-                transition: 'all 0.2s',
-              }}
-            >
-              {hasArtifact ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M6 6l12 12M18 6L6 18"/>
-                </svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <line x1="9" y1="3" x2="9" y2="21" />
-                </svg>
-              )}
-            </button>
-          )}
-
-          {/* Mic toggle */}
-          <button
-            type="button"
-            onClick={toggleMute}
-            aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-            style={{
-              width: 64, height: 64, borderRadius: '50%',
-              background: isMuted ? 'rgba(220,50,60,0.25)' : 'rgba(255,255,255,0.06)',
-              border: `2px solid ${isMuted ? 'rgba(220,50,60,0.5)' : 'rgba(255,255,255,0.15)'}`,
-              color: isMuted ? '#ff6b7a' : 'rgba(255,255,255,0.7)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer',
-              boxShadow: isMuted
-                ? '0 0 24px rgba(220,50,60,0.4), inset 0 0 12px rgba(220,50,60,0.15)'
-                : '0 8px 32px rgba(0,0,0,0.4)',
-              transition: 'all 0.2s',
-            }}
-          >
-            {isMuted ? (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="2" y1="2" x2="22" y2="22" />
-                <path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" />
-                <path d="M5 10v2a7 7 0 0 0 12 5" />
-                <path d="M15 9.34V4a3 3 0 0 0-5.68-1.33" />
-                <path d="M9 9v3a3 3 0 0 0 5.12 2.12" />
-                <line x1="12" y1="19" x2="12" y2="23" />
-                <line x1="8" y1="23" x2="16" y2="23" />
-              </svg>
-            ) : (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" y1="19" x2="12" y2="23" />
-                <line x1="8" y1="23" x2="16" y2="23" />
-              </svg>
-            )}
-          </button>
-        </div>
-      )}
 
       {/* Click handler for mobile/tap */}
       {phase === 'idle' && !isConnected && (
@@ -1002,7 +1058,13 @@ export default function StageDemo() {
         }
         @media (max-width: 768px) {
           .stagedemo-hud { display: none !important; }
-          .stagedemo-mobile-bar { display: flex !important; }
+          .stagedemo-text-input {
+            bottom: 16px !important;
+            left: 12px !important;
+            right: 12px !important;
+            width: auto !important;
+            transform: none !important;
+          }
           .stagedemo-artifact-panel {
             width: auto !important;
             top: 12px !important; left: 12px !important; right: 12px !important; bottom: 12px !important;
