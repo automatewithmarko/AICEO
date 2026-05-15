@@ -965,7 +965,7 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
 
     // Build task description from args (simulate what the CEO would pass)
     const taskParts = Object.entries(args).map(([k, v]) => `${k}: ${v}`);
-    const taskDescription = `Create this asset with the following details:\n${taskParts.join('\n')}\n\nThe CEO already asked the discovery questions. Skip questions and generate immediately.`;
+    const taskDescription = `Create this asset with the following details:\n${taskParts.join('\n')}\n\nCRITICAL: The CEO already asked ALL discovery questions. You MUST skip questions and generate the final output immediately. Do NOT ask any questions. Do NOT return a question JSON. Respond ONLY with the final generation JSON (type + html/frames + summary). Generate NOW.`;
 
     // Build products context if available
     let productsCtx = '';
@@ -1001,7 +1001,7 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
         return res.json({ html: null, agent: agentName, title: parsed.text || 'Question', frames: [], question: parsed });
       }
     } catch {
-      console.log('[stagedemo] Agent returned non-JSON, length:', finalContent.length);
+      console.log('[stagedemo] Agent returned non-JSON, length:', finalContent.length, 'first 500:', finalContent.slice(0, 500));
     }
 
     console.log('[stagedemo] Returning:', { agent: agentName, title, htmlLen: html?.length, framesCount: frames.length });
