@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap, Paperclip, Loader2, AlertCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -69,6 +69,59 @@ function generateNewsletterImages(html, setArtifactFn, onProgress, platform = 'n
   return { total, promise };
 }
 
+// Upload any base64 image payloads inside an artifact (in HTML <img src>, in
+// the images[] array, in story frames[]) to storage and return a NEW artifact
+// object whose references are hosted URLs only. Used at snapshot time so that
+// per-message artifact snapshots (msg.artifact) stay small and survive a page
+// reload without re-embedding multi-MB base64 strings in the messages JSONB
+// row. Best-effort — any individual upload failure keeps the original src so
+// we never lose pixels even if Supabase storage is flaky.
+async function uploadArtifactBase64(art) {
+  if (!art) return art;
+  let savedContent = art.content || '';
+  if (savedContent) {
+    const b64re = /src="(data:image\/[^;]+;base64,[^"]+)"/g;
+    const matches = [...savedContent.matchAll(b64re)];
+    for (const m of matches) {
+      try {
+        const dataUri = m[1];
+        const commaIdx = dataUri.indexOf(',');
+        const mimeMatch = dataUri.match(/^data:([^;]+);/);
+        const result = await uploadImageToStorage(dataUri.slice(commaIdx + 1), mimeMatch?.[1] || 'image/png');
+        if (result.url) savedContent = savedContent.replaceAll(dataUri, result.url);
+      } catch {}
+    }
+  }
+  const uploadedImages = await Promise.all((art.images || []).map(async (img) => {
+    if (img.src?.startsWith('data:')) {
+      try {
+        const commaIdx = img.src.indexOf(',');
+        const mimeMatch = img.src.match(/^data:([^;]+);/);
+        const result = await uploadImageToStorage(img.src.slice(commaIdx + 1), mimeMatch?.[1] || 'image/png');
+        return { ...img, src: result.url || img.src };
+      } catch { return img; }
+    }
+    return img;
+  }));
+  const uploadedFrames = art.frames ? await Promise.all(art.frames.map(async (f) => {
+    if (f.imageSrc?.startsWith('data:')) {
+      try {
+        const commaIdx = f.imageSrc.indexOf(',');
+        const mimeMatch = f.imageSrc.match(/^data:([^;]+);/);
+        const result = await uploadImageToStorage(f.imageSrc.slice(commaIdx + 1), mimeMatch?.[1] || 'image/png');
+        return { ...f, imageSrc: result.url || f.imageSrc };
+      } catch { return f; }
+    }
+    return f;
+  })) : null;
+  return {
+    ...art,
+    content: savedContent,
+    images: uploadedImages,
+    ...(uploadedFrames ? { frames: uploadedFrames } : {}),
+  };
+}
+
 // Merge section-based edits into existing HTML using section markers
 function mergeSectionEdits(currentHtml, sections) {
   let result = currentHtml;
@@ -111,6 +164,13 @@ export default function AiCeo() {
   const [isListening, setIsListening] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [artifact, setArtifact] = useState(null);
+  // When set, the artifact panel previews this message's committed
+  // snapshot (msg.artifact) instead of the live `artifact` state.
+  // Cleared at the start of every new turn so streaming flows back
+  // to the live panel. Lets a single chat keep multiple independent
+  // artifact cards (e.g. one newsletter + one landing page) where
+  // each card opens its own preview.
+  const [selectedMsgId, setSelectedMsgId] = useState(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [splitPct, setSplitPct] = useState(45);
   const [dragging, setDragging] = useState(false);
@@ -202,7 +262,20 @@ export default function AiCeo() {
   }, []);
 
   const hasMessages = messages.length > 0;
-  const showPanel = panelOpen && artifact && !isMobile;
+
+  // Resolved artifact for the panel: a clicked-card's frozen snapshot when
+  // selectedMsgId is set, otherwise the live streaming `artifact` state.
+  // Falls back to live if a card was clicked but its snapshot is missing
+  // (legacy session loaded from a pre-snapshot DB row).
+  const displayedArtifact = useMemo(() => {
+    if (selectedMsgId) {
+      const m = messages.find(x => x.id === selectedMsgId);
+      if (m?.artifact) return m.artifact;
+    }
+    return artifact;
+  }, [selectedMsgId, messages, artifact]);
+
+  const showPanel = panelOpen && displayedArtifact && !isMobile;
 
   const starters = [
     'Draft an email to follow up with my leads about my top product.',
@@ -431,6 +504,28 @@ export default function AiCeo() {
     artifactRef.current = artifact;
   }, [artifact]);
 
+  // Commit the current live artifact as a frozen snapshot onto the message
+  // that produced it. Once committed, that message's chat card opens THIS
+  // snapshot independently of whatever future generations replace the live
+  // `artifact` slot with. Skips for type='image' on purpose: multi-image
+  // generations all share the cumulative live gallery (legacy behavior the
+  // user explicitly wants preserved). Uploads any base64 image payloads
+  // first so the snapshot persists cleanly into the messages JSONB row
+  // without bloating the page-reload size.
+  const commitOwnedArtifact = useCallback(async (msgId, artOverride = null) => {
+    if (!msgId) return;
+    const art = artOverride ?? artifactRef.current;
+    if (!art) return;
+    if (art.type === 'image') return;
+    try {
+      const uploaded = await uploadArtifactBase64(art);
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, artifact: uploaded } : m));
+    } catch (err) {
+      console.warn('[AiCeo] snapshot upload failed, keeping b64:', err?.message);
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, artifact: art } : m));
+    }
+  }, []);
+
   // ── Responsive ──
   useEffect(() => {
     isMobileRef.current = isMobile;
@@ -526,6 +621,10 @@ export default function AiCeo() {
           })),
         } : {}),
         ...(m.hasArtifact ? { hasArtifact: true, artifactTitle: m.artifactTitle, artifactType: m.artifactType } : {}),
+        // Per-message artifact snapshot. Already base64-stripped at
+        // commitOwnedArtifact time, so this is just URL-and-text payload.
+        // Lets each chat card open its own frozen preview after reload.
+        ...(m.artifact ? { artifact: m.artifact } : {}),
       }));
 
       // Prepare artifact for storage - upload base64 images
@@ -641,6 +740,7 @@ export default function AiCeo() {
       setSessionId(id);
       setMessages([]);
       setArtifact(null);
+      setSelectedMsgId(null);
       setPanelOpen(false);
       setCurrentQuestion(null);
       return;
@@ -651,13 +751,31 @@ export default function AiCeo() {
     // first-user-message title. If the stored title doesn't match what
     // we'd derive, it was manually renamed — mark it custom so autosave
     // preserves it.
-    const loadedMessages = data.messages || [];
+    let loadedMessages = data.messages || [];
     const firstUser = loadedMessages.find((m) => m.role === 'user');
     const derivedTitle = firstUser?.content?.replace(/\[CONTEXT[^\]]*\]\n?/g, '').slice(0, 80) || 'New conversation';
     if (data.title && data.title !== derivedTitle) {
       customTitleIdsRef.current.add(data.id);
     }
     setSessionId(data.id);
+    setSelectedMsgId(null);
+    // Backfill the most-recent hasArtifact message with the legacy
+    // session-level `artifact` row when no per-message snapshots exist.
+    // This keeps pre-fix sessions previewable: the latest card opens the
+    // saved artifact, earlier cards fall through to the live state (same
+    // as their behavior before the fix). New sessions written post-fix
+    // already carry per-message snapshots and skip this branch.
+    if (data.artifact && !loadedMessages.some((m) => m.artifact)) {
+      let lastIdx = -1;
+      for (let i = loadedMessages.length - 1; i >= 0; i--) {
+        if (loadedMessages[i].hasArtifact) { lastIdx = i; break; }
+      }
+      if (lastIdx >= 0) {
+        loadedMessages = loadedMessages.map((m, i) =>
+          i === lastIdx ? { ...m, artifact: data.artifact } : m
+        );
+      }
+    }
     setMessages(loadedMessages);
     setCurrentQuestion(null);
     if (data.artifact) {
@@ -681,6 +799,7 @@ export default function AiCeo() {
     setSessionId(newId);
     setMessages([]);
     setArtifact(null);
+    setSelectedMsgId(null);
     setPanelOpen(false);
     setMobileArtifactOpen(false);
     setCurrentQuestion(null);
@@ -747,6 +866,10 @@ export default function AiCeo() {
   // ── Send to AI (via backend orchestrator) ──
   const sendToAI = useCallback(async (chatHistory) => {
     setIsGenerating(true);
+    // New turn — drop any old-card preview so the panel follows the live
+    // streaming artifact for this turn. Old cards' frozen snapshots
+    // remain intact; user can click them again after the turn settles.
+    setSelectedMsgId(null);
     const assistantMsgId = `msg-${Date.now()}-ai`;
     setMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', content: '', hasArtifact: false }]);
 
@@ -892,14 +1015,15 @@ export default function AiCeo() {
               const isNewsletter = agentName === 'newsletter' || parsed.type === 'newsletter';
               const hasImages = (html && html.includes('{{GENERATE:')) || (isNewsletter && parsed.cover_image_prompt);
               const finalTitle = isNewsletter ? 'Crafting your Newsletter...' : `Crafting your ${agentName === 'landing' ? 'Landing Page' : agentName === 'squeeze' ? 'Squeeze Page' : 'content'}...`;
-              setArtifact(prev => ({
-                id: prev?.id || Date.now(),
+              const newArt = {
+                id: artifactRef.current?.id || Date.now(),
                 type: isNewsletter ? 'newsletter' : 'html_template',
                 title: hasImages ? finalTitle : (parsed.summary || finalTitle),
                 content: html,
                 images: [],
                 agentSource: agentName,
-              }));
+              };
+              setArtifact(newArt);
               setPanelOpen(true);
               if (isMobileRef.current) setMobileArtifactOpen(true);
 
@@ -912,6 +1036,10 @@ export default function AiCeo() {
                 setMessages(prev => prev.map(m =>
                   m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: parsed.summary || finalTitle, artifactType: 'html_template' } : m
                 ));
+                // Snapshot this final artifact onto the message so its
+                // chat card opens THIS HTML even after the user generates
+                // something else later in the same chat.
+                commitOwnedArtifact(assistantMsgId, newArt);
               }
 
               // Generate AI images for {{GENERATE:...}} placeholders
@@ -999,6 +1127,9 @@ export default function AiCeo() {
                   setMessages(prev => prev.map(m =>
                     m.id === assistantMsgId ? { ...m, content: doneTitle, status: null, hasArtifact: true, artifactTitle: doneTitle, artifactType: 'html_template' } : m
                   ));
+                  // Snapshot the final post-images artifact so this card
+                  // stays independently previewable later.
+                  commitOwnedArtifact(assistantMsgId);
                 })();
               }
             }
@@ -1109,6 +1240,11 @@ export default function AiCeo() {
                     setArtifact(prev => prev ? { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, loading: false, error: true } : f) } : prev);
                   }
                 }));
+                // All frames have settled (success or error). Snapshot the
+                // finished story sequence onto this message so its card
+                // independently previews these frames even after the next
+                // generation replaces the live `artifact`.
+                commitOwnedArtifact(assistantMsgId);
               })();
             }
           } catch (parseErr) {
@@ -1154,16 +1290,21 @@ export default function AiCeo() {
 
             if (rawHtml && (rawHtml.includes('<html') || rawHtml.includes('<body') || rawHtml.includes('<!DOCTYPE'))) {
               const isNewsletter = agentName === 'newsletter';
-              setArtifact({
+              const newArt = {
                 id: Date.now(),
                 type: isNewsletter ? 'newsletter' : 'html_template',
                 title: `${agentName} output`,
                 content: rawHtml,
                 images: [],
                 agentSource: agentName,
-              });
+              };
+              setArtifact(newArt);
               setPanelOpen(true);
               if (isMobileRef.current) setMobileArtifactOpen(true);
+              // Snapshot — but only if this message already has hasArtifact
+              // (set earlier in the streaming path). Don't add a card here
+              // since the original behavior was no-card on this fallback.
+              commitOwnedArtifact(assistantMsgId, newArt);
             } else {
               // Extraction failed. If the streaming preview already has a good
               // artifact loaded, DON'T overwrite it — the preview is better
@@ -1187,18 +1328,22 @@ export default function AiCeo() {
           firedTools.push(name);
           console.log(`[AiCeo] 🔧 tool_call: ${name}`, args);
           if (name === 'create_artifact') {
-            setArtifact({
+            const newArt = {
               id: Date.now(),
               type: args.type,
               title: args.title,
               content: args.content,
               images: [],
-            });
+            };
+            setArtifact(newArt);
             setPanelOpen(true);
             if (isMobileRef.current) setMobileArtifactOpen(true);
             setMessages(prev => prev.map(m =>
               m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: args.type } : m
             ));
+            // Snapshot — each post/email/code/doc gets its OWN frozen
+            // card so the chat can hold multiple side-by-side.
+            commitOwnedArtifact(assistantMsgId, newArt);
           }
           if (name === 'generate_image') {
             // Build referenceImages from any image the user attached
@@ -1286,6 +1431,11 @@ export default function AiCeo() {
             setMessages(prev => prev.map(m =>
               m.id === assistantMsgId ? { ...m, content: summary, hasArtifact: true, artifactTitle: 'Updated newsletter' } : m
             ));
+            // Snapshot the post-edit artifact onto this edit-turn message.
+            // The pre-edit message keeps its original frozen snapshot, so the
+            // chat now has two cards: the original and the edited version,
+            // each previewing independently.
+            commitOwnedArtifact(assistantMsgId);
           }
         },
         onAskUser: (question, options) => {
@@ -1908,6 +2058,11 @@ export default function AiCeo() {
                           <div
                             className="ceo-artifact-card"
                             onClick={() => {
+                              // Switch the panel to THIS message's frozen
+                              // snapshot. Falls back to the live artifact if
+                              // this message predates per-msg snapshots (e.g.
+                              // legacy session loaded from an older DB row).
+                              setSelectedMsgId(msg.id);
                               setPanelOpen(true);
                               if (isMobile) setMobileArtifactOpen(true);
                             }}
@@ -2115,7 +2270,7 @@ export default function AiCeo() {
                           <Send size={18} />
                         </button>
                       )}
-                      {artifact && !showPanel && !isMobile && (
+                      {displayedArtifact && !showPanel && !isMobile && (
                         <button
                           className="ceo-panel-toggle"
                           onClick={() => setPanelOpen(true)}
@@ -2147,14 +2302,28 @@ export default function AiCeo() {
         {showPanel && (
           <div className="ceo-artifact-panel" style={{ width: `${100 - splitPct}%` }}>
             <ArtifactPanel
-              key={artifact?.id}
-              artifact={artifact}
+              key={displayedArtifact?.id}
+              artifact={displayedArtifact}
               emailAccounts={emailAccounts}
               user={user}
               brandDna={brandDna}
               onClose={() => setPanelOpen(false)}
               onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
-              onContentChange={(html) => setArtifact(prev => prev ? { ...prev, content: html } : prev)}
+              onContentChange={(html) => {
+                // When viewing an old card's snapshot, route inline edits
+                // (iframe text/link edits) into that message's snapshot so
+                // its preview stays consistent. Otherwise update the live
+                // artifact as before.
+                if (selectedMsgId) {
+                  setMessages(prev => prev.map(m =>
+                    m.id === selectedMsgId && m.artifact
+                      ? { ...m, artifact: { ...m.artifact, content: html } }
+                      : m
+                  ));
+                } else {
+                  setArtifact(prev => prev ? { ...prev, content: html } : prev);
+                }
+              }}
               sessionId={sessionId}
             />
           </div>
@@ -2162,17 +2331,27 @@ export default function AiCeo() {
       </div>
 
       {/* ── Mobile: Artifact Overlay ── */}
-      {isMobile && mobileArtifactOpen && artifact && (
+      {isMobile && mobileArtifactOpen && displayedArtifact && (
         <div className="ceo-mobile-overlay">
           <ArtifactPanel
-            key={`mobile-${artifact?.id}`}
-            artifact={artifact}
+            key={`mobile-${displayedArtifact?.id}`}
+            artifact={displayedArtifact}
             emailAccounts={emailAccounts}
             user={user}
             brandDna={brandDna}
             onClose={() => setMobileArtifactOpen(false)}
             onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
-            onContentChange={(html) => setArtifact(prev => prev ? { ...prev, content: html } : prev)}
+            onContentChange={(html) => {
+              if (selectedMsgId) {
+                setMessages(prev => prev.map(m =>
+                  m.id === selectedMsgId && m.artifact
+                    ? { ...m, artifact: { ...m.artifact, content: html } }
+                    : m
+                ));
+              } else {
+                setArtifact(prev => prev ? { ...prev, content: html } : prev);
+              }
+            }}
           />
         </div>
       )}
