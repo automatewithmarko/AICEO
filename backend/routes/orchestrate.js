@@ -688,6 +688,42 @@ function userWantsNewArtifact(message, currentAgent) {
   return false;
 }
 
+// Detect new-artifact intent ACROSS the current in-progress flow, not just
+// the very last user message. The CEO orchestrator asks up to 4 ask_user
+// questions before generating a new newsletter / landing / squeeze / story /
+// lead-magnet / dm-automation. While the user is answering those questions,
+// each individual answer (e.g. "B2B SaaS") doesn't read as new-artifact
+// intent on its own — but the original triggering message ("create me a
+// landing page") is still earlier in the same flow.
+//
+// Strategy: walk back to the most recent assistant message that is NOT part
+// of an ask_user question (that's the boundary of the previous turn /
+// previous artifact's completion). Any user messages AFTER that boundary
+// belong to the current in-progress flow. If ANY of them carries explicit
+// new-artifact intent, treat the whole flow as new-artifact.
+//
+// Without this we leak back into the edit shortcut as soon as the user
+// answers question 1, and the file-edit agent silently mutates whatever
+// HTML is currently in the panel.
+function detectNewArtifactInFlow(messages, currentAgent) {
+  if (!Array.isArray(messages) || !currentAgent) return false;
+  let boundary = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m && m.role === 'assistant' && !m.wasAskUser) {
+      boundary = i;
+      break;
+    }
+  }
+  for (let i = boundary + 1; i < messages.length; i++) {
+    const m = messages[i];
+    if (m && m.role === 'user' && userWantsNewArtifact(m.content, currentAgent)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // ── POST /api/orchestrate ──
 // mode: "ceo" or "direct" (direct handles both generation and editing)
 router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, res) => {
@@ -730,8 +766,13 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
       // is open). Without this gate, the file-edit agent would silently
       // restructure the newsletter HTML into landing-page shape and the
       // user would end up with one mutated artifact instead of two cards.
-      if (userWantsNewArtifact(lastUserMsg, currentAgent)) {
-        console.log(`[orchestrate] New-artifact intent detected ("${lastUserMsg.slice(0, 80)}") — skipping edit shortcut, routing to CEO orchestration`);
+      //
+      // Use the in-flow scan rather than only checking the last message —
+      // otherwise we leak back into the edit shortcut the moment the user
+      // answers the first of the orchestrator's 4 setup questions (since
+      // "B2B SaaS" doesn't read as a new-artifact request on its own).
+      if (detectNewArtifactInFlow(messages, currentAgent)) {
+        console.log(`[orchestrate] New-artifact intent detected in current flow (last user msg: "${lastUserMsg.slice(0, 80)}") — skipping edit shortcut, routing to CEO orchestration`);
         await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId, assistantMsgId });
         return;
       }
@@ -1446,9 +1487,10 @@ async function handleAgentDelegation({ res, call, context, userId, currentHtml, 
   // If we have existing HTML and the delegation is to the same agent type, try file-based editing.
   // Even when the orchestrator (correctly) delegates to the SAME agent, we still want a
   // fresh generation when the user explicitly asked for a new one ("another newsletter",
-  // "fresh landing page"). userWantsNewArtifact() catches those phrasings.
-  const lastUserMsgForIntent = priorMessages?.filter?.(m => m?.role === 'user')?.slice?.(-1)?.[0]?.content || '';
-  const explicitNewIntent = userWantsNewArtifact(lastUserMsgForIntent, currentAgent);
+  // "fresh landing page") — and we must look across the whole in-progress question flow,
+  // not just the latest user message, since by the time we reach delegation the latest
+  // user message is usually a one-word answer to the orchestrator's setup questions.
+  const explicitNewIntent = detectNewArtifactInFlow(priorMessages, currentAgent);
   const isEditMode = currentHtml && currentAgent && (agentName === currentAgent) && !explicitNewIntent;
   if (isEditMode && userId) {
     console.log(`[orchestrate] CEO edit mode: trying file-based edit for ${agentName}`);
