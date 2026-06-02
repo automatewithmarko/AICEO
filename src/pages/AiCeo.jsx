@@ -270,7 +270,11 @@ export default function AiCeo() {
   const displayedArtifact = useMemo(() => {
     if (selectedMsgId) {
       const m = messages.find(x => x.id === selectedMsgId);
-      if (m?.artifact) return m.artifact;
+      if (m?.artifact) {
+        console.log(`[panel] showing msg snapshot ${selectedMsgId} type=${m.artifact.type} title="${m.artifact.title}"`);
+        return m.artifact;
+      }
+      console.warn(`[panel] msg ${selectedMsgId} has no .artifact → falling back to live`, { msgExists: !!m, hasArtifactFlag: !!m?.hasArtifact });
     }
     return artifact;
   }, [selectedMsgId, messages, artifact]);
@@ -513,16 +517,28 @@ export default function AiCeo() {
   // first so the snapshot persists cleanly into the messages JSONB row
   // without bloating the page-reload size.
   const commitOwnedArtifact = useCallback(async (msgId, artOverride = null) => {
-    if (!msgId) return;
+    if (!msgId) {
+      console.log('[snapshot] skip — no msgId');
+      return;
+    }
     const art = artOverride ?? artifactRef.current;
-    if (!art) return;
-    if (art.type === 'image') return;
+    if (!art) {
+      console.log(`[snapshot] skip — no art for ${msgId}`);
+      return;
+    }
+    if (art.type === 'image') {
+      console.log(`[snapshot] skip — type=image for ${msgId} (cumulative gallery)`);
+      return;
+    }
+    console.log(`[snapshot] start ${msgId} type=${art.type} title="${art.title}" contentLen=${art.content?.length || 0}`);
     try {
       const uploaded = await uploadArtifactBase64(art);
       setMessages(prev => prev.map(m => m.id === msgId ? { ...m, artifact: uploaded } : m));
+      console.log(`[snapshot] DONE ${msgId} (uploaded)`);
     } catch (err) {
       console.warn('[AiCeo] snapshot upload failed, keeping b64:', err?.message);
       setMessages(prev => prev.map(m => m.id === msgId ? { ...m, artifact: art } : m));
+      console.log(`[snapshot] DONE ${msgId} (b64 fallback)`);
     }
   }, []);
 
@@ -1497,6 +1513,27 @@ export default function AiCeo() {
         ));
       }
 
+      // Safety-net snapshot. The completion paths above already snapshot
+      // the artifact onto this turn's message, but there are async/race
+      // edge cases (image-IIFE late completion, hot reload, etc.) where
+      // the snapshot might not have landed yet. Commit it again here AFTER
+      // image promises have settled and BEFORE isGenerating flips false,
+      // so the user can't click an old card before the snapshot exists.
+      // Skips ask_user-only turns (no artifact ownership) and image-type
+      // artifacts (cumulative gallery — handled by commitOwnedArtifact).
+      if (!askUserFiredRef.current && artifactRef.current) {
+        let shouldSnapshot = false;
+        setMessages(prev => {
+          const m = prev.find(x => x.id === assistantMsgId);
+          shouldSnapshot = !!(m && m.hasArtifact);
+          return prev;
+        });
+        if (shouldSnapshot) {
+          console.log(`[snapshot] safety-net commit at turn end for ${assistantMsgId}`);
+          await commitOwnedArtifact(assistantMsgId);
+        }
+      }
+
       askUserFiredRef.current = false;
       setIsGenerating(false);
     }
@@ -2062,6 +2099,7 @@ export default function AiCeo() {
                               // snapshot. Falls back to the live artifact if
                               // this message predates per-msg snapshots (e.g.
                               // legacy session loaded from an older DB row).
+                              console.log(`[card] click ${msg.id} hasArtifact=${msg.hasArtifact} title="${msg.artifactTitle}" hasSnapshot=${!!msg.artifact}`);
                               setSelectedMsgId(msg.id);
                               setPanelOpen(true);
                               if (isMobile) setMobileArtifactOpen(true);
