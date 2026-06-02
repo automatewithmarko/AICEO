@@ -650,6 +650,44 @@ USER-UPLOADED IMAGES (CRITICAL):
   return prompt;
 }
 
+// Detect whether the user's latest message is asking for a NEW artifact
+// (different type, or "another / new / fresh <same-type>"), instead of an
+// edit to whatever's currently in the panel. Used to gate the "CEO edit
+// shortcut" — without this, a follow-up like "create a landing page" while
+// a newsletter is in the panel would be fed to the file-edit agent and
+// the newsletter would be silently restructured into a landing page,
+// leaving the user with one (mutated) artifact instead of two
+// independently previewable cards.
+//
+// Conservative on purpose: returns false (= keep editing) unless intent is
+// explicit. Plain modification messages ("make the title bigger", "change
+// colors", "fix the CTA") still route through the edit shortcut as before.
+function userWantsNewArtifact(message, currentAgent) {
+  if (!message || !currentAgent) return false;
+  const lower = String(message).toLowerCase();
+
+  // 1) Explicit mention of a DIFFERENT artifact type → NEW.
+  const types = {
+    'newsletter':     /\bnews ?letter\b/,
+    'landing-page':   /\blanding ?page\b/,
+    'squeeze-page':   /\b(squeeze ?page|opt[\s-]?in page|lead ?capture)\b/,
+    'story-sequence': /\b(story ?sequence|story ?series)\b/,
+    'lead-magnet':    /\blead ?magnet\b/,
+    'dm-automation':  /\bdm ?automation\b/,
+  };
+  for (const [t, re] of Object.entries(types)) {
+    if (t !== currentAgent && re.test(lower)) return true;
+  }
+
+  // 2) "another / new / fresh / different <same-type-name>" → NEW even when
+  // the requested type matches what's currently in the panel.
+  if (/\b(another|new|fresh|different|second|one more|extra)\b[^.!?]{0,40}\b(news ?letter|landing ?page|squeeze ?page|story|lead ?magnet|automation)\b/.test(lower)) {
+    return true;
+  }
+
+  return false;
+}
+
 // ── POST /api/orchestrate ──
 // mode: "ceo" or "direct" (direct handles both generation and editing)
 router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, res) => {
@@ -686,6 +724,18 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
       // cold-start where the user has to repeat themselves.
       const userMessages = messages.filter(m => m.role === 'user');
       const lastUserMsg = userMessages[userMessages.length - 1]?.content || '';
+
+      // Don't take the edit shortcut when the user is clearly asking for a
+      // DIFFERENT artifact (e.g. "create a landing page" while a newsletter
+      // is open). Without this gate, the file-edit agent would silently
+      // restructure the newsletter HTML into landing-page shape and the
+      // user would end up with one mutated artifact instead of two cards.
+      if (userWantsNewArtifact(lastUserMsg, currentAgent)) {
+        console.log(`[orchestrate] New-artifact intent detected ("${lastUserMsg.slice(0, 80)}") — skipping edit shortcut, routing to CEO orchestration`);
+        await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId, assistantMsgId });
+        return;
+      }
+
       const priorMessages = messages.slice(0, -1); // everything except the current edit instruction
       const agent = getAgent(currentAgent);
       if (agent && lastUserMsg) {
@@ -1393,8 +1443,13 @@ async function handleAgentDelegation({ res, call, context, userId, currentHtml, 
   sendSSE(res, { type: 'status', text: `Delegating to ${agent.name} agent...` });
   sendSSE(res, { type: 'agent_start', agent: agent.name });
 
-  // If we have existing HTML and the delegation is to the same agent type, try file-based editing
-  const isEditMode = currentHtml && currentAgent && (agentName === currentAgent);
+  // If we have existing HTML and the delegation is to the same agent type, try file-based editing.
+  // Even when the orchestrator (correctly) delegates to the SAME agent, we still want a
+  // fresh generation when the user explicitly asked for a new one ("another newsletter",
+  // "fresh landing page"). userWantsNewArtifact() catches those phrasings.
+  const lastUserMsgForIntent = priorMessages?.filter?.(m => m?.role === 'user')?.slice?.(-1)?.[0]?.content || '';
+  const explicitNewIntent = userWantsNewArtifact(lastUserMsgForIntent, currentAgent);
+  const isEditMode = currentHtml && currentAgent && (agentName === currentAgent) && !explicitNewIntent;
   if (isEditMode && userId) {
     console.log(`[orchestrate] CEO edit mode: trying file-based edit for ${agentName}`);
     try {
