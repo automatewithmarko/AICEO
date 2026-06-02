@@ -521,7 +521,26 @@ export default function AiCeo() {
       console.log('[snapshot] skip — no msgId');
       return;
     }
-    const art = artOverride ?? artifactRef.current;
+    let art;
+    if (artOverride) {
+      art = artOverride;
+    } else {
+      // Capture the latest committed artifact state via a functional setState
+      // pass-through. artifactRef.current is updated by a useEffect that
+      // only fires AFTER React commits a render, so it lags behind any
+      // image-URL setArtifact calls queued by generateNewsletterImages.
+      // Reading the ref directly would snapshot the pre-swap HTML (with
+      // {{GENERATE:...}} placeholders) and the card preview would render
+      // shimmer "Generating" boxes instead of the actual images. React
+      // processes setState callbacks in queue order, so our pass-through
+      // sees the latest reduced state (post-images, post-title).
+      art = await new Promise(resolve => {
+        setArtifact(prev => {
+          resolve(prev);
+          return prev;
+        });
+      });
+    }
     if (!art) {
       console.log(`[snapshot] skip — no art for ${msgId}`);
       return;
@@ -530,7 +549,8 @@ export default function AiCeo() {
       console.log(`[snapshot] skip — type=image for ${msgId} (cumulative gallery)`);
       return;
     }
-    console.log(`[snapshot] start ${msgId} type=${art.type} title="${art.title}" contentLen=${art.content?.length || 0}`);
+    const hasPlaceholders = !!art.content?.includes('{{GENERATE:');
+    console.log(`[snapshot] start ${msgId} type=${art.type} title="${art.title}" contentLen=${art.content?.length || 0} hasPlaceholders=${hasPlaceholders}`);
     try {
       const uploaded = await uploadArtifactBase64(art);
       setMessages(prev => prev.map(m => m.id === msgId ? { ...m, artifact: uploaded } : m));
