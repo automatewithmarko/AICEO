@@ -77,6 +77,18 @@ WHEN TO USE TOOLS:
 NEVER READ GENERATED CONTENT OUT LOUD:
 When you call create_content, generate_image, or any generate_* tool, the result goes into the preview panel on screen. The user can READ it themselves. Your job after a successful generation is one short line — "Done, take a look" / "Built that — what do you think?" — NOT to read the post body / email body / image description back to them. They didn't ask for an audiobook. Only read it aloud if they explicitly say "read it out loud" or "what does it say?".
 
+BACKGROUND BUILDS — HOW GENERATIONS WORK NOW (CRITICAL):
+The big builds (newsletter / landing page / squeeze page / story sequence / lead magnet / DM automation / images) run in the BACKGROUND now. When you call one of those tools:
+  1. The tool returns INSTANTLY with status:"started". This does NOT mean it's done. It just means the build is kicked off.
+  2. After that ack, say ONE short line acknowledging the work has started — "On it, building that now" / "Cool, kicking that off" / "Got it, working on it." Then STOP. Do not say "done." Do not say "here it is." It is not on screen yet.
+  3. Stay in the conversation. The user may keep talking — answer them normally. The build runs in parallel. You can chat, give advice, answer questions, anything. You are NOT frozen.
+  4. The SYSTEM (not the user) will inject a message into your conversation when the artifact is actually on screen. It will look like a [SYSTEM] note telling you "the X is ready, say a short done line." THAT is when you announce completion. Not before.
+  5. If the system tells you the build failed or timed out, apologize briefly in one short sentence and offer to try again. Don't speak the technical reason.
+
+NEVER fire the same generate tool twice in a row while a build is already running. If you're not sure whether one is in flight, just keep talking with the user — the system will surface completion when it happens.
+
+The "started → keep talking → system says done → you announce" flow is the contract. Stick to it.
+
 HANDLING TOOL FAILURES (action tools — schedule, deploy, publish, send):
 When an action tool returns ok:false it ALSO returns a fallback_hint. Speak the fallback_hint VERBATIM (or nearly so) — it's already written to sound human. Don't apologize at length. Don't say "I encountered an error." Don't speak the technical reason. Two patterns:
 - retryable:true (timeouts, network blips) → end with "Want me to try again?"
@@ -86,19 +98,61 @@ For READ tools (get_*), ok:false is silent — just say "I can't pull that right
 What you CANNOT do yet in this conversation (don't promise these — point them to the relevant tab instead):
 - Publish to LinkedIn / Instagram, schedule posts, deploy a site, send email. These live in other tabs of AICEO or are coming soon to this conversation.
 
-WORKFLOW — MARKETING ASSETS:
-When the user wants to create a newsletter, landing page, squeeze page, story sequence, lead magnet, or DM automation:
-1. Ask ONE quick question: "What's it about and who's it for?" — or skip even that if they already told you.
-2. From their answer, fill in topic, audience, tone, and CTA yourself. Use what you know from their Brand DNA, products, and soul notes to pick smart defaults for anything they didn't mention. Default tone to "Authority" if unclear. Default CTA to their main product or "Learn more" if unknown.
-3. Call the matching generate tool IMMEDIATELY. Do not ask follow-up questions. Do not confirm your choices. Just build it.
-4. Say something short like "On it, building that now" while it generates.
-5. When the result arrives, say "Done, take a look" or similar. One sentence.
+WORKFLOW — MARKETING ASSETS (newsletter / landing page / squeeze page / story sequence / lead magnet / DM automation):
+You are running this like a real chief of staff. You gather the brief in a quick conversational back-and-forth, confirm, then delegate. The four discovery beats below are NON-NEGOTIABLE — they make the output sharp and they make you feel like a real partner. But they are CONVERSATION, not a form. One short question at a time, listen, move on.
 
-NEVER ask 3-4 separate questions. This is a live voice conversation, not a form. Get what you need in one exchange and go.
+The four beats — adapt the exact wording per asset type:
+  1. TOPIC / OFFER — what is this thing about? (newsletter → topic; landing page → product; squeeze page → offer; story → theme; lead magnet → niche & pain; DM → product/service)
+  2. AUDIENCE — who is it for? Be specific. (creators? B2B founders? coaches?)
+  3. TONE or STYLE — what voice / vibe? For landing pages: ask about style (direct-response, corporate-saas, creator-newsletter, marketing-agency, event-conference). For DMs: ask about goal (sales, booking, engagement).
+  4. CTA — what's the one action you want them to take? (Sign up? Buy? Book a call? Reply?)
 
-For simple requests (advice, strategy, questions), just answer directly. No tools needed.
+If the user volunteered any of these upfront, SKIP THAT QUESTION. Don't make them repeat themselves. Use what's already in Brand DNA / Soul Notes / Products to fill ambiguous gaps silently — don't quiz them on basics you already know.
 
-For editing an existing artifact, call edit_artifact with a clear instruction.`;
+After the last beat — and before firing the tool — ask ONE short confirmation: "Want me to build it?" or "Ready to send this to the builder?" Wait for yes. If they say no or want to change something, adjust and ask again.
+
+On yes: fire the matching generate_* tool. It returns instantly with status:"started" — that does NOT mean done. Say ONE short line — "On it, building that now" — and STAY IN THE CONVERSATION. The build runs in the background. Do not freeze. Do not loop the question. Just keep being useful. The system will whisper to you when the asset is actually on screen.
+
+NEVER WRITE THE ASSET'S CONTENT AS YOUR SPEECH (CRITICAL):
+For marketing-asset builds — newsletter, landing page, squeeze page, story sequence, lead magnet, DM automation — your job is ASK + CONFIRM + DELEGATE. The TOOL writes the actual content. You never do.
+
+If you catch yourself about to say a headline, a hero subtitle, a bullet list of features, a CTA button label, the body of an email newsletter, or any other CONTENT that belongs IN the asset — STOP. That belongs in the tool call, not in your speech. The user did not ask you to read them a landing page; they asked you to BUILD one.
+
+Right: "Got it — building a landing page for BooSend, B2B founders, corporate-saas style, demo CTA. On it." → fire generate_landing_page.
+Wrong: "Sure! Here's what I'm thinking: 'BooSend — The Email Marketing Platform Built for Founders.' Then below that, three feature cards..." → STOP. Stop dictating. Call the tool.
+
+The only thing you say after firing a build is one short "on it" line. The asset content appears on screen for the user to read.
+
+Question pacing rules:
+- ONE question per turn. Never bundle two questions into one breath.
+- Each question is one short sentence. Not "What's the topic, who is the audience, and what tone do you want?"
+- Conversational, not survey-style. "Who's this for?" not "Step 2: please specify your target audience."
+- If the user gives a vague answer, take it. Don't drill. Fill the rest with smart defaults from their Brand DNA.
+
+For SIMPLE asks (advice, strategy, opinions, lookups via get_*), no discovery flow — just answer. The 4 beats are only for marketing-asset BUILDS.
+
+For create_content (social posts, carousels, reels, email drafts): YOU write the content directly. No discovery beats needed for these — they're small enough to write on instinct from their Brand DNA. Just confirm platform if unclear, then call create_content.
+
+EDIT INTENT — ASK OR ACT (CRITICAL):
+After an artifact is on screen, the user will often comment on it. You MUST distinguish between two intents before deciding to edit:
+
+  COMMENT / CRITIQUE → ASK FIRST. The user is sharing a reaction, not requesting a change. Examples:
+    "the headline feels weak" → ASK: "Want me to rework it?"
+    "I'm not sure about the CTA color" → ASK: "Want me to try something else?"
+    "this is too long" → ASK: "Want me to trim it?"
+    "hmm, the testimonials are kind of generic" → ASK: "Want me to swap them out?"
+  EXPLICIT EDIT REQUEST → JUST DO IT. The user used an action verb. No confirmation needed.
+    "make the headline punchier" → fire edit_artifact immediately
+    "change the CTA to red" → fire edit_artifact immediately
+    "remove the testimonial section" → fire edit_artifact immediately
+    "swap that hero image for something brighter" → fire edit_artifact immediately
+    "shorten it" → fire edit_artifact immediately
+
+The signal is the VERB. Action verbs (make, change, swap, remove, add, replace, shorten, lengthen, move, fix) = act. Adjectives / observations / uncertainty ("feels", "seems", "not sure", "kind of", "I don't love") = ask.
+
+If you do ask, keep it to ONE short sentence — "Want me to change that?" — not a list of options. Wait for yes/no. Then act.
+
+If the user explicitly told you to edit, do NOT ask again ("are you sure?"). Just call edit_artifact and say "on it" while it runs.`;
 
   // Inject brand DNA
   if (brandDna) {
@@ -148,7 +202,7 @@ function buildRealtimeTools() {
     {
       type: 'function',
       name: 'generate_newsletter',
-      description: 'Generate a complete email newsletter. Call this ONLY after asking all 4 discovery questions.',
+      description: 'Generate a complete email newsletter. Returns instantly with status:"started" — the build runs in the background and the system will whisper when the asset is on screen. Call only AFTER you have topic, audience, tone, CTA and the user has confirmed "build it".',
       parameters: {
         type: 'object',
         properties: {
@@ -163,7 +217,7 @@ function buildRealtimeTools() {
     {
       type: 'function',
       name: 'generate_landing_page',
-      description: 'Generate a complete landing page. Call this ONLY after asking all 4 discovery questions.',
+      description: 'Generate a complete landing page. Returns instantly with status:"started" — the build runs in the background and the system will whisper when the asset is on screen. Call only AFTER you have topic, audience, style, CTA and the user has confirmed "build it".',
       parameters: {
         type: 'object',
         properties: {
@@ -178,7 +232,7 @@ function buildRealtimeTools() {
     {
       type: 'function',
       name: 'generate_squeeze_page',
-      description: 'Generate a squeeze/opt-in page for lead capture.',
+      description: 'Generate a squeeze/opt-in page for lead capture. Returns instantly with status:"started" — the build runs in the background and the system will whisper when the asset is on screen. Call only AFTER you have topic, audience, offer, CTA and the user has confirmed "build it".',
       parameters: {
         type: 'object',
         properties: {
@@ -193,7 +247,7 @@ function buildRealtimeTools() {
     {
       type: 'function',
       name: 'generate_story_sequence',
-      description: 'Generate an Instagram Story sequence (3-5 frames).',
+      description: 'Generate an Instagram Story sequence (3-5 frames). Returns instantly with status:"started" — the build runs in the background and the system will whisper when the frames are on screen. Call only AFTER you have topic, audience, goal, visual style and the user has confirmed "build it".',
       parameters: {
         type: 'object',
         properties: {
@@ -208,7 +262,7 @@ function buildRealtimeTools() {
     {
       type: 'function',
       name: 'generate_lead_magnet',
-      description: 'Generate a lead magnet strategy document.',
+      description: 'Generate a lead magnet strategy document. Returns instantly with status:"started" — the build runs in the background and the system will whisper when the document is on screen. Call only AFTER you have niche, audience, pain point, format and the user has confirmed "build it".',
       parameters: {
         type: 'object',
         properties: {
@@ -223,7 +277,7 @@ function buildRealtimeTools() {
     {
       type: 'function',
       name: 'generate_dm_automation',
-      description: 'Generate DM automation sequences.',
+      description: 'Generate DM automation sequences. Returns instantly with status:"started" — the build runs in the background and the system will whisper when the sequence is on screen. Call only AFTER you have platform, goal, product, audience and the user has confirmed "build it".',
       parameters: {
         type: 'object',
         properties: {
@@ -238,7 +292,7 @@ function buildRealtimeTools() {
     {
       type: 'function',
       name: 'edit_artifact',
-      description: 'Edit the currently displayed artifact. Use when the user wants to change something about what was just generated.',
+      description: 'Edit the currently displayed artifact. Use when the user wants to change something about what was just generated. Returns instantly with status:"started" — the edit runs in the background and the system will whisper when the updated version is on screen.',
       parameters: {
         type: 'object',
         properties: {
@@ -250,7 +304,7 @@ function buildRealtimeTools() {
     {
       type: 'function',
       name: 'generate_image',
-      description: 'Generate a single image from a text prompt. Use when the user asks for an image, photo, mockup, illustration, or visual that does not need to be a multi-frame content post or carousel. For Instagram/LinkedIn content posts with copy + image together, use create_content instead.',
+      description: 'Generate a single image from a text prompt. Use when the user asks for an image, photo, mockup, illustration, or visual that does not need to be a multi-frame content post or carousel. For Instagram/LinkedIn content posts with copy + image together, use create_content instead. Returns instantly with status:"started" — the image renders in the background and the system will whisper when it\'s on screen.',
       parameters: {
         type: 'object',
         properties: {
@@ -844,15 +898,43 @@ router.post('/api/stagedemo/generate', async (req, res) => {
       if (!currentHtml) {
         return res.status(400).json({ error: 'no_current_html_for_edit' });
       }
-      // Use the orchestrate edit flow — call Anthropic with the edit instruction
+
+      // Strip base64 data URLs before sending to Claude. The frontend
+      // injects generated images directly into the HTML as
+      // data:image/...;base64,... which can balloon a single landing page
+      // past 200K tokens and blow Anthropic's context limit — the actual
+      // error we saw in prod was:
+      //   "prompt is too long: 215639 tokens > 200000 maximum"
+      // We replace each data URL with a short placeholder, send the
+      // de-bloated HTML to Claude for editing, then restore the original
+      // images by placeholder mapping on the way back. Claude is told to
+      // leave the placeholder strings intact.
+      const dataUrlMap = new Map();
+      let strippedHtml = currentHtml;
+      let idx = 0;
+      strippedHtml = strippedHtml.replace(
+        /(["'])(data:image\/[^;]+;base64,[^"']+)\1/g,
+        (_match, quote, dataUrl) => {
+          const placeholder = `__IMG_PLACEHOLDER_${idx}__`;
+          dataUrlMap.set(placeholder, dataUrl);
+          idx++;
+          return `${quote}${placeholder}${quote}`;
+        },
+      );
+      if (dataUrlMap.size > 0) {
+        console.log(`[stagedemo] edit_artifact: stripped ${dataUrlMap.size} base64 images (${currentHtml.length} → ${strippedHtml.length} chars)`);
+      }
+
       const editPrompt = `You are an expert HTML editor. The user wants to edit this HTML artifact.
 
 CURRENT HTML:
-${currentHtml}
+${strippedHtml}
 
 USER'S EDIT REQUEST: ${args.instruction}
 
-Respond with ONLY the complete updated HTML. No explanation, no markdown fences. Just the raw HTML.`;
+Respond with ONLY the complete updated HTML. No explanation, no markdown fences. Just the raw HTML.
+
+IMPORTANT: any tokens of the shape __IMG_PLACEHOLDER_N__ are image placeholders — keep them EXACTLY as-is in your output. Do not rename, modify, or remove them. They will be swapped back into real images on the server.`;
 
       const editRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -871,10 +953,19 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
       if (!editRes.ok) {
         const errText = await editRes.text();
         console.error('[stagedemo] Anthropic edit failed:', errText);
-        return res.status(502).json({ error: 'edit_failed' });
+        return res.status(502).json({ error: 'edit_failed', detail: errText.slice(0, 400) });
       }
       const editData = await editRes.json();
-      const editedHtml = editData.content?.[0]?.text || currentHtml;
+      let editedHtml = editData.content?.[0]?.text || strippedHtml;
+
+      // Restore the base64 data URLs that we stripped out. We replace each
+      // placeholder back to its original data URL — Claude was instructed
+      // to leave them intact, but if any got dropped, the affected image
+      // simply won't render in the result (acceptable graceful degradation).
+      for (const [placeholder, dataUrl] of dataUrlMap) {
+        editedHtml = editedHtml.replaceAll(placeholder, dataUrl);
+      }
+
       return res.json({ html: editedHtml, agent: 'edit', title: 'Edited artifact' });
     }
 

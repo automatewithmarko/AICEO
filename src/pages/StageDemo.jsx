@@ -246,139 +246,207 @@ export default function StageDemo() {
       return;
     }
 
+    // ── Background build pattern ────────────────────────────────
+    // Ack the tool call INSTANTLY so the bot is unlocked in <200ms and
+    // can keep talking ("on it, building that now"). The actual build
+    // (executeAgent on the backend + image generation here) runs in a
+    // detached promise. When it finishes we whisper a system note so the
+    // bot announces completion naturally. On failure or 60s timeout we
+    // whisper a different note so the bot apologizes / offers retry.
+    // The bot is never frozen waiting on the build — even if the agent
+    // hangs forever, the bot can keep up live conversation.
     setPhase('generating');
     setOrbScale(0.3);
 
-    generateTimeoutRef.current = setTimeout(() => {}, 15000);
+    sendToolResult(
+      callId,
+      `Build started in the background. Say ONE short line like "On it, building that now" or "Cool, kicking that off" — DO NOT claim it's done yet, the asset is not on screen. The system will tell you when it's ready. If the user keeps talking, respond normally; the build runs in parallel.`,
+    );
 
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
+    // Builds take time — landing pages from Claude can run 60-90s for the
+    // HTML alone, plus image generation on top. The previous 60s ceiling
+    // was tripping on legitimate slow builds. 4 minutes is the sweet spot:
+    // long enough that real builds always finish, short enough that a
+    // genuinely hung LLM still gets cut off and the bot can apologize.
+    const buildAbort = new AbortController();
+    const timeoutId = setTimeout(() => {
+      console.warn('[stagedemo] Build timeout (4min) — aborting');
+      try { buildAbort.abort(); } catch {}
+    }, 300_000);
 
-      const data = await fetchJsonWithRetry(`${API_URL}/api/stagedemo/generate`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          tool: toolName,
-          args,
-          currentHtml: artifactRef.current?.content || undefined,
-        }),
-      });
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
 
-      clearTimeout(generateTimeoutRef.current);
+        const data = await fetchJsonWithRetry(`${API_URL}/api/stagedemo/generate`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            tool: toolName,
+            args,
+            currentHtml: artifactRef.current?.content || undefined,
+          }),
+          signal: buildAbort.signal,
+        });
 
-      // Build artifact object matching ArtifactPanel's expected shape
-      const agentName = data.agent || toolName.replace('generate_', '');
-      const isNewsletter = agentName === 'newsletter';
-      const isLanding = agentName === 'landing-page' || agentName === 'squeeze-page';
-      const isStory = agentName === 'story-sequence';
+        clearTimeout(timeoutId);
 
-      // Story sequences: set up frames with loading state, then generate images
-      const storyFrames = isStory && data.frames?.length
-        ? data.frames.map((f, i) => ({ ...f, imageSrc: null, loading: true, id: i }))
-        : data.frames || [];
+        // Defensive: the agent ignored "skip questions" and asked one
+        // back. Don't pretend success — voice the question to the user
+        // so they can answer and we can re-fire the build with the new
+        // detail. Without this guard the panel would show null content.
+        const agentReturnedQuestion = (data?.question && data.question.text) || (data?.html == null && (!data?.frames || data.frames.length === 0));
+        if (agentReturnedQuestion) {
+          const qText = data?.question?.text || 'I need one more detail before I can build this.';
+          setPhase('listening');
+          setOrbScale(1);
+          sendSystemMessage(
+            `The builder needs more info before it can finish: "${qText}". Ask the user this in your own words — one short, natural sentence. After they answer, you can call the same generate tool again with the new detail.`,
+          );
+          return;
+        }
 
-      const newArtifact = {
-        type: isNewsletter ? 'newsletter' : isStory ? 'story_sequence' : 'html_template',
-        title: data.title || agentName,
-        content: data.html,
-        agentSource: agentName,
-        frames: storyFrames,
-      };
-      artifactRef.current = newArtifact;
-      setArtifact(newArtifact);
-      setArtifactCollapsed(false);
+        // Build artifact object matching ArtifactPanel's expected shape
+        const agentName = data.agent || toolName.replace('generate_', '');
+        const isNewsletter = agentName === 'newsletter';
+        const isLanding = agentName === 'landing-page' || agentName === 'squeeze-page';
+        const isStory = agentName === 'story-sequence';
 
-      // One short line — the user can read the artifact themselves. Do NOT
-      // describe or read the generated content aloud unless they ask.
-      sendToolResult(callId, `${data.agent} is on screen. Say ONE short line like "Done, what do you think?" — do NOT read the content out loud.`);
+        // Story sequences: set up frames with loading state, then generate images
+        const storyFrames = isStory && data.frames?.length
+          ? data.frames.map((f, i) => ({ ...f, imageSrc: null, loading: true, id: i }))
+          : data.frames || [];
 
-      // Generate images in the background (story frames + HTML placeholders)
-      if (isStory && storyFrames.length) {
-        // Load brand data for image generation
-        let brandData = null;
-        try {
-          const { data: { session: authSession } } = await supabase.auth.getSession();
-          if (authSession?.user) {
-            const { data: bdArr } = await supabase.from('brand_dna').select('*').eq('user_id', authSession.user.id).limit(1);
-            if (bdArr?.[0]) {
-              brandData = {
-                photoUrls: bdArr[0].photo_urls?.length ? [bdArr[0].photo_urls[0]] : [],
-                logoUrl: null,
-                colors: bdArr[0].colors || {},
-                mainFont: bdArr[0].main_font || null,
-              };
-            }
-          }
-        } catch {}
+        const newArtifact = {
+          type: isNewsletter ? 'newsletter' : isStory ? 'story_sequence' : 'html_template',
+          title: data.title || agentName,
+          content: data.html,
+          agentSource: agentName,
+          frames: storyFrames,
+        };
+        artifactRef.current = newArtifact;
+        setArtifact(newArtifact);
+        setArtifactCollapsed(false);
+        setPhase('artifact');
 
-        const visualStyle = storyFrames[0]?.visual_style || '';
-        Promise.all(storyFrames.map(async (frame, idx) => {
-          const captionText = frame.caption || frame.title || '';
-          const captionInstruction = captionText
-            ? `\n\nTEXT OVERLAY: Render ONE white pill text sticker with "${captionText}" in black bold sans-serif, centered upper third. No Instagram UI.`
-            : '';
-          const prompt = `${visualStyle ? `VISUAL STYLE: ${visualStyle}\n\n` : ''}Frame ${idx + 1} of ${storyFrames.length} in a cohesive Instagram Story sequence.\n\n${frame.image_prompt}${captionInstruction}`;
+        // For stories: defer the "done" whisper until the first frame
+        // image has actually landed. Without this the bot says "done"
+        // while the audience stares at loading skeletons. Capped at 8s
+        // so a slow first frame doesn't strand the announcement.
+        let firstImageResolve;
+        const firstImageReady = new Promise((r) => { firstImageResolve = r; });
+        let firstImageDone = false;
+        const markFirstImage = () => { if (!firstImageDone) { firstImageDone = true; firstImageResolve(); } };
+
+        // Generate images in the background (story frames + HTML placeholders)
+        if (isStory && storyFrames.length) {
+          // Load brand data for image generation
+          let brandData = null;
           try {
-            const result = await generateImageWithRetry(prompt, 'instagram_story', brandData);
-            if (result.image && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(result.image.mimeType)) {
-              const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+            const { data: { session: authSession } } = await supabase.auth.getSession();
+            if (authSession?.user) {
+              const { data: bdArr } = await supabase.from('brand_dna').select('*').eq('user_id', authSession.user.id).limit(1);
+              if (bdArr?.[0]) {
+                brandData = {
+                  photoUrls: bdArr[0].photo_urls?.length ? [bdArr[0].photo_urls[0]] : [],
+                  logoUrl: null,
+                  colors: bdArr[0].colors || {},
+                  mainFont: bdArr[0].main_font || null,
+                };
+              }
+            }
+          } catch {}
+
+          const visualStyle = storyFrames[0]?.visual_style || '';
+          // allSettled instead of all — one bad frame shouldn't tank
+          // the announcement timing for the others.
+          Promise.allSettled(storyFrames.map(async (frame, idx) => {
+            const captionText = frame.caption || frame.title || '';
+            const captionInstruction = captionText
+              ? `\n\nTEXT OVERLAY: Render ONE white pill text sticker with "${captionText}" in black bold sans-serif, centered upper third. No Instagram UI.`
+              : '';
+            const prompt = `${visualStyle ? `VISUAL STYLE: ${visualStyle}\n\n` : ''}Frame ${idx + 1} of ${storyFrames.length} in a cohesive Instagram Story sequence.\n\n${frame.image_prompt}${captionInstruction}`;
+            try {
+              const result = await generateImageWithRetry(prompt, 'instagram_story', brandData);
+              if (result.image && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(result.image.mimeType)) {
+                const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+                setArtifact(prev => {
+                  if (!prev) return null;
+                  const updated = { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, imageSrc: src, loading: false } : f) };
+                  artifactRef.current = updated;
+                  return updated;
+                });
+                markFirstImage();
+              }
+            } catch (err) {
+              console.error(`Story frame ${idx + 1} image failed:`, err.message);
               setArtifact(prev => {
                 if (!prev) return null;
-                const updated = { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, imageSrc: src, loading: false } : f) };
+                const updated = { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, loading: false, error: true } : f) };
                 artifactRef.current = updated;
                 return updated;
               });
             }
-          } catch (err) {
-            console.error(`Story frame ${idx + 1} image failed:`, err.message);
-            setArtifact(prev => {
-              if (!prev) return null;
-              const updated = { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, loading: false, error: true } : f) };
-              artifactRef.current = updated;
-              return updated;
-            });
-          }
-        }));
-      }
+          }));
+        } else {
+          // Non-story builds (newsletter, landing, etc.) don't need the
+          // first-image gate. Resolve immediately so the "done" whisper
+          // fires as soon as the HTML lands on screen.
+          markFirstImage();
+        }
 
-      // Generate images for {{GENERATE:...}} placeholders in HTML
-      if (data.html?.includes('{{GENERATE:')) {
-        (async () => {
-          let html = data.html;
-          const matches = [...html.matchAll(/\{\{GENERATE:([\s\S]*?)\}\}/g)];
-          for (const match of matches) {
-            try {
-              const platform = isNewsletter ? 'newsletter' : 'landing_page';
-              const result = await generateImageWithRetry(match[1].trim(), platform, null);
-              if (result.image) {
-                const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-                html = html.replace(match[0], src);
-              }
-            } catch {}
-          }
-          if (html !== data.html) {
-            setArtifact(prev => {
-              if (!prev) return null;
-              const updated = { ...prev, content: html };
-              artifactRef.current = updated;
-              return updated;
-            });
-          }
-        })();
-      }
+        // Generate images for {{GENERATE:...}} placeholders in HTML.
+        // These swap shimmer placeholders → real images over time; user
+        // already sees the page chrome, so we don't gate the "done"
+        // announcement on these.
+        if (data.html?.includes('{{GENERATE:')) {
+          (async () => {
+            let html = data.html;
+            const matches = [...html.matchAll(/\{\{GENERATE:([\s\S]*?)\}\}/g)];
+            for (const match of matches) {
+              try {
+                const platform = isNewsletter ? 'newsletter' : 'landing_page';
+                const result = await generateImageWithRetry(match[1].trim(), platform, null);
+                if (result.image) {
+                  const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+                  html = html.replace(match[0], src);
+                }
+              } catch {}
+            }
+            if (html !== data.html) {
+              setArtifact(prev => {
+                if (!prev) return null;
+                const updated = { ...prev, content: html };
+                artifactRef.current = updated;
+                return updated;
+              });
+            }
+          })();
+        }
 
-      setPhase('artifact');
-    } catch (err) {
-      console.error('[stagedemo] Generation error:', err);
-      clearTimeout(generateTimeoutRef.current);
-      sendToolResult(callId, `Generation failed: ${err.message}. Let the user know and offer to try again.`);
-      setPhase('speaking');
-      setOrbScale(1);
-    }
+        // Wait for first image (or 8s cap), then whisper completion.
+        await Promise.race([firstImageReady, new Promise((r) => setTimeout(r, 8000))]);
+
+        sendSystemMessage(
+          `The ${agentName.replace(/-/g, ' ')} is now on screen and ready. Say ONE short, natural sentence like "Done — take a look" or "Built it. What do you think?" — do NOT read the content out loud. If the user is in the middle of saying something, this can wait.`,
+        );
+      } catch (err) {
+        clearTimeout(timeoutId);
+        console.error('[stagedemo] Background build error:', err);
+        const isAbort = err?.name === 'AbortError';
+        setPhase('listening');
+        setOrbScale(1);
+        sendSystemMessage(
+          isAbort
+            ? `The build is taking unusually long and timed out. Apologize briefly in ONE short sentence and offer to try again or do a simpler version. Don't say the technical reason.`
+            : `The build failed. Apologize briefly in ONE short sentence and offer to try again. Don't speak the technical reason.`,
+        );
+      }
+    })();
   }, [artifact]);
 
   // Voice hook
@@ -388,7 +456,7 @@ export default function StageDemo() {
     connect, disconnect,
     startCapture, stopCapture,
     toggleMute,
-    sendText, sendToolResult,
+    sendText, sendToolResult, sendSystemMessage,
   } = useRealtimeVoice({
     audioCtxRef,
     playbackAnalyserRef,
@@ -581,6 +649,20 @@ export default function StageDemo() {
     setArtifactCollapsed(false);
     setOrbScale(1);
   };
+
+  // Panic reset — the on-stage "anything broke, get me back to a clean
+  // state RIGHT NOW" button. Tears down the voice connection cleanly
+  // (so OpenAI sees a normal close instead of a stranded WS) and then
+  // hard-reloads the page. No confirmation dialog: presenter on stage
+  // doesn't have a second to confirm.
+  const handlePanicReset = useCallback(() => {
+    try { disconnect(); } catch {}
+    try { cleanupAudio(); } catch {}
+    // Tiny delay so the WS close packet has time to flush; reload feels
+    // instant either way because the user sees the page blank before
+    // navigation happens.
+    setTimeout(() => { window.location.reload(); }, 60);
+  }, [disconnect, cleanupAudio]);
 
   const isActive = phase === 'listening' || phase === 'speaking' || phase === 'artifact' || phase === 'generating';
   // "Has artifact and is visible". Hidden-but-kept (collapsed) doesn't
@@ -775,6 +857,37 @@ export default function StageDemo() {
             <span>{isMuted ? 'Muted' : 'Mic'}</span>
           </button>
         )}
+        {/* Panic reset — silent reload, no confirm. Subtle by design so
+            audience doesn't notice it; presenter knows where it is. */}
+        <button
+          type="button"
+          onClick={handlePanicReset}
+          aria-label="Reset session — fresh reload"
+          title="Reset (silent reload)"
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 26, height: 26, padding: 0,
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 6,
+            color: 'rgba(255,255,255,0.3)',
+            cursor: 'pointer',
+            transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+            e.currentTarget.style.color = 'rgba(255,255,255,0.6)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+            e.currentTarget.style.color = 'rgba(255,255,255,0.3)';
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 3-6.7" />
+            <polyline points="3 4 3 10 9 10" />
+          </svg>
+        </button>
         <span style={{
           color: 'rgba(255,255,255,0.15)', fontFamily: 'monospace',
           fontSize: 11, letterSpacing: 2,
