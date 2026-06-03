@@ -263,10 +263,16 @@ export default function StageDemo() {
       `Build started in the background. Say ONE short line like "On it, building that now" or "Cool, kicking that off" — DO NOT claim it's done yet, the asset is not on screen. The system will tell you when it's ready. If the user keeps talking, respond normally; the build runs in parallel.`,
     );
 
+    // Builds take time — landing pages from Claude can run 60-90s for the
+    // HTML alone, plus image generation on top. The previous 60s ceiling
+    // was tripping on legitimate slow builds. 4 minutes is the sweet spot:
+    // long enough that real builds always finish, short enough that a
+    // genuinely hung LLM still gets cut off and the bot can apologize.
     const buildAbort = new AbortController();
     const timeoutId = setTimeout(() => {
+      console.warn('[stagedemo] Build timeout (4min) — aborting');
       try { buildAbort.abort(); } catch {}
-    }, 60_000);
+    }, 240_000);
 
     (async () => {
       try {
