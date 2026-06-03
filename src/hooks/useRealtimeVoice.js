@@ -50,6 +50,13 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
   const currentResponseIdRef = useRef(null);
   // Accumulate function call argument deltas (GA API sends them incrementally)
   const fnCallAccRef = useRef({});
+  // Internal bot-speaking tracking for the queued sendSystemMessage path.
+  // When the AI is mid-utterance, a fresh response.create would be rejected
+  // ("response already active") and the whisper would be silently dropped.
+  // We park it here and drain when audio.done fires. Barge-in clears the
+  // queue (user took the floor, no point announcing into their sentence).
+  const aiSpeakingInternalRef = useRef(false);
+  const pendingWhisperRef = useRef(null);
 
   // Get auth token
   const getToken = useCallback(async () => {
@@ -131,6 +138,11 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
       case 'input_audio_buffer.speech_started':
         // User started speaking — cancel AI response for barge-in
         stopPlayback();
+        // Drop any queued system whisper. The user took the floor; we
+        // don't want to interrupt them with a "your artifact is ready"
+        // line after they finish — the panel is visible anyway.
+        pendingWhisperRef.current = null;
+        aiSpeakingInternalRef.current = false;
         if (wsRef.current?.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({ type: 'response.cancel' }));
         }
@@ -142,6 +154,7 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
         // AI audio chunk — play it
         if (msg.delta) {
           playAudioChunk(msg.delta);
+          aiSpeakingInternalRef.current = true;
           onAiSpeakingChange?.(true);
         }
         break;
@@ -156,7 +169,22 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
 
       case 'response.audio.done':
       case 'response.output_audio.done':
+        aiSpeakingInternalRef.current = false;
         onAiSpeakingChange?.(false);
+        // Drain any queued system whisper now that the bot is free.
+        if (pendingWhisperRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+          const text = pendingWhisperRef.current;
+          pendingWhisperRef.current = null;
+          try {
+            wsRef.current.send(JSON.stringify({
+              type: 'conversation.item.create',
+              item: { type: 'message', role: 'system', content: [{ type: 'input_text', text }] },
+            }));
+            wsRef.current.send(JSON.stringify({ type: 'response.create' }));
+          } catch (err) {
+            console.warn('[voice] drain whisper failed:', err?.message);
+          }
+        }
         break;
 
       case 'response.audio_transcript.done':
@@ -375,6 +403,41 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
     wsRef.current.send(JSON.stringify({ type: 'response.create' }));
   }, []);
 
+  // Inject a system-side note into the conversation so the bot reacts on
+  // its next response. Used to whisper background-job completions/failures
+  // to the bot — the protocol's tool-call slot is closed by the time the
+  // real build finishes (we ack'd it instantly to free the bot), so this
+  // is how we tell it "the landing page is ready now, say done".
+  //
+  // Smart-queues against an in-flight bot response: if the AI is currently
+  // speaking, the whisper would race a fresh response.create and either be
+  // rejected ("response_already_active") or cut off the current line. We
+  // park it in pendingWhisperRef and drain it when audio.done fires, so
+  // the bot finishes its current sentence ("on it, building that") and
+  // then naturally speaks the queued line ("done, take a look"). Barge-in
+  // drops the queue so we never announce into a user's utterance.
+  const sendSystemMessage = useCallback((text) => {
+    if (!text) return;
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    if (aiSpeakingInternalRef.current) {
+      pendingWhisperRef.current = text;
+      return;
+    }
+    try {
+      wsRef.current.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'system',
+          content: [{ type: 'input_text', text }],
+        },
+      }));
+      wsRef.current.send(JSON.stringify({ type: 'response.create' }));
+    } catch (err) {
+      console.warn('[voice] sendSystemMessage failed:', err?.message);
+    }
+  }, []);
+
   // Send tool result back to OpenAI so it can speak the confirmation
   const sendToolResult = useCallback((callId, result) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -429,6 +492,7 @@ export function useRealtimeVoice({ audioCtxRef, playbackAnalyserRef, onToolCall,
     setMuted,
     toggleMute,
     sendText,
+    sendSystemMessage,
     sendToolResult,
   };
 }
