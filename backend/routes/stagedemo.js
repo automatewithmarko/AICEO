@@ -869,15 +869,43 @@ router.post('/api/stagedemo/generate', async (req, res) => {
       if (!currentHtml) {
         return res.status(400).json({ error: 'no_current_html_for_edit' });
       }
-      // Use the orchestrate edit flow — call Anthropic with the edit instruction
+
+      // Strip base64 data URLs before sending to Claude. The frontend
+      // injects generated images directly into the HTML as
+      // data:image/...;base64,... which can balloon a single landing page
+      // past 200K tokens and blow Anthropic's context limit — the actual
+      // error we saw in prod was:
+      //   "prompt is too long: 215639 tokens > 200000 maximum"
+      // We replace each data URL with a short placeholder, send the
+      // de-bloated HTML to Claude for editing, then restore the original
+      // images by placeholder mapping on the way back. Claude is told to
+      // leave the placeholder strings intact.
+      const dataUrlMap = new Map();
+      let strippedHtml = currentHtml;
+      let idx = 0;
+      strippedHtml = strippedHtml.replace(
+        /(["'])(data:image\/[^;]+;base64,[^"']+)\1/g,
+        (_match, quote, dataUrl) => {
+          const placeholder = `__IMG_PLACEHOLDER_${idx}__`;
+          dataUrlMap.set(placeholder, dataUrl);
+          idx++;
+          return `${quote}${placeholder}${quote}`;
+        },
+      );
+      if (dataUrlMap.size > 0) {
+        console.log(`[stagedemo] edit_artifact: stripped ${dataUrlMap.size} base64 images (${currentHtml.length} → ${strippedHtml.length} chars)`);
+      }
+
       const editPrompt = `You are an expert HTML editor. The user wants to edit this HTML artifact.
 
 CURRENT HTML:
-${currentHtml}
+${strippedHtml}
 
 USER'S EDIT REQUEST: ${args.instruction}
 
-Respond with ONLY the complete updated HTML. No explanation, no markdown fences. Just the raw HTML.`;
+Respond with ONLY the complete updated HTML. No explanation, no markdown fences. Just the raw HTML.
+
+IMPORTANT: any tokens of the shape __IMG_PLACEHOLDER_N__ are image placeholders — keep them EXACTLY as-is in your output. Do not rename, modify, or remove them. They will be swapped back into real images on the server.`;
 
       const editRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -896,10 +924,19 @@ Respond with ONLY the complete updated HTML. No explanation, no markdown fences.
       if (!editRes.ok) {
         const errText = await editRes.text();
         console.error('[stagedemo] Anthropic edit failed:', errText);
-        return res.status(502).json({ error: 'edit_failed' });
+        return res.status(502).json({ error: 'edit_failed', detail: errText.slice(0, 400) });
       }
       const editData = await editRes.json();
-      const editedHtml = editData.content?.[0]?.text || currentHtml;
+      let editedHtml = editData.content?.[0]?.text || strippedHtml;
+
+      // Restore the base64 data URLs that we stripped out. We replace each
+      // placeholder back to its original data URL — Claude was instructed
+      // to leave them intact, but if any got dropped, the affected image
+      // simply won't render in the result (acceptable graceful degradation).
+      for (const [placeholder, dataUrl] of dataUrlMap) {
+        editedHtml = editedHtml.replaceAll(placeholder, dataUrl);
+      }
+
       return res.json({ html: editedHtml, agent: 'edit', title: 'Edited artifact' });
     }
 

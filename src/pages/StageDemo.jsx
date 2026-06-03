@@ -272,7 +272,7 @@ export default function StageDemo() {
     const timeoutId = setTimeout(() => {
       console.warn('[stagedemo] Build timeout (4min) — aborting');
       try { buildAbort.abort(); } catch {}
-    }, 240_000);
+    }, 420_000);
 
     (async () => {
       try {
