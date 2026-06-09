@@ -920,8 +920,38 @@ export default function AiCeo() {
       const abort = new AbortController();
       abortRef.current = abort;
 
-      const apiMessages = chatHistory.map(m => {
-        const msg = { role: m.role, content: m.content };
+      // Strip embedded HTML artifact bodies from prior turn message
+      // content before sending. The current artifact is already
+      // passed separately via `currentHtml` below — keeping additional
+      // <!DOCTYPE…</html> blobs inside chat history bloats the prompt
+      // by tens of thousands of tokens per turn and was the proximate
+      // cause of the "Something went wrong" Anthropic 400s
+      // (`prompt is too long` ~231K tokens observed in prod logs).
+      //
+      // Heuristic: if a message contains a large embedded HTML
+      // document (>2K chars AND has both a starting tag and a closing
+      // </html> or </body>), replace it with a short placeholder note
+      // so the model still knows the user pasted/built something at
+      // that turn — just without re-eating the whole document.
+      const stripEmbeddedHtml = (content) => {
+        if (typeof content !== 'string' || content.length < 2000) return content;
+        const hasFullDoc = /<!DOCTYPE\s+html/i.test(content) || /<html[\s>]/i.test(content);
+        const hasClose = /<\/html>|<\/body>/i.test(content);
+        if (!hasFullDoc || !hasClose) return content;
+        // Replace each full HTML block with a one-line marker.
+        return content.replace(
+          /(?:<!DOCTYPE[\s\S]*?<\/html>|<html[\s\S]*?<\/html>|<body[\s\S]*?<\/body>)/gi,
+          '[embedded HTML artifact from earlier in the conversation — omitted to save context; the current artifact is provided separately]'
+        );
+      };
+      const apiMessages = chatHistory.map((m, idx) => {
+        // Only strip from PRIOR turns; keep the latest user message
+        // intact in case they're pasting a fresh artifact this turn.
+        const isLatest = idx === chatHistory.length - 1;
+        const msg = {
+          role: m.role,
+          content: isLatest ? m.content : stripEmbeddedHtml(m.content),
+        };
         if (m.wasAskUser) { msg.wasAskUser = true; msg.askUserOptions = m.askUserOptions; }
         return msg;
       });
