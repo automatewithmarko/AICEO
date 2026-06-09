@@ -127,6 +127,28 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
     .filter(m => m.role === 'user' || m.role === 'assistant')
     .map(m => ({ role: m.role, content: m.content }));
 
+  // Rough char→token estimate (~3.5 chars/token for HTML + English mix
+  // — within ~10% of tiktoken for our payloads). Used to opt in to the
+  // 1M context tier when the assembled prompt is about to exceed the
+  // default 200K cap. Avoids the "prompt is too long" 400s observed in
+  // prod when users edit large landing pages.
+  const charCount =
+    (systemPrompt?.length || 0) +
+    anthropicMessages.reduce((sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0), 0);
+  const estimatedTokens = Math.ceil(charCount / 3.5);
+  // 180K threshold: 1M tier pricing doubles for prompts >200K. Flipping
+  // a touch earlier than the actual ceiling gives headroom for the
+  // model's output reservation and avoids a thrashed retry. 1M beta is
+  // currently Sonnet-only, so we only opt in when the model is Sonnet.
+  const useMillionContext =
+    estimatedTokens > 180_000 &&
+    /sonnet/i.test(model || 'claude-sonnet-4-20250514');
+  if (useMillionContext) {
+    console.log(`[anthropic] 1M-context beta engaged — estimated ${estimatedTokens.toLocaleString()} tokens`);
+  } else if (estimatedTokens > 150_000) {
+    console.log(`[anthropic] standard 200K window — estimated ${estimatedTokens.toLocaleString()} tokens (margin ~${200_000 - estimatedTokens})`);
+  }
+
   // Link caller's abort signal to our internal controller so the idle watchdog
   // can abort the upstream fetch even when the caller didn't pass a signal.
   const controller = new AbortController();
@@ -141,6 +163,10 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
       'Content-Type': 'application/json',
       'x-api-key': t.key,
       'anthropic-version': '2023-06-01',
+      // Conditional beta header for 1M context window. Anthropic ignores
+      // unknown beta names so this is safe to send unconditionally, but
+      // gating keeps the log + future swaps cleaner.
+      ...(useMillionContext ? { 'anthropic-beta': 'context-1m-2025-08-07' } : {}),
     },
     body: JSON.stringify({
       model: model || 'claude-sonnet-4-20250514',
