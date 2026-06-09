@@ -807,7 +807,16 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
     console.log('[orchestrate] Handler completed successfully');
   } catch (err) {
     console.error('[orchestrate] Error:', err.message, err.stack);
-    sendSSE(res, { type: 'error', error: err.message });
+    // Translate known error codes into user-friendly messages so the
+    // frontend can render something more useful than the generic
+    // "Something went wrong. Please try again." For CONTEXT_EXCEEDED
+    // (set by base-agent when 1M context retry also fails), tell the
+    // user exactly what's wrong and what to do.
+    const friendlyError =
+      err.code === 'CONTEXT_EXCEEDED'
+        ? 'This conversation has grown too large to continue. Please start a fresh chat — the AI can\'t fit everything in its working memory anymore.'
+        : err.message;
+    sendSSE(res, { type: 'error', error: friendlyError, code: err.code || null });
   } finally {
     clearInterval(heartbeat);
     sendSSE(res, { type: 'done' });
