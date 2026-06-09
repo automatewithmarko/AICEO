@@ -118,8 +118,46 @@ async function readWithIdleTimeout(reader, controller, idleMs = STREAM_IDLE_TIME
   }
 }
 
-// Stream from Anthropic Claude API (via Mentor gateway when configured, else direct)
-async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs }) {
+// Detect the specific Anthropic 400 that means "the input doesn't fit
+// in the model's context window". Worded a few different ways depending
+// on the API revision, so match broadly.
+function isPromptTooLongError(err) {
+  const msg = String(err?.message || '');
+  return /prompt is too long|context.{0,12}length|input.{0,8}too.{0,8}long|max.{0,12}context|context_length_exceeded|tokens.{0,6}>.{0,8}\d{3},\d{3}/i.test(msg);
+}
+
+// Stream from Anthropic Claude API (via Mentor gateway when configured, else direct).
+// Wraps the actual call with auto-retry on "prompt too long": if we
+// missed the 1M-context opt-in (estimate undershot) and Anthropic
+// rejects the call, we automatically retry with the beta header
+// forced on. Belt-and-suspenders so a token-estimate miss can't
+// surface as "Something went wrong" to the user.
+async function streamAnthropic(args) {
+  try {
+    return await streamAnthropicCore(args);
+  } catch (err) {
+    if (!isPromptTooLongError(err)) throw err;
+    const model = args.model || 'claude-sonnet-4-20250514';
+    if (!/sonnet/i.test(model)) throw err; // 1M beta is Sonnet-only as of 2026-06
+    console.log('[anthropic] prompt-too-long despite estimate — retrying with 1M context flag forced');
+    try {
+      return await streamAnthropicCore({ ...args, forceMillionContext: true });
+    } catch (retryErr) {
+      // If the retry also fails with prompt-too-long, the prompt
+      // genuinely exceeds 1M. Tag the error so the orchestrator can
+      // surface a precise message to the user instead of the generic
+      // 500 → "Something went wrong".
+      if (isPromptTooLongError(retryErr)) {
+        const e = new Error('Prompt exceeded the 1M context window — conversation is too large to continue. Start a fresh chat session.');
+        e.code = 'CONTEXT_EXCEEDED';
+        throw e;
+      }
+      throw retryErr;
+    }
+  }
+}
+
+async function streamAnthropicCore({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs, forceMillionContext = false }) {
   const target = anthropicTarget();
 
   // Convert to Anthropic format (separate system from user/assistant)
@@ -130,23 +168,28 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
   // Rough char→token estimate (~3.5 chars/token for HTML + English mix
   // — within ~10% of tiktoken for our payloads). Used to opt in to the
   // 1M context tier when the assembled prompt is about to exceed the
-  // default 200K cap. Avoids the "prompt is too long" 400s observed in
-  // prod when users edit large landing pages.
+  // default 200K cap.
   const charCount =
     (systemPrompt?.length || 0) +
     anthropicMessages.reduce((sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0), 0);
   const estimatedTokens = Math.ceil(charCount / 3.5);
-  // 180K threshold: 1M tier pricing doubles for prompts >200K. Flipping
-  // a touch earlier than the actual ceiling gives headroom for the
-  // model's output reservation and avoids a thrashed retry. 1M beta is
-  // currently Sonnet-only, so we only opt in when the model is Sonnet.
-  const useMillionContext =
-    estimatedTokens > 180_000 &&
-    /sonnet/i.test(model || 'claude-sonnet-4-20250514');
+
+  // Dynamic threshold: the 200K cap is INPUT+OUTPUT combined, so the
+  // safe input ceiling is 200K minus the reserved output (max_tokens)
+  // minus a 10K margin for our estimate error. Stays below 160K floor
+  // so we never over-engage 1M on small generators.
+  const safeInputCap = 200_000 - (maxTokens || 16_000) - 10_000;
+  const threshold = Math.max(140_000, safeInputCap);
+  const wantMillion = estimatedTokens > threshold;
+  // 1M beta is Sonnet-only as of June 2026 — Opus/Haiku ignore the
+  // beta header but we gate explicitly for clarity in logs.
+  const isSonnet = /sonnet/i.test(model || 'claude-sonnet-4-20250514');
+  const useMillionContext = (forceMillionContext || wantMillion) && isSonnet;
+
   if (useMillionContext) {
-    console.log(`[anthropic] 1M-context beta engaged — estimated ${estimatedTokens.toLocaleString()} tokens`);
-  } else if (estimatedTokens > 150_000) {
-    console.log(`[anthropic] standard 200K window — estimated ${estimatedTokens.toLocaleString()} tokens (margin ~${200_000 - estimatedTokens})`);
+    console.log(`[anthropic] 1M-context beta engaged — model=${model || 'default'} estimated=${estimatedTokens.toLocaleString()} threshold=${threshold.toLocaleString()} forced=${forceMillionContext}`);
+  } else if (estimatedTokens > 120_000) {
+    console.log(`[anthropic] standard 200K window — model=${model || 'default'} estimated=${estimatedTokens.toLocaleString()} (margin ~${(threshold - estimatedTokens).toLocaleString()})`);
   }
 
   // Link caller's abort signal to our internal controller so the idle watchdog
@@ -163,9 +206,9 @@ async function streamAnthropic({ systemPrompt, messages, model, maxTokens, onChu
       'Content-Type': 'application/json',
       'x-api-key': t.key,
       'anthropic-version': '2023-06-01',
-      // Conditional beta header for 1M context window. Anthropic ignores
-      // unknown beta names so this is safe to send unconditionally, but
-      // gating keeps the log + future swaps cleaner.
+      // Conditional beta header for 1M context window. Anthropic
+      // ignores unknown beta names so this is safe to send when the
+      // flag is on; gating keeps the log + future swaps cleaner.
       ...(useMillionContext ? { 'anthropic-beta': 'context-1m-2025-08-07' } : {}),
     },
     body: JSON.stringify({

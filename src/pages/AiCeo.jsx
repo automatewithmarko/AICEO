@@ -920,19 +920,17 @@ export default function AiCeo() {
       const abort = new AbortController();
       abortRef.current = abort;
 
-      // Strip embedded HTML artifact bodies from prior turn message
-      // content before sending. The current artifact is already
-      // passed separately via `currentHtml` below — keeping additional
-      // <!DOCTYPE…</html> blobs inside chat history bloats the prompt
-      // by tens of thousands of tokens per turn and was the proximate
-      // cause of the "Something went wrong" Anthropic 400s
-      // (`prompt is too long` ~231K tokens observed in prod logs).
+      // Defense-in-depth: strip embedded HTML artifact bodies from
+      // prior turn message content before sending. In normal flow the
+      // chat message `content` doesn't carry HTML — artifacts live in
+      // the separate `messages[i].artifact` snapshot field — so this
+      // is mostly a no-op. It only kicks in if the user pasted raw
+      // HTML into the textarea or some future code path embeds HTML
+      // in content. The real defense against context-overload is the
+      // 1M-context opt-in + auto-retry in base-agent.js streamAnthropic.
       //
-      // Heuristic: if a message contains a large embedded HTML
-      // document (>2K chars AND has both a starting tag and a closing
-      // </html> or </body>), replace it with a short placeholder note
-      // so the model still knows the user pasted/built something at
-      // that turn — just without re-eating the whole document.
+      // Heuristic: only triggers when content is >2K chars AND has
+      // both a starting tag and a closing </html>/</body>.
       const stripEmbeddedHtml = (content) => {
         if (typeof content !== 'string' || content.length < 2000) return content;
         const hasFullDoc = /<!DOCTYPE\s+html/i.test(content) || /<html[\s>]/i.test(content);
@@ -1513,6 +1511,18 @@ export default function AiCeo() {
           // Save the question with ask_user metadata so the backend can reconstruct tool call format
           setMessages(prev => prev.map(m =>
             m.id === assistantMsgId ? { ...m, content: question, status: null, wasAskUser: true, askUserOptions: options } : m
+          ));
+        },
+        // In-stream error (orchestrate caught it after SSE was opened so
+        // streamFromBackend can't throw). Surface whatever friendly
+        // message orchestrate translated for us instead of leaving the
+        // assistant bubble empty or showing "Something went wrong".
+        onError: (errMsg) => {
+          console.error('[AiCeo] orchestrate error event:', errMsg);
+          setMessages(prev => prev.map(m =>
+            m.id === assistantMsgId
+              ? { ...m, content: errMsg || 'Something went wrong. Please try again.', status: null }
+              : m
           ));
         },
       }, abort.signal);
