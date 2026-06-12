@@ -417,6 +417,31 @@ export async function updateCallMetadata(id, data) {
   return res.json();
 }
 
+async function postCallAction(id, action, fallbackError) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/sales/calls/${id}/${action}`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: fallbackError }));
+    throw new Error(err.error || fallbackError);
+  }
+  return res.json();
+}
+
+export async function analyzeCallObjections(id) {
+  return postCallAction(id, 'analyze-objections', 'Failed to analyze objections');
+}
+
+export async function writeCallFollowUpEmail(id) {
+  return postCallAction(id, 'write-email', 'Failed to write follow-up email');
+}
+
+export async function addCallToContext(id) {
+  return postCallAction(id, 'add-to-context', 'Failed to add call to context');
+}
+
 export async function getSalesProducts() {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/sales/products`, { headers });

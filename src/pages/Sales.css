@@ -915,3 +915,72 @@
     gap: 4px;
   }
 }
+
+/* ── Call action modals: objections + follow-up email ── */
+.sales-modal--wide {
+  width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.sales-objection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.sales-objection-item {
+  background: var(--bg-light);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.sales-objection-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 6px;
+}
+
+.sales-objection-quote {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-secondary);
+  border-left: 3px solid var(--brand-red);
+  padding-left: 10px;
+  margin: 0 0 8px;
+}
+
+.sales-objection-row {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 4px;
+  line-height: 1.5;
+}
+
+.sales-objection-row strong {
+  color: var(--text-primary);
+}
+
+.sales-objection-empty {
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 12px 0 4px;
+}
+
+.sales-email-body {
+  resize: vertical;
+  min-height: 180px;
+  font-family: inherit;
+  line-height: 1.55;
+}
+
+.sales-email-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}

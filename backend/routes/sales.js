@@ -195,27 +195,69 @@ router.get('/api/sales/stats', async (req, res) => {
   res.json({ stats });
 });
 
+// Calls are listed with a `pp-` prefix (PurelyPersonal meetings); resolve
+// back to the meetings row, scoped to the requesting user.
+async function resolveMeeting(userId, id) {
+  const rawId = String(id).replace(/^pp-/, '');
+  const { data, error } = await supabase
+    .from('meetings')
+    .select('id, title, participants, duration_seconds, transcript_text, summary, action_items, metadata')
+    .eq('id', rawId)
+    .eq('user_id', userId)
+    .single();
+  if (error || !data) return null;
+  return data;
+}
+
+// Best available text for LLM analysis: full transcript, else summary.
+function meetingTranscript(meeting) {
+  let text = meeting.transcript_text;
+  if (!text && meeting.summary) {
+    text = typeof meeting.summary === 'string'
+      ? meeting.summary
+      : meeting.summary.overview || JSON.stringify(meeting.summary);
+  }
+  if (!text || !String(text).trim()) return null;
+  const s = String(text);
+  return s.length > 30000 ? s.slice(0, 30000) + '\n\n[...transcript truncated]' : s;
+}
+
+function meetingSummaryText(meeting) {
+  if (typeof meeting.summary === 'string') return meeting.summary;
+  return meeting.summary?.overview || (meeting.summary ? JSON.stringify(meeting.summary) : null);
+}
+
 // ─── Get calls (PurelyPersonal meetings only) ───
 router.get('/api/sales/calls', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.json({ calls: [] });
 
-  const { data: ppMeetings } = await supabase
-    .from('meetings')
-    .select('id, title, platform, started_at, duration_seconds, summary, action_items, recall_bot_status')
-    .eq('user_id', userId)
-    .in('recall_bot_status', ['processed', 'done'])
-    .order('created_at', { ascending: false })
-    .limit(50);
+  const [meetingsRes, metaRes, contextRes] = await Promise.all([
+    supabase
+      .from('meetings')
+      .select('id, title, platform, started_at, duration_seconds, summary, action_items, recall_bot_status, metadata')
+      .eq('user_id', userId)
+      .in('recall_bot_status', ['processed', 'done'])
+      .order('created_at', { ascending: false })
+      .limit(50),
+    supabase.from('call_metadata').select('integration_data_id, call_type, status').eq('user_id', userId),
+    supabase.from('sales_calls').select('meeting_id').eq('user_id', userId),
+  ]);
 
-  const calls = (ppMeetings || []).map(m => ({
+  const ppMeetings = meetingsRes.data || [];
+  const metaById = new Map((metaRes.data || []).map(m => [m.integration_data_id, m]));
+  const inContext = new Set((contextRes.data || []).map(r => r.meeting_id));
+
+  const calls = ppMeetings.map(m => ({
     id: `pp-${m.id}`,
     name: m.title || 'Meeting',
     date: m.started_at || '',
     summary: m.summary?.overview || '',
     recorder: 'purelypersonal',
-    callType: 'Other',
-    status: null,
+    callType: metaById.get(m.id)?.call_type || 'Other',
+    status: metaById.get(m.id)?.status || null,
+    objections: m.metadata?.objections || null,
+    in_context: inContext.has(m.id),
     platform: m.platform,
     meetingId: m.id,
   }));
@@ -258,11 +300,16 @@ router.patch('/api/sales/calls/:id', async (req, res) => {
 
   const { call_type, status } = req.body;
 
+  // PurelyPersonal meeting ids arrive prefixed with `pp-`, but
+  // integration_data_id is a uuid column — strip the prefix or the
+  // upsert fails with a 22P02 (invalid uuid) error.
+  const rawId = String(req.params.id).replace(/^pp-/, '');
+
   const { data, error } = await supabase
     .from('call_metadata')
     .upsert({
       user_id: userId,
-      integration_data_id: req.params.id,
+      integration_data_id: rawId,
       call_type: call_type || 'Other',
       status: status || null,
       updated_at: new Date().toISOString(),
@@ -336,6 +383,138 @@ ${transcript}` },
     console.error('[sales] Action items generation failed:', err.message);
     res.status(500).json({ error: 'Failed to generate action items' });
   }
+});
+
+// ─── Analyze objections (Call Intelligence card action) ───
+router.post('/api/sales/calls/:id/analyze-objections', requireFeature('call_intelligence'), requireCredits('call_intelligence'), async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const meeting = await resolveMeeting(userId, req.params.id);
+  if (!meeting) return res.status(404).json({ error: 'Call not found' });
+
+  const transcript = meetingTranscript(meeting);
+  if (!transcript) return res.status(422).json({ error: 'No transcript available for this call yet' });
+
+  try {
+    const completion = await xai.chat.completions.create({
+      model: 'grok-4-1-fast-non-reasoning',
+      messages: [
+        { role: 'system', content: 'You are an elite sales coach who analyzes sales call transcripts for objections. Return valid JSON only with an "objections" key.' },
+        { role: 'user', content: `Analyze this sales call transcript and find EVERY objection the prospect raised — price, timing, trust, authority ("need to ask my partner/boss"), competitors, "need to think about it", and any hesitation that slowed the deal.
+
+For each objection identify:
+- objection: short name for the objection (max 8 words)
+- customer_quote: the closest verbatim quote from the prospect
+- how_it_was_handled: 1-2 sentences on what the seller actually did (or "Not addressed")
+- suggested_response: 1-2 sentences on a stronger way to handle it next time
+
+Return: {"objections": [{"objection": "...", "customer_quote": "...", "how_it_was_handled": "...", "suggested_response": "..."}]}
+If there are genuinely no objections, return {"objections": []}.
+
+Transcript:
+${transcript}` },
+      ],
+      temperature: 0.3,
+      response_format: { type: 'json_object' },
+    });
+
+    const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
+    const objections = Array.isArray(parsed) ? parsed : parsed.objections || [];
+
+    // Cache on the meeting so the modal reopens without re-running (and
+    // re-charging) the analysis — GET /api/sales/calls returns it.
+    const updatedMetadata = { ...(meeting.metadata || {}), objections, objections_at: new Date().toISOString() };
+    await supabase.from('meetings').update({ metadata: updatedMetadata }).eq('id', meeting.id);
+
+    res.json({ objections });
+  } catch (err) {
+    console.error('[sales] Objection analysis failed:', err.message);
+    res.status(500).json({ error: 'Failed to analyze objections' });
+  }
+});
+
+// ─── Write follow-up email from a call ───
+router.post('/api/sales/calls/:id/write-email', requireFeature('call_intelligence'), requireCredits('call_intelligence'), async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const meeting = await resolveMeeting(userId, req.params.id);
+  if (!meeting) return res.status(404).json({ error: 'Call not found' });
+
+  const transcript = meetingTranscript(meeting);
+  if (!transcript) return res.status(422).json({ error: 'No transcript available for this call yet' });
+
+  const participants = Array.isArray(meeting.participants)
+    ? meeting.participants.map(p => (typeof p === 'string' ? p : p?.name)).filter(Boolean).join(', ')
+    : '';
+
+  try {
+    const completion = await xai.chat.completions.create({
+      model: 'grok-4-1-fast-non-reasoning',
+      messages: [
+        { role: 'system', content: 'You write concise, natural follow-up emails after sales/business calls. Return valid JSON only with "subject" and "body" keys.' },
+        { role: 'user', content: `Write a follow-up email for this call${meeting.title ? ` ("${meeting.title}")` : ''}${participants ? ` with participants: ${participants}` : ''}.
+
+Requirements:
+- Ground it ONLY in what was actually discussed — recap the key points in 1-2 sentences, restate the value, address any open concern, and end with ONE clear next step.
+- Plain text body, short paragraphs separated by blank lines. No HTML, no markdown.
+- Warm and human, not salesy. 120 words max.
+- If the recipient's name is clear from the transcript use it; otherwise open with "Hi,".
+- Sign off generically (e.g. "Best,") without inventing a sender name.
+
+Return: {"subject": "...", "body": "..."}
+
+Transcript:
+${transcript}` },
+      ],
+      temperature: 0.4,
+      response_format: { type: 'json_object' },
+    });
+
+    const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
+    if (!parsed.body) throw new Error('empty draft');
+    res.json({ subject: parsed.subject || `Follow-up: ${meeting.title || 'our call'}`, body: parsed.body });
+  } catch (err) {
+    console.error('[sales] Follow-up email generation failed:', err.message);
+    res.status(500).json({ error: 'Failed to write follow-up email' });
+  }
+});
+
+// ─── Add call to AI CEO context ───
+// Copies the meeting into sales_calls, which the CEO orchestrator
+// (services/context.js) and stagedemo assistant load on every chat.
+// No LLM involved, so no feature/credit gate — auth only.
+router.post('/api/sales/calls/:id/add-to-context', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const meeting = await resolveMeeting(userId, req.params.id);
+  if (!meeting) return res.status(404).json({ error: 'Call not found' });
+
+  const { data: existing } = await supabase
+    .from('sales_calls')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('meeting_id', meeting.id)
+    .maybeSingle();
+  if (existing) return res.json({ ok: true, already: true });
+
+  const { error } = await supabase.from('sales_calls').insert({
+    user_id: userId,
+    meeting_id: meeting.id,
+    title: meeting.title || 'Meeting',
+    summary: meetingSummaryText(meeting),
+    action_items: meeting.action_items || [],
+    participants: meeting.participants || [],
+    duration: meeting.duration_seconds || null,
+  });
+  // 23505 = unique violation: a concurrent click already added it — fine.
+  if (error && error.code !== '23505') {
+    console.error('[sales] add-to-context failed:', error.message);
+    return res.status(500).json({ error: 'Failed to add call to context' });
+  }
+  res.json({ ok: true, already: false });
 });
 
 // ─── Get products (from Whop + manual) ───
