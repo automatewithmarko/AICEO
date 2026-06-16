@@ -9,6 +9,8 @@
 //
 // Gemini stays direct (image gen in routes/generate.js).
 
+import { SONNET_MODEL } from '../config/models.js';
+
 const MENTOR_BASE_URL = process.env.MENTOR_BASE_URL || 'https://platform.thementorprogram.xyz';
 
 // Each target carries an optional `fallback` to its direct-provider sibling.
@@ -137,7 +139,7 @@ async function streamAnthropic(args) {
     return await streamAnthropicCore(args);
   } catch (err) {
     if (!isPromptTooLongError(err)) throw err;
-    const model = args.model || 'claude-sonnet-4-20250514';
+    const model = args.model || SONNET_MODEL;
     if (!/sonnet/i.test(model)) throw err; // 1M beta is Sonnet-only as of 2026-06
     console.log('[anthropic] prompt-too-long despite estimate — retrying with 1M context flag forced');
     try {
@@ -183,7 +185,7 @@ async function streamAnthropicCore({ systemPrompt, messages, model, maxTokens, o
   const wantMillion = estimatedTokens > threshold;
   // 1M beta is Sonnet-only as of June 2026 — Opus/Haiku ignore the
   // beta header but we gate explicitly for clarity in logs.
-  const isSonnet = /sonnet/i.test(model || 'claude-sonnet-4-20250514');
+  const isSonnet = /sonnet/i.test(model || SONNET_MODEL);
   const useMillionContext = (forceMillionContext || wantMillion) && isSonnet;
 
   if (useMillionContext) {
@@ -212,7 +214,7 @@ async function streamAnthropicCore({ systemPrompt, messages, model, maxTokens, o
       ...(useMillionContext ? { 'anthropic-beta': 'context-1m-2025-08-07' } : {}),
     },
     body: JSON.stringify({
-      model: model || 'claude-sonnet-4-20250514',
+      model: model || SONNET_MODEL,
       max_tokens: maxTokens || 16000,
       system: systemPrompt,
       messages: anthropicMessages,
@@ -589,7 +591,7 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: SONNET_MODEL,
           max_tokens: maxTokens || 4096,
           system: systemPrompt,
           messages: conversationMessages,

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getAgent, buildAgentTools } from '../agents/registry.js';
 import { executeAgent, executeCeoOrchestrator, executeAnthropicWithTools } from '../agents/base-agent.js';
+import { SONNET_MODEL } from '../config/models.js';
 import { loadUserContext, saveSoulNote } from '../services/context.js';
 import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
@@ -1000,7 +1001,7 @@ async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId
     type: 'debug_prompt',
     site: 'edit-mode',
     agent: agentName,
-    model: 'claude-sonnet-4-20250514',
+    model: SONNET_MODEL,
     systemPrompt,
     editInstruction,
     fileHtmlLen: fileHtml?.length || 0,
