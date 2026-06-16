@@ -1402,31 +1402,37 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       });
   }, []);
 
-  // Keep canvasHtmlRef in lockstep with canvasHtml so snapshot reads see
-  // the latest content (post image-swap) without waiting for React commit.
+  // Keep canvasHtmlRef in lockstep with canvasHtml so anything reading
+  // it outside of an async snapshot path (e.g. ResizeObserver effects)
+  // sees the latest value.
   useEffect(() => {
     canvasHtmlRef.current = canvasHtml || '';
   }, [canvasHtml]);
 
-  // Capture a frozen snapshot of the current canvas onto the chat message
-  // that produced it. Only fires for HTML tools (newsletter / landing /
+  // Read the LATEST canvasHtml via a functional-setState passthrough.
+  // canvasHtmlRef.current only updates after React commits the next
+  // render, which fires AFTER any `await` in this microtask chain
+  // resolves — so reading the ref right after image promises settle
+  // returns HTML that still has `{{GENERATE:…}}` placeholders. The
+  // passthrough callback is queued behind every other pending
+  // setCanvasHtml call and runs in order, so it sees the truly final
+  // state.
+  const readLatestCanvas = useCallback(() => new Promise((resolve) => {
+    setCanvasHtml((prev) => {
+      resolve(prev);
+      return prev;
+    });
+  }), []);
+
+  // Capture a frozen snapshot of the canvas onto the chat message that
+  // produced it. Only fires for HTML tools (newsletter / landing /
   // squeeze) — story sequences and DM automations have their own
-  // restore paths. Awaits the caller's image promises so the snapshot
-  // includes the final hosted-URL images, not the {{GENERATE:…}}
-  // placeholders.
-  const snapshotForMessage = useCallback(async (msgId, options = {}) => {
-    if (!msgId) return;
-    const {
-      type = 'html',
-      summary = null,
-      imagePromises = [],
-      agentSource,
-    } = options;
+  // restore paths. Caller passes the final HTML explicitly so we never
+  // race React's commit cycle.
+  const snapshotForMessage = useCallback(async (msgId, { html, type = 'html', summary = null, agentSource } = {}) => {
+    if (!msgId || !html || !html.trim()) return;
     const tool = agentSource || activeTool;
     if (!HTML_TOOLS_WITH_SNAPSHOTS.has(tool)) return;
-    if (imagePromises.length) await Promise.allSettled(imagePromises);
-    const html = canvasHtmlRef.current || '';
-    if (!html.trim()) return;
     const art = {
       id: msgId,
       type,
@@ -2342,16 +2348,22 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         },
         onEditSummary: (summary) => {
           editHandled = true;
-          const msgId = `msg-${Date.now()}-assistant`;
+          const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-assistant`;
           setChatMessages((prev) => [
             ...prev.filter((m) => !m.isStatus),
             { id: msgId, role: 'assistant', text: summary },
           ]);
-          // Snapshot AFTER any edit-introduced image gen settles. Fire-and-
-          // forget so we don't block the orchestrate stream's onError /
-          // finally — the snapshot is best-effort and reattaches to the
-          // existing message when it lands.
-          snapshotForMessage(msgId, { type: 'html', summary, imagePromises: editImagePromises });
+          // Snapshot AFTER any edit-introduced image gen settles AND
+          // after the canvas state has fully reflected those swaps.
+          // Fire-and-forget so we don't block the orchestrate stream;
+          // snapshot lands on the existing message when ready.
+          (async () => {
+            if (editImagePromises.length) {
+              await Promise.allSettled(editImagePromises);
+            }
+            const latestHtml = await readLatestCanvas();
+            await snapshotForMessage(msgId, { html: latestHtml, type: 'html', summary });
+          })();
         },
         onStatus: (statusText) => {
           setChatMessages((prev) => {
@@ -2510,9 +2522,11 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         const finalHtml = replaceImagePlaceholders(mergedHtml, filesSnapshot);
         setCanvasHtml(finalHtml);
         const sectionNames = Object.keys(parsed.sections).join(', ');
-        const msgId = `msg-${Date.now()}-assistant`;
+        const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-assistant`;
         setChatMessages((prev) => [...prev, { id: msgId, role: 'assistant', text: parsed.summary || `Updated sections: ${sectionNames}` }]);
-        snapshotForMessage(msgId, { type: 'html', summary: parsed.summary || null });
+        // No image promises in section edits — finalHtml is the final
+        // canvas, pass it directly to skip the React-commit race.
+        snapshotForMessage(msgId, { html: finalHtml, type: 'html', summary: parsed.summary || null });
       } else if (parsed?.type === 'newsletter' || parsed?.type === 'html') {
         let finalHtml = replaceImagePlaceholders(parsed.html, filesSnapshot);
 
@@ -2524,7 +2538,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         }
 
         setCanvasHtml(finalHtml);
-        const stableMsgId = `msg-${Date.now()}-assistant`;
+        const stableMsgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-assistant`;
         setChatMessages((prev) => [...prev, { id: stableMsgId, role: 'assistant', text: parsed.summary || config.readyText }]);
 
         // Collect image generation promises  -  isGenerating stays true until all resolve
@@ -2627,8 +2641,13 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         }
 
         // Snapshot the finished canvas (including any swapped-in images)
-        // onto the assistant message that produced it.
-        await snapshotForMessage(stableMsgId, { type: parsed.type || 'html', summary: parsed.summary || null });
+        // onto the assistant message that produced it. We MUST read the
+        // canvas via the passthrough here — the per-image setCanvasHtml
+        // callbacks are queued but React hasn't committed them yet, so
+        // reading any ref/state directly at this point still sees the
+        // pre-swap HTML with `{{GENERATE:…}}` placeholders.
+        const latestHtml = await readLatestCanvas();
+        await snapshotForMessage(stableMsgId, { html: latestHtml, type: parsed.type || 'html', summary: parsed.summary || null });
       } else {
         // Fallback  -  show raw text
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: fullContent.slice(0, 500) }]);
@@ -3479,18 +3498,17 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
               <textarea
                 ref={textareaRef}
                 className="mkt-chat-input"
-                placeholder={isViewingPast ? 'Click Resume editing on the canvas to continue…' : config.placeholder}
+                placeholder={config.placeholder}
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 rows={1}
-                disabled={isViewingPast}
               />
               <button
                 className="mkt-chat-send"
-                disabled={!chatInput.trim() || isGenerating || hasPendingUploads || isViewingPast}
+                disabled={!chatInput.trim() || isGenerating || hasPendingUploads}
                 onClick={handleSend}
-                title={isViewingPast ? 'Resume editing to send' : hasPendingUploads ? 'Wait for attachments to finish uploading' : 'Send'}
+                title={hasPendingUploads ? 'Wait for attachments to finish uploading' : 'Send'}
               >
                 <ArrowUp size={16} />
               </button>
@@ -3765,7 +3783,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         <div className="mkt-canvas-body" ref={canvasBodyRef}>
           {isViewingPast && (
             <div className="mkt-past-version-banner">
-              <span>Viewing a past version of this canvas — edits are disabled.</span>
+              <span>Viewing a past version of this canvas. Send a new message or click Resume to keep editing the latest.</span>
               <button
                 type="button"
                 className="mkt-past-version-resume"
