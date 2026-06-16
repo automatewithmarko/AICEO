@@ -14,6 +14,8 @@ import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import { snapshotArtifactOnMessage } from '../lib/artifactSnapshot';
+import CampaignBriefCard from '../components/CampaignBriefCard';
+import { getMarketingBrief } from '../lib/api';
 import './Pages.css';
 import './Marketing.css';
 
@@ -1207,7 +1209,7 @@ function ImportTemplateModal({ open, onClose, activeTool, onImport }) {
   );
 }
 
-function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
+function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChange }) {
   const navigate = useNavigate();
   // Existing state
   const [chatInput, setChatInput] = useState('');
@@ -1273,6 +1275,12 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
   const [customTyping, setCustomTyping] = useState(false);
   const [customText, setCustomText] = useState('');
   const [canvasHtml, setCanvasHtml] = useState('');
+  // Current Campaign Brief — single active brief per user, shared across
+  // every Marketing tool. Lives at the user level (not per session) so
+  // switching tabs / starting a new conversation doesn't lose it. The
+  // CampaignBriefCard owns load + save; this copy here drives the tool-
+  // tab "Brief loaded" indicator and the post-generation refresh.
+  const [activeBrief, setActiveBrief] = useState(null);
   // When set, the canvas previews the artifact snapshot frozen on this
   // assistant message instead of the live `canvasHtml`. Cleared at the
   // start of every new turn so streaming flows back to live. Lets a
@@ -1629,6 +1637,27 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlSessionId]);
+
+  // After generation completes, refresh the campaign brief — the agent
+  // may have emitted one in its result and the backend auto-captured it.
+  // The CampaignBriefCard reads the same endpoint, so this keeps the
+  // header summary + tool-tab indicator in sync without prop drilling.
+  const prevGenRef = useRef(false);
+  useEffect(() => {
+    if (prevGenRef.current && !isGenerating) {
+      getMarketingBrief()
+        .then(({ brief }) => setActiveBrief(brief || null))
+        .catch(() => {});
+    }
+    prevGenRef.current = isGenerating;
+  }, [isGenerating]);
+
+  // Surface the brief-loaded state up to the page so the tool tabs
+  // can show their "Brief loaded" dot. Tightly coupled to activeBrief
+  // so flipping the dot follows the same source of truth as the card.
+  useEffect(() => {
+    onActiveBriefChange?.(!!activeBrief);
+  }, [activeBrief, onActiveBriefChange]);
 
   // Cycle generating status text
   useEffect(() => {
@@ -3225,6 +3254,15 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       {/* Left  -  chat area */}
       <div className="mkt-split-left" style={{ flex: `0 0 ${splitPercent}%` }}>
 
+        {/* Active campaign brief — reused across every Marketing tool so
+            the user doesn't re-explain offer/audience/tone/goal/key
+            benefit per tab. Auto-captures from agent generation results
+            and supports manual edit/clear. Sits above ghost-cards in
+            empty state and above chat messages once started. */}
+        <div className="mkt-brief-slot">
+          <CampaignBriefCard onBriefChange={setActiveBrief} />
+        </div>
+
         {/* Ghost cards + CTA (shown when no chat) */}
         {!chatStarted && (
           <div className="mkt-split-left-bg">
@@ -4013,6 +4051,11 @@ export default function Marketing() {
   const { tool: urlTool, sessionId: urlSessionId } = useParams();
   const navigate = useNavigate();
   const [brandDna, setBrandDna] = useState(null);
+  // Page-level mirror of whether the user has an active campaign brief —
+  // drives the small "Brief loaded" dot on every tool tab. Updated by
+  // ToolTab via the onActiveBriefChange callback so the indicator stays
+  // in sync without each tab having to refetch.
+  const [hasActiveBrief, setHasActiveBrief] = useState(false);
 
   // URL is source of truth for which tool is active. If URL has no tool,
   // default to newsletter and redirect so the URL stays honest.
@@ -4056,10 +4099,12 @@ export default function Marketing() {
           ) : (
             <button
               key={tab.id}
-              className={`marketing-tab ${activeTab === tab.id ? 'marketing-tab--active' : ''}`}
+              className={`marketing-tab ${activeTab === tab.id ? 'marketing-tab--active' : ''}${hasActiveBrief ? ' marketing-tab--brief' : ''}`}
               onClick={() => handleTabClick(tab.id)}
+              title={hasActiveBrief ? 'Campaign brief loaded — this tool will skip discovery' : undefined}
             >
               {tab.label}
+              {hasActiveBrief && <span className="marketing-tab-brief-dot" />}
             </button>
           )
         )}
@@ -4070,6 +4115,7 @@ export default function Marketing() {
           activeTool={activeTab}
           brandDna={brandDna}
           urlSessionId={urlSessionId}
+          onActiveBriefChange={setHasActiveBrief}
           key={activeTab}
         />
       </div>

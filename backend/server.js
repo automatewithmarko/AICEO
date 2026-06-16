@@ -22,6 +22,7 @@ import contactRoutes from './routes/contacts.js';
 import generateRoutes from './routes/generate.js';
 import orchestrateRoutes from './routes/orchestrate.js';
 import boosendRoutes from './routes/boosend.js';
+import marketingBriefRoutes from './routes/marketing-brief.js';
 import formRoutes from './routes/forms.js';
 import dashboardRoutes from './routes/dashboard.js';
 import artifactVersionRoutes from './routes/artifact-versions.js';
@@ -1017,6 +1018,14 @@ app.use((req, res, next) => {
 });
 app.use(gateOnTab('/api/boosend', 'marketing'));
 app.use(boosendRoutes);
+
+// ─── Marketing campaign brief (auth + marketing tab gate) ───
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/marketing/brief')) return requireAuth(req, res, next);
+  next();
+});
+app.use(gateOnTab('/api/marketing/brief', 'marketing'));
+app.use(marketingBriefRoutes);
 
 // ─── CEO Notifications ───
 app.get('/api/notifications', requireAuth, async (req, res) => {
