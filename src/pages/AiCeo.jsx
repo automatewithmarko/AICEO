@@ -183,6 +183,11 @@ export default function AiCeo() {
   // the current value when it fires a backend request.
   const sessionIdRef = useRef(null);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+  // Mirror of selectedMsgId. sendToAI's useCallback isn't recreated on
+  // selection changes (deps = [researchMode]), so without a ref the
+  // fork-from-snapshot check inside it would read a stale value.
+  const selectedMsgIdRef = useRef(null);
+  useEffect(() => { selectedMsgIdRef.current = selectedMsgId; }, [selectedMsgId]);
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
 
   // Fetch Brand DNA once on mount so SocialPreview (rendered inside
@@ -844,9 +849,30 @@ export default function AiCeo() {
   // ── Send to AI (via backend orchestrator) ──
   const sendToAI = useCallback(async (chatHistory) => {
     setIsGenerating(true);
-    // New turn — drop any old-card preview so the panel follows the live
-    // streaming artifact for this turn. Old cards' frozen snapshots
-    // remain intact; user can click them again after the turn settles.
+    // If the user was previewing a past message's snapshot when they
+    // sent, FORK from that snapshot: the new turn's edit base is the
+    // snapshot's HTML rather than the live artifact, so the result
+    // becomes a new branched version at the bottom while the older
+    // snapshots stay intact. We hoist the snapshot onto the live
+    // artifact + clear the selection so the panel transitions smoothly
+    // (it was showing the snapshot, live is now the same content, and
+    // streaming will mutate it in place).
+    const forkFromSnapshot = (() => {
+      const sel = selectedMsgIdRef.current;
+      if (!sel) return null;
+      // chatHistory is the fresh post-userMsg array the caller just
+      // setMessages()'d — so its snapshots are current. The closure's
+      // `messages` would be stale.
+      const m = chatHistory.find((x) => x.id === sel);
+      return m?.artifact?.content ? m.artifact : null;
+    })();
+    if (forkFromSnapshot) {
+      setArtifact(forkFromSnapshot);
+      artifactRef.current = forkFromSnapshot;
+    }
+    // Drop any old-card preview so the panel follows the live streaming
+    // artifact for this turn. Old cards' frozen snapshots remain intact;
+    // user can click them again after the turn settles.
     setSelectedMsgId(null);
     const assistantMsgId = `msg-${Date.now()}-ai`;
     setMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', content: '', hasArtifact: false }]);

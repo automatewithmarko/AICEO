@@ -23,7 +23,7 @@ import './Marketing.css';
 // of so the user can click an old chat card and re-open that exact
 // canvas. Story sequences and DM automations are JSON structures with
 // their own restore paths and are intentionally excluded.
-const HTML_TOOLS_WITH_SNAPSHOTS = new Set(['newsletter', 'landing', 'squeeze']);
+const HTML_TOOLS_WITH_SNAPSHOTS = new Set(['newsletter', 'landing', 'squeeze', 'leadmagnet']);
 
 // ── Shared prompt skeleton ──
 const SHARED_RULES = `=== ABSOLUTE OUTPUT RULES (NON-NEGOTIABLE) ===
@@ -2157,10 +2157,22 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
     // the AI a half-extracted PDF or an image with no public URL.
     if (uploadedFiles.some((f) => f.status === 'uploading')) return;
 
-    // If the user was previewing a past version, snap back to LIVE before
-    // the new turn streams in — otherwise the iframe would still be
-    // pinned to the snapshot while the canvas state updates underneath.
-    setSelectedMsgId(null);
+    // If the user was previewing a past version, fork from that snapshot
+    // rather than the live canvas — the edit creates a new assistant
+    // message at the bottom whose base HTML is the past version, and the
+    // older snapshots/messages stay untouched in chat history. We hoist
+    // the snapshot HTML onto the live canvas + clear the selection so
+    // the iframe transitions smoothly: it was showing the snapshot, live
+    // is now the same content, and streaming will mutate it in place.
+    const forkFromSnapshot = (() => {
+      if (!selectedMsgId) return null;
+      const m = chatMessages.find((x) => x.id === selectedMsgId);
+      return m?.artifact?.content ? m.artifact : null;
+    })();
+    if (forkFromSnapshot) {
+      setCanvasHtml(forkFromSnapshot.content);
+      setSelectedMsgId(null);
+    }
 
     // Capture files before clearing so we can replace placeholders later.
     // Only DONE files participate in this turn — errored uploads are
@@ -2273,8 +2285,12 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
 
     // Edit mode = we already have a canvas from a prior turn. canvasHtml is
     // set only AFTER a successful generation, so empty canvas ⇒ first turn,
-    // any populated canvas ⇒ subsequent turn ⇒ edit.
-    const isEdit = !!canvasHtml;
+    // any populated canvas ⇒ subsequent turn ⇒ edit. When forking from a
+    // past snapshot, the snapshot's content IS the base (canvasHtml may
+    // still hold the stale pre-set value in closure since React batches
+    // state updates).
+    const baseHtml = forkFromSnapshot ? forkFromSnapshot.content : canvasHtml;
+    const isEdit = !!baseHtml;
 
     // Unique per-turn assistant message id so the backend can tag file-based
     // edits, artifact versions, and logs against the specific chat turn.
@@ -2312,7 +2328,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
         // agent gets the user's bare text ("add attached image to hero")
         // with no idea which placeholder to insert and either narrates
         // that the image "is already there" or gives up.
-        ...(isEdit ? { currentHtml: canvasHtml, editInstruction: fileContext + text.trim() } : {}),
+        ...(isEdit ? { currentHtml: baseHtml, editInstruction: fileContext + text.trim() } : {}),
       }, {
         onAgentChunk: (_agentName, chunk) => {
           fullContent = chunk;
@@ -2721,7 +2737,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
         ];
       });
     }
-  }, [messages, isGenerating, selectedItems, uploadedFiles, canvasHtml, config, activeTool, brandDna, researchMode, dmSessionContext, dmGraphData]);
+  }, [messages, isGenerating, selectedItems, uploadedFiles, canvasHtml, config, activeTool, brandDna, researchMode, dmSessionContext, dmGraphData, chatMessages, selectedMsgId]);
 
   // Handle send button / enter key
   const handleSend = () => {
@@ -3821,7 +3837,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
         <div className="mkt-canvas-body" ref={canvasBodyRef}>
           {isViewingPast && (
             <div className="mkt-past-version-banner">
-              <span>Viewing a past version of this canvas. Send a new message or click Resume to keep editing the latest.</span>
+              <span>Viewing a past version. Your next message branches a new version from here. Resume to keep editing the latest instead.</span>
               <button
                 type="button"
                 className="mkt-past-version-resume"
