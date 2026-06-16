@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { FileText, Plus, X, ChevronDown, User, DollarSign, Package, Check, Loader } from 'lucide-react';
+import { FileText, Plus, X, ChevronDown, User, DollarSign, Package, Check, Loader, Mail, Copy } from 'lucide-react';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -11,7 +11,7 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts';
-import { getSalesRevenue, getSalesCalls, getSalesProducts, addManualSale, updateCallMetadata, syncSalesData, getIntegrations, getContacts } from '../lib/api';
+import { getSalesRevenue, getSalesCalls, getSalesProducts, addManualSale, updateCallMetadata, syncSalesData, getIntegrations, getContacts, analyzeCallObjections, writeCallFollowUpEmail, addCallToContext, getEmailAccounts, saveDraft } from '../lib/api';
 import './Pages.css';
 import './Sales.css';
 
@@ -84,6 +84,16 @@ export default function Sales() {
   const [callTypes, setCallTypes] = useState({});
   const [callStatuses, setCallStatuses] = useState({});
 
+  // Call card actions: objection analysis, follow-up email, add-to-context
+  const [callActionLoading, setCallActionLoading] = useState({}); // { [callId]: 'objections'|'email'|'context' }
+  const [contextAdded, setContextAdded] = useState({});
+  const [objectionsModal, setObjectionsModal] = useState(null); // { call, objections, cached }
+  const [emailModal, setEmailModal] = useState(null); // { call, subject, body }
+  const [emailAccounts, setEmailAccounts] = useState(null); // null = not loaded yet
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(false);
+  const [emailCopied, setEmailCopied] = useState(false);
+
   // Fetch revenue data when view or product changes
   const fetchRevenue = useCallback(async () => {
     const productName = activeProduct === 'all' ? null : products.find(p => p.id === activeProduct)?.name;
@@ -123,12 +133,15 @@ export default function Sales() {
       // Initialize call metadata from fetched data
       const types = {};
       const statuses = {};
+      const inContext = {};
       for (const c of (callsRes.calls || [])) {
         types[c.id] = c.callType || 'Other';
         if (c.status) statuses[c.id] = c.status;
+        if (c.in_context) inContext[c.id] = true;
       }
       setCallTypes(types);
       setCallStatuses(statuses);
+      setContextAdded(inContext);
       setLoading(false);
     }
     load();
@@ -317,6 +330,99 @@ export default function Sales() {
   const handleStatusChange = async (callId, status) => {
     setCallStatuses((prev) => ({ ...prev, [callId]: status }));
     updateCallMetadata(callId, { call_type: callTypes[callId], status }).catch(() => {});
+  };
+
+  // ── Call card actions ──
+  const setActionLoading = (callId, action) =>
+    setCallActionLoading((prev) => ({ ...prev, [callId]: action }));
+  const clearActionLoading = (callId) =>
+    setCallActionLoading((prev) => {
+      const next = { ...prev };
+      delete next[callId];
+      return next;
+    });
+
+  const runObjectionAnalysis = async (call) => {
+    setActionLoading(call.id, 'objections');
+    try {
+      const res = await analyzeCallObjections(call.id);
+      const objections = res.objections || [];
+      setObjectionsModal({ call, objections });
+      // Keep the result on the call so reopening is instant and free
+      setCalls((prev) => prev.map((c) => (c.id === call.id ? { ...c, objections } : c)));
+    } catch (err) {
+      alert(err.message || 'Failed to analyze objections');
+    } finally {
+      clearActionLoading(call.id);
+    }
+  };
+
+  const handleAnalyzeObjections = (call) => {
+    if (call.objections?.length) {
+      setObjectionsModal({ call, objections: call.objections, cached: true });
+    } else {
+      runObjectionAnalysis(call);
+    }
+  };
+
+  const handleWriteEmail = async (call) => {
+    setActionLoading(call.id, 'email');
+    try {
+      const res = await writeCallFollowUpEmail(call.id);
+      setDraftSaved(false);
+      setEmailCopied(false);
+      setEmailModal({ call, subject: res.subject || '', body: res.body || '' });
+      if (emailAccounts === null) {
+        getEmailAccounts().then((r) => setEmailAccounts(r.accounts || [])).catch(() => setEmailAccounts([]));
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to write follow-up email');
+    } finally {
+      clearActionLoading(call.id);
+    }
+  };
+
+  const handleAddToContext = async (call) => {
+    setActionLoading(call.id, 'context');
+    try {
+      await addCallToContext(call.id);
+      setContextAdded((prev) => ({ ...prev, [call.id]: true }));
+    } catch (err) {
+      alert(err.message || 'Failed to add call to context');
+    } finally {
+      clearActionLoading(call.id);
+    }
+  };
+
+  const handleCopyEmail = () => {
+    if (!emailModal) return;
+    navigator.clipboard.writeText(`Subject: ${emailModal.subject}\n\n${emailModal.body}`);
+    setEmailCopied(true);
+    setTimeout(() => setEmailCopied(false), 2000);
+  };
+
+  const handleSaveEmailDraft = async () => {
+    if (!emailModal || draftSaving) return;
+    const account = (emailAccounts || []).find((a) => a.is_active) || (emailAccounts || [])[0];
+    if (!account) {
+      alert('Connect an email account in Settings to save drafts');
+      return;
+    }
+    setDraftSaving(true);
+    try {
+      await saveDraft({
+        account_id: account.id,
+        to: [],
+        cc: [],
+        subject: emailModal.subject,
+        body_text: emailModal.body,
+      });
+      setDraftSaved(true);
+    } catch (err) {
+      alert(err.message || 'Failed to save draft');
+    } finally {
+      setDraftSaving(false);
+    }
   };
 
   const handleSync = async () => {
@@ -689,12 +795,32 @@ export default function Sales() {
                   </div>
                   <div className="sales-call-right">
                     {currentType === 'Sales call' && (
-                      <button className="sales-action-btn">Analyze objections</button>
+                      <button
+                        className="sales-action-btn"
+                        onClick={() => handleAnalyzeObjections(call)}
+                        disabled={!!callActionLoading[call.id]}
+                      >
+                        {callActionLoading[call.id] === 'objections' && <Loader size={14} className="settings-spinner" />}
+                        {call.objections?.length ? 'View objections' : 'Analyze objections'}
+                      </button>
                     )}
-                    <button className="sales-action-btn">Write email follow up</button>
-                    <button className="sales-action-btn">
-                      <FileText size={14} />
-                      Add to context
+                    <button
+                      className="sales-action-btn"
+                      onClick={() => handleWriteEmail(call)}
+                      disabled={!!callActionLoading[call.id]}
+                    >
+                      {callActionLoading[call.id] === 'email' && <Loader size={14} className="settings-spinner" />}
+                      Write email follow up
+                    </button>
+                    <button
+                      className={`sales-action-btn ${contextAdded[call.id] ? 'sales-action-btn--secondary' : ''}`}
+                      onClick={() => handleAddToContext(call)}
+                      disabled={!!callActionLoading[call.id] || !!contextAdded[call.id]}
+                    >
+                      {callActionLoading[call.id] === 'context'
+                        ? <Loader size={14} className="settings-spinner" />
+                        : contextAdded[call.id] ? <Check size={14} /> : <FileText size={14} />}
+                      {contextAdded[call.id] ? 'In context' : 'Add to context'}
                     </button>
                   </div>
                 </div>
@@ -854,6 +980,127 @@ export default function Sales() {
             >
               Log Sale
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Objection Analysis Modal */}
+      {objectionsModal && (
+        <div className="sales-modal-overlay" onClick={() => setObjectionsModal(null)}>
+          <div className="sales-modal sales-modal--wide" onClick={(e) => e.stopPropagation()}>
+            <button className="sales-modal-close" onClick={() => setObjectionsModal(null)}>
+              <X size={18} />
+            </button>
+
+            <div className="sales-modal-header">
+              <div className="sales-modal-logo">
+                <img src="/our-square-logo.png" alt="PuerlyPersonal" />
+              </div>
+              <div>
+                <h3 className="sales-modal-title">Objection Analysis</h3>
+                <p className="sales-modal-subtitle">{objectionsModal.call.name}</p>
+              </div>
+            </div>
+
+            <div className="sales-modal-divider" />
+
+            {objectionsModal.objections.length === 0 ? (
+              <p className="sales-objection-empty">No objections detected in this call.</p>
+            ) : (
+              <div className="sales-objection-list">
+                {objectionsModal.objections.map((o, i) => (
+                  <div key={i} className="sales-objection-item">
+                    <h4 className="sales-objection-name">{i + 1}. {o.objection}</h4>
+                    {o.customer_quote && <p className="sales-objection-quote">&ldquo;{o.customer_quote}&rdquo;</p>}
+                    {o.how_it_was_handled && (
+                      <p className="sales-objection-row"><strong>How it was handled:</strong> {o.how_it_was_handled}</p>
+                    )}
+                    {o.suggested_response && (
+                      <p className="sales-objection-row"><strong>Try next time:</strong> {o.suggested_response}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {objectionsModal.cached && (
+              <button
+                className="sales-action-btn sales-action-btn--secondary"
+                onClick={() => {
+                  const call = objectionsModal.call;
+                  setObjectionsModal(null);
+                  runObjectionAnalysis(call);
+                }}
+              >
+                Re-analyze
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Follow-up Email Modal */}
+      {emailModal && (
+        <div className="sales-modal-overlay" onClick={() => setEmailModal(null)}>
+          <div className="sales-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="sales-modal-close" onClick={() => setEmailModal(null)}>
+              <X size={18} />
+            </button>
+
+            <div className="sales-modal-header">
+              <div className="sales-modal-logo">
+                <img src="/our-square-logo.png" alt="PuerlyPersonal" />
+              </div>
+              <div>
+                <h3 className="sales-modal-title">Follow-up Email</h3>
+                <p className="sales-modal-subtitle">{emailModal.call.name}</p>
+              </div>
+            </div>
+
+            <div className="sales-modal-divider" />
+
+            <div className="sales-modal-field">
+              <label className="sales-modal-label">
+                <Mail size={13} />
+                Subject
+              </label>
+              <input
+                type="text"
+                className="sales-modal-input"
+                value={emailModal.subject}
+                onChange={(e) => setEmailModal((prev) => ({ ...prev, subject: e.target.value }))}
+              />
+            </div>
+
+            <div className="sales-modal-field">
+              <label className="sales-modal-label">
+                <FileText size={13} />
+                Body
+              </label>
+              <textarea
+                className="sales-modal-input sales-email-body"
+                rows={10}
+                value={emailModal.body}
+                onChange={(e) => setEmailModal((prev) => ({ ...prev, body: e.target.value }))}
+              />
+            </div>
+
+            <div className="sales-email-actions">
+              <button className="sales-action-btn sales-action-btn--secondary" onClick={handleCopyEmail}>
+                {emailCopied ? <Check size={14} /> : <Copy size={14} />}
+                {emailCopied ? 'Copied' : 'Copy'}
+              </button>
+              <button
+                className="sales-action-btn"
+                onClick={handleSaveEmailDraft}
+                disabled={draftSaving || draftSaved}
+              >
+                {draftSaving
+                  ? <Loader size={14} className="settings-spinner" />
+                  : draftSaved ? <Check size={14} /> : <Mail size={14} />}
+                {draftSaved ? 'Saved to Drafts' : 'Save to Drafts'}
+              </button>
+            </div>
           </div>
         </div>
       )}
