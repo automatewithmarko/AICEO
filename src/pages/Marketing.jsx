@@ -13,8 +13,15 @@ import NetlifyDeployButton from '../components/NetlifyDeployButton';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
+import { snapshotArtifactOnMessage } from '../lib/artifactSnapshot';
 import './Pages.css';
 import './Marketing.css';
+
+// Tools whose artifacts are HTML and worth keeping per-message snapshots
+// of so the user can click an old chat card and re-open that exact
+// canvas. Story sequences and DM automations are JSON structures with
+// their own restore paths and are intentionally excluded.
+const HTML_TOOLS_WITH_SNAPSHOTS = new Set(['newsletter', 'landing', 'squeeze']);
 
 // ── Shared prompt skeleton ──
 const SHARED_RULES = `=== ABSOLUTE OUTPUT RULES (NON-NEGOTIABLE) ===
@@ -1266,6 +1273,13 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
   const [customTyping, setCustomTyping] = useState(false);
   const [customText, setCustomText] = useState('');
   const [canvasHtml, setCanvasHtml] = useState('');
+  // When set, the canvas previews the artifact snapshot frozen on this
+  // assistant message instead of the live `canvasHtml`. Cleared at the
+  // start of every new turn so streaming flows back to live. Lets a
+  // single session show multiple independent prior versions without
+  // mutating the live canvas. Editing is blocked while a past version
+  // is being previewed — Resume to re-enter edit mode.
+  const [selectedMsgId, setSelectedMsgId] = useState(null);
   const [storyFrames, setStoryFrames] = useState([]); // [{ title, caption, image_prompt, imageSrc, loading }]
   const [uploadedFiles, setUploadedFiles] = useState([]); // { id, name, type, dataUrl?, textContent?, size }
   const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
@@ -1309,6 +1323,10 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
   const iframeRef = useRef(null);
   const editMapRef = useRef(new Map());
   const skipIframeWriteRef = useRef(false);
+  // Mirrors canvasHtml so the snapshot helper can read the latest HTML
+  // after async image swaps that setCanvasHtml(prev => …) without waiting
+  // for React to commit.
+  const canvasHtmlRef = useRef('');
 
   const chatStarted = chatMessages.length > 0;
 
@@ -1373,9 +1391,69 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
             url: img.url || null,
           }));
         }
+        // Per-message artifact snapshot. snapshotArtifactOnMessage already
+        // strips base64 to storage URLs before writing it onto the
+        // message, so this is just text + hosted-url payload — safe to
+        // persist into the messages JSONB column.
+        if (m.artifact) {
+          out.artifact = m.artifact;
+        }
         return out;
       });
   }, []);
+
+  // Keep canvasHtmlRef in lockstep with canvasHtml so snapshot reads see
+  // the latest content (post image-swap) without waiting for React commit.
+  useEffect(() => {
+    canvasHtmlRef.current = canvasHtml || '';
+  }, [canvasHtml]);
+
+  // Capture a frozen snapshot of the current canvas onto the chat message
+  // that produced it. Only fires for HTML tools (newsletter / landing /
+  // squeeze) — story sequences and DM automations have their own
+  // restore paths. Awaits the caller's image promises so the snapshot
+  // includes the final hosted-URL images, not the {{GENERATE:…}}
+  // placeholders.
+  const snapshotForMessage = useCallback(async (msgId, options = {}) => {
+    if (!msgId) return;
+    const {
+      type = 'html',
+      summary = null,
+      imagePromises = [],
+      agentSource,
+    } = options;
+    const tool = agentSource || activeTool;
+    if (!HTML_TOOLS_WITH_SNAPSHOTS.has(tool)) return;
+    if (imagePromises.length) await Promise.allSettled(imagePromises);
+    const html = canvasHtmlRef.current || '';
+    if (!html.trim()) return;
+    const art = {
+      id: msgId,
+      type,
+      content: html,
+      agentSource: tool,
+      summary,
+    };
+    await snapshotArtifactOnMessage({
+      msgId,
+      art,
+      setMessages: setChatMessages,
+      label: 'mkt-snapshot',
+    });
+  }, [activeTool]);
+
+  // What the iframe actually renders. Falls back to live `canvasHtml`
+  // whenever no past message is being previewed (or the previewed
+  // message has no snapshot — happens for legacy sessions saved before
+  // per-message snapshots existed).
+  const displayedCanvasHtml = useMemo(() => {
+    if (selectedMsgId) {
+      const m = chatMessages.find((x) => x.id === selectedMsgId);
+      if (m?.artifact?.content) return m.artifact.content;
+    }
+    return canvasHtml;
+  }, [selectedMsgId, chatMessages, canvasHtml]);
+  const isViewingPast = !!(selectedMsgId && chatMessages.find((x) => x.id === selectedMsgId)?.artifact?.content);
 
   // ── Debounced auto-save — persist chat + canvas + frames ──
   useEffect(() => {
@@ -1450,6 +1528,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         setCanvasHtml('');
         setStoryFrames([]);
         setCurrentQuestion(null);
+        setSelectedMsgId(null);
         return;
       }
       sessionIdRef.current = data.id;
@@ -1464,6 +1543,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       setCanvasHtml(data.canvas_html || '');
       setStoryFrames(Array.isArray(data.story_frames) ? data.story_frames : []);
       setCurrentQuestion(null);
+      setSelectedMsgId(null);
       setCustomTyping(false);
       setCustomText('');
       if (navigateToUrl) navigate(`/marketing/${activeTool}/${data.id}`, { replace: true });
@@ -1489,6 +1569,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     setCustomTyping(false);
     setCustomText('');
     setShowSessions(false);
+    setSelectedMsgId(null);
     navigate(`/marketing/${activeTool}/${newId}`, { replace: true });
   }, [activeTool, navigate]);
 
@@ -1592,9 +1673,9 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     if (!iframe) return;
     const doc = iframe.contentDocument;
     if (!doc) return;
-    if (canvasHtml) {
+    if (displayedCanvasHtml) {
       // Replace {{GENERATE:...}} and cover image placeholders with shimmer for display
-      let displayHtml = canvasHtml;
+      let displayHtml = displayedCanvasHtml;
       const placeholderDiv = `<div class="gen-shimmer" style="width:100%;height:250px;background:#e2e2e2;border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden"><style>.gen-shimmer::before{content:'';position:absolute;width:300%;height:300%;top:-100%;left:-100%;background:linear-gradient(135deg,transparent 35%,rgba(255,255,255,0.5) 48%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 52%,transparent 65%);animation:genShimmer 2s linear infinite}@keyframes genShimmer{0%{transform:translate(-33%,-33%)}100%{transform:translate(33%,33%)}}</style><span style="color:#9e9e9e;font-size:13px;font-weight:600;font-family:Inter,system-ui,sans-serif;position:relative;z-index:1;letter-spacing:0.5px">Generating</span></div>`;
       if (displayHtml.includes('{{GENERATE:')) {
         // Replace full <img> tags containing {{GENERATE:...}}
@@ -1608,10 +1689,17 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         displayHtml = displayHtml.replace(COVER_IMAGE_PLACEHOLDER, coverShimmer);
       }
 
-      // Inject edit IDs for inline text editing (display-only, not stored in state)
-      const { taggedHtml, editMap } = injectEditIds(displayHtml);
-      editMapRef.current = editMap;
-      displayHtml = taggedHtml;
+      // Inject edit IDs for inline text editing (display-only, not stored in
+      // state). Skip while previewing a past version — that's a read-only
+      // surface; reintroducing edit ids would let the user mutate the live
+      // canvas while looking at history, which is the bug we're avoiding.
+      if (!isViewingPast) {
+        const { taggedHtml, editMap } = injectEditIds(displayHtml);
+        editMapRef.current = editMap;
+        displayHtml = taggedHtml;
+      } else {
+        editMapRef.current = new Map();
+      }
 
       doc.open();
       doc.write(displayHtml);
@@ -1624,6 +1712,14 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         const shimmerStyle = doc.createElement('style');
         shimmerStyle.textContent = shimmerCss;
         doc.head.appendChild(shimmerStyle);
+      }
+
+      // Inject editor overlays only when the iframe is showing the live
+      // canvas. While previewing a past version we render plain HTML —
+      // no hover-edit, no link tools, no resize handles — so the user
+      // can't accidentally mutate live state from a read-only view.
+      if (isViewingPast) {
+        return;
       }
 
       // Inject CTA link editor overlay
@@ -1757,7 +1853,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       doc.write('<html><body></body></html>');
       doc.close();
     }
-  }, [canvasHtml]);
+  }, [displayedCanvasHtml, isViewingPast]);
 
   // Listen for CTA link edits and text edits from the iframe
   useEffect(() => {
@@ -1842,7 +1938,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     const observer = new ResizeObserver(update);
     observer.observe(container);
     return () => observer.disconnect();
-  }, [canvasHtml]);
+  }, [displayedCanvasHtml]);
 
   // Context helpers
   const toggleItem = (itemId) => {
@@ -2026,6 +2122,11 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     // the AI a half-extracted PDF or an image with no public URL.
     if (uploadedFiles.some((f) => f.status === 'uploading')) return;
 
+    // If the user was previewing a past version, snap back to LIVE before
+    // the new turn streams in — otherwise the iframe would still be
+    // pinned to the snapshot while the canvas state updates underneath.
+    setSelectedMsgId(null);
+
     // Capture files before clearing so we can replace placeholders later.
     // Only DONE files participate in this turn — errored uploads are
     // kept in the pill row for the user to see + dismiss but don't
@@ -2158,6 +2259,11 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       // an empty assistant message (Anthropic 400s on empty assistants
       // in subsequent turns).
       let streamError = null;
+      // Image-gen promises started inside onFileUpdate's {{GENERATE:…}}
+      // block. Awaited in onEditSummary before snapshotting so the
+      // committed message carries the final hosted-URL HTML, not the
+      // placeholder one.
+      const editImagePromises = [];
 
       await streamFromBackend('/api/orchestrate', {
         messages: newMessages,
@@ -2210,7 +2316,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
               const isLandingTool = activeTool === 'landing' || activeTool === 'squeeze';
               const imgPlatform = isLandingTool ? 'landing_page' : 'newsletter';
               matches.forEach((match) => {
-                (async () => {
+                const p = (async () => {
                   try {
                     const mktBrand = brandDna ? {
                       photoUrls: brandDna.photo_urls || [],
@@ -2229,16 +2335,23 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
                     console.error('Edit image gen failed:', err.message);
                   }
                 })();
+                editImagePromises.push(p);
               });
             }
           }
         },
         onEditSummary: (summary) => {
           editHandled = true;
+          const msgId = `msg-${Date.now()}-assistant`;
           setChatMessages((prev) => [
             ...prev.filter((m) => !m.isStatus),
-            { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: summary },
+            { id: msgId, role: 'assistant', text: summary },
           ]);
+          // Snapshot AFTER any edit-introduced image gen settles. Fire-and-
+          // forget so we don't block the orchestrate stream's onError /
+          // finally — the snapshot is best-effort and reattaches to the
+          // existing message when it lands.
+          snapshotForMessage(msgId, { type: 'html', summary, imagePromises: editImagePromises });
         },
         onStatus: (statusText) => {
           setChatMessages((prev) => {
@@ -2397,7 +2510,9 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         const finalHtml = replaceImagePlaceholders(mergedHtml, filesSnapshot);
         setCanvasHtml(finalHtml);
         const sectionNames = Object.keys(parsed.sections).join(', ');
-        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || `Updated sections: ${sectionNames}` }]);
+        const msgId = `msg-${Date.now()}-assistant`;
+        setChatMessages((prev) => [...prev, { id: msgId, role: 'assistant', text: parsed.summary || `Updated sections: ${sectionNames}` }]);
+        snapshotForMessage(msgId, { type: 'html', summary: parsed.summary || null });
       } else if (parsed?.type === 'newsletter' || parsed?.type === 'html') {
         let finalHtml = replaceImagePlaceholders(parsed.html, filesSnapshot);
 
@@ -2409,7 +2524,8 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         }
 
         setCanvasHtml(finalHtml);
-        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || config.readyText }]);
+        const stableMsgId = `msg-${Date.now()}-assistant`;
+        setChatMessages((prev) => [...prev, { id: stableMsgId, role: 'assistant', text: parsed.summary || config.readyText }]);
 
         // Collect image generation promises  -  isGenerating stays true until all resolve
         const imagePromises = [];
@@ -2509,6 +2625,10 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         if (imagePromises.length > 0) {
           await Promise.allSettled(imagePromises);
         }
+
+        // Snapshot the finished canvas (including any swapped-in images)
+        // onto the assistant message that produced it.
+        await snapshotForMessage(stableMsgId, { type: parsed.type || 'html', summary: parsed.summary || null });
       } else {
         // Fallback  -  show raw text
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: fullContent.slice(0, 500) }]);
@@ -3114,10 +3234,23 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         {/* Chat messages (shown when chat started) */}
         {chatStarted && !loadingSession && (
           <div className="mkt-messages">
-            {chatMessages.map((msg) => (
+            {chatMessages.map((msg) => {
+              const hasSnapshot = !!msg.artifact?.content;
+              const isSelected = msg.id === selectedMsgId;
+              return (
               <div key={msg.id} className={`mkt-msg-row mkt-msg-row--${msg.role}`}>
-                <div className={`mkt-msg mkt-msg--${msg.role}`}>
+                <div
+                  className={`mkt-msg mkt-msg--${msg.role}${hasSnapshot ? ' mkt-msg--has-artifact' : ''}${isSelected ? ' mkt-msg--selected' : ''}`}
+                  onClick={hasSnapshot ? () => setSelectedMsgId(msg.id) : undefined}
+                  title={hasSnapshot ? 'View this version on the canvas' : undefined}
+                >
                   {msg.text}
+                  {hasSnapshot && (
+                    <div className="mkt-msg-artifact-tag">
+                      <FileText size={11} />
+                      <span>{isSelected ? 'Viewing this version' : 'View this version'}</span>
+                    </div>
+                  )}
                 </div>
                 {(msg.attachments?.length || msg.images?.length) > 0 && (
                   <div className="mkt-msg-attachments">
@@ -3162,7 +3295,8 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
             {isGenerating && (
               <div className="mkt-msg-row mkt-msg-row--assistant">
                 <div className="mkt-msg mkt-msg--assistant mkt-msg--generating">
@@ -3345,17 +3479,18 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
               <textarea
                 ref={textareaRef}
                 className="mkt-chat-input"
-                placeholder={config.placeholder}
+                placeholder={isViewingPast ? 'Click Resume editing on the canvas to continue…' : config.placeholder}
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 rows={1}
+                disabled={isViewingPast}
               />
               <button
                 className="mkt-chat-send"
-                disabled={!chatInput.trim() || isGenerating || hasPendingUploads}
+                disabled={!chatInput.trim() || isGenerating || hasPendingUploads || isViewingPast}
                 onClick={handleSend}
-                title={hasPendingUploads ? 'Wait for attachments to finish uploading' : 'Send'}
+                title={isViewingPast ? 'Resume editing to send' : hasPendingUploads ? 'Wait for attachments to finish uploading' : 'Send'}
               >
                 <ArrowUp size={16} />
               </button>
@@ -3628,6 +3763,18 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
           </div>
         )}
         <div className="mkt-canvas-body" ref={canvasBodyRef}>
+          {isViewingPast && (
+            <div className="mkt-past-version-banner">
+              <span>Viewing a past version of this canvas — edits are disabled.</span>
+              <button
+                type="button"
+                className="mkt-past-version-resume"
+                onClick={() => setSelectedMsgId(null)}
+              >
+                Resume editing
+              </button>
+            </div>
+          )}
           <iframe
             ref={iframeRef}
             className="mkt-canvas-iframe"
