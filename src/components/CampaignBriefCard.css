@@ -353,6 +353,97 @@
   animation: brief-card-spin 0.9s linear infinite;
 }
 
+/* ── Clear-brief confirmation modal ──────────────────────
+   Replaces window.confirm so the copy can be specific and the buttons
+   can match the theme. Centered card over a translucent backdrop.
+   Backdrop click + Esc cancel; the destructive button is autoFocused
+   so Enter confirms. */
+
+.brief-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 16, 30, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 4000;
+  animation: brief-confirm-fade 0.12s ease-out;
+}
+
+.brief-confirm {
+  width: 100%;
+  max-width: 400px;
+  padding: 24px 22px 18px;
+  background: var(--bg-white);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+  animation: brief-confirm-rise 0.16s ease-out;
+}
+
+.brief-confirm-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 12px;
+  background: var(--brand-red-light);
+  color: var(--brand-red);
+  border-radius: 50%;
+}
+
+.brief-confirm-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.brief-confirm-body {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.brief-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.brief-confirm-actions .brief-card-btn {
+  flex: 1;
+  justify-content: center;
+  padding: 9px 16px;
+}
+
+.brief-card-btn--danger {
+  background: var(--brand-red);
+  color: var(--bg-white);
+  box-shadow: 0 1px 2px rgba(233, 26, 68, 0.25);
+}
+.brief-card-btn--danger:hover {
+  background: var(--brand-red-hover);
+}
+.brief-card-btn--danger:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+@keyframes brief-confirm-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes brief-confirm-rise {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 /* Mobile — keep the card readable on narrow phones (~360px wide).
    Stacks the empty-state CTA below the text instead of next to it. */
 @media (max-width: 480px) {

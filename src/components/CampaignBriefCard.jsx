@@ -86,6 +86,11 @@ export default function CampaignBriefCard({ onBriefChange }) {
   // reads as the primary call-to-action; user opts in to chips when
   // they want ideas. Keyed by field key so each toggle is independent.
   const [openChips, setOpenChips] = useState({});
+  // Shown when the user clicks the trash icon — confirms before
+  // wiping the brief. Inline modal instead of window.confirm so the
+  // copy can explain the consequences and the buttons match the
+  // page's theme.
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const onBriefChangeRef = useRef(onBriefChange);
   useEffect(() => { onBriefChangeRef.current = onBriefChange; }, [onBriefChange]);
 
@@ -155,21 +160,30 @@ export default function CampaignBriefCard({ onBriefChange }) {
     }
   };
 
-  const handleClear = async () => {
+  const handleClearClick = () => {
     if (!hasBrief) return;
-    if (!confirm('Clear the active campaign brief? Marketing tools will start asking discovery questions again until you fill in a new brief.')) return;
+    setShowClearConfirm(true);
+  };
+
+  const confirmClear = async () => {
     setSaving(true);
     try {
       await clearMarketingBrief();
       setBrief(null);
       setDraft({});
       setExpanded(false);
+      setShowClearConfirm(false);
       onBriefChangeRef.current?.(null);
     } catch (err) {
       setError(err?.message || 'Clear failed');
     } finally {
       setSaving(false);
     }
+  };
+
+  const cancelClear = () => {
+    if (saving) return;
+    setShowClearConfirm(false);
   };
 
   if (loading) {
@@ -327,12 +341,70 @@ export default function CampaignBriefCard({ onBriefChange }) {
         <button
           type="button"
           className="brief-card-iconbtn brief-card-iconbtn--danger"
-          onClick={handleClear}
+          onClick={handleClearClick}
           title="Clear / start a new campaign"
           disabled={saving}
         >
           <Trash2 size={15} />
         </button>
+      </div>
+      {showClearConfirm && (
+        <ClearBriefConfirm
+          onConfirm={confirmClear}
+          onCancel={cancelClear}
+          saving={saving}
+        />
+      )}
+    </div>
+  );
+}
+
+// Inline confirmation modal — replaces window.confirm so the copy can
+// explain what "clear" means and the buttons can match the page theme.
+// Light enough not to need a separate file. Esc and backdrop click
+// cancel; Enter on the focused confirm button submits.
+function ClearBriefConfirm({ onConfirm, onCancel, saving }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="brief-confirm-backdrop"
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div className="brief-confirm" role="dialog" aria-modal="true" aria-labelledby="brief-confirm-title">
+        <div className="brief-confirm-icon">
+          <Trash2 size={20} />
+        </div>
+        <h3 id="brief-confirm-title" className="brief-confirm-title">Clear campaign brief?</h3>
+        <p className="brief-confirm-body">
+          Marketing tools will start asking discovery questions again until you fill in a new brief. The artifacts you already generated are not affected.
+        </p>
+        <div className="brief-confirm-actions">
+          <button
+            type="button"
+            className="brief-card-btn brief-card-btn--ghost"
+            onClick={onCancel}
+            disabled={saving}
+          >
+            Keep brief
+          </button>
+          <button
+            type="button"
+            className="brief-card-btn brief-card-btn--danger"
+            onClick={onConfirm}
+            disabled={saving}
+            autoFocus
+          >
+            {saving ? <Loader size={14} className="brief-card-spin" /> : <Trash2 size={14} />}
+            <span>Clear brief</span>
+          </button>
+        </div>
       </div>
     </div>
   );
