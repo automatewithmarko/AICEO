@@ -23,7 +23,7 @@ import './Marketing.css';
 // of so the user can click an old chat card and re-open that exact
 // canvas. Story sequences and DM automations are JSON structures with
 // their own restore paths and are intentionally excluded.
-const HTML_TOOLS_WITH_SNAPSHOTS = new Set(['newsletter', 'landing', 'squeeze']);
+const HTML_TOOLS_WITH_SNAPSHOTS = new Set(['newsletter', 'landing', 'squeeze', 'leadmagnet']);
 
 // ── Shared prompt skeleton ──
 const SHARED_RULES = `=== ABSOLUTE OUTPUT RULES (NON-NEGOTIABLE) ===

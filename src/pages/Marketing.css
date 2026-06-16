@@ -136,9 +136,18 @@
 /* Wrapper for the Campaign Brief card. Sits at the top of the chat
    column above either the ghost-card empty state OR the live chat
    messages. Padding matches the chat panel gutter so the card lines
-   up with the message bubbles below it. */
+   up with the message bubbles below it.
+
+   Tinted bg + relative z:1 so the slot reads as its own zone —
+   otherwise the brief card visually fuses with the white topbar
+   above it (same background, no separator) and users feel the brief
+   has been "tucked under" the Previous-conversations bar. */
 .mkt-brief-slot {
-  padding: 12px 16px 0;
+  position: relative;
+  z-index: 1;
+  padding: 14px 16px 6px;
+  background: var(--bg-light);
+  border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
 }
 
