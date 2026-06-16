@@ -1,21 +1,83 @@
 import { useState, useEffect, useRef } from 'react';
-import { ClipboardList, Pencil, Trash2, ChevronDown, ChevronUp, Loader, Check, X } from 'lucide-react';
+import { ClipboardList, Pencil, Trash2, Loader, Check, X, Sparkles } from 'lucide-react';
 import { getMarketingBrief, updateMarketingBrief, clearMarketingBrief } from '../lib/api';
 import './CampaignBriefCard.css';
 
-// One active campaign brief per user, shared by every Marketing tool so
-// the user doesn't re-explain offer/audience/tone/goal/key benefit per
-// tab. Two states: EMPTY (small "Tell me about your campaign" prompt
-// expanding into a 5-field form) and LOADED (compact summary with edit
-// + clear). The card auto-refreshes after each generation completes so
-// auto-captured fields from the agent flow show up immediately.
+// One active campaign brief per user, shared across every Marketing tool
+// so the user doesn't re-explain offer / audience / tone / goal / key
+// benefit per tab. Three states share the same root .brief-card class:
+// loading, empty (small CTA expanding into form), and loaded (compact
+// summary with edit + clear). Each tone / goal / audience field gets
+// suggestion chips so the user can pick a known archetype OR type
+// their own — chips fill the input on click, plain typing overrides.
+
+const TONE_CHIPS = [
+  'Direct, no-fluff (Hormozi)',
+  'Witty + clever (Morning Brew)',
+  'Thoughtful + evergreen (James Clear)',
+  'Growth + motivational (Sahil Bloom)',
+  'Friendly + conversational',
+  'Professional + authoritative',
+  'Bold + provocative',
+  'Warm + personal',
+];
+
+const GOAL_CHIPS = [
+  'Sell now / buy',
+  'Book a call',
+  'List-build / waitlist',
+  'Educate / build authority',
+  'Launch / event',
+  'Drive engagement',
+];
+
+const AUDIENCE_CHIPS = [
+  'Solo founders',
+  'First-time founders',
+  'Coaches + creators',
+  'E-commerce founders',
+  'Agency owners',
+  'Course creators',
+  'SaaS / product builders',
+  'Service businesses',
+];
 
 const FIELDS = [
-  { key: 'offer', label: 'Offer / topic', placeholder: 'e.g. $497 coaching program for first-time founders', hint: 'What the campaign is about — product, course, service, or topic.' },
-  { key: 'audience', label: 'Target audience', placeholder: 'e.g. solo founders past $10K/mo who can\'t justify hiring a CMO', hint: 'Who it\'s for + the pain they have.' },
-  { key: 'tone', label: 'Tone / voice', placeholder: 'e.g. direct, no-fluff, Hormozi-style', hint: 'How it should read.' },
-  { key: 'goal', label: 'Primary goal / CTA', placeholder: 'e.g. book a call, buy now, join waitlist', hint: 'What action the campaign should drive.' },
-  { key: 'key_benefit', label: 'Key benefit (optional)', placeholder: 'e.g. ship a landing page in 30 seconds instead of two days', hint: 'The main promise / outcome.' },
+  {
+    key: 'offer',
+    label: 'Offer / topic',
+    placeholder: 'e.g. $497 coaching program for first-time founders',
+    hint: 'What the campaign is about — product, course, service, or topic.',
+    chips: null,
+  },
+  {
+    key: 'audience',
+    label: 'Target audience',
+    placeholder: 'e.g. solo founders past $10K/mo who can\'t justify a CMO yet',
+    hint: 'Who it\'s for + the pain they have. Click a chip to start, then refine.',
+    chips: AUDIENCE_CHIPS,
+  },
+  {
+    key: 'tone',
+    label: 'Tone / voice',
+    placeholder: 'e.g. direct, no-fluff, with a personal story angle',
+    hint: 'How it should read. Pick an archetype or describe your own.',
+    chips: TONE_CHIPS,
+  },
+  {
+    key: 'goal',
+    label: 'Primary goal / CTA',
+    placeholder: 'e.g. book a free consult call',
+    hint: 'What action the campaign should drive.',
+    chips: GOAL_CHIPS,
+  },
+  {
+    key: 'key_benefit',
+    label: 'Key benefit (optional)',
+    placeholder: 'e.g. ship a landing page in 30 seconds instead of two days',
+    hint: 'The main promise / outcome / USP.',
+    chips: null,
+  },
 ];
 
 export default function CampaignBriefCard({ onBriefChange }) {
@@ -25,11 +87,8 @@ export default function CampaignBriefCard({ onBriefChange }) {
   const [draft, setDraft] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  // Suppresses the auto-expand on first empty load — we open the form
-  // when the user explicitly clicks the empty-state CTA, not on initial
-  // mount (otherwise the panel feels noisy on every Marketing page
-  // visit before they've decided to fill it).
-  const userOpenedRef = useRef(false);
+  const onBriefChangeRef = useRef(onBriefChange);
+  useEffect(() => { onBriefChangeRef.current = onBriefChange; }, [onBriefChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,7 +99,7 @@ export default function CampaignBriefCard({ onBriefChange }) {
         setBrief(b || null);
         if (b) {
           setDraft(b);
-          onBriefChange?.(b);
+          onBriefChangeRef.current?.(b);
         }
       } catch (err) {
         console.warn('[brief] load failed:', err?.message);
@@ -49,17 +108,7 @@ export default function CampaignBriefCard({ onBriefChange }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [onBriefChange]);
-
-  // Imperatively refresh after a turn completes (parent calls this via
-  // its own effect when isGenerating flips back to false). Reuses the
-  // same load path so auto-captured fields land in state cleanly.
-  CampaignBriefCard.lastRefresh = async function refresh() {
-    try {
-      const { brief: b } = await getMarketingBrief();
-      return b || null;
-    } catch { return null; }
-  };
+  }, []);
 
   const hasBrief = !!(brief && (brief.offer || brief.audience || brief.tone || brief.goal || brief.key_benefit));
   const isEmpty = !hasBrief;
@@ -67,7 +116,6 @@ export default function CampaignBriefCard({ onBriefChange }) {
   const startEdit = () => {
     setDraft(brief || {});
     setExpanded(true);
-    userOpenedRef.current = true;
   };
 
   const cancelEdit = () => {
@@ -77,6 +125,10 @@ export default function CampaignBriefCard({ onBriefChange }) {
   };
 
   const handleFieldChange = (key, value) => {
+    setDraft((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleChipClick = (key, value) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -92,7 +144,7 @@ export default function CampaignBriefCard({ onBriefChange }) {
       setBrief(saved);
       setDraft(saved || {});
       setExpanded(false);
-      onBriefChange?.(saved);
+      onBriefChangeRef.current?.(saved);
     } catch (err) {
       setError(err?.message || 'Save failed');
     } finally {
@@ -102,14 +154,14 @@ export default function CampaignBriefCard({ onBriefChange }) {
 
   const handleClear = async () => {
     if (!hasBrief) return;
-    if (!confirm('Clear the active campaign brief? The Marketing tools will start asking discovery questions again until you fill in a new brief.')) return;
+    if (!confirm('Clear the active campaign brief? Marketing tools will start asking discovery questions again until you fill in a new brief.')) return;
     setSaving(true);
     try {
       await clearMarketingBrief();
       setBrief(null);
       setDraft({});
       setExpanded(false);
-      onBriefChange?.(null);
+      onBriefChangeRef.current?.(null);
     } catch (err) {
       setError(err?.message || 'Clear failed');
     } finally {
@@ -120,58 +172,72 @@ export default function CampaignBriefCard({ onBriefChange }) {
   if (loading) {
     return (
       <div className="brief-card brief-card--loading">
-        <Loader size={14} className="brief-card-spin" />
+        <Loader size={15} className="brief-card-spin" />
         <span>Loading campaign brief…</span>
       </div>
     );
   }
 
-  // Empty + collapsed: small prompt with click to fill OR skip.
-  if (isEmpty && !expanded) {
-    return (
-      <div className="brief-card brief-card--empty">
-        <ClipboardList size={15} />
-        <div className="brief-card-empty-text">
-          <strong>Tell me about your campaign once.</strong> I'll use it across newsletter, landing, squeeze, and other tools so you don't have to repeat yourself.
-        </div>
-        <button
-          type="button"
-          className="brief-card-btn brief-card-btn--primary"
-          onClick={() => { setExpanded(true); userOpenedRef.current = true; }}
-        >
-          Fill it in
-        </button>
-      </div>
-    );
-  }
-
-  // Expanded edit form (covers both empty-but-editing AND edit-existing).
+  // Expanded edit form (used for both fresh-fill and edit-existing).
   if (expanded) {
     return (
       <div className="brief-card brief-card--editing">
-        <div className="brief-card-head">
-          <ClipboardList size={15} />
-          <span className="brief-card-title">Campaign brief</span>
+        <header className="brief-card-header">
+          <div className="brief-card-header-icon">
+            <ClipboardList size={18} />
+          </div>
+          <div className="brief-card-header-text">
+            <h3 className="brief-card-title">Campaign brief</h3>
+            <p className="brief-card-subtitle">
+              Tell me once. Every Marketing tool will reuse this so you skip the same questions per tab.
+            </p>
+          </div>
           <button type="button" className="brief-card-iconbtn" onClick={cancelEdit} title="Cancel">
-            <X size={14} />
+            <X size={16} />
           </button>
-        </div>
+        </header>
+
         <div className="brief-card-fields">
-          {FIELDS.map((f) => (
-            <label key={f.key} className="brief-card-field">
-              <span className="brief-card-field-label">{f.label}</span>
-              <input
-                type="text"
-                className="brief-card-input"
-                value={draft[f.key] || ''}
-                onChange={(e) => handleFieldChange(f.key, e.target.value)}
-                placeholder={f.placeholder}
-              />
-              <span className="brief-card-field-hint">{f.hint}</span>
-            </label>
-          ))}
+          {FIELDS.map((f) => {
+            const value = draft[f.key] || '';
+            return (
+              <div key={f.key} className="brief-card-field">
+                <label className="brief-card-field-label" htmlFor={`brief-${f.key}`}>
+                  {f.label}
+                </label>
+                <input
+                  id={`brief-${f.key}`}
+                  type="text"
+                  className="brief-card-input"
+                  value={value}
+                  onChange={(e) => handleFieldChange(f.key, e.target.value)}
+                  placeholder={f.placeholder}
+                />
+                {f.chips && (
+                  <div className="brief-card-chips">
+                    {f.chips.map((chip) => {
+                      const active = value === chip;
+                      return (
+                        <button
+                          key={chip}
+                          type="button"
+                          className={`brief-card-chip${active ? ' brief-card-chip--active' : ''}`}
+                          onClick={() => handleChipClick(f.key, chip)}
+                        >
+                          {chip}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <span className="brief-card-field-hint">{f.hint}</span>
+              </div>
+            );
+          })}
         </div>
+
         {error && <div className="brief-card-error">{error}</div>}
+
         <div className="brief-card-actions">
           <button
             type="button"
@@ -187,43 +253,73 @@ export default function CampaignBriefCard({ onBriefChange }) {
             onClick={handleSave}
             disabled={saving}
           >
-            {saving ? <Loader size={13} className="brief-card-spin" /> : <Check size={13} />} Save brief
+            {saving ? <Loader size={14} className="brief-card-spin" /> : <Check size={14} />}
+            <span>Save brief</span>
           </button>
         </div>
       </div>
     );
   }
 
+  // Empty + collapsed: prompt to fill.
+  if (isEmpty) {
+    return (
+      <div className="brief-card brief-card--empty">
+        <div className="brief-card-empty-icon">
+          <Sparkles size={18} />
+        </div>
+        <div className="brief-card-empty-text">
+          <h3 className="brief-card-title">Tell me about your campaign once</h3>
+          <p className="brief-card-subtitle">
+            I'll reuse it across newsletter, landing, squeeze, and every other tool so you don't repeat yourself.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="brief-card-btn brief-card-btn--primary"
+          onClick={() => setExpanded(true)}
+        >
+          <span>Fill brief</span>
+        </button>
+      </div>
+    );
+  }
+
   // Loaded + collapsed: compact summary with edit / clear.
   const summary = [brief.offer, brief.audience].filter(Boolean).join(' · ');
+  const subline = [brief.tone && `${brief.tone} tone`, brief.goal && `goal: ${brief.goal}`].filter(Boolean).join(' · ');
   return (
     <div className="brief-card brief-card--loaded">
-      <ClipboardList size={15} />
-      <div className="brief-card-summary">
-        <div className="brief-card-summary-line">{summary || 'Campaign brief saved'}</div>
-        {(brief.tone || brief.goal) && (
-          <div className="brief-card-summary-sub">
-            {[brief.tone && `${brief.tone} tone`, brief.goal && `goal: ${brief.goal}`].filter(Boolean).join(' · ')}
-          </div>
+      <div className="brief-card-loaded-icon">
+        <ClipboardList size={18} />
+      </div>
+      <div className="brief-card-loaded-text">
+        <div className="brief-card-loaded-summary">
+          {summary || 'Campaign brief saved'}
+        </div>
+        {subline && (
+          <div className="brief-card-loaded-sub">{subline}</div>
         )}
       </div>
-      <button
-        type="button"
-        className="brief-card-iconbtn"
-        onClick={startEdit}
-        title="Edit campaign brief"
-      >
-        <Pencil size={13} />
-      </button>
-      <button
-        type="button"
-        className="brief-card-iconbtn brief-card-iconbtn--danger"
-        onClick={handleClear}
-        title="Clear / start a new campaign"
-        disabled={saving}
-      >
-        <Trash2 size={13} />
-      </button>
+      <div className="brief-card-loaded-actions">
+        <button
+          type="button"
+          className="brief-card-iconbtn"
+          onClick={startEdit}
+          title="Edit campaign brief"
+        >
+          <Pencil size={15} />
+        </button>
+        <button
+          type="button"
+          className="brief-card-iconbtn brief-card-iconbtn--danger"
+          onClick={handleClear}
+          title="Clear / start a new campaign"
+          disabled={saving}
+        >
+          <Trash2 size={15} />
+        </button>
+      </div>
     </div>
   );
 }
