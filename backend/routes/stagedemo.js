@@ -1,6 +1,7 @@
 // backend/routes/stagedemo.js
 import { Router } from 'express';
 import { WebSocketServer, WebSocket as WsWebSocket } from 'ws';
+import { SONNET_MODEL } from '../config/models.js';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { supabase } from '../services/storage.js';
 import { loadUserContext } from '../services/context.js';
@@ -944,7 +945,7 @@ IMPORTANT: any tokens of the shape __IMG_PLACEHOLDER_N__ are image placeholders 
           'content-type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: SONNET_MODEL,
           max_tokens: 16000,
           messages: [{ role: 'user', content: editPrompt }],
         }),

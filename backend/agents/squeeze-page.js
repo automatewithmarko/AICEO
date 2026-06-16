@@ -1,4 +1,5 @@
 import { buildBrandContext } from './brand-context.js';
+import { SONNET_MODEL } from '../config/models.js';
 
 const SYSTEM_PROMPT = `You are an elite squeeze page designer and lead generation expert. You create stunning, high-converting opt-in pages that capture email addresses.
 
@@ -87,7 +88,7 @@ export default {
   name: 'squeeze-page',
   description: 'Creates high-converting opt-in/squeeze pages that capture leads. Use when the user asks for an opt-in page, squeeze page, or lead capture page.',
   provider: 'anthropic',
-  model: 'claude-sonnet-4-20250514',
+  model: SONNET_MODEL,
   // Same reasoning as landing-page — long DR-style squeeze pages
   // were hitting the 16K cap mid-string and breaking the JSON wrap.
   maxTokens: 32000,

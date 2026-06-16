@@ -283,6 +283,46 @@ export async function getContentItems(sessionId = null) {
 }
 
 /**
+ * Marketing campaign brief — single active brief per user, reused across
+ * every Marketing tool so the user doesn't re-explain offer/audience/
+ * tone/goal/key benefit per tab. Returns { brief: null } when the user
+ * has no brief yet or the migration hasn't run.
+ */
+export async function getMarketingBrief() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/marketing/brief`, { headers });
+  if (!res.ok) return { brief: null };
+  return res.json();
+}
+
+export async function updateMarketingBrief(patch) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/marketing/brief`, {
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to save brief (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function clearMarketingBrief() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/marketing/brief`, {
+    method: 'DELETE',
+    headers,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to clear brief (${res.status})`);
+  }
+  return res.json();
+}
+
+/**
  * Delete a content item by DB id.
  */
 export async function deleteContentItem(id) {

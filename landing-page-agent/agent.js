@@ -1,7 +1,9 @@
 import { buildSystemPrompt } from './prompts.js';
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
-const MODEL = 'claude-sonnet-4-20250514';
+// NOTE: standalone microservice — can't import from ../backend/config.
+// Keep aligned with backend/config/models.js SONNET_MODEL on every bump.
+const MODEL = 'claude-sonnet-4-6';
 
 function getHeaders() {
   return {

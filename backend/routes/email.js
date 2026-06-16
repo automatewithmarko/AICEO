@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { supabase } from '../services/storage.js';
+import { SONNET_MODEL } from '../config/models.js';
 import { fetchEmails, validateImapConnection } from '../services/imap.js';
 import { sendEmail, validateSmtpConnection } from '../services/smtp.js';
 import { connectNewAccount, disconnectAccount } from '../services/email-sync.js';
@@ -860,7 +861,7 @@ ${copyRules}`;
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: SONNET_MODEL,
         max_tokens: 1500,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMessage }],

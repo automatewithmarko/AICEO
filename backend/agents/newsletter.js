@@ -1,4 +1,5 @@
 import { buildBrandContext } from './brand-context.js';
+import { SONNET_MODEL } from '../config/models.js';
 
 const SYSTEM_PROMPT = `You are an elite newsletter copywriter who studies Alex Hormozi, Morning Brew, Justin Welsh, James Clear, Dan Koe, and Sahil Bloom. You write newsletters that feel personal, convert like crazy, and get forwarded.
 
@@ -247,7 +248,7 @@ export default {
   name: 'newsletter',
   description: 'Creates stunning, high-converting email newsletters with brand-consistent design. Use when the user asks for a newsletter, email campaign, or email content.',
   provider: 'anthropic',
-  model: 'claude-sonnet-4-20250514',
+  model: SONNET_MODEL,
   maxTokens: 16000,
   // Same first-chunk headroom as landing-page/squeeze-page. Through the
   // Mentor gateway, Anthropic time-to-first-token plus Mentor cold start

@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles } from '../lib/api';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
+import { snapshotArtifactOnMessage } from '../lib/artifactSnapshot';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import Paywall from '../components/Paywall';
@@ -67,59 +68,6 @@ function generateNewsletterImages(html, setArtifactFn, onProgress, platform = 'n
   }));
 
   return { total, promise };
-}
-
-// Upload any base64 image payloads inside an artifact (in HTML <img src>, in
-// the images[] array, in story frames[]) to storage and return a NEW artifact
-// object whose references are hosted URLs only. Used at snapshot time so that
-// per-message artifact snapshots (msg.artifact) stay small and survive a page
-// reload without re-embedding multi-MB base64 strings in the messages JSONB
-// row. Best-effort — any individual upload failure keeps the original src so
-// we never lose pixels even if Supabase storage is flaky.
-async function uploadArtifactBase64(art) {
-  if (!art) return art;
-  let savedContent = art.content || '';
-  if (savedContent) {
-    const b64re = /src="(data:image\/[^;]+;base64,[^"]+)"/g;
-    const matches = [...savedContent.matchAll(b64re)];
-    for (const m of matches) {
-      try {
-        const dataUri = m[1];
-        const commaIdx = dataUri.indexOf(',');
-        const mimeMatch = dataUri.match(/^data:([^;]+);/);
-        const result = await uploadImageToStorage(dataUri.slice(commaIdx + 1), mimeMatch?.[1] || 'image/png');
-        if (result.url) savedContent = savedContent.replaceAll(dataUri, result.url);
-      } catch {}
-    }
-  }
-  const uploadedImages = await Promise.all((art.images || []).map(async (img) => {
-    if (img.src?.startsWith('data:')) {
-      try {
-        const commaIdx = img.src.indexOf(',');
-        const mimeMatch = img.src.match(/^data:([^;]+);/);
-        const result = await uploadImageToStorage(img.src.slice(commaIdx + 1), mimeMatch?.[1] || 'image/png');
-        return { ...img, src: result.url || img.src };
-      } catch { return img; }
-    }
-    return img;
-  }));
-  const uploadedFrames = art.frames ? await Promise.all(art.frames.map(async (f) => {
-    if (f.imageSrc?.startsWith('data:')) {
-      try {
-        const commaIdx = f.imageSrc.indexOf(',');
-        const mimeMatch = f.imageSrc.match(/^data:([^;]+);/);
-        const result = await uploadImageToStorage(f.imageSrc.slice(commaIdx + 1), mimeMatch?.[1] || 'image/png');
-        return { ...f, imageSrc: result.url || f.imageSrc };
-      } catch { return f; }
-    }
-    return f;
-  })) : null;
-  return {
-    ...art,
-    content: savedContent,
-    images: uploadedImages,
-    ...(uploadedFrames ? { frames: uploadedFrames } : {}),
-  };
 }
 
 // Merge section-based edits into existing HTML using section markers
@@ -546,20 +494,14 @@ export default function AiCeo() {
       return;
     }
     if (art.type === 'image') {
+      // Multi-image generations all share the cumulative live gallery
+      // (legacy behavior preserved on purpose).
       console.log(`[snapshot] skip — type=image for ${msgId} (cumulative gallery)`);
       return;
     }
     const hasPlaceholders = !!art.content?.includes('{{GENERATE:');
     console.log(`[snapshot] start ${msgId} type=${art.type} title="${art.title}" contentLen=${art.content?.length || 0} hasPlaceholders=${hasPlaceholders}`);
-    try {
-      const uploaded = await uploadArtifactBase64(art);
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, artifact: uploaded } : m));
-      console.log(`[snapshot] DONE ${msgId} (uploaded)`);
-    } catch (err) {
-      console.warn('[AiCeo] snapshot upload failed, keeping b64:', err?.message);
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, artifact: art } : m));
-      console.log(`[snapshot] DONE ${msgId} (b64 fallback)`);
-    }
+    await snapshotArtifactOnMessage({ msgId, art, setMessages, label: 'snapshot' });
   }, []);
 
   // ── Responsive ──

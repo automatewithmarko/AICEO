@@ -133,6 +133,31 @@
   background-size: 24px 24px;
 }
 
+/* Wrapper for the Campaign Brief card. Sits at the top of the chat
+   column above either the ghost-card empty state OR the live chat
+   messages. Padding matches the chat panel gutter so the card lines
+   up with the message bubbles below it. */
+.mkt-brief-slot {
+  padding: 12px 16px 0;
+  flex-shrink: 0;
+}
+
+/* Small dot next to a tool tab's label when a campaign brief is loaded
+   — tells the user "this tool will skip discovery" without crowding the
+   tab strip. Same accent purple as the brief card. */
+.marketing-tab-brief-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 7px;
+  background: #8c7bff;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.marketing-tab--brief.marketing-tab--active .marketing-tab-brief-dot {
+  background: #5b4dd1;
+}
+
 /* Divider — wide hit area, thin visual line */
 .mkt-split-divider {
   width: 17px;
@@ -1123,6 +1148,69 @@
   background: #f0f0f2;
   color: var(--text-primary);
   border-bottom-left-radius: 6px;
+}
+
+/* Assistant message that owns a frozen canvas snapshot. Click to swap the
+   canvas to that version. Subtle affordance — the message reads as
+   normal text but hovers/states give it a card-like cue. */
+.mkt-msg--has-artifact {
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.mkt-msg--has-artifact:hover {
+  background: #e6e6ec;
+}
+.mkt-msg--selected {
+  background: #e3e8ff;
+  box-shadow: 0 0 0 1.5px rgba(99, 91, 255, 0.35);
+}
+.mkt-msg--selected:hover {
+  background: #d8dffc;
+}
+
+.mkt-msg-artifact-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 3px 9px;
+  background: rgba(99, 91, 255, 0.12);
+  color: #4a47b8;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+.mkt-msg--selected .mkt-msg-artifact-tag {
+  background: rgba(99, 91, 255, 0.22);
+}
+
+/* Banner shown above the iframe while previewing a past version of the
+   canvas. Resume editing snaps back to live and re-enables inline edits. */
+.mkt-past-version-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  background: #fff8e1;
+  border-bottom: 1px solid #f3e5a8;
+  color: #6b5a00;
+  font-size: 13px;
+  font-weight: 500;
+}
+.mkt-past-version-resume {
+  background: #1a1a2e;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mkt-past-version-resume:hover {
+  background: #2a2a3e;
 }
 
 /* Image chips below user message */

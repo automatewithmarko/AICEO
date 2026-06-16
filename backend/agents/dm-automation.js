@@ -1,4 +1,5 @@
 import { buildBrandContext } from './brand-context.js';
+import { SONNET_MODEL } from '../config/models.js';
 
 const SYSTEM_PROMPT = `You are an elite DM (direct message) automation strategist and copywriter. You create high-converting DM message sequences for Instagram, LinkedIn, Twitter/X, and other platforms.
 
@@ -75,7 +76,7 @@ export default {
   name: 'dm-automation',
   description: 'Creates DM automation sequences for Instagram, LinkedIn, and other platforms. Use when the user asks for DM flows, message sequences, or automated conversations.',
   provider: 'anthropic',
-  model: 'claude-sonnet-4-20250514',
+  model: SONNET_MODEL,
   maxTokens: 16000,
   // First-chunk headroom for Mentor gateway — see newsletter/landing-page.
   streamIdleTimeoutMs: 180_000,

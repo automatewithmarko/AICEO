@@ -1,4 +1,5 @@
 import { buildBrandContext } from './brand-context.js';
+import { SONNET_MODEL } from '../config/models.js';
 
 const SYSTEM_PROMPT = `You are an elite landing page architect. You produce pages that convert. Depending on the intent of the offer, you work in ONE of two stylistic modes — a "Direct Response" mode for coaches, course creators, consultants, and info-product sellers (Hormozi / Brunson / Kennedy / Tai Lopez school) and a "Corporate SaaS" mode for product companies (Stripe / Linear / Reddit Business school). Pick the right mode before writing a single line of HTML.
 
@@ -898,7 +899,7 @@ export default {
   name: 'landing-page',
   description: 'Designs and builds high-converting landing pages with brand-consistent design, section markers for editing. Use when the user asks for a landing page, sales page, or product page.',
   provider: 'anthropic',
-  model: 'claude-sonnet-4-20250514',
+  model: SONNET_MODEL,
   // Full landing pages (DR mode with all sections + testimonials +
   // inline Tailwind utility classes) routinely run 12-15K output
   // tokens. The previous 16000 cap was hitting truncation occasionally,

@@ -1,0 +1,461 @@
+/* Campaign brief card — sits above the Marketing chat messages. Uses
+   the page's brand-red accent so it reads as belonging to the
+   Marketing surface, not a foreign widget. Four states share the root
+   .brief-card class: --loading, --empty, --loaded, --editing. */
+
+.brief-card {
+  margin: 0 0 14px;
+  background: var(--bg-white);
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  overflow: hidden;
+}
+
+/* ── Loading ───────────────────────────────────────────── */
+
+.brief-card--loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+/* ── Empty (collapsed CTA) ─────────────────────────────── */
+
+.brief-card--empty {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: linear-gradient(135deg, var(--brand-red-light) 0%, var(--bg-white) 65%);
+  border-color: #f6cdd4;
+}
+
+.brief-card-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--brand-red);
+  color: var(--bg-white);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.brief-card-empty-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Loaded (collapsed summary) ────────────────────────── */
+
+.brief-card--loaded {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+}
+
+.brief-card-loaded-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--brand-red-light);
+  color: var(--brand-red);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.brief-card-loaded-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.brief-card-loaded-summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.brief-card-loaded-sub {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.brief-card-loaded-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ── Editing (expanded form) ───────────────────────────── */
+
+.brief-card--editing {
+  padding: 18px 20px 16px;
+}
+
+.brief-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.brief-card-header-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  background: var(--brand-red);
+  color: var(--bg-white);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.brief-card-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.brief-card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.brief-card-subtitle {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.brief-card-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.brief-card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Label row — label on the left, subtle "Suggestions" toggle on the
+   right. Toggle reads as a small inline link so the input below it
+   stays the primary visual element. */
+.brief-card-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 16px;
+}
+
+.brief-card-field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+}
+
+.brief-card-suggest-toggle {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.brief-card-suggest-toggle:hover {
+  color: var(--brand-red);
+}
+.brief-card-suggest-toggle--open {
+  color: var(--brand-red);
+}
+
+/* The input is the visual hero — bigger padding, larger font, clear
+   border. Brand-red focus ring makes "I'm typing now" feel solid. */
+.brief-card-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg-white);
+  border: 1.5px solid var(--border-light);
+  border-radius: 10px;
+  font-size: 14.5px;
+  color: var(--text-primary);
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.brief-card-input:focus {
+  border-color: var(--brand-red);
+  box-shadow: 0 0 0 3px rgba(233, 26, 68, 0.12);
+}
+.brief-card-input::placeholder {
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+
+/* Suggestion chips — only render when the user opts in via the
+   "Suggestions" toggle. Smaller, softer, secondary by design so they
+   don't compete with the input above. */
+.brief-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.brief-card-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  background: var(--bg-light);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.brief-card-chip:hover {
+  background: var(--brand-red-light);
+  color: var(--brand-red);
+}
+.brief-card-chip--active {
+  background: var(--brand-red);
+  border-color: var(--brand-red);
+  color: var(--bg-white);
+}
+.brief-card-chip--active:hover {
+  background: var(--brand-red-hover);
+  border-color: var(--brand-red-hover);
+  color: var(--bg-white);
+}
+
+.brief-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-light);
+}
+
+.brief-card-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.brief-card-btn--primary {
+  background: var(--brand-red);
+  color: var(--bg-white);
+  box-shadow: 0 1px 2px rgba(233, 26, 68, 0.25);
+}
+.brief-card-btn--primary:hover {
+  background: var(--brand-red-hover);
+}
+.brief-card-btn--primary:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+.brief-card-btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.brief-card-btn--ghost:hover {
+  background: var(--bg-light);
+  color: var(--text-primary);
+}
+.brief-card-btn--ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.brief-card-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.brief-card-iconbtn:hover {
+  background: var(--bg-light);
+  color: var(--text-primary);
+}
+.brief-card-iconbtn--danger:hover {
+  background: var(--brand-red-light);
+  color: var(--brand-red);
+}
+.brief-card-iconbtn:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.brief-card-error {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: var(--brand-red-light);
+  border: 1px solid #f6cdd4;
+  border-radius: 8px;
+  color: var(--brand-red);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+@keyframes brief-card-spin {
+  to { transform: rotate(360deg); }
+}
+.brief-card-spin {
+  animation: brief-card-spin 0.9s linear infinite;
+}
+
+/* ── Clear-brief confirmation modal ──────────────────────
+   Replaces window.confirm so the copy can be specific and the buttons
+   can match the theme. Centered card over a translucent backdrop.
+   Backdrop click + Esc cancel; the destructive button is autoFocused
+   so Enter confirms. */
+
+.brief-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 16, 30, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 4000;
+  animation: brief-confirm-fade 0.12s ease-out;
+}
+
+.brief-confirm {
+  width: 100%;
+  max-width: 400px;
+  padding: 24px 22px 18px;
+  background: var(--bg-white);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+  animation: brief-confirm-rise 0.16s ease-out;
+}
+
+.brief-confirm-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 12px;
+  background: var(--brand-red-light);
+  color: var(--brand-red);
+  border-radius: 50%;
+}
+
+.brief-confirm-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.brief-confirm-body {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.brief-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.brief-confirm-actions .brief-card-btn {
+  flex: 1;
+  justify-content: center;
+  padding: 9px 16px;
+}
+
+.brief-card-btn--danger {
+  background: var(--brand-red);
+  color: var(--bg-white);
+  box-shadow: 0 1px 2px rgba(233, 26, 68, 0.25);
+}
+.brief-card-btn--danger:hover {
+  background: var(--brand-red-hover);
+}
+.brief-card-btn--danger:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+@keyframes brief-confirm-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes brief-confirm-rise {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Mobile — keep the card readable on narrow phones (~360px wide).
+   Stacks the empty-state CTA below the text instead of next to it. */
+@media (max-width: 480px) {
+  .brief-card--empty,
+  .brief-card--loaded {
+    flex-wrap: wrap;
+  }
+  .brief-card--empty .brief-card-btn,
+  .brief-card-loaded-actions {
+    margin-left: 50px;
+  }
+  .brief-card-chip {
+    font-size: 11.5px;
+  }
+}

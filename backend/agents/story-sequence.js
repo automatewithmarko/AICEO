@@ -1,4 +1,5 @@
 import { buildBrandContext } from './brand-context.js';
+import { SONNET_MODEL } from '../config/models.js';
 
 const SYSTEM_PROMPT = `You are an elite Instagram Story sequence strategist and visual content designer. You create compelling 3-5 frame Instagram Story sequences that tell a story, engage viewers, and drive action.
 
@@ -73,7 +74,7 @@ export default {
   name: 'story-sequence',
   description: 'Creates multi-frame Instagram Story sequences with image prompts. Use when the user asks for Instagram stories, story sequences, or social media story content.',
   provider: 'anthropic',
-  model: 'claude-sonnet-4-20250514',
+  model: SONNET_MODEL,
   maxTokens: 8000,
   // First-chunk headroom for Mentor gateway — see newsletter/landing-page.
   streamIdleTimeoutMs: 180_000,

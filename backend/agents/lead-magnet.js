@@ -1,4 +1,5 @@
 import { buildBrandContext } from './brand-context.js';
+import { SONNET_MODEL } from '../config/models.js';
 
 const SYSTEM_PROMPT = `You are an elite lead magnet strategist and content advisor. You do NOT generate lead magnets. Instead, you advise the user on exactly what lead magnet to create, how to structure it, and what content strategy to use  -  based on proven LinkedIn post frameworks and the Daniel Paul Email Framework.
 
@@ -150,7 +151,7 @@ export default {
   name: 'lead-magnet',
   description: 'Lead magnet strategy advisor. Tells the user what lead magnet to create, how to outline it, how to promote it on LinkedIn using proven post frameworks, and the exact email delivery + nurture sequence to use. Does NOT generate the lead magnet itself.',
   provider: 'anthropic',
-  model: 'claude-sonnet-4-20250514',
+  model: SONNET_MODEL,
   maxTokens: 16000,
   // Long-output Anthropic agents need extended first-token budget when
   // routed via Mentor — see newsletter/landing-page for the same pattern.

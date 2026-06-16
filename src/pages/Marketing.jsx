@@ -13,8 +13,17 @@ import NetlifyDeployButton from '../components/NetlifyDeployButton';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
+import { snapshotArtifactOnMessage } from '../lib/artifactSnapshot';
+import CampaignBriefCard from '../components/CampaignBriefCard';
+import { getMarketingBrief } from '../lib/api';
 import './Pages.css';
 import './Marketing.css';
+
+// Tools whose artifacts are HTML and worth keeping per-message snapshots
+// of so the user can click an old chat card and re-open that exact
+// canvas. Story sequences and DM automations are JSON structures with
+// their own restore paths and are intentionally excluded.
+const HTML_TOOLS_WITH_SNAPSHOTS = new Set(['newsletter', 'landing', 'squeeze']);
 
 // ── Shared prompt skeleton ──
 const SHARED_RULES = `=== ABSOLUTE OUTPUT RULES (NON-NEGOTIABLE) ===
@@ -1200,7 +1209,7 @@ function ImportTemplateModal({ open, onClose, activeTool, onImport }) {
   );
 }
 
-function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
+function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChange }) {
   const navigate = useNavigate();
   // Existing state
   const [chatInput, setChatInput] = useState('');
@@ -1266,6 +1275,19 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
   const [customTyping, setCustomTyping] = useState(false);
   const [customText, setCustomText] = useState('');
   const [canvasHtml, setCanvasHtml] = useState('');
+  // Current Campaign Brief — single active brief per user, shared across
+  // every Marketing tool. Lives at the user level (not per session) so
+  // switching tabs / starting a new conversation doesn't lose it. The
+  // CampaignBriefCard owns load + save; this copy here drives the tool-
+  // tab "Brief loaded" indicator and the post-generation refresh.
+  const [activeBrief, setActiveBrief] = useState(null);
+  // When set, the canvas previews the artifact snapshot frozen on this
+  // assistant message instead of the live `canvasHtml`. Cleared at the
+  // start of every new turn so streaming flows back to live. Lets a
+  // single session show multiple independent prior versions without
+  // mutating the live canvas. Editing is blocked while a past version
+  // is being previewed — Resume to re-enter edit mode.
+  const [selectedMsgId, setSelectedMsgId] = useState(null);
   const [storyFrames, setStoryFrames] = useState([]); // [{ title, caption, image_prompt, imageSrc, loading }]
   const [uploadedFiles, setUploadedFiles] = useState([]); // { id, name, type, dataUrl?, textContent?, size }
   const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
@@ -1309,6 +1331,10 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
   const iframeRef = useRef(null);
   const editMapRef = useRef(new Map());
   const skipIframeWriteRef = useRef(false);
+  // Mirrors canvasHtml so the snapshot helper can read the latest HTML
+  // after async image swaps that setCanvasHtml(prev => …) without waiting
+  // for React to commit.
+  const canvasHtmlRef = useRef('');
 
   const chatStarted = chatMessages.length > 0;
 
@@ -1373,9 +1399,75 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
             url: img.url || null,
           }));
         }
+        // Per-message artifact snapshot. snapshotArtifactOnMessage already
+        // strips base64 to storage URLs before writing it onto the
+        // message, so this is just text + hosted-url payload — safe to
+        // persist into the messages JSONB column.
+        if (m.artifact) {
+          out.artifact = m.artifact;
+        }
         return out;
       });
   }, []);
+
+  // Keep canvasHtmlRef in lockstep with canvasHtml so anything reading
+  // it outside of an async snapshot path (e.g. ResizeObserver effects)
+  // sees the latest value.
+  useEffect(() => {
+    canvasHtmlRef.current = canvasHtml || '';
+  }, [canvasHtml]);
+
+  // Read the LATEST canvasHtml via a functional-setState passthrough.
+  // canvasHtmlRef.current only updates after React commits the next
+  // render, which fires AFTER any `await` in this microtask chain
+  // resolves — so reading the ref right after image promises settle
+  // returns HTML that still has `{{GENERATE:…}}` placeholders. The
+  // passthrough callback is queued behind every other pending
+  // setCanvasHtml call and runs in order, so it sees the truly final
+  // state.
+  const readLatestCanvas = useCallback(() => new Promise((resolve) => {
+    setCanvasHtml((prev) => {
+      resolve(prev);
+      return prev;
+    });
+  }), []);
+
+  // Capture a frozen snapshot of the canvas onto the chat message that
+  // produced it. Only fires for HTML tools (newsletter / landing /
+  // squeeze) — story sequences and DM automations have their own
+  // restore paths. Caller passes the final HTML explicitly so we never
+  // race React's commit cycle.
+  const snapshotForMessage = useCallback(async (msgId, { html, type = 'html', summary = null, agentSource } = {}) => {
+    if (!msgId || !html || !html.trim()) return;
+    const tool = agentSource || activeTool;
+    if (!HTML_TOOLS_WITH_SNAPSHOTS.has(tool)) return;
+    const art = {
+      id: msgId,
+      type,
+      content: html,
+      agentSource: tool,
+      summary,
+    };
+    await snapshotArtifactOnMessage({
+      msgId,
+      art,
+      setMessages: setChatMessages,
+      label: 'mkt-snapshot',
+    });
+  }, [activeTool]);
+
+  // What the iframe actually renders. Falls back to live `canvasHtml`
+  // whenever no past message is being previewed (or the previewed
+  // message has no snapshot — happens for legacy sessions saved before
+  // per-message snapshots existed).
+  const displayedCanvasHtml = useMemo(() => {
+    if (selectedMsgId) {
+      const m = chatMessages.find((x) => x.id === selectedMsgId);
+      if (m?.artifact?.content) return m.artifact.content;
+    }
+    return canvasHtml;
+  }, [selectedMsgId, chatMessages, canvasHtml]);
+  const isViewingPast = !!(selectedMsgId && chatMessages.find((x) => x.id === selectedMsgId)?.artifact?.content);
 
   // ── Debounced auto-save — persist chat + canvas + frames ──
   useEffect(() => {
@@ -1450,6 +1542,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         setCanvasHtml('');
         setStoryFrames([]);
         setCurrentQuestion(null);
+        setSelectedMsgId(null);
         return;
       }
       sessionIdRef.current = data.id;
@@ -1464,6 +1557,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       setCanvasHtml(data.canvas_html || '');
       setStoryFrames(Array.isArray(data.story_frames) ? data.story_frames : []);
       setCurrentQuestion(null);
+      setSelectedMsgId(null);
       setCustomTyping(false);
       setCustomText('');
       if (navigateToUrl) navigate(`/marketing/${activeTool}/${data.id}`, { replace: true });
@@ -1489,6 +1583,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     setCustomTyping(false);
     setCustomText('');
     setShowSessions(false);
+    setSelectedMsgId(null);
     navigate(`/marketing/${activeTool}/${newId}`, { replace: true });
   }, [activeTool, navigate]);
 
@@ -1543,6 +1638,27 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlSessionId]);
 
+  // After generation completes, refresh the campaign brief — the agent
+  // may have emitted one in its result and the backend auto-captured it.
+  // The CampaignBriefCard reads the same endpoint, so this keeps the
+  // header summary + tool-tab indicator in sync without prop drilling.
+  const prevGenRef = useRef(false);
+  useEffect(() => {
+    if (prevGenRef.current && !isGenerating) {
+      getMarketingBrief()
+        .then(({ brief }) => setActiveBrief(brief || null))
+        .catch(() => {});
+    }
+    prevGenRef.current = isGenerating;
+  }, [isGenerating]);
+
+  // Surface the brief-loaded state up to the page so the tool tabs
+  // can show their "Brief loaded" dot. Tightly coupled to activeBrief
+  // so flipping the dot follows the same source of truth as the card.
+  useEffect(() => {
+    onActiveBriefChange?.(!!activeBrief);
+  }, [activeBrief, onActiveBriefChange]);
+
   // Cycle generating status text
   useEffect(() => {
     if (!isGenerating) { setGeneratingText(''); return; }
@@ -1592,9 +1708,9 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     if (!iframe) return;
     const doc = iframe.contentDocument;
     if (!doc) return;
-    if (canvasHtml) {
+    if (displayedCanvasHtml) {
       // Replace {{GENERATE:...}} and cover image placeholders with shimmer for display
-      let displayHtml = canvasHtml;
+      let displayHtml = displayedCanvasHtml;
       const placeholderDiv = `<div class="gen-shimmer" style="width:100%;height:250px;background:#e2e2e2;border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden"><style>.gen-shimmer::before{content:'';position:absolute;width:300%;height:300%;top:-100%;left:-100%;background:linear-gradient(135deg,transparent 35%,rgba(255,255,255,0.5) 48%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 52%,transparent 65%);animation:genShimmer 2s linear infinite}@keyframes genShimmer{0%{transform:translate(-33%,-33%)}100%{transform:translate(33%,33%)}}</style><span style="color:#9e9e9e;font-size:13px;font-weight:600;font-family:Inter,system-ui,sans-serif;position:relative;z-index:1;letter-spacing:0.5px">Generating</span></div>`;
       if (displayHtml.includes('{{GENERATE:')) {
         // Replace full <img> tags containing {{GENERATE:...}}
@@ -1608,10 +1724,17 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         displayHtml = displayHtml.replace(COVER_IMAGE_PLACEHOLDER, coverShimmer);
       }
 
-      // Inject edit IDs for inline text editing (display-only, not stored in state)
-      const { taggedHtml, editMap } = injectEditIds(displayHtml);
-      editMapRef.current = editMap;
-      displayHtml = taggedHtml;
+      // Inject edit IDs for inline text editing (display-only, not stored in
+      // state). Skip while previewing a past version — that's a read-only
+      // surface; reintroducing edit ids would let the user mutate the live
+      // canvas while looking at history, which is the bug we're avoiding.
+      if (!isViewingPast) {
+        const { taggedHtml, editMap } = injectEditIds(displayHtml);
+        editMapRef.current = editMap;
+        displayHtml = taggedHtml;
+      } else {
+        editMapRef.current = new Map();
+      }
 
       doc.open();
       doc.write(displayHtml);
@@ -1624,6 +1747,14 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         const shimmerStyle = doc.createElement('style');
         shimmerStyle.textContent = shimmerCss;
         doc.head.appendChild(shimmerStyle);
+      }
+
+      // Inject editor overlays only when the iframe is showing the live
+      // canvas. While previewing a past version we render plain HTML —
+      // no hover-edit, no link tools, no resize handles — so the user
+      // can't accidentally mutate live state from a read-only view.
+      if (isViewingPast) {
+        return;
       }
 
       // Inject CTA link editor overlay
@@ -1757,7 +1888,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       doc.write('<html><body></body></html>');
       doc.close();
     }
-  }, [canvasHtml]);
+  }, [displayedCanvasHtml, isViewingPast]);
 
   // Listen for CTA link edits and text edits from the iframe
   useEffect(() => {
@@ -1842,7 +1973,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     const observer = new ResizeObserver(update);
     observer.observe(container);
     return () => observer.disconnect();
-  }, [canvasHtml]);
+  }, [displayedCanvasHtml]);
 
   // Context helpers
   const toggleItem = (itemId) => {
@@ -2026,6 +2157,11 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
     // the AI a half-extracted PDF or an image with no public URL.
     if (uploadedFiles.some((f) => f.status === 'uploading')) return;
 
+    // If the user was previewing a past version, snap back to LIVE before
+    // the new turn streams in — otherwise the iframe would still be
+    // pinned to the snapshot while the canvas state updates underneath.
+    setSelectedMsgId(null);
+
     // Capture files before clearing so we can replace placeholders later.
     // Only DONE files participate in this turn — errored uploads are
     // kept in the pill row for the user to see + dismiss but don't
@@ -2158,6 +2294,11 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       // an empty assistant message (Anthropic 400s on empty assistants
       // in subsequent turns).
       let streamError = null;
+      // Image-gen promises started inside onFileUpdate's {{GENERATE:…}}
+      // block. Awaited in onEditSummary before snapshotting so the
+      // committed message carries the final hosted-URL HTML, not the
+      // placeholder one.
+      const editImagePromises = [];
 
       await streamFromBackend('/api/orchestrate', {
         messages: newMessages,
@@ -2210,7 +2351,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
               const isLandingTool = activeTool === 'landing' || activeTool === 'squeeze';
               const imgPlatform = isLandingTool ? 'landing_page' : 'newsletter';
               matches.forEach((match) => {
-                (async () => {
+                const p = (async () => {
                   try {
                     const mktBrand = brandDna ? {
                       photoUrls: brandDna.photo_urls || [],
@@ -2229,16 +2370,29 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
                     console.error('Edit image gen failed:', err.message);
                   }
                 })();
+                editImagePromises.push(p);
               });
             }
           }
         },
         onEditSummary: (summary) => {
           editHandled = true;
+          const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-assistant`;
           setChatMessages((prev) => [
             ...prev.filter((m) => !m.isStatus),
-            { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: summary },
+            { id: msgId, role: 'assistant', text: summary },
           ]);
+          // Snapshot AFTER any edit-introduced image gen settles AND
+          // after the canvas state has fully reflected those swaps.
+          // Fire-and-forget so we don't block the orchestrate stream;
+          // snapshot lands on the existing message when ready.
+          (async () => {
+            if (editImagePromises.length) {
+              await Promise.allSettled(editImagePromises);
+            }
+            const latestHtml = await readLatestCanvas();
+            await snapshotForMessage(msgId, { html: latestHtml, type: 'html', summary });
+          })();
         },
         onStatus: (statusText) => {
           setChatMessages((prev) => {
@@ -2397,7 +2551,11 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         const finalHtml = replaceImagePlaceholders(mergedHtml, filesSnapshot);
         setCanvasHtml(finalHtml);
         const sectionNames = Object.keys(parsed.sections).join(', ');
-        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || `Updated sections: ${sectionNames}` }]);
+        const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-assistant`;
+        setChatMessages((prev) => [...prev, { id: msgId, role: 'assistant', text: parsed.summary || `Updated sections: ${sectionNames}` }]);
+        // No image promises in section edits — finalHtml is the final
+        // canvas, pass it directly to skip the React-commit race.
+        snapshotForMessage(msgId, { html: finalHtml, type: 'html', summary: parsed.summary || null });
       } else if (parsed?.type === 'newsletter' || parsed?.type === 'html') {
         let finalHtml = replaceImagePlaceholders(parsed.html, filesSnapshot);
 
@@ -2409,7 +2567,8 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         }
 
         setCanvasHtml(finalHtml);
-        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: parsed.summary || config.readyText }]);
+        const stableMsgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-assistant`;
+        setChatMessages((prev) => [...prev, { id: stableMsgId, role: 'assistant', text: parsed.summary || config.readyText }]);
 
         // Collect image generation promises  -  isGenerating stays true until all resolve
         const imagePromises = [];
@@ -2509,6 +2668,15 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         if (imagePromises.length > 0) {
           await Promise.allSettled(imagePromises);
         }
+
+        // Snapshot the finished canvas (including any swapped-in images)
+        // onto the assistant message that produced it. We MUST read the
+        // canvas via the passthrough here — the per-image setCanvasHtml
+        // callbacks are queued but React hasn't committed them yet, so
+        // reading any ref/state directly at this point still sees the
+        // pre-swap HTML with `{{GENERATE:…}}` placeholders.
+        const latestHtml = await readLatestCanvas();
+        await snapshotForMessage(stableMsgId, { html: latestHtml, type: parsed.type || 'html', summary: parsed.summary || null });
       } else {
         // Fallback  -  show raw text
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: fullContent.slice(0, 500) }]);
@@ -3086,6 +3254,15 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
       {/* Left  -  chat area */}
       <div className="mkt-split-left" style={{ flex: `0 0 ${splitPercent}%` }}>
 
+        {/* Active campaign brief — reused across every Marketing tool so
+            the user doesn't re-explain offer/audience/tone/goal/key
+            benefit per tab. Auto-captures from agent generation results
+            and supports manual edit/clear. Sits above ghost-cards in
+            empty state and above chat messages once started. */}
+        <div className="mkt-brief-slot">
+          <CampaignBriefCard onBriefChange={setActiveBrief} />
+        </div>
+
         {/* Ghost cards + CTA (shown when no chat) */}
         {!chatStarted && (
           <div className="mkt-split-left-bg">
@@ -3114,10 +3291,23 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
         {/* Chat messages (shown when chat started) */}
         {chatStarted && !loadingSession && (
           <div className="mkt-messages">
-            {chatMessages.map((msg) => (
+            {chatMessages.map((msg) => {
+              const hasSnapshot = !!msg.artifact?.content;
+              const isSelected = msg.id === selectedMsgId;
+              return (
               <div key={msg.id} className={`mkt-msg-row mkt-msg-row--${msg.role}`}>
-                <div className={`mkt-msg mkt-msg--${msg.role}`}>
+                <div
+                  className={`mkt-msg mkt-msg--${msg.role}${hasSnapshot ? ' mkt-msg--has-artifact' : ''}${isSelected ? ' mkt-msg--selected' : ''}`}
+                  onClick={hasSnapshot ? () => setSelectedMsgId(msg.id) : undefined}
+                  title={hasSnapshot ? 'View this version on the canvas' : undefined}
+                >
                   {msg.text}
+                  {hasSnapshot && (
+                    <div className="mkt-msg-artifact-tag">
+                      <FileText size={11} />
+                      <span>{isSelected ? 'Viewing this version' : 'View this version'}</span>
+                    </div>
+                  )}
                 </div>
                 {(msg.attachments?.length || msg.images?.length) > 0 && (
                   <div className="mkt-msg-attachments">
@@ -3162,7 +3352,8 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
             {isGenerating && (
               <div className="mkt-msg-row mkt-msg-row--assistant">
                 <div className="mkt-msg mkt-msg--assistant mkt-msg--generating">
@@ -3628,6 +3819,18 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId }) {
           </div>
         )}
         <div className="mkt-canvas-body" ref={canvasBodyRef}>
+          {isViewingPast && (
+            <div className="mkt-past-version-banner">
+              <span>Viewing a past version of this canvas. Send a new message or click Resume to keep editing the latest.</span>
+              <button
+                type="button"
+                className="mkt-past-version-resume"
+                onClick={() => setSelectedMsgId(null)}
+              >
+                Resume editing
+              </button>
+            </div>
+          )}
           <iframe
             ref={iframeRef}
             className="mkt-canvas-iframe"
@@ -3848,6 +4051,11 @@ export default function Marketing() {
   const { tool: urlTool, sessionId: urlSessionId } = useParams();
   const navigate = useNavigate();
   const [brandDna, setBrandDna] = useState(null);
+  // Page-level mirror of whether the user has an active campaign brief —
+  // drives the small "Brief loaded" dot on every tool tab. Updated by
+  // ToolTab via the onActiveBriefChange callback so the indicator stays
+  // in sync without each tab having to refetch.
+  const [hasActiveBrief, setHasActiveBrief] = useState(false);
 
   // URL is source of truth for which tool is active. If URL has no tool,
   // default to newsletter and redirect so the URL stays honest.
@@ -3891,10 +4099,12 @@ export default function Marketing() {
           ) : (
             <button
               key={tab.id}
-              className={`marketing-tab ${activeTab === tab.id ? 'marketing-tab--active' : ''}`}
+              className={`marketing-tab ${activeTab === tab.id ? 'marketing-tab--active' : ''}${hasActiveBrief ? ' marketing-tab--brief' : ''}`}
               onClick={() => handleTabClick(tab.id)}
+              title={hasActiveBrief ? 'Campaign brief loaded — this tool will skip discovery' : undefined}
             >
               {tab.label}
+              {hasActiveBrief && <span className="marketing-tab-brief-dot" />}
             </button>
           )
         )}
@@ -3905,6 +4115,7 @@ export default function Marketing() {
           activeTool={activeTab}
           brandDna={brandDna}
           urlSessionId={urlSessionId}
+          onActiveBriefChange={setHasActiveBrief}
           key={activeTab}
         />
       </div>

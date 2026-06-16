@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { getAgent, buildAgentTools } from '../agents/registry.js';
 import { executeAgent, executeCeoOrchestrator, executeAnthropicWithTools } from '../agents/base-agent.js';
-import { loadUserContext, saveSoulNote } from '../services/context.js';
+import { SONNET_MODEL } from '../config/models.js';
+import { loadUserContext, saveSoulNote, loadActiveBrief, upsertActiveBrief, formatBriefForPrompt } from '../services/context.js';
 import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
@@ -22,6 +23,24 @@ const GLOBAL_OUTPUT_RULES = `
 2. NEVER use hashtags (#anything) in any output. No #Entrepreneurship, no #FounderLife, no #GrowthMindset. Hashtags are banned unless the user explicitly asks for them.
 3. NEVER use filler phrases like "Great question!", "Absolutely!", "I'd be happy to help!", or any generic AI slop.
 These rules override everything else. Every piece of content you produce must follow them.
+
+=== BRIEF CAPTURE (REQUIRED on generation responses) ===
+When you respond with a GENERATION response (type=html, type=newsletter, type=story_sequence, type=automation, type=lead_magnet_plan, or anything that produces a final artifact — NOT a question), ALSO include a top-level "brief" field summarising the canonical campaign details you used. Example:
+
+{
+  "type": "newsletter",
+  "html": "...",
+  "summary": "...",
+  "brief": {
+    "offer": "the offer / topic / product the piece is about (under 200 chars)",
+    "audience": "the target audience you optimised for (under 200 chars)",
+    "tone": "the tone / voice / style used (under 100 chars)",
+    "goal": "the primary goal or CTA (under 100 chars)",
+    "key_benefit": "the main promise / USP / outcome (under 200 chars, optional)"
+  }
+}
+
+The "brief" field is saved as the user's active campaign brief so other Marketing tools (newsletter, landing page, squeeze, lead magnet, story, DM) can reuse it without re-asking. NEVER include "brief" on question responses or edit responses — only on generation responses. Keep each value short and human-readable.
 `;
 
 // ── CEO System Prompt Builder ──
@@ -431,7 +450,18 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
 
   prompt += '\n';
 
-  const { brandDna, contentItems, salesData, products, contacts, outlierData, integrationCtx } = context;
+  const { brandDna, contentItems, salesData, products, contacts, outlierData, integrationCtx, activeBrief } = context;
+
+  // Inject the user's saved campaign brief BEFORE Brand DNA — when the
+  // user has explicitly filled this in (or it was auto-captured from a
+  // prior turn), the CEO should skip its 4-question marketing discovery
+  // and delegate immediately instead of re-asking what's already been
+  // answered. The brief block wording explicitly overrides rule #3
+  // above (the "ask exactly 4 questions" rule).
+  const ceoBriefBlock = formatBriefForPrompt(activeBrief);
+  if (ceoBriefBlock) {
+    prompt += ceoBriefBlock + '\n\n';
+  }
 
   if (brandDna) {
     prompt += `=== BRAND DNA ===\n`;
@@ -748,8 +778,12 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
 
   try {
     console.log(`[orchestrate] mode=${mode} agent=${agentName} userId=${userId} hasEdit=${!!editInstruction} hasHtml=${!!currentHtml} msgCount=${messages?.length}`);
-    const context = await loadUserContext(userId);
-    console.log(`[orchestrate] Context loaded, brandDna=${!!context.brandDna}`);
+    const [context, activeBrief] = await Promise.all([
+      loadUserContext(userId),
+      loadActiveBrief(userId),
+    ]);
+    context.activeBrief = activeBrief;
+    console.log(`[orchestrate] Context loaded, brandDna=${!!context.brandDna} brief=${!!activeBrief}`);
 
     if (mode === 'direct') {
       await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction, sessionId, assistantMsgId });
@@ -856,7 +890,11 @@ async function handleDirectAgent({ res, agentName, messages, context, searchMode
   console.log(`[orchestrate] Running regular agent execution for ${agent.name}, msgCount=${messages?.length}`);
   sendSSE(res, { type: 'status', text: `Running ${agent.name} agent...` });
 
-  const systemPrompt = agent.buildSystemPrompt(context.brandDna) + buildProductsContext(context.products) + GLOBAL_OUTPUT_RULES;
+  const briefBlock = formatBriefForPrompt(context.activeBrief);
+  const systemPrompt = agent.buildSystemPrompt(context.brandDna)
+    + buildProductsContext(context.products)
+    + (briefBlock ? `\n\n${briefBlock}` : '')
+    + GLOBAL_OUTPUT_RULES;
 
   // For edit mode fallback, build messages with current HTML and section-based instructions
   let agentMessages = messages;
@@ -913,7 +951,9 @@ ${currentHtml}`,
     },
   });
 
-  // After generation, save to file store for future edits
+  // After generation, save to file store for future edits + capture
+  // the campaign brief the agent emitted so other Marketing tools can
+  // reuse it without re-asking the user.
   if (userId && finalContent) {
     try {
       const parsed = tryParseJSON(finalContent);
@@ -922,11 +962,34 @@ ${currentHtml}`,
         if (html) {
           saveFile(userId, agentName, html);
         }
+        captureBriefFromAgentResult(userId, parsed);
       }
     } catch {
       // Not critical
     }
   }
+}
+
+// Best-effort upsert of the user's active campaign brief from a parsed
+// agent generation result. Returns silently on missing/invalid input.
+// The brief field is optional in the agent's JSON output — when present
+// it gives us the canonical 5 dimensions to reuse across tools without
+// re-running the 4-question discovery dance.
+function captureBriefFromAgentResult(userId, parsed) {
+  if (!userId || userId === 'anonymous' || !parsed || typeof parsed !== 'object') return;
+  const briefIn = parsed.brief;
+  if (!briefIn || typeof briefIn !== 'object') return;
+  const clean = {};
+  for (const k of ['offer', 'audience', 'tone', 'goal', 'key_benefit']) {
+    const v = briefIn[k];
+    if (typeof v === 'string' && v.trim() && !/^(placeholder|tbd|n\/a|none|skip)$/i.test(v.trim())) {
+      clean[k] = v.trim().slice(0, 500);
+    }
+  }
+  if (Object.keys(clean).length === 0) return;
+  upsertActiveBrief(userId, clean)
+    .then((b) => b && console.log(`[brief] auto-captured from agent result: ${Object.keys(clean).join(', ')}`))
+    .catch((err) => console.warn('[brief] auto-capture (agent result) failed:', err?.message));
 }
 
 // ── File-Based Edit (Claude Code style) ──
@@ -1000,7 +1063,7 @@ async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId
     type: 'debug_prompt',
     site: 'edit-mode',
     agent: agentName,
-    model: 'claude-sonnet-4-20250514',
+    model: SONNET_MODEL,
     systemPrompt,
     editInstruction,
     fileHtmlLen: fileHtml?.length || 0,
@@ -1476,6 +1539,39 @@ async function handleCheckEmails({ res, call, userId }) {
   }
 }
 
+// Extract OFFER / AUDIENCE / TONE / CTA / OUTCOME from the CEO's
+// labeled task_description so we can persist them as the user's active
+// campaign brief. The CEO is already required to format these fields
+// after its 4-question flow (see CEO system prompt around lines 270–
+// 320), so this is a free byproduct — no extra LLM call. Used by
+// handleAgentDelegation to upsert the brief in the background.
+function parseBriefFromTaskDescription(taskDescription) {
+  if (!taskDescription) return {};
+  const get = (label) => {
+    const re = new RegExp(`^\\s*${label}\\s*:\\s*(.+)$`, 'mi');
+    const m = taskDescription.match(re);
+    if (!m) return null;
+    const value = m[1].trim();
+    // Skip placeholder / skip markers the CEO uses when the user said
+    // "skip all" — we don't want "placeholder" stored as the user's
+    // tone in their brief.
+    if (!value || /^(placeholder|tbd|n\/a|none|skip)$/i.test(value)) return null;
+    return value;
+  };
+  const out = {};
+  const offer = get('OFFER');
+  const audience = get('AUDIENCE');
+  const tone = get('TONE');
+  const cta = get('CTA');
+  const outcome = get('OUTCOME');
+  if (offer) out.offer = offer;
+  if (audience) out.audience = audience;
+  if (tone) out.tone = tone;
+  if (cta) out.goal = cta;
+  if (outcome) out.key_benefit = outcome;
+  return out;
+}
+
 // ── Agent Delegation (CEO calls a specialist agent) ──
 async function handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages = [], sessionId = null, assistantMsgId = null }) {
   let args;
@@ -1483,6 +1579,19 @@ async function handleAgentDelegation({ res, call, context, userId, currentHtml, 
 
   const agentName = args.agent_name;
   const taskDescription = args.task_description;
+
+  // Auto-capture the active campaign brief from the CEO's 4-question
+  // answers. Best-effort: failures are logged but don't block delegation,
+  // and we never clear existing brief fields here (upsertActiveBrief only
+  // touches the fields we pass).
+  if (userId && userId !== 'anonymous') {
+    const briefFields = parseBriefFromTaskDescription(taskDescription);
+    if (Object.keys(briefFields).length > 0) {
+      upsertActiveBrief(userId, briefFields)
+        .then((b) => b && console.log(`[brief] auto-captured from delegation: ${Object.keys(briefFields).join(', ')}`))
+        .catch((err) => console.warn('[brief] auto-capture failed:', err?.message));
+    }
+  }
 
   const agent = getAgent(agentName);
   if (!agent) {
@@ -1525,7 +1634,11 @@ async function handleAgentDelegation({ res, call, context, userId, currentHtml, 
     }
   }
 
-  const systemPrompt = agent.buildSystemPrompt(context.brandDna) + buildProductsContext(context.products) + GLOBAL_OUTPUT_RULES;
+  const briefBlock = formatBriefForPrompt(context.activeBrief);
+  const systemPrompt = agent.buildSystemPrompt(context.brandDna)
+    + buildProductsContext(context.products)
+    + (briefBlock ? `\n\n${briefBlock}` : '')
+    + GLOBAL_OUTPUT_RULES;
 
   sendSSE(res, {
     type: 'debug_prompt',
@@ -1620,7 +1733,8 @@ ${taskDescription}`;
     },
   });
 
-  // Save to file store for future edits + commit an initial version snapshot.
+  // Save to file store for future edits + commit an initial version
+  // snapshot + capture any brief the agent emitted for cross-tool reuse.
   if (userId && result.content) {
     try {
       const parsed = tryParseJSON(result.content);
@@ -1633,6 +1747,7 @@ ${taskDescription}`;
           summary: parsed.summary || 'Generated page',
         });
       }
+      if (parsed) captureBriefFromAgentResult(userId, parsed);
     } catch {}
   }
 
