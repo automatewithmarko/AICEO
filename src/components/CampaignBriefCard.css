@@ -153,7 +153,7 @@
 
 .brief-card-fields {
   display: grid;
-  gap: 16px;
+  gap: 14px;
 }
 
 .brief-card-field {
@@ -162,21 +162,51 @@
   gap: 6px;
 }
 
-.brief-card-field-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+/* Label row — label on the left, subtle "Suggestions" toggle on the
+   right. Toggle reads as a small inline link so the input below it
+   stays the primary visual element. */
+.brief-card-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 16px;
 }
 
+.brief-card-field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+}
+
+.brief-card-suggest-toggle {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.brief-card-suggest-toggle:hover {
+  color: var(--brand-red);
+}
+.brief-card-suggest-toggle--open {
+  color: var(--brand-red);
+}
+
+/* The input is the visual hero — bigger padding, larger font, clear
+   border. Brand-red focus ring makes "I'm typing now" feel solid. */
 .brief-card-input {
   width: 100%;
-  padding: 10px 12px;
+  padding: 12px 14px;
   background: var(--bg-white);
   border: 1.5px solid var(--border-light);
-  border-radius: 9px;
-  font-size: 13.5px;
+  border-radius: 10px;
+  font-size: 14.5px;
   color: var(--text-primary);
   font-family: inherit;
   outline: none;
@@ -188,26 +218,27 @@
 }
 .brief-card-input::placeholder {
   color: var(--text-muted);
+  font-size: 13.5px;
 }
 
-/* Suggestion chips row — appears under the input. Click to fill;
-   active chip lights up brand red. User can also type freely; no
-   chip is highlighted if their input doesn't match a chip exactly. */
+/* Suggestion chips — only render when the user opts in via the
+   "Suggestions" toggle. Smaller, softer, secondary by design so they
+   don't compete with the input above. */
 .brief-card-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
   margin-top: 2px;
 }
 
 .brief-card-chip {
   display: inline-flex;
   align-items: center;
-  padding: 5px 11px;
+  padding: 4px 9px;
   background: var(--bg-light);
-  border: 1px solid var(--border-light);
+  border: 1px solid transparent;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 500;
   font-family: inherit;
   color: var(--text-secondary);
@@ -216,7 +247,6 @@
 }
 .brief-card-chip:hover {
   background: var(--brand-red-light);
-  border-color: #f6cdd4;
   color: var(--brand-red);
 }
 .brief-card-chip--active {
@@ -228,12 +258,6 @@
   background: var(--brand-red-hover);
   border-color: var(--brand-red-hover);
   color: var(--bg-white);
-}
-
-.brief-card-field-hint {
-  font-size: 11.5px;
-  color: var(--text-muted);
-  line-height: 1.4;
 }
 
 .brief-card-actions {

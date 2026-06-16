@@ -45,37 +45,32 @@ const AUDIENCE_CHIPS = [
 const FIELDS = [
   {
     key: 'offer',
-    label: 'Offer / topic',
+    label: 'Offer',
     placeholder: 'e.g. $497 coaching program for first-time founders',
-    hint: 'What the campaign is about — product, course, service, or topic.',
     chips: null,
   },
   {
     key: 'audience',
-    label: 'Target audience',
-    placeholder: 'e.g. solo founders past $10K/mo who can\'t justify a CMO yet',
-    hint: 'Who it\'s for + the pain they have. Click a chip to start, then refine.',
+    label: 'Audience',
+    placeholder: 'e.g. solo founders past $10K/mo',
     chips: AUDIENCE_CHIPS,
   },
   {
     key: 'tone',
-    label: 'Tone / voice',
+    label: 'Tone',
     placeholder: 'e.g. direct, no-fluff, with a personal story angle',
-    hint: 'How it should read. Pick an archetype or describe your own.',
     chips: TONE_CHIPS,
   },
   {
     key: 'goal',
-    label: 'Primary goal / CTA',
+    label: 'Goal',
     placeholder: 'e.g. book a free consult call',
-    hint: 'What action the campaign should drive.',
     chips: GOAL_CHIPS,
   },
   {
     key: 'key_benefit',
-    label: 'Key benefit (optional)',
-    placeholder: 'e.g. ship a landing page in 30 seconds instead of two days',
-    hint: 'The main promise / outcome / USP.',
+    label: 'Key benefit',
+    placeholder: 'optional — main promise or outcome',
     chips: null,
   },
 ];
@@ -87,6 +82,10 @@ export default function CampaignBriefCard({ onBriefChange }) {
   const [draft, setDraft] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  // Per-field "Suggestions" open/closed. Default closed so the input
+  // reads as the primary call-to-action; user opts in to chips when
+  // they want ideas. Keyed by field key so each toggle is independent.
+  const [openChips, setOpenChips] = useState({});
   const onBriefChangeRef = useRef(onBriefChange);
   useEffect(() => { onBriefChangeRef.current = onBriefChange; }, [onBriefChange]);
 
@@ -130,6 +129,10 @@ export default function CampaignBriefCard({ onBriefChange }) {
 
   const handleChipClick = (key, value) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const toggleChips = (key) => {
+    setOpenChips((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const handleSave = async () => {
@@ -200,11 +203,23 @@ export default function CampaignBriefCard({ onBriefChange }) {
         <div className="brief-card-fields">
           {FIELDS.map((f) => {
             const value = draft[f.key] || '';
+            const showChips = !!openChips[f.key];
             return (
               <div key={f.key} className="brief-card-field">
-                <label className="brief-card-field-label" htmlFor={`brief-${f.key}`}>
-                  {f.label}
-                </label>
+                <div className="brief-card-field-head">
+                  <label className="brief-card-field-label" htmlFor={`brief-${f.key}`}>
+                    {f.label}
+                  </label>
+                  {f.chips && (
+                    <button
+                      type="button"
+                      className={`brief-card-suggest-toggle${showChips ? ' brief-card-suggest-toggle--open' : ''}`}
+                      onClick={() => toggleChips(f.key)}
+                    >
+                      {showChips ? 'Hide suggestions' : 'Suggestions'}
+                    </button>
+                  )}
+                </div>
                 <input
                   id={`brief-${f.key}`}
                   type="text"
@@ -213,7 +228,7 @@ export default function CampaignBriefCard({ onBriefChange }) {
                   onChange={(e) => handleFieldChange(f.key, e.target.value)}
                   placeholder={f.placeholder}
                 />
-                {f.chips && (
+                {f.chips && showChips && (
                   <div className="brief-card-chips">
                     {f.chips.map((chip) => {
                       const active = value === chip;
@@ -230,7 +245,6 @@ export default function CampaignBriefCard({ onBriefChange }) {
                     })}
                   </div>
                 )}
-                <span className="brief-card-field-hint">{f.hint}</span>
               </div>
             );
           })}
