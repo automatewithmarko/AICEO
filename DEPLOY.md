@@ -110,6 +110,12 @@ Railway → `aiceo-backend` project → switch to the right env → Variables ta
 
 ---
 
+## Working branches (non-deploy)
+
+- **`Unification_test`** — work-in-progress branch holding the migration that routes the `/Content` tab (LinkedIn / Instagram / Facebook / YouTube / TikTok) through the backend `/api/orchestrate` pipeline instead of calling XAI directly from the frontend. Adds `backend/agents/content-post.js` and `backend/agents/linkedin-post.js`, extends `streamXaiResearch` to merge web_search with agent tools, threads tool-call SSE events through `handleDirectAgent`, and routes AICEO LinkedIn artifacts through `LinkedInPreview` instead of `SocialPreview`. **Not auto-deployed** — neither Netlify nor Railway watches this branch. To test it, `git checkout Unification_test`, then deploy manually (e.g. `railway up --detach` against a sandbox env) or run `npm run dev` locally. `dev` and `main` stay clean of this work until it's ready to merge.
+
+---
+
 ## Commit message conventions
 
 - `feat(area): …` — new feature
