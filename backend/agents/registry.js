@@ -52,7 +52,14 @@ export function getAllAgents() {
 // Build tool definitions for the CEO orchestrator
 // Each agent becomes a tool the CEO can call
 export function buildAgentTools() {
-  const uniqueAgents = getAllAgents();
+  // content-post and linkedin-post are /Content-tab agents — they use a
+  // two-step flow (variation A/B markers, plan_carousel approval) that
+  // only makes sense with /Content's UI. AICEO chat has no UI for those
+  // markers, so excluding them here makes the CEO fall back to its
+  // existing `create_artifact(type: 'content_post')` path for social
+  // posts. /Content still reaches them via mode: 'direct'.
+  const directOnlyAgents = new Set(['content-post', 'linkedin-post']);
+  const uniqueAgents = getAllAgents().filter(a => !directOnlyAgents.has(a.name));
 
   return [
     {
