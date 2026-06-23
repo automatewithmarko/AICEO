@@ -946,6 +946,19 @@ ${currentHtml}`,
       finalContent = content;
       sendSSE(res, { type: 'agent_chunk', agent: agent.name, content });
     },
+    onToolCalls: async (toolCalls) => {
+      // Forward each XAI tool call to the client as its own SSE event.
+      // Used by the /Content tab (content-post / linkedin-post agents) for
+      // generate_image and plan_carousel — the client fires the actual
+      // image generation / carousel approval flow from these events.
+      // Anthropic-provider agents never reach this path because they don't
+      // emit tool_calls in their streaming response.
+      for (const call of toolCalls) {
+        let args = {};
+        try { args = JSON.parse(call.arguments); } catch { args = {}; }
+        sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });
+      }
+    },
     onSearchStatus: (status) => {
       sendSSE(res, { type: 'search_status', status });
     },

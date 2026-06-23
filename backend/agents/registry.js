@@ -6,6 +6,8 @@ import squeezePage from './squeeze-page.js';
 import storySequence from './story-sequence.js';
 import leadMagnet from './lead-magnet.js';
 import dmAutomation from './dm-automation.js';
+import contentPost from './content-post.js';
+import linkedinPost from './linkedin-post.js';
 
 const agents = {
   newsletter,
@@ -19,6 +21,17 @@ const agents = {
   leadmagnet: leadMagnet,         // alias
   'dm-automation': dmAutomation,
   dm: dmAutomation,               // alias
+  // Social content agents (migrated from inline XAI in src/pages/Content.jsx).
+  // Aliases let the /Content tab and CEO delegation refer to platforms by
+  // their natural names.
+  'content-post': contentPost,
+  content: contentPost,
+  instagram: contentPost,
+  facebook: contentPost,
+  youtube: contentPost,
+  tiktok: contentPost,
+  'linkedin-post': linkedinPost,
+  linkedin: linkedinPost,
 };
 
 export function getAgent(name) {

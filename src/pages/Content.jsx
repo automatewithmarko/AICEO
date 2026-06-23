@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, streamFromBackend } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
@@ -1354,6 +1354,101 @@ function parsePlainTextQuestion(content, hadImages) {
     return { text: text, options: [] };
   }
   return null;
+}
+
+// Build the per-turn context block prepended to the first user message when
+// dispatching to /api/orchestrate. The backend agent (content-post.js /
+// linkedin-post.js) owns the static system prompt + brand DNA; everything
+// here is the per-turn dynamic context the agent can't pull from the DB:
+// uploaded photos, documents, social-URL extractions, integration context,
+// and any saved carousel templates the user picked. The agent prompts
+// instruct it to read these blocks from the user message.
+function buildPerTurnContextBlock(platform, photos, documents, socialUrls, integrationContext, carouselTemplates = []) {
+  const blocks = [];
+
+  const donePhotos = (photos || []).filter((p) => p.status === 'done');
+  if (donePhotos.length > 0) {
+    let block = `=== ATTACHED IMAGES (uploaded by the user this turn) ===\n`;
+    block += `The user attached ${donePhotos.length} image(s):\n`;
+    donePhotos.forEach((p, i) => { block += `- "${p.file?.name || p.result?.filename || `Photo ${i + 1}`}"\n`; });
+    block += `\nFOLLOW THE USER'S EXPLICIT INSTRUCTION about these images:\n`;
+    block += `- "use this image" / "post this image" / "with this image" / "this image" -> use it as-is or with minimal edits described by the user; don't generate a brand-new image.\n`;
+    block += `- "edit this", "add a CTA", "modify", "make it ___", "change ___" -> edit the attached image per instruction. Use the attached image as the canvas.\n`;
+    block += `- No specific instruction -> soft visual context. Acknowledge briefly in the caption when relevant.\n`;
+    block += `When you call generate_image, the attached image is automatically passed as the PRIMARY subject reference. Describe the EDIT you want, not the existing content of the image.\n`;
+    blocks.push(block);
+  }
+
+  const doneDocs = (documents || []).filter((d) => d.status === 'done' && d.result?.extractedText);
+  if (doneDocs.length > 0) {
+    let block = `=== UPLOADED DOCUMENTS ===\n`;
+    doneDocs.forEach((doc, i) => {
+      const text = doc.result.extractedText.slice(0, 3000);
+      block += `--- Document ${i + 1}: ${doc.result?.filename || 'Untitled'} ---\n${text}\n\n`;
+    });
+    blocks.push(block);
+  }
+
+  const doneVideoTranscripts = (documents || []).filter((d) => d.status === 'done' && d.result?.transcript);
+  if (doneVideoTranscripts.length > 0) {
+    let block = `=== VIDEO TRANSCRIPTS ===\n`;
+    doneVideoTranscripts.forEach((doc) => {
+      const text = doc.result.transcript.slice(0, 3000);
+      block += `--- ${doc.result?.filename || 'Video'} ---\n${text}\n\n`;
+    });
+    blocks.push(block);
+  }
+
+  const doneSocial = (socialUrls || []).filter((s) => s.status === 'done' && s.result);
+  if (doneSocial.length > 0) {
+    let block = `=== SOCIAL MEDIA LINKS ===\n`;
+    doneSocial.forEach((item) => {
+      const r = item.result;
+      block += `--- ${r.title || item.url} ---\n`;
+      block += `URL: ${r.url || item.url}\n`;
+      if (r.platform) block += `Platform: ${r.platform}\n`;
+      if (r.uploader) block += `Creator: ${r.uploader}\n`;
+      if (r.description) block += `Description: ${r.description.slice(0, 1000)}\n`;
+      if (r.duration) block += `Duration: ${r.duration}s\n`;
+      if (r.transcript) block += `Transcript:\n${r.transcript.slice(0, 3000)}\n`;
+      block += '\n';
+    });
+    blocks.push(block);
+  }
+
+  if (blocks.length > 0) {
+    blocks.push(
+      `=== CONTEXT PRIORITY (CRITICAL) ===\n` +
+      `The content above (social media links, transcripts, documents, photos) is the user's REFERENCE MATERIAL. It takes the HIGHEST PRIORITY, even above system writing guidelines.\n` +
+      `When the user attaches a post, video, or link and asks you to create content:\n` +
+      `1. STUDY THE STRUCTURE: Analyze the reference content's exact structure. How does it hook? How does it flow? What's the CTA? How long are the sentences? What's the pacing?\n` +
+      `2. REPLICATE THE FRAMEWORK: Your output must follow the SAME structural pattern. Same hook style, same content flow, same engagement mechanics, same CTA approach. Mirror it precisely.\n` +
+      `3. APPLY THE USER'S TOPIC: Keep the structure identical but swap the subject matter to whatever topic the user specifies.\n` +
+      `4. MATCH THE ENERGY: If the reference is punchy and direct, yours must be too. If it's storytelling, match that. The reference IS the template.\n` +
+      `The reference content overrides any conflicting advice in the writing guidelines.\n`
+    );
+  }
+
+  if (integrationContext) {
+    blocks.push(`=== BUSINESS DATA FROM INTEGRATIONS ===\n${integrationContext}\n\nUse this business data (call transcripts, payment data, CRM contacts, etc.) to inform your content suggestions with real business context.\n`);
+  }
+
+  if (Array.isArray(carouselTemplates) && carouselTemplates.length > 0) {
+    const t = carouselTemplates[0];
+    const ds = t.design_system || {};
+    const p = ds.palette || {};
+    let block = `=== SAVED CAROUSEL TEMPLATE — "${t.name}" ===\n`;
+    block += `Use this design system as the starting point for the new carousel. Inherit the locked visual DNA so the new post reads as part of the same series. You MAY tweak values only if the new topic genuinely demands it.\n`;
+    block += `Palette: bg=${p.background || ''}, accentPrimary=${p.accentPrimary || ''}, accentSecondary=${p.accentSecondary || ''}, gradientStart=${p.gradientStart || ''}, gradientEnd=${p.gradientEnd || ''}, textPrimary=${p.textPrimary || ''}, textMuted=${p.textMuted || ''}, glow=${p.glow || ''}.\n`;
+    block += `Mode: ${ds.mode || 'dark'}. Font family: ${ds.typography?.family || 'Inter'}. Card style: ${ds.card?.style || 'glass'}. Accent treatment: ${ds.accentTreatment || 'gradient'}. Mood: ${ds.mood || ''}.\n`;
+    if (carouselTemplates.length > 1) {
+      block += `(${carouselTemplates.length - 1} additional template${carouselTemplates.length > 2 ? 's' : ''} also selected — prefer the first but harmonize with the others if it helps.)\n`;
+    }
+    blocks.push(block);
+  }
+
+  if (blocks.length === 0) return '';
+  return `${blocks.join('\n')}\n\n`;
 }
 
 function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext, carouselTemplates = []) {
@@ -3604,163 +3699,211 @@ export default function Content() {
     try {
       const abort = new AbortController();
       abortRef.current = abort;
-      const apiMessages = chatHistory.map((m) => ({ role: m.role, content: m.content }));
-      const systemPrompt = buildSystemPrompt(activePlatform, photos, documents, socialUrls, brandDna, integrationCtx, selectedTemplatesData);
 
-      console.group('📋 Content AI  -  Context being sent');
-      console.log('Platform:', activePlatform.name);
+      // Per-turn context block (uploaded photos, docs, social URLs, integration
+      // context, carousel templates). The static system prompt + brand DNA
+      // live in the backend agent now; this block carries the per-turn things
+      // the agent can't fetch on its own. Prepended to the first user message.
+      const ctxBlock = buildPerTurnContextBlock(
+        activePlatform,
+        photos,
+        documents,
+        socialUrls,
+        integrationCtx,
+        selectedTemplatesData,
+      );
+
+      // Stamp `PLATFORM: <id>` on the first user message so the agent's
+      // platform-router routes it correctly (content-post.js branches by
+      // this header; linkedin-post.js requires `PLATFORM: linkedin`).
+      let firstUserStamped = false;
+      const apiMessages = chatHistory.map((m) => {
+        if (m.role === 'user' && !firstUserStamped) {
+          firstUserStamped = true;
+          return {
+            role: 'user',
+            content: `PLATFORM: ${activePlatform.id}\n\n${ctxBlock}${m.content}`,
+          };
+        }
+        return { role: m.role, content: m.content };
+      });
+
+      // LinkedIn has its own agent (two-step variation / carousel flow);
+      // everything else routes to the combined content-post agent.
+      const agentName = activePlatform.id === 'linkedin' ? 'linkedin-post' : 'content-post';
+
+      console.group('📋 Content AI  -  Request to /api/orchestrate');
+      console.log('Platform:', activePlatform.name, '→ agent:', agentName);
       console.log('Photos:', photos.length, photos.map(p => ({ status: p.status, name: p.file?.name || p.result?.filename })));
       console.log('Documents:', documents.length, documents.map(d => ({ status: d.status, name: d.file?.name || d.filename, hasText: !!d.result?.extractedText, hasTranscript: !!d.result?.transcript })));
       console.log('Social URLs:', socialUrls.length, socialUrls.map(s => ({ url: s.url, status: s.status, title: s.result?.title, hasTranscript: !!s.result?.transcript })));
       console.log('Brand DNA:', brandDna ? { description: brandDna.description, colors: brandDna.colors, fonts: { main: brandDna.main_font, secondary: brandDna.secondary_font }, hasPhotos: !!brandDna.photo_urls?.length, hasDocs: brandDna.documents ? Object.keys(brandDna.documents) : [] } : null);
       console.log('Integration Context:', integrationCtx ? integrationCtx.slice(0, 200) + '...' : '(none)');
       console.log('Messages:', apiMessages.length);
-      console.log('Full System Prompt:\n', systemPrompt);
+      console.log('Per-turn context block:\n', ctxBlock || '(none)');
       console.groupEnd();
 
       let streamedContent = '';
       let hadImageGeneration = false;
-      await streamContentResponse(
-        apiMessages,
-        systemPrompt,
-        // onTextChunk  -  stream text, but hide raw JSON questions
-        (text) => {
-          streamedContent = text;
-          // Strip any JSON question block from display  -  show only the natural text before it
-          let displayText = text;
-          const jsonStart = text.indexOf('{"type"');
-          const jsonStart2 = text.indexOf('{ "type"');
-          const fenceStart = text.indexOf('```json');
-          const fenceStart2 = text.indexOf('```\n{');
+      let backendError = null;
+
+      // Buffer for tool_call SSE events. The backend emits one event per
+      // tool call (generate_image / plan_carousel); we collect them during
+      // the stream and dispatch in bulk after [DONE] so the existing
+      // parallel-image / single-plan handling below is unchanged.
+      const collectedTools = [];
+
+      // Existing tool dispatcher — extracted as-is into a closure so it
+      // runs after the orchestrate stream completes. Keeps the carousel-
+      // plan vs. image-call branching identical to the pre-migration flow.
+      const dispatchToolCalls = async (toolCalls) => {
+        const normalized = toolCalls.map(c => c.kind ? c : { kind: 'image', ...c });
+        const planCalls = normalized.filter(c => c.kind === 'plan');
+        const imageCalls = normalized.filter(c => c.kind === 'image');
+
+        if (planCalls.length > 0) {
+          // Only take the first plan — agent should only produce one.
+          const plan = planCalls[0].plan;
+          console.log(`📋 Carousel plan received: ${plan.slides?.length} slides (${activePlatform.id})`);
+          setMessages((prev) => prev.map((m) =>
+            m.id === assistantMsgId ? { ...m, carouselPlan: { ...plan, approved: false, generating: false }, platform: activePlatform.id } : m
+          ));
+          // Do NOT fire generate_image — wait for approval click.
+          return;
+        }
+
+        if (imageCalls.length === 0) return;
+        hadImageGeneration = true;
+        console.log(`🖼️ Generating ${imageCalls.length} image(s) in parallel`);
+        setMessages((prev) => prev.map((m) =>
+          m.id === assistantMsgId ? { ...m, pendingImages: imageCalls.length, platform: m.platform || activePlatform.id } : m
+        ));
+        if (activePlatform.id === 'instagram') {
+          setLinkedinPreview(null);
+          setCarouselSideView({ msgId: assistantMsgId });
+        }
+
+        // Collect previous images from the conversation for regeneration reference
+        const prevImages = [];
+        for (let i = chatHistory.length - 1; i >= 0; i--) {
+          const msg = messages.find(m => m.id === chatHistory[i]?.id) || chatHistory[i];
+          if (msg?.role === 'assistant' && msg.images?.length) {
+            for (const img of msg.images) {
+              if (img.src?.startsWith('data:')) {
+                const commaIdx = img.src.indexOf(',');
+                if (commaIdx !== -1) {
+                  const mimeMatch = img.src.match(/^data:([^;]+);/);
+                  prevImages.push({
+                    data: img.src.slice(commaIdx + 1),
+                    mimeType: mimeMatch?.[1] || 'image/jpeg',
+                  });
+                }
+              }
+            }
+            break;
+          }
+        }
+        if (prevImages.length) {
+          console.log(`[Content] Regeneration detected  -  sending ${prevImages.length} previous image(s) as reference`);
+        }
+
+        const isRegenerating = prevImages.length > 0;
+        const imgArgs = isRegenerating ? null : await buildImageGenArgs();
+        const results = await Promise.allSettled(
+          imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
+            console.log(`  🎨 [${idx + 1}/${imageCalls.length}] ${imgPrompt.slice(0, 80)}...`);
+            const brandImageData = isRegenerating
+              ? {
+                  photoUrls: [
+                    ...photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean),
+                    ...(brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : []),
+                  ],
+                  logoUrl: null,
+                  colors: brandDna?.colors || {},
+                  mainFont: brandDna?.main_font || null,
+                }
+              : imgArgs.brandImageData;
+            const refImages = isRegenerating
+              ? [prevImages[idx] || prevImages[0]]
+              : imgArgs.referenceImages;
+            const opts = (!isRegenerating && imgArgs.editUserImage)
+              ? { editUserImage: true }
+              : {};
+            const result = await generateImage(imgPrompt, selectedPlatform, brandImageData, refImages, opts);
+            if (result.image) {
+              const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+              setMessages((prev) => prev.map((m) =>
+                m.id === assistantMsgId ? {
+                  ...m,
+                  images: [...m.images, { src, idx }],
+                  pendingImages: m.pendingImages - 1,
+                } : m
+              ));
+            }
+            return result;
+          })
+        );
+
+        setMessages((prev) => prev.map((m) =>
+          m.id === assistantMsgId ? { ...m, pendingImages: 0 } : m
+        ));
+
+        const failed = results.filter(r => r.status === 'rejected');
+        if (failed.length > 0) {
+          console.warn(`⚠️ ${failed.length} image(s) failed`);
+        }
+      };
+
+      await streamFromBackend('/api/orchestrate', {
+        messages: apiMessages,
+        mode: 'direct',
+        agent: agentName,
+        // Search remains the default for /Content — the agent does live
+        // research when the topic involves named companies, current events,
+        // or competitor data. base-agent's streamXaiResearch path merges
+        // web_search + the agent's tool list in a single Responses API call
+        // so generate_image / plan_carousel still fire alongside research.
+        searchMode: true,
+        sessionId: sessionId || null,
+        assistantMsgId,
+      }, {
+        onAgentChunk: (_agentName, chunk) => {
+          streamedContent = chunk;
+          // Strip JSON question block + READY markers from chat display.
+          let displayText = chunk;
+          const jsonStart = chunk.indexOf('{"type"');
+          const jsonStart2 = chunk.indexOf('{ "type"');
+          const fenceStart = chunk.indexOf('```json');
+          const fenceStart2 = chunk.indexOf('```\n{');
           const cutIdx = [jsonStart, jsonStart2, fenceStart, fenceStart2].filter(i => i !== -1).sort((a, b) => a - b)[0];
-          if (cutIdx !== undefined) displayText = text.slice(0, cutIdx).trim();
-          // Strip <<READY_A>> / <<READY_B>> / <<READY_CAROUSEL>> markers from LinkedIn chat display
+          if (cutIdx !== undefined) displayText = chunk.slice(0, cutIdx).trim();
           displayText = displayText.replace(/<<READY_(?:[AB]|CAROUSEL)>>/g, '').trim();
           setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: displayText } : m)));
         },
-        // onToolCalls  -  now handles two kinds:
-        //   kind: 'plan'  → Instagram carousel plan_carousel. Attach the plan
-        //                   to the message and WAIT for user approval. The
-        //                   approval click fires the per-slide images with
-        //                   the locked DESIGN SYSTEM block embedded.
-        //   kind: 'image' → regular generate_image calls, run in parallel.
-        async (toolCalls) => {
-          // Backward compat: older call sites may still pass bare image arrays.
-          const normalized = toolCalls.map(c => c.kind ? c : { kind: 'image', ...c });
-          const planCalls = normalized.filter(c => c.kind === 'plan');
-          const imageCalls = normalized.filter(c => c.kind === 'image');
-
-          if (planCalls.length > 0) {
-            // Only take the first plan — Claude should only produce one.
-            const plan = planCalls[0].plan;
-            console.log(`📋 Carousel plan received: ${plan.slides?.length} slides (${activePlatform.id})`);
-            setMessages((prev) => prev.map((m) =>
-              m.id === assistantMsgId ? { ...m, carouselPlan: { ...plan, approved: false, generating: false }, platform: activePlatform.id } : m
-            ));
-            // Do NOT fire generate_image — wait for approval click.
-            return;
-          }
-
-          if (imageCalls.length === 0) return;
-          hadImageGeneration = true;
-          console.log(`🖼️ Generating ${imageCalls.length} image(s) in parallel`);
-          setMessages((prev) => prev.map((m) =>
-            m.id === assistantMsgId ? { ...m, pendingImages: imageCalls.length, platform: m.platform || activePlatform.id } : m
-          ));
-          // Auto-open the side preview for Instagram image generation
-          // (carousel, single post, or story) so the user sees slides
-          // stream in without scrolling. Matches LinkedIn's auto-open.
-          if (activePlatform.id === 'instagram') {
-            setLinkedinPreview(null);
-            setCarouselSideView({ msgId: assistantMsgId });
-          }
-
-          // Collect previous images from the conversation for regeneration reference
-          // Find the most recent assistant message that has images (the previous generation)
-          const prevImages = [];
-          for (let i = chatHistory.length - 1; i >= 0; i--) {
-            const msg = messages.find(m => m.id === chatHistory[i]?.id) || chatHistory[i];
-            if (msg?.role === 'assistant' && msg.images?.length) {
-              // Extract base64 data from data URLs (strip the data:mime;base64, prefix)
-              for (const img of msg.images) {
-                if (img.src?.startsWith('data:')) {
-                  const commaIdx = img.src.indexOf(',');
-                  if (commaIdx !== -1) {
-                    const mimeMatch = img.src.match(/^data:([^;]+);/);
-                    prevImages.push({
-                      data: img.src.slice(commaIdx + 1),
-                      mimeType: mimeMatch?.[1] || 'image/jpeg',
-                    });
-                  }
-                }
-              }
-              break; // Only use the most recent set of images
-            }
-          }
-          if (prevImages.length) {
-            console.log(`[Content] Regeneration detected  -  sending ${prevImages.length} previous image(s) as reference`);
-          }
-
-          // For regenerations, the per-slide previous image takes the
-          // referenceImages slot (Gemini iterates on it). For fresh
-          // generations with user-uploaded photos, those user photos
-          // take the slot via editUserImage so the manifest labels
-          // them as the PRIMARY subject and the AI follows the user's
-          // exact prompt instruction. Only one or the other can use
-          // the slot — regen wins because it's a more specific signal.
-          const isRegenerating = prevImages.length > 0;
-          const imgArgs = isRegenerating ? null : await buildImageGenArgs();
-          const results = await Promise.allSettled(
-            imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
-              console.log(`  🎨 [${idx + 1}/${imageCalls.length}] ${imgPrompt.slice(0, 80)}...`);
-              const brandImageData = isRegenerating
-                ? {
-                    // Regeneration path — keep user photos mixed in for
-                    // continuity with the previous image's likeness.
-                    photoUrls: [
-                      ...photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean),
-                      ...(brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : []),
-                    ],
-                    logoUrl: null,
-                    colors: brandDna?.colors || {},
-                    mainFont: brandDna?.main_font || null,
-                  }
-                : imgArgs.brandImageData;
-              const refImages = isRegenerating
-                ? [prevImages[idx] || prevImages[0]]
-                : imgArgs.referenceImages;
-              const opts = (!isRegenerating && imgArgs.editUserImage)
-                ? { editUserImage: true }
-                : {};
-              const result = await generateImage(imgPrompt, selectedPlatform, brandImageData, refImages, opts);
-              // Update message as each image completes
-              if (result.image) {
-                const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-                setMessages((prev) => prev.map((m) =>
-                  m.id === assistantMsgId ? {
-                    ...m,
-                    images: [...m.images, { src, idx }],
-                    pendingImages: m.pendingImages - 1,
-                  } : m
-                ));
-              }
-              return result;
-            })
-          );
-
-          // Mark any remaining pending as done
-          setMessages((prev) => prev.map((m) =>
-            m.id === assistantMsgId ? { ...m, pendingImages: 0 } : m
-          ));
-
-          const failed = results.filter(r => r.status === 'rejected');
-          if (failed.length > 0) {
-            console.warn(`⚠️ ${failed.length} image(s) failed`);
+        onAgentResult: (_agentName, content) => {
+          streamedContent = content;
+        },
+        onToolCall: (name, args) => {
+          // SSE event from orchestrate (forwarded from streamXaiResearch /
+          // streamXai onToolCalls). One event per Grok tool call.
+          if (name === 'generate_image' && args?.prompt) {
+            collectedTools.push({ kind: 'image', prompt: args.prompt });
+          } else if (name === 'plan_carousel' && Array.isArray(args?.slides) && args.designSystem) {
+            collectedTools.push({ kind: 'plan', plan: args });
           }
         },
-        abort.signal,
-        { searchMode: true, onSearchStatus: setSearchStatus },
-      );
+        onSearchStatus: setSearchStatus,
+        onError: (error) => {
+          console.error('[Content] orchestrate error:', error);
+          backendError = error;
+        },
+      }, abort.signal);
+
+      if (backendError) throw new Error(backendError);
+
+      if (collectedTools.length > 0) {
+        await dispatchToolCalls(collectedTools);
+      }
       // Check if the response contains a JSON question (may be preceded by text)
       const finalContent = streamedContent || '';
       let questionParsed = null;
@@ -3809,171 +3952,140 @@ export default function Content() {
         setMessages((prev) => prev.map((m) =>
           m.id === assistantMsgId ? { ...m, content: chatMsg } : m
         ));
-        const variationPrompt = readyA ? LINKEDIN_TEXT_VARIATION_A : LINKEDIN_TEXT_VARIATION_B;
-        const variationName = readyA ? 'Variation A (Framework-Heavy)' : 'Variation B (Story-Flow)';
-        const postMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
+        // Build the directive that tells linkedin-post which variation to
+        // switch to on this second call. The agent's system prompt already
+        // carries the full Variation A / Variation B writing rules; we just
+        // signal the user's choice + override its discovery-first posture.
+        // Conversation history (apiMessages — already carries the PLATFORM
+        // header + ctx block on the first user message) is replayed so the
+        // agent sees the full thread + any uploaded references.
+        const variationKey = readyA ? 'VARIATION_A' : 'VARIATION_B';
+        const variationLabel = readyA ? 'Variation A (Framework-Heavy)' : 'Variation B (Story-Flow)';
+        const variationSection = readyA ? 'SECTION A' : 'SECTION B';
+        const nameSignoff = user?.name
+          ? `Sign off with the user's exact name: ${user.name}. NEVER use [Your Name] or any placeholder.`
+          : '';
+        const variationDirective = `Generate the actual final LinkedIn post now using ${variationKey} (${variationLabel}). Switch to ${variationSection} of your system prompt and follow its writing rules. Output ONLY the raw LinkedIn post text  -  no preamble, no commentary, no "here is your post", no character counts. Just the post itself, ready to copy-paste into LinkedIn. ${nameSignoff} ABSOLUTELY zero em dashes. Zero hashtags unless the user explicitly asked. If references were uploaded earlier in this conversation, they are your PRIMARY structural blueprint  -  mirror their hook style, flow, and CTA approach.`;
 
-        // Build reference context for Call 2 (social links, docs, transcripts)
-        let refContext = '';
-        const doneSocial = socialUrls.filter(s => s.status === 'done' && s.result);
-        if (doneSocial.length > 0) {
-          refContext += `=== REFERENCE CONTENT (HIGHEST PRIORITY) ===\n`;
-          refContext += `The user attached this content as a STRUCTURAL BLUEPRINT. Your post MUST mirror its exact structure: same hook style, same flow, same engagement mechanics, same CTA approach. Only change the topic.\n\n`;
-          doneSocial.forEach(item => {
-            const r = item.result;
-            refContext += `--- ${r.platform || 'Post'}: ${r.title || item.url} ---\n`;
-            if (r.uploader) refContext += `Creator: ${r.uploader}\n`;
-            if (r.description) refContext += `Caption: ${r.description.slice(0, 2000)}\n`;
-            if (r.transcript) refContext += `Transcript:\n${r.transcript.slice(0, 4000)}\n`;
-            refContext += '\n';
-          });
-        }
-        const doneDocs = documents.filter(d => d.status === 'done' && d.result?.extractedText);
-        if (doneDocs.length > 0) {
-          refContext += `=== REFERENCE DOCUMENTS ===\n`;
-          doneDocs.forEach((doc, i) => {
-            refContext += `--- ${doc.result?.filename || `Doc ${i+1}`} ---\n${doc.result.extractedText.slice(0, 3000)}\n\n`;
-          });
-        }
+        const postMsgs = [
+          ...apiMessages,
+          { role: 'assistant', content: chatMsg },
+          { role: 'user', content: variationDirective },
+        ];
 
-        let postSystemPrompt = `You are a LinkedIn post writer using ${variationName}. Based on the conversation, generate the final LinkedIn post NOW.\n\nRULES:\n- Output ONLY the post text, ready to copy-paste into LinkedIn\n- No preamble, no commentary, no "here is your post", no character counts\n- Just the raw post content with proper line breaks\n- Follow the EXACT post structure from the writing guidelines below\n- ABSOLUTELY NEVER use em dashes (the long dash character "\u2014"). Use commas, periods, colons, or start a new sentence instead. This is non-negotiable. Zero em dashes.\n- NEVER use [Your Name] or [Name] placeholders. Use the user's ACTUAL name provided below.\n\n`;
-        if (user?.name) postSystemPrompt += `USER'S NAME: ${user.name}\nAlways sign off with this exact name, never use [Your Name] or placeholders.\n\n`;
-        if (brandDna?.description) postSystemPrompt += `BRAND DESCRIPTION: ${brandDna.description}\n\n`;
-        if (refContext) postSystemPrompt += refContext;
-        postSystemPrompt += `=== WRITING GUIDELINES ${refContext ? '(use as fallback if no reference content above)' : '(FOLLOW THIS STRUCTURE EXACTLY)'} ===\n${variationPrompt}\n\n`;
-        postSystemPrompt += `=== FINAL OVERRIDE (READ THIS LAST) ===\nIGNORE the "INPUT FORMAT", "OUTPUT FORMAT", and "QUALITY CHECKLIST" sections in the guidelines above. Those are structural references, NOT instructions for you to output.\nYou already have all inputs from the conversation history. Do NOT output "Topic:", "Content Intent:", "Brain Dump:", "Client Voice DNA:", or any template fields.\n${refContext ? 'IMPORTANT: The reference content above is your PRIMARY template. Mirror its structure exactly. The writing guidelines are secondary.\n' : ''}Output ONLY the raw LinkedIn post text. Nothing before it, nothing after it. Just the post itself, ready to paste into LinkedIn.`;
         // Only ONE preview tenant in the right pane at a time.
         setCarouselSideView(null);
         setLinkedinPreview({ content: '', images: [], msgId: assistantMsgId });
         try {
-          await streamContentResponse(
-            postMsgs,
-            postSystemPrompt,
-            (postText) => {
-              setLinkedinPreview(prev => prev ? { ...prev, content: postText.trim() } : { content: postText.trim(), images: [], msgId: assistantMsgId });
+          await streamFromBackend('/api/orchestrate', {
+            messages: postMsgs,
+            mode: 'direct',
+            agent: 'linkedin-post',
+            // Research already happened on call 1 \u2014 call 2 is pure writing.
+            searchMode: false,
+            sessionId: sessionId || null,
+          }, {
+            onAgentChunk: (_a, chunk) => {
+              setLinkedinPreview(prev => prev
+                ? { ...prev, content: chunk.trim() }
+                : { content: chunk.trim(), images: [], msgId: assistantMsgId });
             },
-            async () => {},
-            abort.signal,
-            { searchMode: false, onSearchStatus: null },
-          );
+            onAgentResult: () => {},
+            onToolCall: () => { /* text-only second call */ },
+            onError: (error) => { console.error('[Content] LinkedIn post (call 2) error:', error); },
+          }, abort.signal);
         } catch (postErr) {
           if (postErr.name !== 'AbortError') console.error('LinkedIn post generation failed:', postErr);
         }
       } else if (readyCarousel) {
-        // CAROUSEL — clean up chat, launch carousel generation with image tool
+        // CAROUSEL via legacy <<READY_CAROUSEL>> marker — second call asks
+        // the linkedin-post agent to skip plan_carousel and fire one
+        // generate_image per slide directly. This path is preserved for
+        // backwards compatibility with chats that still hit the old marker;
+        // new chats go through plan_carousel during the first call instead
+        // (captured in dispatchToolCalls above).
         const chatMsg = streamedContent.replace(/<<READY_(?:[AB]|CAROUSEL)>>/g, '').trim();
         setMessages((prev) => prev.map((m) =>
           m.id === assistantMsgId ? { ...m, content: chatMsg } : m
         ));
-        const carouselMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
+        const carouselNameLine = user?.name ? `User's name: ${user.name}.` : '';
+        const carouselDirective = `Generate the LinkedIn carousel slides now. You previously committed to a per-slide image flow (<<READY_CAROUSEL>>), so SKIP plan_carousel and call generate_image for EACH slide separately (typically 5-10 slides). Your text output should be ONLY the LinkedIn caption (2-4 sentences, no slide descriptions, no hashtags, no em dashes). The slides are IMAGES  -  do NOT write "Slide 1:" or any slide labels in your text. Each generate_image prompt must include the ACTUAL TEXT to render on that slide, in 4:3 LANDSCAPE ratio. Use brand colors consistently across all slides. Cover: bold hook text, eye-catching. Content slides: numbered title + 2-3 sentences body, left-aligned. CTA: clear action text with profile reference. ${carouselNameLine} If references were uploaded earlier in this conversation, they are your structural blueprint  -  mirror their hook style, slide flow, and CTA approach.`;
 
-        // Build reference context for carousel Call 2
-        let carouselRefContext = '';
-        const doneSocialC = socialUrls.filter(s => s.status === 'done' && s.result);
-        if (doneSocialC.length > 0) {
-          carouselRefContext += `=== REFERENCE CONTENT (HIGHEST PRIORITY) ===\n`;
-          carouselRefContext += `The user attached this content as a STRUCTURAL BLUEPRINT. Your carousel MUST mirror its structure: same hook style, same slide flow, same engagement mechanics, same CTA. Only change the topic.\n\n`;
-          doneSocialC.forEach(item => {
-            const r = item.result;
-            carouselRefContext += `--- ${r.platform || 'Post'}: ${r.title || item.url} ---\n`;
-            if (r.uploader) carouselRefContext += `Creator: ${r.uploader}\n`;
-            if (r.description) carouselRefContext += `Caption: ${r.description.slice(0, 2000)}\n`;
-            if (r.transcript) carouselRefContext += `Transcript:\n${r.transcript.slice(0, 4000)}\n`;
-            carouselRefContext += '\n';
-          });
-        }
-        const docsC = documents.filter(d => d.status === 'done' && d.result?.extractedText);
-        if (docsC.length > 0) {
-          carouselRefContext += `=== REFERENCE DOCUMENTS ===\n`;
-          docsC.forEach((doc, i) => {
-            carouselRefContext += `--- ${doc.result?.filename || `Doc ${i+1}`} ---\n${doc.result.extractedText.slice(0, 3000)}\n\n`;
-          });
-        }
-
-        let carouselSystemPrompt = `You are a LinkedIn carousel image generator. Based on the conversation, create the carousel slides NOW.\n\n`;
-        carouselSystemPrompt += `=== ABSOLUTE RULES ===\n`;
-        carouselSystemPrompt += `1. Your text output should be ONLY the LinkedIn caption (the short text that appears above the carousel when posted). Write it like a normal LinkedIn caption, 2-4 sentences max. No slide descriptions.\n`;
-        carouselSystemPrompt += `2. Do NOT write "Slide 1:", "Slide 2:", "Cover Slide:", or ANY slide descriptions/headings in your text output. The slides are IMAGES, not text.\n`;
-        carouselSystemPrompt += `3. Do NOT use hashtags. Zero hashtags.\n`;
-        carouselSystemPrompt += `4. NEVER use em dashes. Zero tolerance.\n`;
-        carouselSystemPrompt += `5. NEVER say "game-changer", "unlock", "dive in", or any AI slop phrases.\n`;
-        carouselSystemPrompt += `6. Call generate_image for EACH slide separately. This is how slides are created.\n`;
-        carouselSystemPrompt += `7. Each generate_image prompt must include the ACTUAL TEXT to render on the slide image.\n\n`;
-        if (user?.name) carouselSystemPrompt += `USER'S NAME: ${user.name}\n\n`;
-        if (brandDna?.description) carouselSystemPrompt += `BRAND DESCRIPTION: ${brandDna.description}\n\n`;
-        if (carouselRefContext) carouselSystemPrompt += carouselRefContext;
-        if (brandDna?.colors) {
-          const c = brandDna.colors;
-          carouselSystemPrompt += `BRAND COLORS: Primary: ${c.primary || 'N/A'}, Secondary: ${c.secondary || 'N/A'}, Text: ${c.text || 'N/A'}\n`;
-        }
-        if (brandDna?.main_font) carouselSystemPrompt += `BRAND FONT: ${brandDna.main_font}\n`;
-        carouselSystemPrompt += `\n=== CAROUSEL CONTENT GUIDELINES ===\n${LINKEDIN_CAROUSEL_PROMPT}\n\n`;
-        carouselSystemPrompt += `=== IMAGE GENERATION SPECS ===\n`;
-        carouselSystemPrompt += `- 4:3 LANDSCAPE ratio for every slide (LinkedIn standard)\n`;
-        carouselSystemPrompt += `- Include ACTUAL TEXT to render on the image (title, body text, key points)\n`;
-        carouselSystemPrompt += `- Specify: "bold sans-serif text, clean modern design"\n`;
-        carouselSystemPrompt += `- Use brand colors consistently across all slides\n`;
-        carouselSystemPrompt += `- Same background color, same font style on every content slide\n`;
-        carouselSystemPrompt += `- Cover: bold hook text, eye-catching, vibrant\n`;
-        carouselSystemPrompt += `- Content slides: numbered title + 2-3 sentences body text, left-aligned\n`;
-        carouselSystemPrompt += `- CTA: clear action text, profile reference\n\n`;
-        carouselSystemPrompt += `=== FINAL OVERRIDE ===\nIGNORE "INPUT FORMAT" and "OUTPUT FORMAT" sections from the guidelines. You have all inputs from conversation.\nYour text = caption only. Your generate_image calls = the slides. Keep them separate.`;
+        const carouselMsgs = [
+          ...apiMessages,
+          { role: 'assistant', content: chatMsg },
+          { role: 'user', content: carouselDirective },
+        ];
 
         // Use a ref to accumulate images safely across concurrent promises
         const carouselImagesRef = [];
         setCarouselSideView(null);
         setLinkedinPreview({ content: '', images: [], totalSlides: 0, msgId: assistantMsgId });
+
+        // Buffer for tool_call SSE events (one per slide). Dispatch after
+        // the stream completes so all slides generate in parallel.
+        const carouselCollectedTools = [];
+
+        const dispatchCarouselSlides = async (toolCalls) => {
+          const imageCalls = toolCalls
+            .map(c => c.kind ? c : { kind: 'image', ...c })
+            .filter(c => c.kind === 'image');
+          if (imageCalls.length === 0) return;
+          setLinkedinPreview(prev => prev ? { ...prev, totalSlides: (prev.totalSlides || 0) + imageCalls.length } : prev);
+          const imgArgs = await buildImageGenArgs();
+          const results = await Promise.allSettled(
+            imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
+              const result = await generateImage(
+                imgPrompt,
+                'linkedin',
+                imgArgs.brandImageData,
+                imgArgs.referenceImages,
+                { editUserImage: imgArgs.editUserImage },
+              );
+              if (result.image) {
+                const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+                carouselImagesRef.push({ src, idx });
+                setLinkedinPreview(prev => prev ? {
+                  ...prev,
+                  images: [...carouselImagesRef],
+                } : prev);
+              }
+              return result;
+            })
+          );
+          const failed = results.filter(r => r.status === 'rejected');
+          if (failed.length > 0) console.warn(`${failed.length} carousel slide(s) failed`);
+        };
+
         try {
-          await streamContentResponse(
-            carouselMsgs,
-            carouselSystemPrompt,
-            (postText) => {
+          await streamFromBackend('/api/orchestrate', {
+            messages: carouselMsgs,
+            mode: 'direct',
+            agent: 'linkedin-post',
+            searchMode: false,
+            sessionId: sessionId || null,
+          }, {
+            onAgentChunk: (_a, chunk) => {
               // Strip any slide descriptions that leak into text
-              let caption = postText.trim();
+              let caption = chunk.trim();
               caption = caption.replace(/\*\*Slide \d+[^*]*\*\*/g, '').replace(/Slide \d+:.*/g, '').trim();
               setLinkedinPreview(prev => prev ? { ...prev, content: caption } : { content: caption, images: [], totalSlides: 0, msgId: assistantMsgId });
             },
-            // onToolCalls — generate images for each carousel slide
-            async (toolCalls) => {
-              // Streamer now returns typed tool calls; LinkedIn flow only uses images.
-              const imageCalls = toolCalls.map(c => c.kind ? c : { kind: 'image', ...c }).filter(c => c.kind === 'image');
-              if (imageCalls.length === 0) return;
-              // Set total slide count so the UI knows how many slots to show
-              setLinkedinPreview(prev => prev ? { ...prev, totalSlides: (prev.totalSlides || 0) + imageCalls.length } : prev);
-              // Split user-uploaded photos from brand-DNA so the backend's
-              // positional manifest can label the user's image as the
-              // PRIMARY subject (editUserImage). The user then drives the
-              // intent through the prompt — "post this image", "add a
-              // CTA", "edit the logo" — instead of all uploads getting
-              // mashed into a single generic face reference.
-              const imgArgs = await buildImageGenArgs();
-              const results = await Promise.allSettled(
-                imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
-                  const result = await generateImage(
-                    imgPrompt,
-                    'linkedin',
-                    imgArgs.brandImageData,
-                    imgArgs.referenceImages,
-                    { editUserImage: imgArgs.editUserImage },
-                  );
-                  if (result.image) {
-                    const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-                    // Accumulate in array ref to avoid race condition, then set state from it
-                    carouselImagesRef.push({ src, idx });
-                    setLinkedinPreview(prev => prev ? {
-                      ...prev,
-                      images: [...carouselImagesRef],
-                    } : prev);
-                  }
-                  return result;
-                })
-              );
-              const failed = results.filter(r => r.status === 'rejected');
-              if (failed.length > 0) console.warn(`${failed.length} carousel slide(s) failed`);
+            onAgentResult: () => {},
+            onToolCall: (name, args) => {
+              if (name === 'generate_image' && args?.prompt) {
+                carouselCollectedTools.push({ kind: 'image', prompt: args.prompt });
+              }
+              // Ignore stray plan_carousel on this legacy path — the agent
+              // shouldn't emit one given the directive, but if it does we
+              // don't want to double-render.
             },
-            abort.signal,
-            { searchMode: false, onSearchStatus: null },
-          );
+            onError: (error) => { console.error('[Content] LinkedIn carousel (call 2) error:', error); },
+          }, abort.signal);
+
+          if (carouselCollectedTools.length > 0) {
+            await dispatchCarouselSlides(carouselCollectedTools);
+          }
         } catch (postErr) {
           if (postErr.name !== 'AbortError') console.error('LinkedIn carousel generation failed:', postErr);
         }

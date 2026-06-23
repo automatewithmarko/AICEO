@@ -366,12 +366,36 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
 }
 
 // Stream from XAI Responses API with web_search — via Mentor gateway when configured, else direct
-async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSearchStatus, onSearchResult, abortSignal, streamIdleMs }) {
+//
+// When the caller passes `tools` (chat-completions schema, same shape that
+// agents register in `agent.tools`), the function tools are merged into the
+// Responses-API tool list alongside `web_search`. Function-call deltas are
+// parsed and surfaced via `onToolCalls` after the stream completes — same
+// contract as `streamXai`. This lets XAI agents (content-post, linkedin-post)
+// keep tool-call behaviour even when the user has research mode enabled.
+async function streamXaiResearch({ systemPrompt, messages, model, tools, onChunk, onSearchStatus, onSearchResult, onToolCalls, abortSignal, streamIdleMs }) {
   const target = xaiResponsesTarget();
 
   if (onSearchStatus) onSearchStatus('searching');
 
   const input = [{ role: 'system', content: systemPrompt }, ...messages];
+
+  // Responses API uses a flat function-tool schema, not the nested
+  // chat-completions one. Convert here so callers can register tools in a
+  // single canonical shape on the agent object.
+  const apiTools = [{ type: 'web_search' }];
+  if (Array.isArray(tools)) {
+    for (const t of tools) {
+      if (t?.type === 'function' && t.function) {
+        apiTools.push({
+          type: 'function',
+          name: t.function.name,
+          description: t.function.description,
+          parameters: t.function.parameters,
+        });
+      }
+    }
+  }
 
   const controller = new AbortController();
   if (abortSignal) {
@@ -389,7 +413,7 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
       model: 'grok-4-1-fast-non-reasoning',
       input,
       stream: true,
-      tools: [{ type: 'web_search' }],
+      tools: apiTools,
       include: ['inline_citations'],
     }),
     signal: controller.signal,
@@ -408,6 +432,11 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
   let fullContent = '';
   let buffer = '';
   let citations = [];
+  // Function-call accumulator. Responses API delivers arguments as deltas
+  // (response.function_call_arguments.delta) and a final consolidation
+  // event (response.function_call_arguments.done / response.completed).
+  // Keyed by call_id/item_id so concurrent calls don't get cross-mixed.
+  let functionCalls = {};
 
   while (true) {
     const { done, value } = await readWithIdleTimeout(reader, controller, streamIdleMs);
@@ -452,12 +481,37 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
           }
         }
 
+        // Function-call argument streaming for tools registered on the agent.
+        if (eventType === 'response.function_call_arguments.delta') {
+          const callId = parsed.call_id || parsed.item_id || 'default';
+          if (!functionCalls[callId]) functionCalls[callId] = { id: callId, name: parsed.name || '', arguments: '' };
+          if (parsed.name) functionCalls[callId].name = parsed.name;
+          if (parsed.delta) functionCalls[callId].arguments += parsed.delta;
+        }
+        if (eventType === 'response.function_call_arguments.done') {
+          const callId = parsed.call_id || parsed.item_id || 'default';
+          if (!functionCalls[callId]) functionCalls[callId] = { id: callId, name: parsed.name || '', arguments: '' };
+          if (parsed.name) functionCalls[callId].name = parsed.name;
+          // Final `arguments` field carries the consolidated JSON when present.
+          if (parsed.arguments) functionCalls[callId].arguments = parsed.arguments;
+        }
+
         if (eventType === 'response.completed' || eventType === 'response.done') {
           const respCitations = parsed.response?.citations || [];
           for (const url of respCitations) {
             if (!citations.includes(url)) {
               citations.push(url);
               if (onSearchResult) onSearchResult(url);
+            }
+          }
+          // Backstop: some Responses-API replies only surface the function
+          // call in the final response.output array (no delta events for
+          // short tool calls). Sweep that array so we don't miss them.
+          const output = parsed.response?.output || [];
+          for (const item of output) {
+            if (item?.type === 'function_call') {
+              const callId = item.call_id || item.id || `fc-${Object.keys(functionCalls).length}`;
+              functionCalls[callId] = { id: callId, name: item.name, arguments: item.arguments || '' };
             }
           }
         }
@@ -481,7 +535,16 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
   }
 
   if (onSearchStatus) onSearchStatus(null);
-  return { content: fullContent, toolCalls: [] };
+
+  // Surface accumulated function calls to the caller. Matches `streamXai`'s
+  // contract — the SSE forwarder in routes/orchestrate.js sees these and
+  // emits one `tool_call` event per call to the frontend.
+  const calls = Object.values(functionCalls).filter(tc => tc.name);
+  if (calls.length > 0 && onToolCalls) {
+    await onToolCalls(calls);
+  }
+
+  return { content: fullContent, toolCalls: calls };
 }
 
 // Unified execute function
@@ -535,7 +598,22 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
   }
 
   if (searchMode) {
-    return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal, streamIdleMs });
+    // Pure XAI agent path (or any provider that lands here while searchMode
+    // is on) — Responses API supports tools + web_search in the same call,
+    // so pass through `agent.tools` and `onToolCalls` so content-post /
+    // linkedin-post can still fire generate_image / plan_carousel while
+    // doing live research.
+    return streamXaiResearch({
+      systemPrompt,
+      messages,
+      model: 'grok-4-1-fast-non-reasoning',
+      tools: agent.tools,
+      onChunk,
+      onSearchStatus,
+      onToolCalls,
+      abortSignal,
+      streamIdleMs,
+    });
   }
 
   if (provider === 'anthropic') {
