@@ -1356,7 +1356,7 @@ function parsePlainTextQuestion(content, hadImages) {
   return null;
 }
 
-function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext, carouselTemplates = []) {
+function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext, carouselTemplates = [], existingPost = null) {
   let prompt = `You are a senior content strategist who creates content that actually performs on social media. You study what top creators and brands do  -  you understand hooks, retention, visual hierarchy, and what makes people stop scrolling.\n\n`;
   prompt += `You do NOT produce generic AI slop. No excessive emojis. No "Hey guys!" energy. No corporate marketing speak. No cartoonish or clip-art style visuals. You write like a real human who understands the platform.\n\n`;
   prompt += `=== ABSOLUTE OUTPUT RULES (NON-NEGOTIABLE) ===\n`;
@@ -1584,6 +1584,44 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
 
   prompt += `=== TARGET PLATFORM: ${platform.name} ===\n`;
   prompt += (PLATFORM_GUIDANCE[platform.id] || `Tailor all content for ${platform.name}.`) + '\n\n';
+
+  // LINKEDIN EDIT MODE — only when a LinkedIn text post is already on
+  // screen. Tells the model to use edit markers (preserves preview state)
+  // instead of <<READY_A>>/<<READY_B>> (which wipes images & resets the
+  // preview to a fresh post).
+  if (platform.id === 'linkedin' && existingPost?.content) {
+    const hasImage = (existingPost.images || []).length > 0;
+    const uploadedPhotoCount = (photos || []).filter(p => p.status === 'done').length;
+    const isCarousel = (existingPost.totalSlides || 0) > 0;
+    if (!isCarousel) {
+      prompt += `=== LINKEDIN EDIT MODE (CRITICAL — READ FIRST) ===\n`;
+      prompt += `There is ALREADY a LinkedIn text post on screen. The user is iterating on it.\n\n`;
+      prompt += `EXISTING POST (preview content):\n---\n${existingPost.content}\n---\n`;
+      prompt += `IMAGE ATTACHED TO POST: ${hasImage ? 'yes' : 'no'}\n`;
+      prompt += `USER HAS UPLOADED PHOTOS AVAILABLE: ${uploadedPhotoCount > 0 ? `yes (${uploadedPhotoCount})` : 'no'}\n\n`;
+      prompt += `RULES:\n`;
+      prompt += `- DO NOT regenerate the post from scratch.\n`;
+      prompt += `- DO NOT emit <<READY_A>> or <<READY_B>> UNLESS the user EXPLICITLY asks for a completely new post on a different topic (e.g. "scrap this, write a new post about X", "different topic entirely"). A request to tweak, shorten, lengthen, change tone, add an image, etc. is an EDIT — never a regeneration.\n`;
+      prompt += `- Use the EDIT MARKERS below instead. Choose ONE marker per response.\n\n`;
+      prompt += `EDIT MARKERS:\n`;
+      prompt += `- <<EDIT_TEXT>>\\n<instruction> — Use for any text change (rewrite hook, tighten, change tone, swap CTA, fix em-dash, add/remove a paragraph, etc.). On the line AFTER the marker, write ONE concise instruction describing what to change. The post text editor will receive the instruction and the existing post — it will produce the updated version while keeping voice/style intact and IMAGES UNTOUCHED.\n`;
+      prompt += `  Example: "I'll tighten the hook and harden the CTA.\\n<<EDIT_TEXT>>\\nMake the hook under 10 words and replace the CTA with a comment-trigger asking 'which one resonates'."\n`;
+      prompt += `- <<ADD_IMAGE_AI>> — Use when the user asks for an image AND ${uploadedPhotoCount > 0 ? 'explicitly says "generate" / "AI" / "make a graphic"' : 'they have no uploaded photos available (so AI generation is the only option)'}. Triggers AI image generation for the existing post. Text stays untouched.\n`;
+      if (uploadedPhotoCount > 0) {
+        prompt += `- <<USE_UPLOADED_IMAGE>> — Use when the user explicitly says "use the image I uploaded" / "use my photo" / "attach the image I gave you". Attaches the most recently uploaded photo to the post. Text stays untouched.\n`;
+        prompt += `- <<ADD_IMAGE_ASK>> — Use when the user asks for an image but doesn't say which source (e.g. "add an image to this post"). The client will pop a 3-option chooser ("Use the one I uploaded" / "Generate an AI image" / "No image"). DO NOT emit ADD_IMAGE_AI or USE_UPLOADED_IMAGE when ambiguous — emit ADD_IMAGE_ASK instead.\n`;
+      }
+      prompt += `\n`;
+      prompt += `FORMAT (very important):\n`;
+      prompt += `- Before the marker: ONE short conversational sentence acknowledging what you're about to do (e.g. "Got it — tightening the hook.").\n`;
+      prompt += `- Then the marker on its own line.\n`;
+      prompt += `- For <<EDIT_TEXT>>: instruction on the very next line after the marker.\n`;
+      prompt += `- Do NOT write the new post text in your response. The text editor handles that.\n`;
+      prompt += `- Do NOT emit a JSON question — markers are the only output.\n\n`;
+      prompt += `CASUAL CHITCHAT (no marker): If the user says "thanks", "cool", "love it", asks a non-edit question ("what do you think of this post?"), or otherwise isn't requesting a change, respond conversationally without any marker. Do NOT force an edit.\n\n`;
+    }
+  }
+
 
   if (brandDna) {
     prompt += `=== BRAND DNA (MUST USE) ===\n`;
@@ -3605,7 +3643,10 @@ export default function Content() {
       const abort = new AbortController();
       abortRef.current = abort;
       const apiMessages = chatHistory.map((m) => ({ role: m.role, content: m.content }));
-      const systemPrompt = buildSystemPrompt(activePlatform, photos, documents, socialUrls, brandDna, integrationCtx, selectedTemplatesData);
+      // Pass the existing LinkedIn preview state so the prompt can swap
+      // into EDIT MODE (preserves images & post text instead of wiping).
+      const existingPost = linkedinPreviewRef.current;
+      const systemPrompt = buildSystemPrompt(activePlatform, photos, documents, socialUrls, brandDna, integrationCtx, selectedTemplatesData, existingPost);
 
       console.group('📋 Content AI  -  Context being sent');
       console.log('Platform:', activePlatform.name);
@@ -3636,6 +3677,12 @@ export default function Content() {
           if (cutIdx !== undefined) displayText = text.slice(0, cutIdx).trim();
           // Strip <<READY_A>> / <<READY_B>> / <<READY_CAROUSEL>> markers from LinkedIn chat display
           displayText = displayText.replace(/<<READY_(?:[AB]|CAROUSEL)>>/g, '').trim();
+          // Strip LinkedIn EDIT MODE markers AND any instruction line that
+          // follows <<EDIT_TEXT>> — the chat bubble should show only the
+          // one-line ack the model wrote before the marker, not the raw
+          // edit instruction (which is for the text editor, not the user).
+          displayText = displayText.replace(/<<EDIT_TEXT>>[\s\S]*$/, '').trim();
+          displayText = displayText.replace(/<<(?:ADD_IMAGE_AI|ADD_IMAGE_ASK|USE_UPLOADED_IMAGE)>>/g, '').trim();
           setMessages((prev) => prev.map((m) => (m.id === assistantMsgId ? { ...m, content: displayText } : m)));
         },
         // onToolCalls  -  now handles two kinds:
@@ -3797,8 +3844,132 @@ export default function Content() {
           m.id === assistantMsgId ? { ...m, content: questionParsed.text } : m
         ));
       }
-      // Detect <<READY_A>>, <<READY_B>>, or <<READY_CAROUSEL>> — trigger separate generation call
-      const isLinkedinReady = selectedPlatform === 'linkedin' && !questionParsed && streamedContent;
+      // Detect LinkedIn EDIT MODE markers FIRST — preserve preview state.
+      // Only valid when a non-carousel LinkedIn post is already on screen.
+      const existingPreview = linkedinPreviewRef.current;
+      const isLinkedinEditing = selectedPlatform === 'linkedin'
+        && !questionParsed
+        && streamedContent
+        && existingPreview?.content
+        && (existingPreview.totalSlides || 0) === 0;
+
+      const editText = isLinkedinEditing && streamedContent.includes('<<EDIT_TEXT>>');
+      const addImageAi = isLinkedinEditing && streamedContent.includes('<<ADD_IMAGE_AI>>');
+      const useUploadedImage = isLinkedinEditing && streamedContent.includes('<<USE_UPLOADED_IMAGE>>');
+      const addImageAsk = isLinkedinEditing && streamedContent.includes('<<ADD_IMAGE_ASK>>');
+
+      if (editText) {
+        // EDIT_TEXT — rewrite the existing post in place, keep images.
+        // The instruction is the line(s) after the marker.
+        const parts = streamedContent.split('<<EDIT_TEXT>>');
+        const chatMsg = (parts[0] || '').trim() || 'Updating the post…';
+        const editInstruction = (parts[1] || '').trim() || 'Refine the post based on the conversation.';
+        setMessages((prev) => prev.map((m) =>
+          m.id === assistantMsgId ? { ...m, content: chatMsg } : m
+        ));
+        // Re-bind preview to the new assistant message so the new chat
+        // bubble owns the updated snapshot. Carry images forward — that's
+        // the whole point of edit mode (text changes never touch images).
+        const carriedImages = existingPreview.images || [];
+        const existingContent = existingPreview.content || '';
+        setLinkedinPreview({
+          content: existingContent,
+          images: carriedImages,
+          totalSlides: 0,
+          msgId: assistantMsgId,
+        });
+        // Mirror carried images onto the new message so its summary card
+        // shows the thumbnail (matches first-gen behavior).
+        setMessages(prev => prev.map(m =>
+          m.id === assistantMsgId ? { ...m, images: carriedImages } : m
+        ));
+
+        let editSystemPrompt = `You are editing an existing LinkedIn post. Apply the user's requested change while preserving the original voice, structure, paragraph rhythm, and overall length unless the change explicitly asks otherwise.\n\n`;
+        editSystemPrompt += `RULES:\n`;
+        editSystemPrompt += `- Output ONLY the updated post text, ready to copy-paste into LinkedIn.\n`;
+        editSystemPrompt += `- No preamble, no commentary, no quotes around the post, no "here is your updated post".\n`;
+        editSystemPrompt += `- ABSOLUTELY NEVER use em dashes. Use commas, periods, colons, or new sentences. Zero em dashes.\n`;
+        editSystemPrompt += `- Preserve mobile-readable line breaks (LinkedIn's blank-line paragraph scan).\n`;
+        editSystemPrompt += `- Keep specificity (numbers, named clients, timelines) unless the change asks to remove them.\n`;
+        editSystemPrompt += `- NEVER use [Your Name] or [Name] placeholders. If the original ends with a sign-off, keep it intact.\n\n`;
+        if (user?.name) editSystemPrompt += `USER'S NAME (for any sign-off): ${user.name}\n\n`;
+        if (brandDna?.description) editSystemPrompt += `BRAND DESCRIPTION: ${brandDna.description}\n\n`;
+        editSystemPrompt += `EXISTING POST:\n---\n${existingContent}\n---\n\n`;
+        editSystemPrompt += `REQUESTED CHANGE:\n${editInstruction}\n\n`;
+        editSystemPrompt += `Output the updated post now.`;
+
+        const editMsgs = [{ role: 'user', content: editInstruction }];
+        try {
+          await streamContentResponse(
+            editMsgs,
+            editSystemPrompt,
+            (postText) => {
+              setLinkedinPreview(prev => prev ? { ...prev, content: postText.trim() } : prev);
+            },
+            async () => {},
+            abort.signal,
+            { searchMode: false, onSearchStatus: null },
+          );
+        } catch (editErr) {
+          if (editErr.name !== 'AbortError') console.error('LinkedIn edit_text failed:', editErr);
+        }
+      } else if (addImageAi || useUploadedImage || addImageAsk) {
+        // Image-add markers — text untouched, only images change.
+        const chatMsg = streamedContent
+          .replace(/<<(?:ADD_IMAGE_AI|ADD_IMAGE_ASK|USE_UPLOADED_IMAGE)>>/g, '')
+          .trim() || (addImageAsk ? 'Want to use the image you uploaded, or have me generate one?' : 'Adding the image…');
+        setMessages((prev) => prev.map((m) =>
+          m.id === assistantMsgId ? { ...m, content: chatMsg } : m
+        ));
+        // Re-bind preview to the new message so it owns the updated snapshot.
+        const prevPreview = existingPreview;
+        const carriedImages = prevPreview.images || [];
+        setLinkedinPreview({
+          content: prevPreview.content || '',
+          images: carriedImages,
+          totalSlides: 0,
+          msgId: assistantMsgId,
+        });
+        setMessages(prev => prev.map(m =>
+          m.id === assistantMsgId ? { ...m, images: carriedImages } : m
+        ));
+
+        if (addImageAi) {
+          // Reuse the existing AI-image flow — preserves text.
+          await handleLinkedinGenerateImage(prevPreview.content || '');
+        } else if (useUploadedImage) {
+          // Pull the most recent uploaded photo and attach it.
+          const donePhotos = photos.filter(p => p.status === 'done' && (p.url || p.result?.url));
+          const photo = donePhotos[donePhotos.length - 1];
+          if (photo) {
+            const src = photo.url || photo.result?.url;
+            const startIdx = (prevPreview.images || []).length;
+            const newImg = { src, idx: startIdx };
+            const nextImages = [...(prevPreview.images || []), newImg];
+            setLinkedinPreview(prev => prev ? { ...prev, images: nextImages } : prev);
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsgId ? { ...m, images: nextImages } : m
+            ));
+          } else {
+            // No upload found — fall through to AI generation rather than
+            // leaving the user with a no-op.
+            await handleLinkedinGenerateImage(prevPreview.content || '');
+          }
+        } else if (addImageAsk) {
+          // Render the chooser via the existing question UI.
+          setCurrentQuestion({
+            text: 'Which image do you want with this post?',
+            options: ['Use the one I uploaded', 'Generate an AI image', 'No image'],
+          });
+          setCustomTyping(false);
+          setCustomText('');
+        }
+      }
+
+      // Detect <<READY_A>>, <<READY_B>>, or <<READY_CAROUSEL>> — trigger separate generation call.
+      // Skipped when edit-mode markers already fired (mutually exclusive).
+      const skipReady = editText || addImageAi || useUploadedImage || addImageAsk;
+      const isLinkedinReady = !skipReady && selectedPlatform === 'linkedin' && !questionParsed && streamedContent;
       const readyA = isLinkedinReady && streamedContent.includes('<<READY_A>>');
       const readyB = isLinkedinReady && streamedContent.includes('<<READY_B>>');
       const readyCarousel = isLinkedinReady && streamedContent.includes('<<READY_CAROUSEL>>');
@@ -4775,10 +4946,14 @@ export default function Content() {
   }, [editingImage, isGenerating, selectedPlatform, messages, photos, brandDna, generateSlideWithRetry]);
 
   const handleLinkedinGenerateImage = useCallback(async (postText) => {
-    if (!linkedinPreview || liGeneratingImage) return;
+    // Read the latest preview from the ref so callers in stale closures
+    // (e.g. sendToAI's edit-mode marker dispatcher) still see the current
+    // msgId / images. The state-bound version would race.
+    const livePreview = linkedinPreviewRef.current;
+    if (!livePreview || liGeneratingImage) return;
     setLiGeneratingImage(true);
     try {
-      const imgPrompt = `Professional LinkedIn post image. Clean, minimal design with authority. 4:3 landscape ratio. The image should complement this LinkedIn post: "${postText.slice(0, 200)}". Use brand colors if available. Bold headline text, professional photography or clean graphic design. No cartoons, no clip-art.`;
+      const imgPrompt = `Professional LinkedIn post image. Clean, minimal design with authority. 4:3 landscape ratio. The image should complement this LinkedIn post: "${(postText || '').slice(0, 200)}". Use brand colors if available. Bold headline text, professional photography or clean graphic design. No cartoons, no clip-art.`;
       const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
       const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
       const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
@@ -4791,9 +4966,12 @@ export default function Content() {
       const result = await generateImage(imgPrompt, 'linkedin', brandImageData, null);
       if (result.image) {
         const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-        const newImg = { src, idx: 0 };
+        // Re-read the ref AFTER the await — preview may have advanced.
+        const liveAfter = linkedinPreviewRef.current || livePreview;
+        const nextIdx = (liveAfter.images || []).length;
+        const newImg = { src, idx: nextIdx };
         setMessages(prev => prev.map(m =>
-          m.id === linkedinPreview.msgId
+          m.id === liveAfter.msgId
             ? { ...m, images: [...(m.images || []), newImg] }
             : m
         ));
@@ -4804,7 +4982,7 @@ export default function Content() {
     } finally {
       setLiGeneratingImage(false);
     }
-  }, [linkedinPreview, liGeneratingImage, photos, brandDna]);
+  }, [liGeneratingImage, photos, brandDna]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {

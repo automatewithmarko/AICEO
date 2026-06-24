@@ -85,6 +85,11 @@ export function buildAgentTools() {
               type: 'string',
               description: 'The artifact content.',
             },
+            platform: {
+              type: 'string',
+              enum: ['instagram', 'linkedin', 'twitter', 'tiktok', 'facebook'],
+              description: 'ONLY for type=content_post. The social platform the post is for. MUST match what the user asked for: "LinkedIn post" → linkedin, "Instagram post" → instagram, "tweet/X" → twitter, "TikTok caption" → tiktok, "Facebook post" → facebook. Determines which platform preview chrome (Instagram vs LinkedIn card) is shown. Default if omitted: instagram. Never default to instagram when the user said LinkedIn.',
+            },
           },
           required: ['type', 'title', 'content'],
         },

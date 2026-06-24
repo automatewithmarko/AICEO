@@ -1360,12 +1360,18 @@ export default function AiCeo() {
           firedTools.push(name);
           console.log(`[AiCeo] 🔧 tool_call: ${name}`, args);
           if (name === 'create_artifact') {
+            // `platform` arrives for content_post artifacts so the
+            // panel can route LinkedIn posts to the LinkedIn card
+            // instead of falling back to Instagram. Stamp it on
+            // agentSource — ArtifactPanel already matches /linkedin/i
+            // on agentSource to pick the LinkedIn variant.
             const newArt = {
               id: Date.now(),
               type: args.type,
               title: args.title,
               content: args.content,
               images: [],
+              ...(args.platform ? { agentSource: args.platform } : {}),
             };
             setArtifact(newArt);
             setPanelOpen(true);
@@ -1373,8 +1379,6 @@ export default function AiCeo() {
             setMessages(prev => prev.map(m =>
               m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: args.type } : m
             ));
-            // Snapshot — each post/email/code/doc gets its OWN frozen
-            // card so the chat can hold multiple side-by-side.
             commitOwnedArtifact(assistantMsgId, newArt);
           }
           if (name === 'generate_image') {
