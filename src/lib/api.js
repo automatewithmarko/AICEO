@@ -958,7 +958,7 @@ export async function generateEmailDraft({ prompt, mode, original, context_email
   return res.json();
 }
 
-export async function sendEmailApi({ account_id, to, cc, subject, body_text, body_html, in_reply_to, references }) {
+export async function sendEmailApi({ account_id, to, cc, subject, body_text, body_html, in_reply_to, references, attachments }) {
   // Primary path: our Railway backend at /api/emails/send. It already
   // does OAuth refresh + XOAUTH2 SMTP for Outlook accounts via
   // services/smtp.js, and Railway only blocks port 25 (587 / 465 are
@@ -968,8 +968,10 @@ export async function sendEmailApi({ account_id, to, cc, subject, body_text, bod
   // case the backend is briefly down. The Edge Function only handles
   // password-based SMTP accounts (Gmail app-password), so it'll still
   // 500 for OAuth/Outlook — but if the backend is reachable that path
-  // is taken first.
-  const body = { account_id, to, cc, subject, body_text, body_html, in_reply_to, references };
+  // is taken first. The Edge Function does not currently support
+  // attachments; if the backend is down and the user has attachments,
+  // we surface a clear error instead of silently dropping them.
+  const body = { account_id, to, cc, subject, body_text, body_html, in_reply_to, references, attachments };
 
   // 1. Try backend.
   try {
@@ -1000,6 +1002,12 @@ export async function sendEmailApi({ account_id, to, cc, subject, body_text, bod
   }
 
   // 2. Fallback: Supabase Edge Function.
+  // The edge function doesn't support attachments — surface that clearly
+  // so the user understands why their attachment didn't send instead of
+  // getting a confusing "sent" success without it.
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    throw new Error('Attachments require the primary backend, which is unreachable. Please retry in a moment.');
+  }
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error('Not authenticated');

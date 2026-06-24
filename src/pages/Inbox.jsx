@@ -139,7 +139,14 @@ export default function Inbox() {
 
   const bodyRef = useRef(null);
   const fileInputRef = useRef(null);
+  const attachmentInputRef = useRef(null);
   const contextRef = useRef(null);
+
+  // Compose attachments — files (any type) the user picks via the
+  // paperclip / image buttons. Stored as base64 in memory so the send
+  // payload is one JSON request (no separate upload roundtrip). Each
+  // entry: { id, filename, mimeType, size, content (base64 string) }.
+  const [composeAttachments, setComposeAttachments] = useState([]);
   const aiRef = useRef(null);
   const searchTimeoutRef = useRef(null);
 
@@ -522,6 +529,7 @@ export default function Inbox() {
     setComposeReferences(null);
     setComposeDraftId(null);
     setComposeSending(false);
+    setComposeAttachments([]);
     setLinkPopoverOpen(false);
     setLinkUrl('');
     setAiPopoverOpen(false);
@@ -565,6 +573,9 @@ export default function Inbox() {
         body_html: composeBodyHtml || undefined,
         in_reply_to: composeInReplyTo || undefined,
         references: composeReferences || undefined,
+        attachments: composeAttachments.length > 0
+          ? composeAttachments.map(({ filename, mimeType, content }) => ({ filename, mimeType, content }))
+          : undefined,
       });
       // Delete draft if was editing one
       if (composeDraftId) {
@@ -620,14 +631,64 @@ export default function Inbox() {
     setLinkUrl('');
   };
 
+  // Read a File as a base64 string (no data: prefix). Used to encode
+  // attachments into the JSON send payload — keeps the API simple
+  // (no multipart) and matches Resend / nodemailer / MS Graph shapes.
+  const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result || '';
+      const comma = String(result).indexOf(',');
+      resolve(comma === -1 ? String(result) : String(result).slice(comma + 1));
+    };
+    reader.onerror = () => reject(reader.error || new Error('read failed'));
+    reader.readAsDataURL(file);
+  });
+
+  // Append picked files to composeAttachments. Soft cap at 25MB total —
+  // backend enforces 30MB and Express JSON limit is 50MB, so this leaves
+  // headroom for body text + base64 overhead. Used by BOTH the image
+  // button (filter to image/*) AND the generic paperclip button.
+  const handleAttachFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    const MAX_TOTAL_BYTES = 25 * 1024 * 1024;
+    const currentBytes = composeAttachments.reduce((s, a) => s + (a.size || 0), 0);
+    const incomingBytes = files.reduce((s, f) => s + (f.size || 0), 0);
+    if (currentBytes + incomingBytes > MAX_TOTAL_BYTES) {
+      showToast('Attachments would exceed 25MB. Try smaller files.', 'error');
+      return;
+    }
+    try {
+      const encoded = await Promise.all(files.map(async (f) => ({
+        id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        filename: f.name,
+        mimeType: f.type || 'application/octet-stream',
+        size: f.size || 0,
+        content: await readFileAsBase64(f),
+      })));
+      setComposeAttachments((prev) => [...prev, ...encoded]);
+    } catch (err) {
+      showToast(`Couldn't read file: ${err.message || 'unknown error'}`, 'error');
+    }
+  };
+
+  const removeAttachment = (id) => {
+    setComposeAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  // Image button now attaches the image as a real file instead of
+  // inserting `![image](filename)` markdown into the body. The previous
+  // behaviour was misleading — the recipient never saw the image.
   const handleImageUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const ta = bodyRef.current;
-    if (!ta) return;
-    const pos = ta.selectionStart;
-    const text = ta.value;
-    setComposeBody(text.substring(0, pos) + '![image](' + file.name + ')' + text.substring(pos));
+    const files = e.target.files;
+    handleAttachFiles(files);
+    e.target.value = '';
+  };
+
+  const handleGenericAttach = (e) => {
+    const files = e.target.files;
+    handleAttachFiles(files);
     e.target.value = '';
   };
 
@@ -1092,10 +1153,14 @@ export default function Inbox() {
                   </div>
                 )}
               </div>
-              <button className="inbox-compose-tool" title="Upload image" onClick={() => fileInputRef.current?.click()}>
+              <button className="inbox-compose-tool" title="Attach image" onClick={() => fileInputRef.current?.click()}>
                 <ImagePlus size={15} />
               </button>
-              <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
+              <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleImageUpload} />
+              <button className="inbox-compose-tool" title="Attach file (any type)" onClick={() => attachmentInputRef.current?.click()}>
+                <Paperclip size={15} />
+              </button>
+              <input ref={attachmentInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleGenericAttach} />
             </div>
 
             <div className="inbox-compose-toolbar-divider" />
@@ -1219,6 +1284,34 @@ export default function Inbox() {
                     <button className="inbox-compose-context-pill-x" onClick={() => toggleEmailContext(id)}><X size={10} /></button>
                   </span>
                 ) : null;
+              })}
+            </div>
+          )}
+
+          {/* Attachments strip — rendered above the body so the user
+              can see what's attached + remove individual items. Each chip
+              shows filename + size + remove button. Total cap is 25MB
+              client-side, enforced again at 30MB on the backend. */}
+          {composeAttachments.length > 0 && (
+            <div className="inbox-compose-attachments">
+              {composeAttachments.map((a) => {
+                const sizeKb = (a.size || 0) / 1024;
+                const sizeLabel = sizeKb < 1024 ? `${sizeKb.toFixed(0)} KB` : `${(sizeKb / 1024).toFixed(1)} MB`;
+                return (
+                  <div key={a.id} className="inbox-compose-attachment-chip" title={a.filename}>
+                    <Paperclip size={12} />
+                    <span className="inbox-compose-attachment-name">{a.filename}</span>
+                    <span className="inbox-compose-attachment-size">{sizeLabel}</span>
+                    <button
+                      type="button"
+                      className="inbox-compose-attachment-remove"
+                      onClick={() => removeAttachment(a.id)}
+                      title="Remove attachment"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                );
               })}
             </div>
           )}

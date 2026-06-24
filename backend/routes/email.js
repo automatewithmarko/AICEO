@@ -496,10 +496,34 @@ router.post('/api/emails/send', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
-  const { account_id, to, cc, subject, body_text, body_html, in_reply_to, references } = req.body;
+  const { account_id, to, cc, subject, body_text, body_html, in_reply_to, references, attachments } = req.body;
 
   if (!account_id || !to || !subject) {
     return res.status(400).json({ error: 'account_id, to, and subject are required' });
+  }
+
+  // Validate + normalize attachments. Each must have a filename + base64
+  // content. Reject anything past ~30MB raw (Express JSON limit is 50MB
+  // and base64 inflates ~33%, so 30MB raw ≈ 40MB on the wire).
+  let normalizedAttachments;
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    let totalBytes = 0;
+    normalizedAttachments = [];
+    for (const att of attachments) {
+      if (!att || typeof att !== 'object') continue;
+      const filename = String(att.filename || att.name || 'attachment').slice(0, 200);
+      const content = typeof att.content === 'string' ? att.content : '';
+      const mimeType = String(att.mimeType || att.contentType || 'application/octet-stream');
+      if (!content) continue;
+      // Estimate decoded size from base64 length (each 4 chars ≈ 3 bytes).
+      const approxBytes = Math.floor(content.length * 0.75);
+      totalBytes += approxBytes;
+      if (totalBytes > 30 * 1024 * 1024) {
+        return res.status(400).json({ error: 'Attachments exceed 30MB total — try smaller files or fewer attachments.' });
+      }
+      normalizedAttachments.push({ filename, content, mimeType });
+    }
+    if (normalizedAttachments.length === 0) normalizedAttachments = undefined;
   }
 
   // Get account
@@ -521,6 +545,7 @@ router.post('/api/emails/send', async (req, res) => {
       html: body_html || undefined,
       inReplyTo: in_reply_to || undefined,
       references: references || undefined,
+      attachments: normalizedAttachments,
     });
 
     // Save to sent folder
