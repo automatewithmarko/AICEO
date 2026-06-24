@@ -1091,6 +1091,41 @@ export default function Inbox() {
                   ))}
                 </div>
               )}
+
+              {/* Attachments \u2014 backend returns email_attachments via the
+                  fetchOne join (routes/email.js select), so the array is
+                  on displayEmail once a single email is loaded. We only
+                  store metadata (filename, mime_type, size), not the
+                  bytes \u2014 clicking a chip does nothing yet; that's a
+                  separate "download from provider" feature. The point
+                  here is to confirm the email actually carries the
+                  attachment, especially for sent items. */}
+              {Array.isArray(displayEmail.email_attachments) && displayEmail.email_attachments.length > 0 && (
+                <div className="inbox-detail-attachments">
+                  <div className="inbox-detail-attachments-label">
+                    <Paperclip size={13} />
+                    <span>{displayEmail.email_attachments.length} {displayEmail.email_attachments.length === 1 ? 'attachment' : 'attachments'}</span>
+                  </div>
+                  <div className="inbox-detail-attachments-list">
+                    {displayEmail.email_attachments.map((att) => {
+                      const sizeKb = (att.size || 0) / 1024;
+                      const sizeLabel = sizeKb < 1
+                        ? ''
+                        : sizeKb < 1024
+                          ? ` \u00B7 ${sizeKb.toFixed(0)} KB`
+                          : ` \u00B7 ${(sizeKb / 1024).toFixed(1)} MB`;
+                      return (
+                        <div key={att.id} className="inbox-detail-attachment-chip" title={`${att.filename}${sizeLabel}`}>
+                          <FileText size={13} />
+                          <span className="inbox-detail-attachment-name">{att.filename}</span>
+                          <span className="inbox-detail-attachment-size">{sizeLabel}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="inbox-reply-bar">
                 <textarea
                   className="inbox-reply-input"

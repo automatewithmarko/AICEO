@@ -939,6 +939,57 @@
   color: var(--brand-red, var(--text-secondary));
 }
 
+/* Detail view — attachments section rendered below the body when a
+   selected email has email_attachments rows. Visual confirmation only;
+   chips aren't clickable yet because we don't persist the bytes. */
+.inbox-detail-attachments {
+  padding: 12px 24px 4px;
+  border-top: 1px solid var(--border-light);
+}
+
+.inbox-detail-attachments-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  letter-spacing: 0.01em;
+}
+
+.inbox-detail-attachments-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inbox-detail-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-light);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  max-width: 280px;
+}
+
+.inbox-detail-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.inbox-detail-attachment-size {
+  color: var(--text-muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
 /* Link popover */
 .inbox-compose-link-popover {
   position: absolute;
