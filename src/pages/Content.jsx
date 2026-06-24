@@ -1227,6 +1227,28 @@ Rules for questions:
 - If the user answers "Surprise me" / "Let me write my own" / "Match my brand voice", make a confident pick yourself based on brand DNA and proceed.
 - Never ask more than 3 questions total before generating. If after 3 you still lack info, make your best guess and generate.
 
+=== ABSOLUTE TURN-TAKING RULE (READ TWICE, FAILURE BREAKS THE UI) ===
+ONE message = ONE thing. EXACTLY ONE of the following per response, never two, never three:
+  (a) Ask ONE question (the single JSON object), then STOP. End of message.
+  (b) Emit a generation marker (<<READY_A>>, <<READY_B>>) OR call plan_carousel, with a short 1-sentence prefix. Do NOT also ask a question in the same message.
+  (c) Pure conversation (no question, no marker, no tool call).
+
+If you have more questions to ask, ask ONLY THE FIRST ONE NOW, in the JSON format, and STOP. The next question waits for the next turn after the user answers this one. Do not write multiple questions in one message. Do not chain "What about X? What about Y?" — that's wrong even in plain text.
+
+WRONG patterns (the UI breaks when you do these — never do them):
+- "What's the goal of this post? Which angle feels right? I'll create an educating post... <<READY_A>>"  ← multiple questions + a marker in one message. Catastrophic.
+- "{ "type":"question", ... } Then I'll generate Variation A. <<READY_A>>"  ← JSON question + marker in one message.
+- "{ "type":"question", ... } { "type":"question", ... }"  ← two JSON questions in one message.
+- Asking a question and ALSO calling plan_carousel in the same response.
+- Plain-text questions like "What angle?" without the JSON wrapper.
+
+CORRECT pattern:
+- Turn 1 (your message): { "type":"question","text":"What's the goal of this post?","options":["Educate","Nurture","Sell","Engage"] }  ← THIS IS THE ENTIRE MESSAGE. Nothing else.
+- Turn 2 (user picks "Educate")
+- Turn 3 (your message): { "type":"question","text":"Which angle feels right?","options":[...]}  ← Again the whole message.
+- Turn 4 (user picks an angle)
+- Turn 5 (your message): "I'll create an educating text post... <<READY_A>>"  ← Now you commit, no question in this message.
+
 After discovery finishes, follow the appropriate section below.
 If the user already indicated the type (e.g. "write me a text post", "make a carousel"), skip Step 1 and continue the flow.
 
@@ -3833,6 +3855,43 @@ export default function Content() {
       // Fallback: detect plain-text questions with numbered/bullet options or bare questions
       if (!questionParsed) {
         questionParsed = parsePlainTextQuestion(finalContent, hadImageGeneration);
+      }
+      // SAFETY NET — the model sometimes chains "What's the goal? Which
+      // angle? I'll create... <<READY_A>>" or fires plan_carousel in the
+      // same turn as questions. The system prompt forbids this but the
+      // model occasionally ignores it. If the response contains a "?"
+      // AND (a generation marker OR an attached carouselPlan), we treat
+      // the FIRST question in the text as the real intent, drop the
+      // marker/plan, and let the user answer first.
+      if (!questionParsed && finalContent && !hadImageGeneration) {
+        const hasMarker = /<<READY_(?:[AB]|CAROUSEL)>>/.test(finalContent);
+        let planAttached = false;
+        setMessages(prev => {
+          const m = prev.find(x => x.id === assistantMsgId);
+          if (m?.carouselPlan) planAttached = true;
+          return prev;
+        });
+        if (hasMarker || planAttached) {
+          // Strip marker / edit-mode noise, then grab the first "?" sentence.
+          const cleaned = finalContent
+            .replace(/<<READY_(?:[AB]|CAROUSEL)>>/g, '')
+            .replace(/<<EDIT_TEXT>>[\s\S]*$/, '')
+            .replace(/<<(?:ADD_IMAGE_AI|ADD_IMAGE_ASK|USE_UPLOADED_IMAGE)>>/g, '')
+            .trim();
+          const firstQ = cleaned.match(/[^.!?\n]{5,250}\?/);
+          if (firstQ) {
+            const qText = firstQ[0].trim();
+            questionParsed = { text: qText, options: [] };
+            console.warn('[Content] Model chained question + generation; surfacing question, dropping marker/plan.');
+            if (planAttached) {
+              // Remove the prematurely-attached plan so the user sees the
+              // question first, not a half-baked plan card.
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMsgId ? { ...m, carouselPlan: undefined } : m
+              ));
+            }
+          }
+        }
       }
       if (questionParsed) {
         setCurrentQuestion(questionParsed);
