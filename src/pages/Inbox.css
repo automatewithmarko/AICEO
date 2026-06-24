@@ -917,6 +917,28 @@
   color: var(--text-primary);
 }
 
+/* Uploading variant — chip stays visible the moment the user picks a file
+   so they get feedback the click registered, and a spinner replaces the
+   paperclip until FileReader resolves. */
+.inbox-compose-attachment-chip--uploading {
+  background: var(--bg-white);
+  border-color: var(--brand-red-light, var(--border-light));
+  opacity: 0.85;
+}
+
+.inbox-compose-attachment-chip--uploading .inbox-compose-attachment-size {
+  color: var(--brand-red, var(--text-muted));
+}
+
+@keyframes inbox-compose-attachment-spin {
+  to { transform: rotate(360deg); }
+}
+
+.inbox-compose-attachment-spinner {
+  animation: inbox-compose-attachment-spin 0.9s linear infinite;
+  color: var(--brand-red, var(--text-secondary));
+}
+
 /* Link popover */
 .inbox-compose-link-popover {
   position: absolute;

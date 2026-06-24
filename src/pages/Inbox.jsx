@@ -563,6 +563,14 @@ export default function Inbox() {
       showToast('Recipient and account are required', 'error');
       return;
     }
+    // Guard: don't ship an email while attachments are still being read
+    // off disk. Without this, a fast-typing user could hit Send while
+    // a 15MB PDF's FileReader is still running and the email would go
+    // out with empty content for that attachment.
+    if (composeAttachments.some((a) => a.uploading)) {
+      showToast('Wait for attachments to finish uploading.', 'error');
+      return;
+    }
     setComposeSending(true);
     try {
       // Always send an HTML version when the body has content. If the
@@ -680,6 +688,14 @@ export default function Inbox() {
   // backend enforces 30MB and Express JSON limit is 50MB, so this leaves
   // headroom for body text + base64 overhead. Used by BOTH the image
   // button (filter to image/*) AND the generic paperclip button.
+  //
+  // To give the user feedback DURING the FileReader pass (a 10MB image
+  // takes ~200-400ms on a typical machine), we add placeholder chips
+  // immediately with `uploading: true` and a generated id, then patch
+  // each placeholder with its base64 content as the reader finishes.
+  // The chip render shows a spinner when uploading; handleSend refuses
+  // to fire while any chip is still uploading so the email can't go out
+  // without its attachments.
   const handleAttachFiles = async (fileList) => {
     const files = Array.from(fileList || []);
     if (files.length === 0) return;
@@ -690,18 +706,32 @@ export default function Inbox() {
       showToast('Attachments would exceed 25MB. Try smaller files.', 'error');
       return;
     }
-    try {
-      const encoded = await Promise.all(files.map(async (f) => ({
-        id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        filename: f.name,
-        mimeType: f.type || 'application/octet-stream',
-        size: f.size || 0,
-        content: await readFileAsBase64(f),
-      })));
-      setComposeAttachments((prev) => [...prev, ...encoded]);
-    } catch (err) {
-      showToast(`Couldn't read file: ${err.message || 'unknown error'}`, 'error');
-    }
+
+    // 1. Add placeholder chips immediately so the user sees the file
+    //    show up the instant they click "open" in the picker.
+    const placeholders = files.map((f) => ({
+      id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      filename: f.name,
+      mimeType: f.type || 'application/octet-stream',
+      size: f.size || 0,
+      content: '',
+      uploading: true,
+    }));
+    setComposeAttachments((prev) => [...prev, ...placeholders]);
+
+    // 2. Read each file in parallel; patch its placeholder when done.
+    //    On error, drop the placeholder and toast.
+    await Promise.all(placeholders.map(async (ph, i) => {
+      try {
+        const content = await readFileAsBase64(files[i]);
+        setComposeAttachments((prev) => prev.map((a) =>
+          a.id === ph.id ? { ...a, content, uploading: false } : a
+        ));
+      } catch (err) {
+        setComposeAttachments((prev) => prev.filter((a) => a.id !== ph.id));
+        showToast(`Couldn't read "${ph.filename}": ${err.message || 'unknown error'}`, 'error');
+      }
+    }));
   };
 
   const removeAttachment = (id) => {
@@ -1328,16 +1358,21 @@ export default function Inbox() {
               {composeAttachments.map((a) => {
                 const sizeKb = (a.size || 0) / 1024;
                 const sizeLabel = sizeKb < 1024 ? `${sizeKb.toFixed(0)} KB` : `${(sizeKb / 1024).toFixed(1)} MB`;
+                const cls = `inbox-compose-attachment-chip${a.uploading ? ' inbox-compose-attachment-chip--uploading' : ''}`;
                 return (
-                  <div key={a.id} className="inbox-compose-attachment-chip" title={a.filename}>
-                    <Paperclip size={12} />
+                  <div key={a.id} className={cls} title={a.filename}>
+                    {a.uploading
+                      ? <Loader2 size={12} className="inbox-compose-attachment-spinner" />
+                      : <Paperclip size={12} />}
                     <span className="inbox-compose-attachment-name">{a.filename}</span>
-                    <span className="inbox-compose-attachment-size">{sizeLabel}</span>
+                    <span className="inbox-compose-attachment-size">
+                      {a.uploading ? 'reading…' : sizeLabel}
+                    </span>
                     <button
                       type="button"
                       className="inbox-compose-attachment-remove"
                       onClick={() => removeAttachment(a.id)}
-                      title="Remove attachment"
+                      title={a.uploading ? 'Cancel attachment' : 'Remove attachment'}
                     >
                       <X size={12} />
                     </button>
