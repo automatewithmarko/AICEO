@@ -7,6 +7,7 @@ import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
 import { generateImage, uploadImageToStorage, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate, getBoosendAutomation, createBoosendAutomation, updateBoosendAutomation, activateBoosendAutomation, getInstagramAccounts, streamBoosendAgentBuild, createCalendarPost, publishCalendarPost, uploadContextFiles } from '../lib/api';
+import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
 import AutomationGraph from '../components/AutomationGraph';
 import DmAutomationList from '../components/DmAutomationList';
 import NetlifyDeployButton from '../components/NetlifyDeployButton';
@@ -2368,6 +2369,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
               const imgPlatform = isLandingTool ? 'landing_page' : 'newsletter';
               matches.forEach((match) => {
                 const p = (async () => {
+                  let imgUrl = null;
                   try {
                     const mktBrand = brandDna ? {
                       photoUrls: brandDna.photo_urls || [],
@@ -2375,16 +2377,17 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
                       colors: brandDna.colors || {},
                       mainFont: brandDna.main_font || null,
                     } : null;
-                    const result = await generateImage(match.prompt.trim(), imgPlatform, mktBrand);
-                    if (result.image) {
+                    const result = await generateImageWithRetry(match.prompt.trim(), imgPlatform, mktBrand);
+                    if (result?.image) {
                       const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
-                      if (uploaded.url) {
-                        setCanvasHtml(prev => prev.replaceAll(match.full, uploaded.url));
-                      }
+                      if (uploaded.url) imgUrl = uploaded.url;
                     }
                   } catch (err) {
-                    console.error('Edit image gen failed:', err.message);
+                    console.error('Edit image gen failed after retries:', err?.message);
                   }
+                  setCanvasHtml(prev => imgUrl
+                    ? prev.replaceAll(match.full, imgUrl)
+                    : removeFailedImagePlaceholder(prev, match.full));
                 })();
                 editImagePromises.push(p);
               });
@@ -2597,7 +2600,6 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
           while ((genMatch = genRegex.exec(finalHtml)) !== null) {
             genMatches.push({ full: genMatch[0], prompt: genMatch[1] });
           }
-          const ERROR_IMG = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200" viewBox="0 0 600 200"><rect width="598" height="198" x="1" y="1" fill="#fff" rx="8" stroke="#dc2626" stroke-width="2"/><text x="300" y="105" text-anchor="middle" fill="#dc2626" font-family="Inter,system-ui,sans-serif" font-size="13" font-weight="600">Image generation failed</text></svg>');
 
           // Show status message
           const total = genMatches.length;
@@ -2617,13 +2619,13 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
                 mainFont: brandDna.main_font || null,
               } : null;
               const imgPlatform = activeTool === 'landing' || activeTool === 'squeeze' ? 'landing_page' : 'newsletter';
-              const result = await generateImage(m.prompt.trim(), imgPlatform, mktBrandData);
-              if (result.image) {
+              const result = await generateImageWithRetry(m.prompt.trim(), imgPlatform, mktBrandData);
+              if (result?.image) {
                 const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
                 if (uploaded.url) imgSrc = uploaded.url;
               }
             } catch (err) {
-              console.error('Image gen failed:', err.message);
+              console.error('Marketing image gen failed after retries:', err?.message);
             }
 
             // Update progress
@@ -2641,10 +2643,9 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
                 : msg
             ));
 
-            setCanvasHtml((prev) => {
-              const replacement = imgSrc || ERROR_IMG;
-              return prev.replaceAll(m.full, replacement);
-            });
+            setCanvasHtml((prev) => imgSrc
+              ? prev.replaceAll(m.full, imgSrc)
+              : removeFailedImagePlaceholder(prev, m.full));
           }));
           imagePromises.push(inlinePromise);
         }

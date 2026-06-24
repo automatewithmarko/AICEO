@@ -7,41 +7,23 @@ import { supabase } from '../lib/supabase';
 import VoiceOrb from '../components/stagedemo/VoiceOrb';
 import MockupRain from '../components/stagedemo/MockupRain';
 import ArtifactPanel from '../components/ArtifactPanel';
-import { generateImage } from '../lib/api';
+import { generateImageWithRetry as sharedGenerateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // ── Retry helpers — demo-safety nets for transient failures ────────
 //
-// Both helpers bail immediately on AbortError (user navigated away or
-// explicit cancel) and on HTTP 4xx (won't recover by retrying). They
-// retry on thrown network errors, HTTP 5xx, and the "200-but-empty"
-// shape that generateImage returns when Gemini safety-filters or hits
-// a transient upstream. Total worst-case added latency: ~1.7s
-// (500ms + 1200ms backoff between 3 attempts). Kept local to
-// StageDemo so blast radius is zero outside this file.
+// Image retry routes through the shared helper (src/lib/imageRetry).
+// We pass a shorter backoff than the newsletter default — this is a
+// voice demo, so we want to fail fast rather than make the user wait
+// 10s while we silently retry. ~1.7s total over 3 attempts.
 
-const RETRY_BACKOFF_MS = [500, 1200]; // backoff BEFORE attempt 2, then 3
+const STAGE_DEMO_RETRY = { backoffsMs: [500, 1200] };
+const RETRY_BACKOFF_MS = [500, 1200];
 const RETRY_MAX_ATTEMPTS = RETRY_BACKOFF_MS.length + 1;
 
-async function generateImageWithRetry(...args) {
-  let lastErr = null;
-  for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
-    try {
-      const result = await generateImage(...args);
-      if (result?.image) return result;
-      // 200 but no image — Gemini safety filter or transient. Retry
-      // by throwing through the same path as a real error.
-      lastErr = new Error('generateImage returned no image');
-    } catch (e) {
-      if (e?.name === 'AbortError') throw e;
-      lastErr = e;
-    }
-    if (attempt < RETRY_MAX_ATTEMPTS - 1) {
-      await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt]));
-    }
-  }
-  throw lastErr || new Error('generateImage failed after retries');
+function generateImageWithRetry(...args) {
+  return sharedGenerateImageWithRetry(args[0], args[1], args[2], args[3], args[4], STAGE_DEMO_RETRY);
 }
 
 async function fetchJsonWithRetry(url, init) {
@@ -411,11 +393,17 @@ export default function StageDemo() {
               try {
                 const platform = isNewsletter ? 'newsletter' : 'landing_page';
                 const result = await generateImageWithRetry(match[1].trim(), platform, null);
-                if (result.image) {
+                if (result?.image) {
                   const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                   html = html.replace(match[0], src);
+                } else {
+                  html = removeFailedImagePlaceholder(html, match[0]);
                 }
-              } catch {}
+              } catch {
+                // Retries exhausted — drop the <img> tag so the demo
+                // doesn't render with a broken placeholder string.
+                html = removeFailedImagePlaceholder(html, match[0]);
+              }
             }
             if (html !== data.html) {
               setArtifact(prev => {

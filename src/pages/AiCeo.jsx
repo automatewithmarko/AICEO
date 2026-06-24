@@ -4,6 +4,7 @@ import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles } from '../lib/api';
+import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
 import { snapshotArtifactOnMessage } from '../lib/artifactSnapshot';
@@ -31,37 +32,37 @@ function generateNewsletterImages(html, setArtifactFn, onProgress, platform = 'n
   }
   if (matches.length === 0) return null;
 
-  const ERROR_IMG = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200" viewBox="0 0 600 200"><rect width="598" height="198" x="1" y="1" fill="#fff" rx="8" stroke="#dc2626" stroke-width="2"/><text x="300" y="105" text-anchor="middle" fill="#dc2626" font-family="Inter,system-ui,sans-serif" font-size="13" font-weight="600">Image generation failed</text></svg>');
-
   const total = matches.length;
   let completed = 0;
   let failed = 0;
 
   if (onProgress) onProgress({ completed: 0, failed: 0, total, done: false });
 
-  // Fire all in parallel  -  returns a promise that resolves when ALL images are done
+  // Fire all in parallel — generateImageWithRetry already does 5
+  // attempts with backoff before throwing. If it still fails we delete
+  // the entire <img> tag rather than leaving a broken red placeholder.
   const promise = Promise.all(matches.map(async (m) => {
     let imgSrc = null;
     try {
-      const result = await generateImage(m.prompt.trim(), platform, null);
-      if (result.image) {
+      const result = await generateImageWithRetry(m.prompt.trim(), platform, null);
+      if (result?.image) {
         const uploaded = await uploadImageToStorage(result.image.data, result.image.mimeType);
         if (uploaded.url) imgSrc = uploaded.url;
       }
     } catch (err) {
-      console.error('Image gen failed:', err.message);
+      console.error('Newsletter image gen failed after retries:', err?.message);
     }
 
     completed++;
     if (!imgSrc) failed++;
     if (onProgress) onProgress({ completed, failed, total, done: completed === total });
 
-    // Swap just the src value  -  keep the original <img> tag and all its styling intact
     if (setArtifactFn) {
       setArtifactFn(prev => {
         if (!prev?.content) return prev;
-        const replacement = imgSrc || ERROR_IMG;
-        const updated = prev.content.replaceAll(m.full, replacement);
+        const updated = imgSrc
+          ? prev.content.replaceAll(m.full, imgSrc)
+          : removeFailedImagePlaceholder(prev.content, m.full);
         return { ...prev, content: updated };
       });
     }
