@@ -97,11 +97,20 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
   const panelClass = `content-ig-preview${isLinkedin ? ' content-ig-preview--linkedin' : ''}`;
   const previewLabel = isLinkedin ? 'LinkedIn preview' : 'Instagram preview';
 
-  // Empty-state: no images yet but generation is about to start OR is
-  // streaming — render a skeleton panel so the user sees the preview
-  // open immediately after approving, rather than nothing at all.
-  if (images.length === 0) {
-    const planSlideCount = plan.slides?.length || (msg.pendingImages || 0) || 0;
+  // Distinguish "actively waiting for images" from "this post simply has
+  // no image". The skeleton (spinner + 'Preparing…') is appropriate for
+  // the FIRST case but freezes forever in the second. AICEO chat creates
+  // text-only IG posts via create_artifact with no image generation —
+  // those previously got stuck on the skeleton.
+  const planSlideCount = plan.slides?.length || 0;
+  const pendingCount = msg.pendingImages || 0;
+  const isGeneratingMedia = planSlideCount > 0 || pendingCount > 0;
+  const captionText = plan.caption || msg.content || '';
+
+  // Empty-state SKELETON — only while we're actually still waiting on
+  // image generation. Otherwise drop through to the text-only render
+  // below.
+  if (images.length === 0 && isGeneratingMedia) {
     return (
       <div className={panelClass} role="dialog" aria-label={previewLabel}>
         {showHeader && (
@@ -133,9 +142,13 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
       </div>
     );
   }
-  const current = images[idx];
-  if (!current) return null;
-  const caption = plan.caption || msg.content || '';
+
+  // Nothing to show at all — no images, no text, nothing pending.
+  if (images.length === 0 && !captionText.trim()) {
+    return null;
+  }
+  const current = images[idx] || null;
+  const caption = captionText;
   // LinkedIn captions usually aren't truncated aggressively on feed; IG
   // folds at ~125 chars. Different fold per platform keeps the preview honest.
   const CAPTION_FOLD = isLinkedin ? 210 : 125;
@@ -146,9 +159,10 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
   const displayName = brandDna?.brand_name || user?.name || 'Your Brand';
   const avatarUrl = brandDna?.logos?.find(l => l.isDefault)?.url || brandDna?.logos?.[0]?.url || brandDna?.logo_url || brandDna?.photo_urls?.[0];
 
-  const slideIdx = current.idx ?? idx;
+  const slideIdx = current ? (current.idx ?? idx) : idx;
   const atStart = idx === 0;
-  const atEnd = idx === images.length - 1;
+  const atEnd = idx === Math.max(0, images.length - 1);
+  const hasMedia = !!current;
 
   return (
     <div className={panelClass} role="dialog" aria-label={previewLabel}>
@@ -194,7 +208,11 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
             )}
           </div>
 
-          {/* Media — aspect swaps per platform */}
+          {/* Media — aspect swaps per platform. Text-only posts (e.g.
+              AICEO Instagram drafts created via create_artifact with
+              no image generation) skip this block entirely so the user
+              sees the caption + actions instead of a stuck spinner. */}
+          {hasMedia && (
           <div className="content-ig-media">
             <img src={current.src} alt={`Slide ${idx + 1}`} className="content-ig-slide" />
             <div className="content-ig-counter">{idx + 1}/{images.length}</div>
@@ -301,6 +319,7 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
               </div>
             )}
           </div>
+          )}
 
           {/* Dots indicator — both platforms */}
           {images.length > 1 && (
