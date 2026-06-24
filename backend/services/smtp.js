@@ -130,17 +130,23 @@ export async function sendEmail(account, { to, cc, subject, text, html, inReplyT
   // Requires the account's token to carry the `Mail.Send` scope —
   // accounts connected before that scope was added must reconnect.
   if (account.auth_type === 'oauth' && account.provider === 'outlook') {
+    console.log(`[email] Routing via Graph (Outlook OAuth) — attachments=${attachments?.length || 0}`);
     return await sendViaGraph(account, { to, cc, subject, text, html, inReplyTo, references, attachments });
   }
 
   // Try Resend API first (works on hosts that block SMTP)
   try {
+    if (process.env.RESEND_API_KEY) {
+      console.log(`[email] Routing via Resend — attachments=${attachments?.length || 0}`);
+    }
     const resendResult = await sendViaResend(account, { to, cc, subject, text, html, inReplyTo, references, attachments });
     if (resendResult) return resendResult;
   } catch (err) {
     console.error(`[email] Resend failed: ${err.message}`);
     // Fall through to SMTP
   }
+
+  console.log(`[email] Routing via SMTP — attachments=${attachments?.length || 0}`);
 
   // Build nodemailer options for SMTP fallback
   const mailOptions = {

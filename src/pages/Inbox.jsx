@@ -565,12 +565,20 @@ export default function Inbox() {
     }
     setComposeSending(true);
     try {
+      // Always send an HTML version when the body has content. If the
+      // user is in AI brand-template mode, composeBodyHtml is already set
+      // and we use that. Otherwise we generate HTML from the user's
+      // markdown so links/bold/italic actually render in the recipient's
+      // inbox. white-space:pre-wrap preserves the user's line breaks.
+      const generatedHtml = (!composeBodyHtml && composeBody.trim())
+        ? `<div style="white-space:pre-wrap;font-family:sans-serif;color:#1a1a1a;line-height:1.5">${markdownToHtml(composeBody)}</div>`
+        : undefined;
       await sendEmailApi({
         account_id: composeAccountId,
         to: [{ name: '', email: composeTo.trim() }],
         subject: composeSubject,
         body_text: composeBody,
-        body_html: composeBodyHtml || undefined,
+        body_html: composeBodyHtml || generatedHtml,
         in_reply_to: composeInReplyTo || undefined,
         references: composeReferences || undefined,
         attachments: composeAttachments.length > 0
@@ -629,6 +637,29 @@ export default function Inbox() {
     setComposeBody(text.substring(0, start) + '[' + selected + '](' + linkUrl + ')' + text.substring(end));
     setLinkPopoverOpen(false);
     setLinkUrl('');
+  };
+
+  // Tiny markdown -> HTML converter. The Bold / Italic / Insert-link
+  // buttons all write markdown into the textarea (`**bold**`, `_italic_`,
+  // `[label](url)`); when we send the email as plain text the recipient
+  // just sees the raw markdown, which is what the user reported for the
+  // Insert-link button. Converting on send means the recipient sees a
+  // clickable link, bold/italic text, and preserved line breaks.
+  // Escapes HTML first so user-typed `<script>` etc. is rendered literally,
+  // not executed. Order matters: links first (they contain `(` `)` which
+  // would confuse if we ran emphasis patterns over them).
+  const markdownToHtml = (md) => {
+    if (!md) return '';
+    let html = String(md)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    html = html
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^A-Za-z0-9_])_([^_\n]+)_(?=$|[^A-Za-z0-9_])/g, '$1<em>$2</em>')
+      .replace(/\r?\n/g, '<br>');
+    return html;
   };
 
   // Read a File as a base64 string (no data: prefix). Used to encode
