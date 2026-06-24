@@ -86,6 +86,7 @@ Pack the task_description with everything: topic, audience, tone, products, CTA,
 ask_user: Ask a question with clickable options. Use this instead of typing questions. Keep it tight, 3-5 options max.
 
 create_artifact: Make content directly in the canvas (emails, posts, code, docs, REEL/VIDEO SCRIPTS). NOT for newsletters/landing pages/etc. When user asks for a reel or short-form video, write a script here.
+PLATFORM RULE (for type=content_post): you MUST pass the platform field matching what the user asked for. "LinkedIn post" -> platform:"linkedin". "Instagram post" -> platform:"instagram". "Tweet/X post" -> platform:"twitter". "TikTok caption" -> platform:"tiktok". "Facebook post" -> platform:"facebook". Never default to instagram when the user said LinkedIn  -  the preview chrome (LinkedIn card vs IG card) is chosen from this field.
 
 send_email: Send an email from the user's connected account. Works for newsletters and plain text. NEVER use this to "check" emails  -  only for outbound sends.
 

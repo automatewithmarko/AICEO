@@ -85,6 +85,11 @@ export function buildAgentTools() {
               type: 'string',
               description: 'The artifact content.',
             },
+            platform: {
+              type: 'string',
+              enum: ['instagram', 'linkedin', 'twitter', 'tiktok', 'facebook'],
+              description: 'REQUIRED when type=content_post. The social platform the post is for. MUST match what the user asked for: "LinkedIn post" -> linkedin (NOT instagram), "Instagram post" -> instagram, "tweet" or "X post" -> twitter, "TikTok caption" -> tiktok, "Facebook post" -> facebook. This drives the preview chrome (LinkedIn card vs Instagram card vs Twitter card). FAILING TO SET THIS FOR A LINKEDIN POST IS A BUG — the user will see an Instagram card with a LinkedIn post inside it, which is wrong. If you cannot infer the platform from the conversation, ask the user before calling create_artifact. Never guess instagram.',
+            },
           },
           required: ['type', 'title', 'content'],
         },

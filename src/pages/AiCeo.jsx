@@ -1360,12 +1360,34 @@ export default function AiCeo() {
           firedTools.push(name);
           console.log(`[AiCeo] 🔧 tool_call: ${name}`, args);
           if (name === 'create_artifact') {
+            // `platform` arrives for content_post artifacts so the
+            // panel can route LinkedIn posts to the LinkedIn card
+            // instead of falling back to Instagram. Stamp it on
+            // agentSource — ArtifactPanel already matches /linkedin/i
+            // on agentSource to pick the LinkedIn variant.
+            // FALLBACK: models sometimes omit `platform` even when
+            // asked. Sniff title + content for explicit platform
+            // mentions so a LinkedIn post never silently renders as an
+            // Instagram card. Title is checked first (clearer signal),
+            // content second (less reliable but catches edge cases
+            // like "Here is your LinkedIn post: ...").
+            let inferredPlatform = args.platform || null;
+            if (!inferredPlatform && args.type === 'content_post') {
+              const haystack = `${args.title || ''} ${(args.content || '').slice(0, 400)}`.toLowerCase();
+              if (/\blinkedin\b/.test(haystack)) inferredPlatform = 'linkedin';
+              else if (/\btwitter\b|\bx post\b|\btweet\b/.test(haystack)) inferredPlatform = 'twitter';
+              else if (/\btiktok\b/.test(haystack)) inferredPlatform = 'tiktok';
+              else if (/\bfacebook\b/.test(haystack)) inferredPlatform = 'facebook';
+              else if (/\binstagram\b/.test(haystack)) inferredPlatform = 'instagram';
+              if (inferredPlatform) console.log(`[AiCeo] create_artifact platform missing — inferred "${inferredPlatform}" from title/content`);
+            }
             const newArt = {
               id: Date.now(),
               type: args.type,
               title: args.title,
               content: args.content,
               images: [],
+              ...(inferredPlatform ? { agentSource: inferredPlatform } : {}),
             };
             setArtifact(newArt);
             setPanelOpen(true);
@@ -1373,8 +1395,6 @@ export default function AiCeo() {
             setMessages(prev => prev.map(m =>
               m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: args.type } : m
             ));
-            // Snapshot — each post/email/code/doc gets its OWN frozen
-            // card so the chat can hold multiple side-by-side.
             commitOwnedArtifact(assistantMsgId, newArt);
           }
           if (name === 'generate_image') {

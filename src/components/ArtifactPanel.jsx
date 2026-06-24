@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download, ChevronRight, History, Undo2, Maximize2, Image as ImageIcon } from 'lucide-react';
 import SocialPreview from './SocialPreview';
+import LinkedInPreview from './LinkedInPreview';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
@@ -589,27 +590,43 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             {type === 'newsletter' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
-            {type === 'content_post' && (
-              <SocialPreview
-                msg={{
-                  // Adapter — flatten the artifact shape into the
-                  // msg-shape SocialPreview expects. Loose substring
-                  // match on agentSource so 'linkedin_post',
-                  // 'linkedin-post', plain 'linkedin', etc. all route
-                  // to the LinkedIn variant (some models drop the
-                  // _post suffix when emitting the enum value).
-                  // Default everything else to instagram.
-                  id: artifact.id || `content-${type}-${(content || '').length}`,
-                  platform: /linkedin/i.test(String(agentSource || '')) ? 'linkedin' : 'instagram',
-                  images: images || [],
-                  content: content || '',
-                  pendingImages: artifact.pendingImages,
-                }}
-                brandDna={brandDna}
-                user={user}
-                showHeader={false}
-              />
-            )}
+            {type === 'content_post' && (() => {
+              // LinkedIn posts route to LinkedInPreview (proper LI chrome,
+              // text-only support). SocialPreview is image-based and falls
+              // into a "preparing post…" skeleton when images=[] — fine
+              // for IG carousels, but breaks LinkedIn text posts which
+              // never have images. Substring match on agentSource so
+              // 'linkedin', 'linkedin_post', 'linkedin-post' all match.
+              const isLinkedin = /linkedin/i.test(String(agentSource || ''));
+              if (isLinkedin) {
+                return (
+                  <LinkedInPreview
+                    content={content || ''}
+                    images={images || []}
+                    userName={user?.user_metadata?.full_name || user?.email || ''}
+                    userAvatar={user?.user_metadata?.avatar_url || null}
+                    totalSlides={artifact.totalSlides || 0}
+                    plan={artifact.carouselPlan || null}
+                    streaming={!!artifact.streaming}
+                    isGenerating={(artifact.pendingImages || 0) > 0}
+                  />
+                );
+              }
+              return (
+                <SocialPreview
+                  msg={{
+                    id: artifact.id || `content-${type}-${(content || '').length}`,
+                    platform: 'instagram',
+                    images: images || [],
+                    content: content || '',
+                    pendingImages: artifact.pendingImages,
+                  }}
+                  brandDna={brandDna}
+                  user={user}
+                  showHeader={false}
+                />
+              );
+            })()}
             {type === 'image' && <ImageRenderer images={images} pendingImages={artifact.pendingImages} title={title} />}
             {type === 'code_block' && <CodeRenderer content={content} />}
             {type === 'markdown_doc' && <MarkdownRenderer content={content} />}
