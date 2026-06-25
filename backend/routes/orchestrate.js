@@ -759,7 +759,7 @@ function detectNewArtifactInFlow(messages, currentAgent) {
 // mode: "ceo" or "direct" (direct handles both generation and editing)
 router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, res) => {
   const userId = req.user?.id;
-  const { messages, mode = 'ceo', agent: agentName, searchMode = false, currentHtml, editInstruction, currentAgent, sessionId = null, assistantMsgId = null } = req.body;
+  const { messages, mode = 'ceo', agent: agentName, searchMode = false, currentHtml, editInstruction, currentAgent, currentContentPost, sessionId = null, assistantMsgId = null } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array required' });
@@ -835,9 +835,9 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
         }
       }
       // Fall through to full CEO orchestration
-      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId, assistantMsgId });
+      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, currentContentPost, sessionId, assistantMsgId });
     } else {
-      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId, assistantMsgId });
+      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, currentContentPost, sessionId, assistantMsgId });
     }
     console.log('[orchestrate] Handler completed successfully');
   } catch (err) {
@@ -1215,8 +1215,34 @@ async function enrichMessagesWithVideoContext(messages, userId, res) {
 }
 
 // ── CEO Orchestration ──
-async function handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId = null, assistantMsgId = null }) {
-  const systemPrompt = buildCeoSystemPrompt(context);
+async function handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, currentContentPost, sessionId = null, assistantMsgId = null }) {
+  let systemPrompt = buildCeoSystemPrompt(context);
+  // If a social post (content_post) is currently in the panel, append
+  // an EDIT-MODE block so the CEO knows the post exists and can call
+  // create_artifact again with edits instead of just chatting. Without
+  // this, the model has no awareness of what's on screen and "make it
+  // punchier" produces a text reply with no preview change.
+  if (currentContentPost?.content) {
+    const platform = String(currentContentPost.platform || 'instagram').toLowerCase();
+    systemPrompt += `
+
+=== EXISTING SOCIAL POST IN THE PANEL (EDIT MODE) ===
+There is already a ${platform} post on screen. The user can see it in the side panel. Treat any "tweak / change / shorten / lengthen / rewrite / make it X / different tone / add Y / remove Z" request as an EDIT of THIS POST.
+
+EXISTING POST CONTENT:
+---
+${currentContentPost.content}
+---
+
+RULES:
+- If the user is asking for an edit/change/tweak to this post: call create_artifact AGAIN with type:"content_post", platform:"${platform}", and the UPDATED post text in the content field. The preview will swap to the new version automatically.
+- Preserve the platform exactly — do NOT switch a LinkedIn post to instagram or vice versa.
+- Preserve the user's voice, paragraph rhythm, and overall length unless the user explicitly asked you to change those.
+- In your text response to the user: ONE short sentence acknowledging the change ("Tightened the hook." / "Made it punchier."). Do NOT paste the new post text in your chat reply — the preview shows it.
+- If the user is asking a question about the post or chatting casually (no edit intent): reply conversationally, do NOT call create_artifact.
+- If the user explicitly asks for a brand-new post on a different topic: call create_artifact with the new post (this becomes a separate snapshot — previous post stays accessible via its chat card).
+`;
+  }
   const tools = buildAgentTools();
 
   sendSSE(res, {

@@ -8,7 +8,7 @@ const CONNECTION_TIMEOUT = 15000;
  * Send an email via Resend HTTP API (works on hosts that block SMTP ports).
  * Falls back to direct SMTP if Resend API key is not configured.
  */
-async function sendViaResend(account, { to, cc, subject, text, html, inReplyTo, references }) {
+async function sendViaResend(account, { to, cc, subject, text, html, inReplyTo, references, attachments }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return null; // No Resend key — skip
 
@@ -29,6 +29,16 @@ async function sendViaResend(account, { to, cc, subject, text, html, inReplyTo, 
 
   if (cc && cc.length > 0) {
     body.cc = Array.isArray(cc) ? cc.map((r) => r.email || r) : [cc];
+  }
+
+  // Resend wants { filename, content (base64 string), content_type }.
+  // Translate from our normalized shape.
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    body.attachments = attachments.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      content_type: a.mimeType,
+    }));
   }
 
   if (inReplyTo) {
@@ -107,7 +117,7 @@ async function sendViaSmtp(account, mailOptions) {
 /**
  * Send an email. Tries Resend API first (HTTPS), falls back to direct SMTP.
  */
-export async function sendEmail(account, { to, cc, subject, text, html, inReplyTo, references }) {
+export async function sendEmail(account, { to, cc, subject, text, html, inReplyTo, references, attachments }) {
   // Refresh OAuth token if needed
   if (account.auth_type === 'oauth') {
     account = await getValidAccessToken(account);
@@ -120,17 +130,23 @@ export async function sendEmail(account, { to, cc, subject, text, html, inReplyT
   // Requires the account's token to carry the `Mail.Send` scope —
   // accounts connected before that scope was added must reconnect.
   if (account.auth_type === 'oauth' && account.provider === 'outlook') {
-    return await sendViaGraph(account, { to, cc, subject, text, html, inReplyTo, references });
+    console.log(`[email] Routing via Graph (Outlook OAuth) — attachments=${attachments?.length || 0}`);
+    return await sendViaGraph(account, { to, cc, subject, text, html, inReplyTo, references, attachments });
   }
 
   // Try Resend API first (works on hosts that block SMTP)
   try {
-    const resendResult = await sendViaResend(account, { to, cc, subject, text, html, inReplyTo, references });
+    if (process.env.RESEND_API_KEY) {
+      console.log(`[email] Routing via Resend — attachments=${attachments?.length || 0}`);
+    }
+    const resendResult = await sendViaResend(account, { to, cc, subject, text, html, inReplyTo, references, attachments });
     if (resendResult) return resendResult;
   } catch (err) {
     console.error(`[email] Resend failed: ${err.message}`);
     // Fall through to SMTP
   }
+
+  console.log(`[email] Routing via SMTP — attachments=${attachments?.length || 0}`);
 
   // Build nodemailer options for SMTP fallback
   const mailOptions = {
@@ -150,6 +166,17 @@ export async function sendEmail(account, { to, cc, subject, text, html, inReplyT
   if (inReplyTo) {
     mailOptions.inReplyTo = inReplyTo;
     mailOptions.references = references || inReplyTo;
+  }
+
+  // Nodemailer wants { filename, content (base64 string), encoding, contentType }.
+  // Translate from our normalized shape.
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    mailOptions.attachments = attachments.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      encoding: 'base64',
+      contentType: a.mimeType,
+    }));
   }
 
   try {

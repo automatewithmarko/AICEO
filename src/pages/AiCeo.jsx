@@ -926,6 +926,12 @@ export default function AiCeo() {
       // Pass current artifact HTML for editing support
       const currentArtifact = artifactRef.current;
       const hasHtmlArtifact = currentArtifact?.content && (currentArtifact.type === 'newsletter' || currentArtifact.type === 'html_template');
+      // For content_post (social posts created via create_artifact) we
+      // pass the current text + platform so the CEO knows there's a
+      // post on screen and can re-emit create_artifact with edits
+      // instead of just chatting. Without this the AI has zero
+      // awareness of the panel's current state.
+      const hasContentPostArtifact = currentArtifact?.content && currentArtifact.type === 'content_post';
 
       await streamFromBackend('/api/orchestrate', {
         messages: apiMessages,
@@ -934,6 +940,13 @@ export default function AiCeo() {
         sessionId: sessionIdRef.current || null,
         assistantMsgId,
         ...(hasHtmlArtifact ? { currentHtml: currentArtifact.content, currentAgent: currentArtifact.agentSource || 'newsletter' } : {}),
+        ...(hasContentPostArtifact ? {
+          currentContentPost: {
+            content: currentArtifact.content,
+            platform: currentArtifact.agentSource || 'instagram',
+            title: currentArtifact.title || '',
+          },
+        } : {}),
       }, {
         // CEO text streaming
         onTextDelta: (content) => {

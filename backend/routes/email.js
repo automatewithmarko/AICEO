@@ -496,10 +496,50 @@ router.post('/api/emails/send', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
-  const { account_id, to, cc, subject, body_text, body_html, in_reply_to, references } = req.body;
+  const { account_id, to, cc, subject, body_text, body_html, in_reply_to, references, attachments } = req.body;
 
   if (!account_id || !to || !subject) {
     return res.status(400).json({ error: 'account_id, to, and subject are required' });
+  }
+
+  // Validate + normalize attachments. Each must have a filename + base64
+  // content. Reject anything past ~30MB raw (Express JSON limit is 50MB
+  // and base64 inflates ~33%, so 30MB raw ≈ 40MB on the wire). Track the
+  // real byte size per attachment so we can persist it to the Sent folder
+  // for the user to verify what actually went out.
+  let normalizedAttachments;
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    let totalBytes = 0;
+    normalizedAttachments = [];
+    for (const att of attachments) {
+      if (!att || typeof att !== 'object') continue;
+      const filename = String(att.filename || att.name || 'attachment').slice(0, 200);
+      const content = typeof att.content === 'string' ? att.content : '';
+      const mimeType = String(att.mimeType || att.contentType || 'application/octet-stream');
+      if (!content) continue;
+      // Estimate decoded size from base64 length (each 4 chars ≈ 3 bytes).
+      const approxBytes = Math.floor(content.length * 0.75);
+      totalBytes += approxBytes;
+      if (totalBytes > 30 * 1024 * 1024) {
+        return res.status(400).json({ error: 'Attachments exceed 30MB total — try smaller files or fewer attachments.' });
+      }
+      normalizedAttachments.push({ filename, content, mimeType, size: approxBytes });
+    }
+    if (normalizedAttachments.length === 0) normalizedAttachments = undefined;
+  }
+
+  // Diagnostic log so a "where did my attachment go?" support thread can be
+  // answered from logs alone. Prints filename + mimeType + KB per file
+  // BEFORE we hand off to the provider, so we know whether the issue is
+  // (a) frontend didn't send them, (b) backend received them but Resend/
+  // SMTP/Graph dropped them, or (c) some other layer.
+  if (normalizedAttachments?.length) {
+    const summary = normalizedAttachments.map((a) => `${a.filename} (${a.mimeType}, ${Math.round((a.size || 0) / 1024)} KB)`).join('; ');
+    console.log(`[email/send] user=${userId} account=${account_id} attachments=${normalizedAttachments.length} [${summary}]`);
+  } else if (Array.isArray(attachments) && attachments.length > 0) {
+    console.log(`[email/send] user=${userId} attachments rejected during normalization (got ${attachments.length} raw)`);
+  } else {
+    console.log(`[email/send] user=${userId} account=${account_id} attachments=0`);
   }
 
   // Get account
@@ -521,6 +561,7 @@ router.post('/api/emails/send', async (req, res) => {
       html: body_html || undefined,
       inReplyTo: in_reply_to || undefined,
       references: references || undefined,
+      attachments: normalizedAttachments,
     });
 
     // Save to sent folder
@@ -528,7 +569,7 @@ router.post('/api/emails/send', async (req, res) => {
       typeof t === 'string' ? { name: '', email: t } : t
     );
 
-    await supabase.from('emails').insert({
+    const { data: savedSent, error: sentErr } = await supabase.from('emails').insert({
       user_id: userId,
       account_id: account.id,
       message_id: result.messageId,
@@ -542,8 +583,25 @@ router.post('/api/emails/send', async (req, res) => {
       body_text: body_text || '',
       body_html: body_html || null,
       is_read: true,
+      has_attachments: normalizedAttachments?.length > 0,
       date: new Date().toISOString(),
-    });
+    }).select().single();
+
+    // Persist attachment metadata to the sent row so the user can see in
+    // their own Sent folder exactly what went out. Filename + mime_type +
+    // size only — we don't keep the base64 bytes (those are with the
+    // recipient + provider now). Diagnostic value: if the Sent row shows
+    // 2 attachments but the recipient got 0, the bug is upstream of us.
+    if (savedSent && normalizedAttachments?.length > 0 && !sentErr) {
+      const rows = normalizedAttachments.map((a) => ({
+        email_id: savedSent.id,
+        filename: a.filename,
+        mime_type: a.mimeType,
+        size: a.size || 0,
+      }));
+      const { error: attErr } = await supabase.from('email_attachments').insert(rows);
+      if (attErr) console.warn(`[email/send] Sent-folder attachment insert failed: ${attErr.message}`);
+    }
 
     res.json({ ok: true, messageId: result.messageId });
   } catch (err) {

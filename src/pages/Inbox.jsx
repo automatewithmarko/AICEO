@@ -139,7 +139,14 @@ export default function Inbox() {
 
   const bodyRef = useRef(null);
   const fileInputRef = useRef(null);
+  const attachmentInputRef = useRef(null);
   const contextRef = useRef(null);
+
+  // Compose attachments — files (any type) the user picks via the
+  // paperclip / image buttons. Stored as base64 in memory so the send
+  // payload is one JSON request (no separate upload roundtrip). Each
+  // entry: { id, filename, mimeType, size, content (base64 string) }.
+  const [composeAttachments, setComposeAttachments] = useState([]);
   const aiRef = useRef(null);
   const searchTimeoutRef = useRef(null);
 
@@ -522,6 +529,7 @@ export default function Inbox() {
     setComposeReferences(null);
     setComposeDraftId(null);
     setComposeSending(false);
+    setComposeAttachments([]);
     setLinkPopoverOpen(false);
     setLinkUrl('');
     setAiPopoverOpen(false);
@@ -555,16 +563,35 @@ export default function Inbox() {
       showToast('Recipient and account are required', 'error');
       return;
     }
+    // Guard: don't ship an email while attachments are still being read
+    // off disk. Without this, a fast-typing user could hit Send while
+    // a 15MB PDF's FileReader is still running and the email would go
+    // out with empty content for that attachment.
+    if (composeAttachments.some((a) => a.uploading)) {
+      showToast('Wait for attachments to finish uploading.', 'error');
+      return;
+    }
     setComposeSending(true);
     try {
+      // Always send an HTML version when the body has content. If the
+      // user is in AI brand-template mode, composeBodyHtml is already set
+      // and we use that. Otherwise we generate HTML from the user's
+      // markdown so links/bold/italic actually render in the recipient's
+      // inbox. white-space:pre-wrap preserves the user's line breaks.
+      const generatedHtml = (!composeBodyHtml && composeBody.trim())
+        ? `<div style="white-space:pre-wrap;font-family:sans-serif;color:#1a1a1a;line-height:1.5">${markdownToHtml(composeBody)}</div>`
+        : undefined;
       await sendEmailApi({
         account_id: composeAccountId,
         to: [{ name: '', email: composeTo.trim() }],
         subject: composeSubject,
         body_text: composeBody,
-        body_html: composeBodyHtml || undefined,
+        body_html: composeBodyHtml || generatedHtml,
         in_reply_to: composeInReplyTo || undefined,
         references: composeReferences || undefined,
+        attachments: composeAttachments.length > 0
+          ? composeAttachments.map(({ filename, mimeType, content }) => ({ filename, mimeType, content }))
+          : undefined,
       });
       // Delete draft if was editing one
       if (composeDraftId) {
@@ -620,14 +647,109 @@ export default function Inbox() {
     setLinkUrl('');
   };
 
+  // Tiny markdown -> HTML converter. The Bold / Italic / Insert-link
+  // buttons all write markdown into the textarea (`**bold**`, `_italic_`,
+  // `[label](url)`); when we send the email as plain text the recipient
+  // just sees the raw markdown, which is what the user reported for the
+  // Insert-link button. Converting on send means the recipient sees a
+  // clickable link, bold/italic text, and preserved line breaks.
+  // Escapes HTML first so user-typed `<script>` etc. is rendered literally,
+  // not executed. Order matters: links first (they contain `(` `)` which
+  // would confuse if we ran emphasis patterns over them).
+  const markdownToHtml = (md) => {
+    if (!md) return '';
+    let html = String(md)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    html = html
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^A-Za-z0-9_])_([^_\n]+)_(?=$|[^A-Za-z0-9_])/g, '$1<em>$2</em>')
+      .replace(/\r?\n/g, '<br>');
+    return html;
+  };
+
+  // Read a File as a base64 string (no data: prefix). Used to encode
+  // attachments into the JSON send payload — keeps the API simple
+  // (no multipart) and matches Resend / nodemailer / MS Graph shapes.
+  const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result || '';
+      const comma = String(result).indexOf(',');
+      resolve(comma === -1 ? String(result) : String(result).slice(comma + 1));
+    };
+    reader.onerror = () => reject(reader.error || new Error('read failed'));
+    reader.readAsDataURL(file);
+  });
+
+  // Append picked files to composeAttachments. Soft cap at 25MB total —
+  // backend enforces 30MB and Express JSON limit is 50MB, so this leaves
+  // headroom for body text + base64 overhead. Used by BOTH the image
+  // button (filter to image/*) AND the generic paperclip button.
+  //
+  // To give the user feedback DURING the FileReader pass (a 10MB image
+  // takes ~200-400ms on a typical machine), we add placeholder chips
+  // immediately with `uploading: true` and a generated id, then patch
+  // each placeholder with its base64 content as the reader finishes.
+  // The chip render shows a spinner when uploading; handleSend refuses
+  // to fire while any chip is still uploading so the email can't go out
+  // without its attachments.
+  const handleAttachFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    const MAX_TOTAL_BYTES = 25 * 1024 * 1024;
+    const currentBytes = composeAttachments.reduce((s, a) => s + (a.size || 0), 0);
+    const incomingBytes = files.reduce((s, f) => s + (f.size || 0), 0);
+    if (currentBytes + incomingBytes > MAX_TOTAL_BYTES) {
+      showToast('Attachments would exceed 25MB. Try smaller files.', 'error');
+      return;
+    }
+
+    // 1. Add placeholder chips immediately so the user sees the file
+    //    show up the instant they click "open" in the picker.
+    const placeholders = files.map((f) => ({
+      id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      filename: f.name,
+      mimeType: f.type || 'application/octet-stream',
+      size: f.size || 0,
+      content: '',
+      uploading: true,
+    }));
+    setComposeAttachments((prev) => [...prev, ...placeholders]);
+
+    // 2. Read each file in parallel; patch its placeholder when done.
+    //    On error, drop the placeholder and toast.
+    await Promise.all(placeholders.map(async (ph, i) => {
+      try {
+        const content = await readFileAsBase64(files[i]);
+        setComposeAttachments((prev) => prev.map((a) =>
+          a.id === ph.id ? { ...a, content, uploading: false } : a
+        ));
+      } catch (err) {
+        setComposeAttachments((prev) => prev.filter((a) => a.id !== ph.id));
+        showToast(`Couldn't read "${ph.filename}": ${err.message || 'unknown error'}`, 'error');
+      }
+    }));
+  };
+
+  const removeAttachment = (id) => {
+    setComposeAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  // Image button now attaches the image as a real file instead of
+  // inserting `![image](filename)` markdown into the body. The previous
+  // behaviour was misleading — the recipient never saw the image.
   const handleImageUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const ta = bodyRef.current;
-    if (!ta) return;
-    const pos = ta.selectionStart;
-    const text = ta.value;
-    setComposeBody(text.substring(0, pos) + '![image](' + file.name + ')' + text.substring(pos));
+    const files = e.target.files;
+    handleAttachFiles(files);
+    e.target.value = '';
+  };
+
+  const handleGenericAttach = (e) => {
+    const files = e.target.files;
+    handleAttachFiles(files);
     e.target.value = '';
   };
 
@@ -969,6 +1091,41 @@ export default function Inbox() {
                   ))}
                 </div>
               )}
+
+              {/* Attachments \u2014 backend returns email_attachments via the
+                  fetchOne join (routes/email.js select), so the array is
+                  on displayEmail once a single email is loaded. We only
+                  store metadata (filename, mime_type, size), not the
+                  bytes \u2014 clicking a chip does nothing yet; that's a
+                  separate "download from provider" feature. The point
+                  here is to confirm the email actually carries the
+                  attachment, especially for sent items. */}
+              {Array.isArray(displayEmail.email_attachments) && displayEmail.email_attachments.length > 0 && (
+                <div className="inbox-detail-attachments">
+                  <div className="inbox-detail-attachments-label">
+                    <Paperclip size={13} />
+                    <span>{displayEmail.email_attachments.length} {displayEmail.email_attachments.length === 1 ? 'attachment' : 'attachments'}</span>
+                  </div>
+                  <div className="inbox-detail-attachments-list">
+                    {displayEmail.email_attachments.map((att) => {
+                      const sizeKb = (att.size || 0) / 1024;
+                      const sizeLabel = sizeKb < 1
+                        ? ''
+                        : sizeKb < 1024
+                          ? ` \u00B7 ${sizeKb.toFixed(0)} KB`
+                          : ` \u00B7 ${(sizeKb / 1024).toFixed(1)} MB`;
+                      return (
+                        <div key={att.id} className="inbox-detail-attachment-chip" title={`${att.filename}${sizeLabel}`}>
+                          <FileText size={13} />
+                          <span className="inbox-detail-attachment-name">{att.filename}</span>
+                          <span className="inbox-detail-attachment-size">{sizeLabel}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="inbox-reply-bar">
                 <textarea
                   className="inbox-reply-input"
@@ -1092,10 +1249,14 @@ export default function Inbox() {
                   </div>
                 )}
               </div>
-              <button className="inbox-compose-tool" title="Upload image" onClick={() => fileInputRef.current?.click()}>
+              <button className="inbox-compose-tool" title="Attach image" onClick={() => fileInputRef.current?.click()}>
                 <ImagePlus size={15} />
               </button>
-              <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
+              <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleImageUpload} />
+              <button className="inbox-compose-tool" title="Attach file (any type)" onClick={() => attachmentInputRef.current?.click()}>
+                <Paperclip size={15} />
+              </button>
+              <input ref={attachmentInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleGenericAttach} />
             </div>
 
             <div className="inbox-compose-toolbar-divider" />
@@ -1219,6 +1380,39 @@ export default function Inbox() {
                     <button className="inbox-compose-context-pill-x" onClick={() => toggleEmailContext(id)}><X size={10} /></button>
                   </span>
                 ) : null;
+              })}
+            </div>
+          )}
+
+          {/* Attachments strip — rendered above the body so the user
+              can see what's attached + remove individual items. Each chip
+              shows filename + size + remove button. Total cap is 25MB
+              client-side, enforced again at 30MB on the backend. */}
+          {composeAttachments.length > 0 && (
+            <div className="inbox-compose-attachments">
+              {composeAttachments.map((a) => {
+                const sizeKb = (a.size || 0) / 1024;
+                const sizeLabel = sizeKb < 1024 ? `${sizeKb.toFixed(0)} KB` : `${(sizeKb / 1024).toFixed(1)} MB`;
+                const cls = `inbox-compose-attachment-chip${a.uploading ? ' inbox-compose-attachment-chip--uploading' : ''}`;
+                return (
+                  <div key={a.id} className={cls} title={a.filename}>
+                    {a.uploading
+                      ? <Loader2 size={12} className="inbox-compose-attachment-spinner" />
+                      : <Paperclip size={12} />}
+                    <span className="inbox-compose-attachment-name">{a.filename}</span>
+                    <span className="inbox-compose-attachment-size">
+                      {a.uploading ? 'reading…' : sizeLabel}
+                    </span>
+                    <button
+                      type="button"
+                      className="inbox-compose-attachment-remove"
+                      onClick={() => removeAttachment(a.id)}
+                      title={a.uploading ? 'Cancel attachment' : 'Remove attachment'}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                );
               })}
             </div>
           )}

@@ -22,7 +22,7 @@ function toRecipientList(input) {
  * ensuring `account.oauth_access_token` is fresh (use
  * `getValidAccessToken` from outlook-oauth-refresh.js first).
  */
-export async function sendViaGraph(account, { to, cc, subject, text, html, inReplyTo, references }) {
+export async function sendViaGraph(account, { to, cc, subject, text, html, inReplyTo, references, attachments }) {
   if (account.auth_type !== 'oauth' || !account.oauth_access_token) {
     throw new Error('Graph send requires an OAuth account with a valid access_token');
   }
@@ -45,6 +45,18 @@ export async function sendViaGraph(account, { to, cc, subject, text, html, inRep
       { name: 'In-Reply-To', value: inReplyTo },
       { name: 'References', value: refStr },
     ];
+  }
+
+  // Graph wants fileAttachment with name, contentType, contentBytes (base64).
+  // The 3MB-per-attachment inline limit is fine for typical email payloads;
+  // anything bigger should use the upload-session flow which we don't need yet.
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    message.attachments = attachments.map((a) => ({
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: a.filename,
+      contentType: a.mimeType,
+      contentBytes: a.content,
+    }));
   }
 
   const recipientLog = message.toRecipients.map((r) => r.emailAddress.address).join(', ');
