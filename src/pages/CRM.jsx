@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Search, Filter, ArrowUpDown, Plus, X, Phone, Mail, Building2, Calendar, Play, Download, ExternalLink, Send, Instagram, Linkedin, Trash2, RefreshCw, Loader2, CloudOff, AlertCircle, CheckCircle2, Upload, UserPlus, Check, Tag, ListPlus, FolderPlus, ChevronDown, FileText, Share2, Settings, GripVertical, Webhook, Copy, ChevronRight } from 'lucide-react';
+import { Search, Filter, ArrowUpDown, Plus, X, Phone, Mail, Building2, Calendar, Play, Download, ExternalLink, Send, Instagram, Linkedin, Trash2, RefreshCw, Loader2, CloudOff, AlertCircle, CheckCircle2, Upload, UserPlus, Check, Tag, ListPlus, FolderPlus, ChevronDown, FileText, Share2, Settings, GripVertical, Webhook, Copy, ChevronRight, Table as TableIcon, Columns } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getContacts, createContact, updateContact as updateContactApi, deleteContact as deleteContactApi, getContactDetail, syncContacts, syncContactToGHL } from '../lib/api';
 import './CRM.css';
@@ -661,8 +661,14 @@ export default function CRM() {
           </div>
         </div>
         <div className="crm-views">
-          <button className="crm-view-tab crm-view-tab--active">Table</button>
-          <button className="crm-view-tab">Kan-Ban</button>
+          <button className="crm-view-tab crm-view-tab--active">
+            <TableIcon size={14} />
+            Table
+          </button>
+          <button className="crm-view-tab">
+            <Columns size={14} />
+            Pipeline
+          </button>
         </div>
         <div className="crm-table-wrap">
           <table className="crm-table">
@@ -1167,13 +1173,15 @@ export default function CRM() {
           className={`crm-view-tab ${view === 'table' ? 'crm-view-tab--active' : ''}`}
           onClick={() => setView('table')}
         >
+          <TableIcon size={14} />
           Table
         </button>
         <button
           className={`crm-view-tab ${view === 'kanban' ? 'crm-view-tab--active' : ''}`}
           onClick={() => setView('kanban')}
         >
-          Kan-Ban
+          <Columns size={14} />
+          Pipeline
         </button>
       </div>
 
