@@ -831,24 +831,63 @@
 .settings-brand-brain-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.settings-brand-brain-edit {
-  padding: 4px 14px;
+/* Normalize all three Brand Brain action buttons (Edit / Download / Remove)
+   to the same compact pill shape, regardless of which base class they
+   originally use. */
+.settings-brand-brain-actions > button {
+  padding: 4px 12px;
   border-radius: 6px;
-  border: 1px solid rgba(233, 26, 68, 0.3);
-  background: none;
-  color: #E91A44;
   font-size: 11px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid transparent;
+  background: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  line-height: 1;
+}
+
+.settings-brand-brain-edit {
+  border-color: rgba(233, 26, 68, 0.3);
+  color: #E91A44;
 }
 
 .settings-brand-brain-edit:hover {
   background: rgba(233, 26, 68, 0.08);
+}
+
+.settings-brand-brain-actions .settings-btn--secondary {
+  border-color: rgba(0, 0, 0, 0.12);
+  color: var(--text-secondary);
+  background: none;
+}
+
+.settings-brand-brain-actions .settings-btn--secondary:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-primary);
+}
+
+.settings-brand-brain-actions .settings-btn--danger {
+  border-color: rgba(233, 26, 68, 0.3);
+  background: rgba(233, 26, 68, 0.08);
+  color: #E91A44;
+}
+
+.settings-brand-brain-actions .settings-btn--danger:hover {
+  background: rgba(233, 26, 68, 0.16);
+}
+
+.settings-brand-brain-actions svg {
+  width: 12px;
+  height: 12px;
 }
 
 .settings-brand-brain-overlay {

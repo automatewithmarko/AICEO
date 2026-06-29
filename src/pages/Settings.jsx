@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, ChevronDown, FileText, Loader, Plus, Dna, Calendar } from 'lucide-react';
+import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, ChevronDown, FileText, Loader, Plus, Dna, Calendar, Download } from 'lucide-react';
 import ColorWheelPicker from '../components/ColorWheelPicker';
 import FontSelector from '../components/FontSelector';
 import TeamSettings from '../components/TeamSettings';
@@ -406,6 +406,26 @@ export default function Settings() {
     'invoice.payment_succeeded',
     'invoice.payment_failed',
   ];
+
+  // Brand Brain — download the saved workbook as a .txt file. Uses the
+  // extractedText that the in-iframe Save flow already produces; falls
+  // back to a JSON dump of rawData if extractedText is missing.
+  const handleBrandBrainDownload = () => {
+    const bb = documents.brandBrain;
+    if (!bb) return;
+    const content = bb.extractedText
+      || (bb.rawData ? JSON.stringify(bb.rawData, null, 2) : '');
+    if (!content) return;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `brand-brain-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const handleStripeConnect = async () => {
     if (!apiKey.trim()) return;
@@ -1168,6 +1188,14 @@ export default function Settings() {
                   <div className="settings-brand-brain-actions">
                     <button className="settings-brand-brain-edit" onClick={() => setBrandBrainOpen(true)}>
                       Edit
+                    </button>
+                    <button
+                      className="settings-btn settings-btn--secondary"
+                      onClick={handleBrandBrainDownload}
+                      title="Download as .txt"
+                    >
+                      <Download size={14} />
+                      Download
                     </button>
                     <button className="settings-btn settings-btn--danger" onClick={() => removeDoc('brandBrain')}>
                       <Trash2 size={14} />
