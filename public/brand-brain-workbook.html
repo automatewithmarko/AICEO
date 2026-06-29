@@ -10,6 +10,8 @@ body { background: #f0eeea; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 .progress-wrap button { border: none; cursor: pointer; font-size: 11px; font-weight: 700; padding: 5px 14px; letter-spacing: 0.04em; transition: opacity 0.15s; font-family: inherit; margin-left: auto; border-radius: 4px; }
 .progress-wrap button:hover { opacity: 0.85; }
 .btn-save { background: #e90d41; color: #fff; }
+.btn-download { background: #2b2b2b; color: #fff; }
+.progress-wrap button.btn-save { margin-left: 6px; }
 .save-msg { font-size: 10px; color: #4caf50; opacity: 0; transition: opacity 0.4s; }
 .save-msg.show { opacity: 1; }
 .progress-wrap { background: #1a1a1a; padding: 6px 40px; margin: 0 -40px 0; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 10; }
@@ -102,6 +104,7 @@ body { background: #f0eeea; font-family: -apple-system, BlinkMacSystemFont, 'Seg
   <span class="progress-label">Workbook completion</span>
   <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
   <span class="progress-pct" id="progressPct">0%</span>
+  <button class="btn-download" onclick="downloadWorkbook()">Download</button>
   <button class="btn-save" onclick="saveAndNotify()">Save</button>
   <span class="save-msg" id="saveMsg">Saved</span>
 </div>
@@ -383,6 +386,20 @@ function saveAndNotify() {
   const msg = document.getElementById('saveMsg');
   msg.classList.add('show');
   setTimeout(() => msg.classList.remove('show'), 2000);
+}
+
+function downloadWorkbook() {
+  const data = collectData();
+  const text = buildExtractedText(data);
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'brand-brain-' + new Date().toISOString().slice(0, 10) + '.txt';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // Listen for data from parent

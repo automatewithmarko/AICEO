@@ -1154,9 +1154,12 @@ function SaveTemplateModal({ open, onClose, canvasHtml, activeTool }) {
 function ImportTemplateModal({ open, onClose, activeTool, onImport }) {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [uploadError, setUploadError] = useState(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
+    setUploadError(null);
     setLoading(true);
     getTemplates(activeTool).then(res => {
       setTemplates(res.templates || []);
@@ -1177,6 +1180,35 @@ function ImportTemplateModal({ open, onClose, activeTool, onImport }) {
     setTemplates(prev => prev.filter(t => t.id !== id));
   };
 
+  // Read a user-uploaded template file. Accepts .html / .htm (canvas
+  // native) plus .txt / .md as plain content. Empty / oversized files
+  // are rejected with an inline error.
+  const handleUpload = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // reset so the same file can be re-picked
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      setUploadError('File is larger than 2 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => setUploadError('Could not read the file.');
+    reader.onload = () => {
+      const raw = String(reader.result || '').trim();
+      if (!raw) {
+        setUploadError('That file is empty.');
+        return;
+      }
+      const isHtml = /\.(html?|htm)$/i.test(file.name) || /<[a-z][\s\S]*>/i.test(raw);
+      const html = isHtml
+        ? raw
+        : `<div>${raw.split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('')}</div>`;
+      onImport(html);
+      onClose();
+    };
+    reader.readAsText(file);
+  };
+
   if (!open) return null;
   return (
     <div className="send-nl-overlay" onClick={onClose}>
@@ -1185,11 +1217,33 @@ function ImportTemplateModal({ open, onClose, activeTool, onImport }) {
           <h3>Import From Template</h3>
           <button className="send-nl-close" onClick={onClose}><X size={18} /></button>
         </div>
+        <div className="tpl-import-upload-row">
+          <button
+            type="button"
+            className="send-nl-btn send-nl-btn--outline tpl-import-upload-btn"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload size={14} />
+            Upload template file
+          </button>
+          <span className="tpl-import-upload-hint">HTML, HTM, TXT, or MD up to 2&nbsp;MB</span>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".html,.htm,.txt,.md,text/html,text/plain"
+            style={{ display: 'none' }}
+            onChange={handleUpload}
+          />
+        </div>
+        {uploadError && <div className="tpl-import-upload-error">{uploadError}</div>}
+        <div className="tpl-import-divider">
+          <span>or pick a saved template</span>
+        </div>
         <div style={{ flex: 1, overflow: 'auto', minHeight: 200 }}>
           {loading ? (
             <div className="send-nl-loading">Loading templates...</div>
           ) : templates.length === 0 ? (
-            <div className="send-nl-empty">No saved templates yet. Create content and save it as a template first.</div>
+            <div className="send-nl-empty">No saved templates yet. Create content and save it as a template first — or upload one above.</div>
           ) : (
             templates.map(t => (
               <div key={t.id} className="tpl-import-item" onClick={() => handleImport(t.id)}>

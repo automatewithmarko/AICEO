@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, ChevronDown, FileText, Loader, Plus, Dna, Calendar } from 'lucide-react';
+import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRight, ChevronDown, FileText, Loader, Plus, Dna, Calendar, Download } from 'lucide-react';
 import ColorWheelPicker from '../components/ColorWheelPicker';
 import FontSelector from '../components/FontSelector';
 import TeamSettings from '../components/TeamSettings';
@@ -48,6 +48,8 @@ export default function Settings() {
   const [shopifyStep, setShopifyStep] = useState(1);
   const [shopifyWebhook, setShopifyWebhook] = useState({ url: '', secret: '' });
   const [kajabiStep, setKajabiStep] = useState(1);
+  const [kajabiSecret, setKajabiSecret] = useState('');
+  const [stripeStep, setStripeStep] = useState(1);
   const [kajabiWebhook, setKajabiWebhook] = useState({ url: '', secret: '' });
   const [emailForm, setEmailForm] = useState({ email: '', senderName: '', username: '', password: '', imapHost: '', imapPort: '993', smtpHost: '', smtpPort: '587' });
   const [emailAccounts, setEmailAccounts] = useState([]);
@@ -283,16 +285,18 @@ export default function Settings() {
     setTimeout(() => setPasswordReset(false), 3000);
   };
 
-  const openModal = (id) => {
+  const openModal = (id, opts = {}) => {
     setApiKey('');
     setGhlStep(1);
     setShopifyStep(1);
     setKajabiStep(1);
+    setStripeStep(opts.step || 1);
     setShopifyStoreUrl('');
     setCopiedField(null);
     setConnectError(null);
     setConnecting(false);
     setShopifyWebhook({ url: '', secret: '' });
+    setKajabiSecret('');
     setKajabiWebhook({ url: '', secret: '' });
     setEmailForm({ email: '', senderName: '', username: '', password: '' });
     setModalOpen(id);
@@ -369,12 +373,81 @@ export default function Settings() {
     }
   };
 
-  const handleKajabiNext = async () => {
+  // Per-user Stripe webhook URL the customer pastes into their Stripe
+  // Dashboard. Constructed client-side because the backend doesn't yet
+  // store a webhook_url for the 'stripe' provider — the route exists
+  // regardless of whether the URL is persisted.
+  const stripeWebhookUrl = user?.id
+    ? `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/webhooks/stripe/${user.id}`
+    : '';
+
+  // Events the user should subscribe to in their Stripe Dashboard.
+  // Mirrors docs/Stripe_permissions.md "bare minimum" cheat-sheet.
+  const stripeWebhookEvents = [
+    'product.created',
+    'product.updated',
+    'product.deleted',
+    'price.created',
+    'price.updated',
+    'price.deleted',
+    'payment_link.created',
+    'payment_link.updated',
+    'payment_intent.succeeded',
+    'payment_intent.payment_failed',
+    'charge.succeeded',
+    'charge.refunded',
+    'charge.dispute.created',
+    'customer.created',
+    'customer.updated',
+    'customer.deleted',
+    'customer.subscription.created',
+    'customer.subscription.updated',
+    'customer.subscription.deleted',
+    'invoice.payment_succeeded',
+    'invoice.payment_failed',
+  ];
+
+  // Brand Brain — download the saved workbook as a .txt file. Uses the
+  // extractedText that the in-iframe Save flow already produces; falls
+  // back to a JSON dump of rawData if extractedText is missing.
+  const handleBrandBrainDownload = () => {
+    const bb = documents.brandBrain;
+    if (!bb) return;
+    const content = bb.extractedText
+      || (bb.rawData ? JSON.stringify(bb.rawData, null, 2) : '');
+    if (!content) return;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `brand-brain-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleStripeConnect = async () => {
     if (!apiKey.trim()) return;
     setConnecting(true);
     setConnectError(null);
     try {
-      const result = await connectIntegration('kajabi', apiKey);
+      const result = await connectIntegration('stripe', apiKey.trim());
+      setIntegrations((prev) => ({ ...prev, stripe: result.integration }));
+      setStripeStep(2);
+    } catch (err) {
+      setConnectError(err.message);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleKajabiNext = async () => {
+    if (!apiKey.trim() || !kajabiSecret.trim()) return;
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const result = await connectIntegration('kajabi', apiKey.trim(), { client_secret: kajabiSecret.trim() });
       setIntegrations((prev) => ({ ...prev, kajabi: result.integration }));
       setKajabiWebhook({
         url: result.integration.webhook_url || '',
@@ -861,12 +934,23 @@ export default function Settings() {
                     </button>
                   )
                 ) : integrations[nt.id]?.is_active ? (
-                  <button
-                    className="settings-btn settings-btn--danger"
-                    onClick={() => handleDisconnect(nt.id)}
-                  >
-                    Disconnect
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {nt.id === 'stripe' && (
+                      <button
+                        className="settings-btn settings-btn--secondary"
+                        onClick={() => openModal('stripe', { step: 2 })}
+                        title="View webhook setup instructions"
+                      >
+                        Webhook setup
+                      </button>
+                    )}
+                    <button
+                      className="settings-btn settings-btn--danger"
+                      onClick={() => handleDisconnect(nt.id)}
+                    >
+                      Disconnect
+                    </button>
+                  </div>
                 ) : (
                   <button
                     className="settings-btn settings-btn--primary"
@@ -1110,6 +1194,16 @@ export default function Settings() {
                       Remove
                     </button>
                   </div>
+                  <div className="settings-brand-brain-actions">
+                    <button
+                      className="settings-btn settings-btn--secondary"
+                      onClick={handleBrandBrainDownload}
+                      title="Download as .txt"
+                    >
+                      <Download size={14} />
+                      Download
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="settings-brand-brain-empty">
@@ -1204,11 +1298,11 @@ export default function Settings() {
               <img src={currentModal.logo} alt={currentModal.name} />
             </div>
 
-            {/* Stripe */}
-            {modalOpen === 'stripe' && (
+            {/* Stripe: step 1 — API key */}
+            {modalOpen === 'stripe' && stripeStep === 1 && (
               <>
                 <p className="modal-description">
-                  Connect your Stripe account to automatically sync your payment and subscription data to the PuerlyPersonal AI CEO.
+                  Connect your Stripe account so AICEO can sync your products, payments, and subscriptions both ways.
                 </p>
                 <div className="modal-connect-instructions">
                   <details open>
@@ -1234,9 +1328,79 @@ export default function Settings() {
                 <button
                   className="modal-btn modal-btn--primary"
                   disabled={!apiKey.trim() || connecting}
-                  onClick={handleConnect}
+                  onClick={handleStripeConnect}
                 >
                   {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
+                </button>
+              </>
+            )}
+
+            {/* Stripe: step 2 — webhook setup (also reachable for existing
+                users via the "Webhook setup" button on the connected card) */}
+            {modalOpen === 'stripe' && stripeStep === 2 && (
+              <>
+                <p className="modal-description" style={{ marginTop: 0 }}>
+                  <strong>Final step: enable two-way product sync.</strong> Add a webhook in your Stripe Dashboard so changes you make in Stripe (new product, edited price, archived offer) flow into AICEO automatically.
+                </p>
+                <div className="modal-connect-instructions">
+                  <details open>
+                    <summary className="modal-connect-summary">How to set up the Stripe webhook (2 minutes)</summary>
+                    <ol className="modal-connect-steps">
+                      <li>Go to <a href="https://dashboard.stripe.com/webhooks" target="_blank" rel="noopener noreferrer">Stripe Dashboard &gt; Developers &gt; Webhooks</a></li>
+                      <li>Click <strong>+ Add endpoint</strong> (or open an existing AICEO endpoint and click <strong>Update details</strong>)</li>
+                      <li>Paste the <strong>Endpoint URL</strong> from below into Stripe</li>
+                      <li>Under <strong>Select events</strong>, paste the events list from below (one event per line, or pick them in Stripe's UI)</li>
+                      <li>Click <strong>Add endpoint</strong> / <strong>Update endpoint</strong></li>
+                    </ol>
+                  </details>
+                </div>
+
+                <div className="modal-field">
+                  <label className="modal-label">Webhook Endpoint URL</label>
+                  <div className="modal-copy-row">
+                    <input
+                      type="text"
+                      className="modal-input modal-input--readonly"
+                      value={stripeWebhookUrl}
+                      readOnly
+                    />
+                    <button
+                      className="modal-copy-btn"
+                      onClick={() => copyToClipboard(stripeWebhookUrl, 'stripe-url')}
+                    >
+                      {copiedField === 'stripe-url' ? <Check size={16} /> : <Copy size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="modal-field">
+                  <label className="modal-label">Events to subscribe to ({stripeWebhookEvents.length})</label>
+                  <div className="modal-copy-row">
+                    <textarea
+                      className="modal-input modal-input--readonly"
+                      value={stripeWebhookEvents.join('\n')}
+                      readOnly
+                      rows={6}
+                      style={{ fontFamily: 'monospace', fontSize: 12, resize: 'vertical' }}
+                    />
+                    <button
+                      className="modal-copy-btn"
+                      onClick={() => copyToClipboard(stripeWebhookEvents.join('\n'), 'stripe-events')}
+                    >
+                      {copiedField === 'stripe-events' ? <Check size={16} /> : <Copy size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <p className="modal-description" style={{ fontSize: 12, marginTop: 0 }}>
+                  Already added these in the past? You can safely close this — your webhook will keep working. Add any events listed above that aren't ticked yet to unlock two-way product sync.
+                </p>
+
+                <button
+                  className="modal-btn modal-btn--primary"
+                  onClick={() => setModalOpen(null)}
+                >
+                  Done
                 </button>
               </>
             )}
@@ -1505,19 +1669,31 @@ export default function Settings() {
               </>
             )}
 
-            {/* Kajabi: step 1 */}
+            {/* Kajabi: step 1 — credentials */}
             {modalOpen === 'kajabi' && kajabiStep === 1 && (
               <>
+                <div className="modal-prereq-alert">
+                  <strong>Before you start — Kajabi plan required</strong>
+                  <p>Kajabi's Public API is only included on:</p>
+                  <ul>
+                    <li><strong>Pro</strong> plan (API included)</li>
+                    <li><strong>Growth</strong> plan with the <strong>$25/mo Public API add-on</strong></li>
+                  </ul>
+                  <p>On <strong>Kickstarter</strong> or Growth without the add-on, the connection will fail — Kajabi won't issue you API credentials.</p>
+                  <p>Quick check: open Kajabi &rarr; <strong>Settings</strong> &rarr; <strong>Public API</strong>. If you don't see that tab, your plan doesn't include API access.</p>
+                  <p style={{ marginBottom: 0, fontSize: 11.5, opacity: 0.85 }}>Plans and features change — confirm current pricing and API availability on the <a href="https://kajabi.com/pricing" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand-red)', fontWeight: 600 }}>official Kajabi website</a>.</p>
+                </div>
                 <p className="modal-description">
-                  Connect your Kajabi account to sync offers, sales, subscriptions, and member data for analytics.
+                  Connect Kajabi to sync offers, sales, subscriptions, and contacts so the AI CEO can answer questions about your Kajabi business.
                 </p>
                 <div className="modal-connect-instructions">
                   <details open>
-                    <summary className="modal-connect-summary">How to get your Kajabi API key</summary>
+                    <summary className="modal-connect-summary">How to generate your API Key and Secret</summary>
                     <ol className="modal-connect-steps">
-                      <li>Go to your Kajabi admin &gt; <strong>Settings</strong></li>
-                      <li>Navigate to <strong>API</strong> or <strong>Integrations</strong> section</li>
-                      <li>Generate or copy your API key</li>
+                      <li>In Kajabi, go to <strong>Settings</strong> &rarr; <strong>Public API</strong></li>
+                      <li>Click <strong>Create User API Key</strong></li>
+                      <li>Give the key a name (e.g. <em>AICEO</em>), pick a user, set permissions to read access</li>
+                      <li>Confirm — Kajabi shows you two values: <strong>API Key</strong> and <strong>API Secret</strong>. Copy both before closing the dialog (the Secret is shown only once)</li>
                     </ol>
                   </details>
                 </div>
@@ -1526,15 +1702,25 @@ export default function Settings() {
                   <input
                     type="text"
                     className="modal-input"
-                    placeholder="Paste your API key here"
+                    placeholder="Paste your API Key here"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
+                  />
+                </div>
+                <div className="modal-field">
+                  <label className="modal-label">Kajabi API Secret</label>
+                  <input
+                    type="password"
+                    className="modal-input"
+                    placeholder="Paste your API Secret here"
+                    value={kajabiSecret}
+                    onChange={(e) => setKajabiSecret(e.target.value)}
                   />
                 </div>
                 {connectError && <p className="modal-error">{connectError}</p>}
                 <button
                   className="modal-btn modal-btn--primary"
-                  disabled={!apiKey.trim() || connecting}
+                  disabled={!apiKey.trim() || !kajabiSecret.trim() || connecting}
                   onClick={handleKajabiNext}
                 >
                   {connecting ? <><Loader size={14} className="settings-spinner" /> Validating...</> : 'Next'}
@@ -1542,10 +1728,17 @@ export default function Settings() {
               </>
             )}
 
-            {/* Kajabi: step 2 — webhook setup */}
+            {/* Kajabi: step 2 — optional webhook for real-time updates */}
             {modalOpen === 'kajabi' && kajabiStep === 2 && (
               <>
-                <p className="modal-instruction">Copy this webhook URL into your Kajabi &rarr; Settings &rarr; Webhooks</p>
+                <p className="modal-description" style={{ marginTop: 0 }}>
+                  <strong>You're connected.</strong> Optionally add a webhook below for instant updates whenever a new Kajabi sale comes in. Without it, sales sync on the next scheduled refresh.
+                </p>
+                <div className="modal-prereq-alert" style={{ marginBottom: 16 }}>
+                  <strong>Webhooks require Growth or Pro</strong>
+                  <p style={{ marginBottom: 0 }}>If you don't see <strong>Settings &rarr; Third Party Integrations and Webhooks</strong> in Kajabi, your plan doesn't include webhooks. You can safely skip — historical data is already syncing.</p>
+                </div>
+                <p className="modal-instruction">In Kajabi: <strong>Settings</strong> &rarr; <strong>Third Party Integrations and Webhooks</strong> &rarr; <strong>Webhooks</strong> &rarr; <strong>+ Create Webhook</strong>. Pick the <em>Payment Succeeded</em> event and paste this URL:</p>
                 <div className="modal-field">
                   <label className="modal-label">Webhook URL</label>
                   <div className="modal-copy-row">
@@ -1563,32 +1756,20 @@ export default function Settings() {
                     </button>
                   </div>
                 </div>
-                <div className="modal-field">
-                  <label className="modal-label">Webhook Secret</label>
-                  <div className="modal-copy-row">
-                    <input
-                      type="text"
-                      className="modal-input modal-input--readonly"
-                      value={kajabiWebhook.secret}
-                      readOnly
-                    />
-                    <button
-                      className="modal-copy-btn"
-                      onClick={() => copyToClipboard(kajabiWebhook.secret, 'kajabi-secret')}
-                    >
-                      {copiedField === 'kajabi-secret' ? <Check size={16} /> : <Copy size={16} />}
-                    </button>
-                  </div>
+                <div className="modal-actions" style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="modal-btn modal-btn--secondary"
+                    onClick={() => setModalOpen(null)}
+                  >
+                    Skip for now
+                  </button>
+                  <button
+                    className="modal-btn modal-btn--primary"
+                    onClick={() => setModalOpen(null)}
+                  >
+                    Done
+                  </button>
                 </div>
-                <p className="modal-description" style={{ fontSize: 12, marginTop: 4 }}>
-                  Subscribe to <strong>purchase.completed</strong> and <strong>subscription.activated</strong> events for real-time sales updates.
-                </p>
-                <button
-                  className="modal-btn modal-btn--primary"
-                  onClick={() => setModalOpen(null)}
-                >
-                  Done
-                </button>
               </>
             )}
 

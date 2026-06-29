@@ -19,6 +19,25 @@ const VALID_PROVIDERS = Object.keys(services);
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://aiceoproduction.netlify.app';
 
+// Strip provider-specific secret fields from `metadata` before sending it
+// back to the frontend. `api_key` already isn't selected. Keep secrets
+// like Kajabi's OAuth `client_secret` and cached `access_token` server-side.
+const SENSITIVE_METADATA_KEYS = {
+  kajabi: ['client_secret', 'access_token', 'access_token_expires_at'],
+};
+function sanitizeMetadata(provider, metadata) {
+  if (!metadata || typeof metadata !== 'object') return metadata;
+  const drop = SENSITIVE_METADATA_KEYS[provider];
+  if (!drop?.length) return metadata;
+  const out = { ...metadata };
+  for (const k of drop) delete out[k];
+  return out;
+}
+function sanitizeIntegrationRow(row) {
+  if (!row) return row;
+  return { ...row, metadata: sanitizeMetadata(row.provider, row.metadata) };
+}
+
 function linkedinRedirectUri(req) {
   const baseUrl = process.env.API_BASE_URL
     || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `${req.protocol}://${req.get('host')}`);
@@ -212,7 +231,7 @@ router.get('/api/integrations', async (req, res) => {
     .order('created_at', { ascending: true });
 
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ integrations: data });
+  res.json({ integrations: (data || []).map(sanitizeIntegrationRow) });
 });
 
 // ─── Connect an integration ───
@@ -273,7 +292,7 @@ router.post('/api/integrations/:provider/connect', requireOwner, async (req, res
       });
     }
 
-    res.json({ integration: data });
+    res.json({ integration: sanitizeIntegrationRow(data) });
   } catch (err) {
     console.log(`[integrations] ${provider} validation failed: ${err.message}`);
     res.status(400).json({ error: `Validation failed: ${err.message}` });

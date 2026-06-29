@@ -210,6 +210,17 @@
   background: #fde2e8;
 }
 
+.settings-btn--secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.settings-btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
 .settings-btn--lg {
   padding: 12px 24px;
   font-size: 15px;
@@ -820,24 +831,63 @@
 .settings-brand-brain-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.settings-brand-brain-edit {
-  padding: 4px 14px;
+/* Normalize all three Brand Brain action buttons (Edit / Download / Remove)
+   to the same compact pill shape, regardless of which base class they
+   originally use. */
+.settings-brand-brain-actions > button {
+  padding: 4px 12px;
   border-radius: 6px;
-  border: 1px solid rgba(233, 26, 68, 0.3);
-  background: none;
-  color: #E91A44;
   font-size: 11px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid transparent;
+  background: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  line-height: 1;
+}
+
+.settings-brand-brain-edit {
+  border-color: rgba(233, 26, 68, 0.3);
+  color: #E91A44;
 }
 
 .settings-brand-brain-edit:hover {
   background: rgba(233, 26, 68, 0.08);
+}
+
+.settings-brand-brain-actions .settings-btn--secondary {
+  border-color: rgba(0, 0, 0, 0.12);
+  color: var(--text-secondary);
+  background: none;
+}
+
+.settings-brand-brain-actions .settings-btn--secondary:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-primary);
+}
+
+.settings-brand-brain-actions .settings-btn--danger {
+  border-color: rgba(233, 26, 68, 0.3);
+  background: rgba(233, 26, 68, 0.08);
+  color: #E91A44;
+}
+
+.settings-brand-brain-actions .settings-btn--danger:hover {
+  background: rgba(233, 26, 68, 0.16);
+}
+
+.settings-brand-brain-actions svg {
+  width: 12px;
+  height: 12px;
 }
 
 .settings-brand-brain-overlay {
@@ -1641,4 +1691,47 @@
 
 .modal-connect-steps strong {
   color: var(--text-primary);
+}
+
+/* Prerequisites alert — used by the Kajabi modal to warn about plan
+   gating before the user pastes credentials that can never work. */
+.modal-prereq-alert {
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.modal-prereq-alert strong {
+  color: var(--text-primary);
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.modal-prereq-alert p {
+  margin: 6px 0;
+}
+
+.modal-prereq-alert ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+}
+
+.modal-prereq-alert li {
+  margin: 2px 0;
+}
+
+.modal-btn--secondary {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.modal-btn--secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.04);
 }
