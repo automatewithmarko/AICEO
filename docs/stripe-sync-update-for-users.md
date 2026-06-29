@@ -79,29 +79,18 @@ If that works, you're set.
 
 ## First-time setup (you're connecting Stripe to AICEO for the first time)
 
-1. In AICEO, go to **Settings → Integrations → Stripe**.
-2. Paste your Stripe **Secret key** (`sk_live_...` or `sk_test_...`). You'll find it in Stripe → Developers → API keys.
-3. AICEO will give you a webhook URL.
+1. In AICEO, go to **Settings → Integrations → Stripe → Connect**.
+2. Paste your Stripe **Secret key** (`sk_live_...` or `sk_test_...`). You'll find it in Stripe → Developers → API keys. Click **Connect**.
+3. AICEO will move you to step 2 showing your **webhook URL** and the **full events list** with copy buttons.
 4. In Stripe → Developers → Webhooks → **Add endpoint**:
-   - Paste the URL AICEO showed you.
-   - Under "Events to send", paste the events from Step 3 above **plus** these (for revenue tracking):
-     ```
-     payment_intent.succeeded
-     payment_intent.payment_failed
-     charge.succeeded
-     charge.refunded
-     customer.created
-     customer.updated
-     customer.subscription.created
-     customer.subscription.updated
-     customer.subscription.deleted
-     invoice.payment_succeeded
-     invoice.payment_failed
-     ```
+   - Paste the webhook URL AICEO gave you.
+   - Click **Select events** and paste the events list AICEO gave you. (Stripe accepts one event per line.)
    - Click **Add endpoint**.
-5. Click into the new endpoint, copy the **Signing secret** (starts with `whsec_...`), paste it into AICEO when prompted.
+5. Back in AICEO, click **Done**.
 
 You're done. Your existing Stripe products will sync in over the next minute or two.
+
+> Note: AICEO doesn't currently store your Stripe webhook signing secret. That's a planned hardening — for now the per-user webhook URL itself is the auth surface.
 
 ---
 

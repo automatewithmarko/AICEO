@@ -210,6 +210,17 @@
   background: #fde2e8;
 }
 
+.settings-btn--secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.settings-btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
 .settings-btn--lg {
   padding: 12px 24px;
   font-size: 15px;

@@ -49,6 +49,7 @@ export default function Settings() {
   const [shopifyWebhook, setShopifyWebhook] = useState({ url: '', secret: '' });
   const [kajabiStep, setKajabiStep] = useState(1);
   const [kajabiSecret, setKajabiSecret] = useState('');
+  const [stripeStep, setStripeStep] = useState(1);
   const [kajabiWebhook, setKajabiWebhook] = useState({ url: '', secret: '' });
   const [emailForm, setEmailForm] = useState({ email: '', senderName: '', username: '', password: '', imapHost: '', imapPort: '993', smtpHost: '', smtpPort: '587' });
   const [emailAccounts, setEmailAccounts] = useState([]);
@@ -284,11 +285,12 @@ export default function Settings() {
     setTimeout(() => setPasswordReset(false), 3000);
   };
 
-  const openModal = (id) => {
+  const openModal = (id, opts = {}) => {
     setApiKey('');
     setGhlStep(1);
     setShopifyStep(1);
     setKajabiStep(1);
+    setStripeStep(opts.step || 1);
     setShopifyStoreUrl('');
     setCopiedField(null);
     setConnectError(null);
@@ -364,6 +366,55 @@ export default function Settings() {
         secret: result.integration.webhook_secret || '',
       });
       setShopifyStep(2);
+    } catch (err) {
+      setConnectError(err.message);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  // Per-user Stripe webhook URL the customer pastes into their Stripe
+  // Dashboard. Constructed client-side because the backend doesn't yet
+  // store a webhook_url for the 'stripe' provider — the route exists
+  // regardless of whether the URL is persisted.
+  const stripeWebhookUrl = user?.id
+    ? `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/webhooks/stripe/${user.id}`
+    : '';
+
+  // Events the user should subscribe to in their Stripe Dashboard.
+  // Mirrors docs/Stripe_permissions.md "bare minimum" cheat-sheet.
+  const stripeWebhookEvents = [
+    'product.created',
+    'product.updated',
+    'product.deleted',
+    'price.created',
+    'price.updated',
+    'price.deleted',
+    'payment_link.created',
+    'payment_link.updated',
+    'payment_intent.succeeded',
+    'payment_intent.payment_failed',
+    'charge.succeeded',
+    'charge.refunded',
+    'charge.dispute.created',
+    'customer.created',
+    'customer.updated',
+    'customer.deleted',
+    'customer.subscription.created',
+    'customer.subscription.updated',
+    'customer.subscription.deleted',
+    'invoice.payment_succeeded',
+    'invoice.payment_failed',
+  ];
+
+  const handleStripeConnect = async () => {
+    if (!apiKey.trim()) return;
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const result = await connectIntegration('stripe', apiKey.trim());
+      setIntegrations((prev) => ({ ...prev, stripe: result.integration }));
+      setStripeStep(2);
     } catch (err) {
       setConnectError(err.message);
     } finally {
@@ -863,12 +914,23 @@ export default function Settings() {
                     </button>
                   )
                 ) : integrations[nt.id]?.is_active ? (
-                  <button
-                    className="settings-btn settings-btn--danger"
-                    onClick={() => handleDisconnect(nt.id)}
-                  >
-                    Disconnect
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {nt.id === 'stripe' && (
+                      <button
+                        className="settings-btn settings-btn--secondary"
+                        onClick={() => openModal('stripe', { step: 2 })}
+                        title="View webhook setup instructions"
+                      >
+                        Webhook setup
+                      </button>
+                    )}
+                    <button
+                      className="settings-btn settings-btn--danger"
+                      onClick={() => handleDisconnect(nt.id)}
+                    >
+                      Disconnect
+                    </button>
+                  </div>
                 ) : (
                   <button
                     className="settings-btn settings-btn--primary"
@@ -1206,11 +1268,11 @@ export default function Settings() {
               <img src={currentModal.logo} alt={currentModal.name} />
             </div>
 
-            {/* Stripe */}
-            {modalOpen === 'stripe' && (
+            {/* Stripe: step 1 — API key */}
+            {modalOpen === 'stripe' && stripeStep === 1 && (
               <>
                 <p className="modal-description">
-                  Connect your Stripe account to automatically sync your payment and subscription data to the PuerlyPersonal AI CEO.
+                  Connect your Stripe account so AICEO can sync your products, payments, and subscriptions both ways.
                 </p>
                 <div className="modal-connect-instructions">
                   <details open>
@@ -1236,9 +1298,79 @@ export default function Settings() {
                 <button
                   className="modal-btn modal-btn--primary"
                   disabled={!apiKey.trim() || connecting}
-                  onClick={handleConnect}
+                  onClick={handleStripeConnect}
                 >
                   {connecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
+                </button>
+              </>
+            )}
+
+            {/* Stripe: step 2 — webhook setup (also reachable for existing
+                users via the "Webhook setup" button on the connected card) */}
+            {modalOpen === 'stripe' && stripeStep === 2 && (
+              <>
+                <p className="modal-description" style={{ marginTop: 0 }}>
+                  <strong>Final step: enable two-way product sync.</strong> Add a webhook in your Stripe Dashboard so changes you make in Stripe (new product, edited price, archived offer) flow into AICEO automatically.
+                </p>
+                <div className="modal-connect-instructions">
+                  <details open>
+                    <summary className="modal-connect-summary">How to set up the Stripe webhook (2 minutes)</summary>
+                    <ol className="modal-connect-steps">
+                      <li>Go to <a href="https://dashboard.stripe.com/webhooks" target="_blank" rel="noopener noreferrer">Stripe Dashboard &gt; Developers &gt; Webhooks</a></li>
+                      <li>Click <strong>+ Add endpoint</strong> (or open an existing AICEO endpoint and click <strong>Update details</strong>)</li>
+                      <li>Paste the <strong>Endpoint URL</strong> from below into Stripe</li>
+                      <li>Under <strong>Select events</strong>, paste the events list from below (one event per line, or pick them in Stripe's UI)</li>
+                      <li>Click <strong>Add endpoint</strong> / <strong>Update endpoint</strong></li>
+                    </ol>
+                  </details>
+                </div>
+
+                <div className="modal-field">
+                  <label className="modal-label">Webhook Endpoint URL</label>
+                  <div className="modal-copy-row">
+                    <input
+                      type="text"
+                      className="modal-input modal-input--readonly"
+                      value={stripeWebhookUrl}
+                      readOnly
+                    />
+                    <button
+                      className="modal-copy-btn"
+                      onClick={() => copyToClipboard(stripeWebhookUrl, 'stripe-url')}
+                    >
+                      {copiedField === 'stripe-url' ? <Check size={16} /> : <Copy size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="modal-field">
+                  <label className="modal-label">Events to subscribe to ({stripeWebhookEvents.length})</label>
+                  <div className="modal-copy-row">
+                    <textarea
+                      className="modal-input modal-input--readonly"
+                      value={stripeWebhookEvents.join('\n')}
+                      readOnly
+                      rows={6}
+                      style={{ fontFamily: 'monospace', fontSize: 12, resize: 'vertical' }}
+                    />
+                    <button
+                      className="modal-copy-btn"
+                      onClick={() => copyToClipboard(stripeWebhookEvents.join('\n'), 'stripe-events')}
+                    >
+                      {copiedField === 'stripe-events' ? <Check size={16} /> : <Copy size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <p className="modal-description" style={{ fontSize: 12, marginTop: 0 }}>
+                  Already added these in the past? You can safely close this — your webhook will keep working. Add any events listed above that aren't ticked yet to unlock two-way product sync.
+                </p>
+
+                <button
+                  className="modal-btn modal-btn--primary"
+                  onClick={() => setModalOpen(null)}
+                >
+                  Done
                 </button>
               </>
             )}
