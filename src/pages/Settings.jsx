@@ -1189,6 +1189,12 @@ export default function Settings() {
                     <button className="settings-brand-brain-edit" onClick={() => setBrandBrainOpen(true)}>
                       Edit
                     </button>
+                    <button className="settings-btn settings-btn--danger" onClick={() => removeDoc('brandBrain')}>
+                      <Trash2 size={14} />
+                      Remove
+                    </button>
+                  </div>
+                  <div className="settings-brand-brain-actions">
                     <button
                       className="settings-btn settings-btn--secondary"
                       onClick={handleBrandBrainDownload}
@@ -1196,10 +1202,6 @@ export default function Settings() {
                     >
                       <Download size={14} />
                       Download
-                    </button>
-                    <button className="settings-btn settings-btn--danger" onClick={() => removeDoc('brandBrain')}>
-                      <Trash2 size={14} />
-                      Remove
                     </button>
                   </div>
                 </div>
