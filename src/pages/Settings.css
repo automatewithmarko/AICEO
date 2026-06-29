@@ -1642,3 +1642,46 @@
 .modal-connect-steps strong {
   color: var(--text-primary);
 }
+
+/* Prerequisites alert — used by the Kajabi modal to warn about plan
+   gating before the user pastes credentials that can never work. */
+.modal-prereq-alert {
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.modal-prereq-alert strong {
+  color: var(--text-primary);
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.modal-prereq-alert p {
+  margin: 6px 0;
+}
+
+.modal-prereq-alert ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+}
+
+.modal-prereq-alert li {
+  margin: 2px 0;
+}
+
+.modal-btn--secondary {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.modal-btn--secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.04);
+}

@@ -48,6 +48,7 @@ export default function Settings() {
   const [shopifyStep, setShopifyStep] = useState(1);
   const [shopifyWebhook, setShopifyWebhook] = useState({ url: '', secret: '' });
   const [kajabiStep, setKajabiStep] = useState(1);
+  const [kajabiSecret, setKajabiSecret] = useState('');
   const [kajabiWebhook, setKajabiWebhook] = useState({ url: '', secret: '' });
   const [emailForm, setEmailForm] = useState({ email: '', senderName: '', username: '', password: '', imapHost: '', imapPort: '993', smtpHost: '', smtpPort: '587' });
   const [emailAccounts, setEmailAccounts] = useState([]);
@@ -293,6 +294,7 @@ export default function Settings() {
     setConnectError(null);
     setConnecting(false);
     setShopifyWebhook({ url: '', secret: '' });
+    setKajabiSecret('');
     setKajabiWebhook({ url: '', secret: '' });
     setEmailForm({ email: '', senderName: '', username: '', password: '' });
     setModalOpen(id);
@@ -370,11 +372,11 @@ export default function Settings() {
   };
 
   const handleKajabiNext = async () => {
-    if (!apiKey.trim()) return;
+    if (!apiKey.trim() || !kajabiSecret.trim()) return;
     setConnecting(true);
     setConnectError(null);
     try {
-      const result = await connectIntegration('kajabi', apiKey);
+      const result = await connectIntegration('kajabi', apiKey.trim(), { client_secret: kajabiSecret.trim() });
       setIntegrations((prev) => ({ ...prev, kajabi: result.integration }));
       setKajabiWebhook({
         url: result.integration.webhook_url || '',
@@ -1505,19 +1507,31 @@ export default function Settings() {
               </>
             )}
 
-            {/* Kajabi: step 1 */}
+            {/* Kajabi: step 1 — credentials */}
             {modalOpen === 'kajabi' && kajabiStep === 1 && (
               <>
+                <div className="modal-prereq-alert">
+                  <strong>Before you start — Kajabi plan required</strong>
+                  <p>Kajabi's Public API is only included on:</p>
+                  <ul>
+                    <li><strong>Pro</strong> plan (API included)</li>
+                    <li><strong>Growth</strong> plan with the <strong>$25/mo Public API add-on</strong></li>
+                  </ul>
+                  <p>On <strong>Kickstarter</strong> or Growth without the add-on, the connection will fail — Kajabi won't issue you API credentials.</p>
+                  <p>Quick check: open Kajabi &rarr; <strong>Settings</strong> &rarr; <strong>Public API</strong>. If you don't see that tab, your plan doesn't include API access.</p>
+                  <p style={{ marginBottom: 0, fontSize: 11.5, opacity: 0.85 }}>Plans and features change — confirm current pricing and API availability on the <a href="https://kajabi.com/pricing" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand-red)', fontWeight: 600 }}>official Kajabi website</a>.</p>
+                </div>
                 <p className="modal-description">
-                  Connect your Kajabi account to sync offers, sales, subscriptions, and member data for analytics.
+                  Connect Kajabi to sync offers, sales, subscriptions, and contacts so the AI CEO can answer questions about your Kajabi business.
                 </p>
                 <div className="modal-connect-instructions">
                   <details open>
-                    <summary className="modal-connect-summary">How to get your Kajabi API key</summary>
+                    <summary className="modal-connect-summary">How to generate your API Key and Secret</summary>
                     <ol className="modal-connect-steps">
-                      <li>Go to your Kajabi admin &gt; <strong>Settings</strong></li>
-                      <li>Navigate to <strong>API</strong> or <strong>Integrations</strong> section</li>
-                      <li>Generate or copy your API key</li>
+                      <li>In Kajabi, go to <strong>Settings</strong> &rarr; <strong>Public API</strong></li>
+                      <li>Click <strong>Create User API Key</strong></li>
+                      <li>Give the key a name (e.g. <em>AICEO</em>), pick a user, set permissions to read access</li>
+                      <li>Confirm — Kajabi shows you two values: <strong>API Key</strong> and <strong>API Secret</strong>. Copy both before closing the dialog (the Secret is shown only once)</li>
                     </ol>
                   </details>
                 </div>
@@ -1526,15 +1540,25 @@ export default function Settings() {
                   <input
                     type="text"
                     className="modal-input"
-                    placeholder="Paste your API key here"
+                    placeholder="Paste your API Key here"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
+                  />
+                </div>
+                <div className="modal-field">
+                  <label className="modal-label">Kajabi API Secret</label>
+                  <input
+                    type="password"
+                    className="modal-input"
+                    placeholder="Paste your API Secret here"
+                    value={kajabiSecret}
+                    onChange={(e) => setKajabiSecret(e.target.value)}
                   />
                 </div>
                 {connectError && <p className="modal-error">{connectError}</p>}
                 <button
                   className="modal-btn modal-btn--primary"
-                  disabled={!apiKey.trim() || connecting}
+                  disabled={!apiKey.trim() || !kajabiSecret.trim() || connecting}
                   onClick={handleKajabiNext}
                 >
                   {connecting ? <><Loader size={14} className="settings-spinner" /> Validating...</> : 'Next'}
@@ -1542,10 +1566,17 @@ export default function Settings() {
               </>
             )}
 
-            {/* Kajabi: step 2 — webhook setup */}
+            {/* Kajabi: step 2 — optional webhook for real-time updates */}
             {modalOpen === 'kajabi' && kajabiStep === 2 && (
               <>
-                <p className="modal-instruction">Copy this webhook URL into your Kajabi &rarr; Settings &rarr; Webhooks</p>
+                <p className="modal-description" style={{ marginTop: 0 }}>
+                  <strong>You're connected.</strong> Optionally add a webhook below for instant updates whenever a new Kajabi sale comes in. Without it, sales sync on the next scheduled refresh.
+                </p>
+                <div className="modal-prereq-alert" style={{ marginBottom: 16 }}>
+                  <strong>Webhooks require Growth or Pro</strong>
+                  <p style={{ marginBottom: 0 }}>If you don't see <strong>Settings &rarr; Third Party Integrations and Webhooks</strong> in Kajabi, your plan doesn't include webhooks. You can safely skip — historical data is already syncing.</p>
+                </div>
+                <p className="modal-instruction">In Kajabi: <strong>Settings</strong> &rarr; <strong>Third Party Integrations and Webhooks</strong> &rarr; <strong>Webhooks</strong> &rarr; <strong>+ Create Webhook</strong>. Pick the <em>Payment Succeeded</em> event and paste this URL:</p>
                 <div className="modal-field">
                   <label className="modal-label">Webhook URL</label>
                   <div className="modal-copy-row">
@@ -1563,32 +1594,20 @@ export default function Settings() {
                     </button>
                   </div>
                 </div>
-                <div className="modal-field">
-                  <label className="modal-label">Webhook Secret</label>
-                  <div className="modal-copy-row">
-                    <input
-                      type="text"
-                      className="modal-input modal-input--readonly"
-                      value={kajabiWebhook.secret}
-                      readOnly
-                    />
-                    <button
-                      className="modal-copy-btn"
-                      onClick={() => copyToClipboard(kajabiWebhook.secret, 'kajabi-secret')}
-                    >
-                      {copiedField === 'kajabi-secret' ? <Check size={16} /> : <Copy size={16} />}
-                    </button>
-                  </div>
+                <div className="modal-actions" style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="modal-btn modal-btn--secondary"
+                    onClick={() => setModalOpen(null)}
+                  >
+                    Skip for now
+                  </button>
+                  <button
+                    className="modal-btn modal-btn--primary"
+                    onClick={() => setModalOpen(null)}
+                  >
+                    Done
+                  </button>
                 </div>
-                <p className="modal-description" style={{ fontSize: 12, marginTop: 4 }}>
-                  Subscribe to <strong>purchase.completed</strong> and <strong>subscription.activated</strong> events for real-time sales updates.
-                </p>
-                <button
-                  className="modal-btn modal-btn--primary"
-                  onClick={() => setModalOpen(null)}
-                >
-                  Done
-                </button>
               </>
             )}
 
