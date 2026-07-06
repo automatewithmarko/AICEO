@@ -326,6 +326,32 @@ export function AuthProvider({ children }) {
       options,
     });
     if (error) throw error;
+
+    // Fire the platform welcome email. Fire-and-forget on purpose —
+    // network / provider failure must not block the "check your email"
+    // UX the user is about to see. Backend dedups on user_id so
+    // hitting this twice is safe.
+    //
+    // supabase.auth.signUp resolves BEFORE the user confirms their
+    // address, so data.user is populated even when data.session is null.
+    // That's exactly what we want — send welcome even to users who never
+    // click the confirm link.
+    const newUserId = data?.user?.id;
+    if (newUserId) {
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+        fetch(`${API_URL}/api/notify/welcome`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: newUserId,
+            email,
+            fullName: fullName || null,
+          }),
+        }).catch(() => { /* fire-and-forget */ });
+      } catch { /* fire-and-forget */ }
+    }
+
     // Returns the session so callers can decide whether to show "check
     // your email" vs. the user is already signed in.
     return data;

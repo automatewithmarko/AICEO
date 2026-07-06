@@ -32,6 +32,7 @@ import billingRoutes from './routes/billing.js';
 import adminRoutes from './routes/admin.js';
 import workspaceRoutes from './routes/workspace.js';
 import stagedemoRoutes, { handleStagedemoUpgrade } from './routes/stagedemo.js';
+import authNotifyRoutes from './routes/auth-notify.js';
 import { startEmailSync } from './services/email-sync.js';
 import { resolveContext } from './services/workspace.js';
 
@@ -1225,6 +1226,12 @@ app.use(stagedemoRoutes);
 
 // ─── Webhook routes (no auth — external services) ───
 app.use(webhookRoutes);
+
+// ─── Auth-lifecycle notifications (no auth — called right after signup) ───
+// Endpoint is self-verifying: it only sends welcome mail to addresses that
+// exist in auth.users, and dedup is on user_id PK, so it cannot be used
+// to spam arbitrary recipients or re-mail existing users.
+app.use(authNotifyRoutes);
 
 const server = http.createServer(app);
 
