@@ -9,7 +9,12 @@ import * as shopify from '../services/integrations/shopify.js';
 import * as kajabi from '../services/integrations/kajabi.js';
 import * as gohighlevel from '../services/integrations/gohighlevel.js';
 import { refillMonthlyCredits, addCredits, revokeCredits } from '../services/credits.js';
-import { sendBookingInvite } from '../services/booking-email.js';
+import {
+  sendBookingInvite,
+  sendSubscriptionActivatedEmail,
+  sendRenewalReceiptEmail,
+  sendPaymentFailedEmail,
+} from '../services/booking-email.js';
 
 const router = Router();
 
@@ -315,6 +320,43 @@ router.post('/api/webhooks/stripe', async (req, res) => {
           }
         }
 
+        // "Your plan is live" receipt. Wrapped — mail failure must NOT
+        // block the credits seed or trigger a Stripe retry.
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', userId)
+            .maybeSingle();
+          const { data: planRowForLabel } = await supabase
+            .from('plans')
+            .select('display_name, name')
+            .eq('id', plan)
+            .maybeSingle();
+          const planLabel = planRowForLabel?.display_name
+            || planRowForLabel?.name
+            || plan.charAt(0).toUpperCase() + plan.slice(1);
+          const tierLabel = tier === 'boost' ? 'Boost' : (tier === 'standard' ? null : tier);
+
+          // session.amount_total is the first invoice's total in the smallest
+          // currency unit. session.currency is ISO-4217 lowercase.
+          const firstInvoice = session.invoice
+            ? await stripe.invoices.retrieve(session.invoice).catch(() => null)
+            : null;
+
+          await sendSubscriptionActivatedEmail({
+            userId,
+            planLabel,
+            tierLabel,
+            amountCents: session.amount_total || firstInvoice?.amount_paid || null,
+            currency: session.currency || firstInvoice?.currency || 'usd',
+            invoiceUrl: firstInvoice?.hosted_invoice_url || null,
+            displayName: profile?.full_name || null,
+          });
+        } catch (emailErr) {
+          console.error(`[webhook/stripe] sub-activated email failed (non-fatal): ${emailErr.message}`);
+        }
+
         // Seed first-month credits here (exactly once per event.id — the
         // stripe_events dedupe above protects against retries).
         try {
@@ -470,6 +512,42 @@ router.post('/api/webhooks/stripe', async (req, res) => {
         } catch (err) {
           console.error(`[webhook/stripe] Refill failed: user=${userId} err=${err.message}`);
         }
+
+        // Renewal receipt. Non-fatal.
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', userId)
+            .maybeSingle();
+          const { data: sub } = await supabase
+            .from('subscriptions')
+            .select('plan')
+            .eq('user_id', userId)
+            .maybeSingle();
+          let planLabel = null;
+          if (sub?.plan) {
+            const { data: planRow } = await supabase
+              .from('plans')
+              .select('display_name, name')
+              .eq('id', sub.plan)
+              .maybeSingle();
+            planLabel = planRow?.display_name
+              || planRow?.name
+              || sub.plan.charAt(0).toUpperCase() + sub.plan.slice(1);
+          }
+          await sendRenewalReceiptEmail({
+            userId,
+            planLabel,
+            amountCents: obj.amount_paid || 0,
+            currency: obj.currency || 'usd',
+            invoiceUrl: obj.hosted_invoice_url || null,
+            periodEnd: obj.period_end ? new Date(obj.period_end * 1000).toISOString() : null,
+            displayName: profile?.full_name || null,
+          });
+        } catch (emailErr) {
+          console.error(`[webhook/stripe] renewal receipt email failed (non-fatal): ${emailErr.message}`);
+        }
         break;
       }
 
@@ -582,6 +660,42 @@ router.post('/api/webhooks/stripe', async (req, res) => {
         if (pfRes.error) {
           console.error(`[webhook/stripe] past_due update FAILED: ${pfRes.error.message}`);
           throw new Error(`past_due update: ${pfRes.error.message}`);
+        }
+
+        // "Update your card" email. Non-fatal.
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', userId)
+            .maybeSingle();
+          const { data: sub } = await supabase
+            .from('subscriptions')
+            .select('plan')
+            .eq('user_id', userId)
+            .maybeSingle();
+          let planLabel = null;
+          if (sub?.plan) {
+            const { data: planRow } = await supabase
+              .from('plans')
+              .select('display_name, name')
+              .eq('id', sub.plan)
+              .maybeSingle();
+            planLabel = planRow?.display_name
+              || planRow?.name
+              || sub.plan.charAt(0).toUpperCase() + sub.plan.slice(1);
+          }
+          const billingPortalUrl = process.env.STRIPE_BILLING_PORTAL_URL || null;
+          await sendPaymentFailedEmail({
+            userId,
+            planLabel,
+            amountCents: obj.amount_due || 0,
+            currency: obj.currency || 'usd',
+            billingPortalUrl,
+            displayName: profile?.full_name || null,
+          });
+        } catch (emailErr) {
+          console.error(`[webhook/stripe] payment-failed email failed (non-fatal): ${emailErr.message}`);
         }
         break;
       }
