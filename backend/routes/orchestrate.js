@@ -759,7 +759,7 @@ function detectNewArtifactInFlow(messages, currentAgent) {
 // mode: "ceo" or "direct" (direct handles both generation and editing)
 router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, res) => {
   const userId = req.user?.id;
-  const { messages, mode = 'ceo', agent: agentName, searchMode = false, currentHtml, editInstruction, currentAgent, currentContentPost, sessionId = null, assistantMsgId = null } = req.body;
+  const { messages, mode = 'ceo', agent: agentName, searchMode = false, planMode = false, currentHtml, editInstruction, currentAgent, currentContentPost, sessionId = null, assistantMsgId = null } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array required' });
@@ -808,7 +808,7 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
       // "B2B SaaS" doesn't read as a new-artifact request on its own).
       if (detectNewArtifactInFlow(messages, currentAgent)) {
         console.log(`[orchestrate] New-artifact intent detected in current flow (last user msg: "${lastUserMsg.slice(0, 80)}") — skipping edit shortcut, routing to CEO orchestration`);
-        await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, sessionId, assistantMsgId });
+        await handleCeoOrchestration({ res, messages, context, searchMode, planMode, userId, currentHtml, currentAgent, sessionId, assistantMsgId });
         return;
       }
 
@@ -835,9 +835,9 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
         }
       }
       // Fall through to full CEO orchestration
-      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, currentContentPost, sessionId, assistantMsgId });
+      await handleCeoOrchestration({ res, messages, context, searchMode, planMode, userId, currentHtml, currentAgent, currentContentPost, sessionId, assistantMsgId });
     } else {
-      await handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, currentContentPost, sessionId, assistantMsgId });
+      await handleCeoOrchestration({ res, messages, context, searchMode, planMode, userId, currentHtml, currentAgent, currentContentPost, sessionId, assistantMsgId });
     }
     console.log('[orchestrate] Handler completed successfully');
   } catch (err) {
@@ -1215,8 +1215,108 @@ async function enrichMessagesWithVideoContext(messages, userId, res) {
 }
 
 // ── CEO Orchestration ──
-async function handleCeoOrchestration({ res, messages, context, searchMode, userId, currentHtml, currentAgent, currentContentPost, sessionId = null, assistantMsgId = null }) {
+async function handleCeoOrchestration({ res, messages, context, searchMode, planMode = false, userId, currentHtml, currentAgent, currentContentPost, sessionId = null, assistantMsgId = null }) {
   let systemPrompt = buildCeoSystemPrompt(context);
+
+  // Plan Mode — user wants to plan a week/month of content instead of
+  // generating individual posts. Plans and detailed briefs land in the
+  // canvas panel as markdown_doc artifacts (editable), NOT as inline chat.
+  // The workflow is a three-stage funnel:
+  //   Stage 1: overall plan artifact (table of posts by day/format).
+  //   Stage 2: per-week detailed content brief artifact.
+  //   Stage 3: (after Plan Mode is OFF) actual generation reads the brief.
+  if (planMode) {
+    systemPrompt = `=== PLAN MODE IS ACTIVE (READ THIS FIRST — OVERRIDES EVERY TOOL INSTRUCTION BELOW) ===
+The user has turned on Plan Mode. Their goal is to plan a week or month of content in one session, NOT to generate individual posts right now. The premise: they want to spend a weekend building a full content calendar with you so their next 4 weeks are already mapped out AND written in enough detail that later generation is one-click.
+
+HARD RULES (apply to every Plan Mode message):
+- Do NOT delegate to newsletter, content_post, landing_page, linkedin_post, or any generation agent.
+- Do NOT call generate_image. No image generation. No slide plans. No per-piece assets.
+- Your output is ALWAYS a markdown_doc artifact via create_artifact — NEVER inline chat prose. The artifact renders in the side canvas and the user can edit it directly. Chat text should be one short acknowledgement sentence ("Here's the plan — edit anything in the canvas.").
+- If the user's ask is ambiguous on scope, ASK ONE short JSON question in chat (no artifact yet) BEFORE producing anything. Options 2-5 words. Hard cap: 2 questions total.
+
+TWO ARTIFACT STAGES — decide which one the user is asking for:
+
+── STAGE 1: OVERVIEW PLAN ──
+Trigger: user's first Plan Mode message, or explicit ask ("plan the next month", "what should I post this week").
+Ask (only if not already answered):
+1. Timeframe — {"type":"question","text":"How much content should I plan?","options":["1 week","2 weeks","1 month","Custom"]}
+2. Cadence — {"type":"question","text":"How often do you want to post?","options":["3x per week","5x per week","Daily","Custom"]}
+Then call create_artifact with:
+  type: "markdown_doc"
+  title: "Content Plan — <timeframe>" (e.g. "Content Plan — January 2026")
+  content: markdown using this exact structure:
+
+## 📅 Content Plan — <title>
+
+**Timeframe:** <e.g. Jan 6 – Feb 2>
+**Cadence:** <e.g. 3x per week>
+**Platforms:** <e.g. Instagram + LinkedIn>
+**Total posts:** <N>
+**Narrative arc (for 3+ week plans):** <e.g. Week 1 attention → Week 2 education → Week 3 proof → Week 4 conversion>
+
+### Week 1 (<date range>)
+| Day | Platform | Format | Topic | Hook | CTA |
+|-----|----------|--------|-------|------|-----|
+| Mon <date> | Instagram | Carousel | <specific topic> | "<real first-line hook>" | <specific CTA> |
+| Wed <date> | LinkedIn | Text post | <specific topic> | "<real first-line hook>" | <specific CTA> |
+| Fri <date> | Instagram | Reel | <specific topic> | "<real first-line hook>" | <specific CTA> |
+
+(Repeat one section per week. Include every planned post.)
+
+---
+**Next step:** ask the CEO "expand week 1" (or any week) to get the detailed content brief for each post. When ready to actually generate, turn Plan Mode off and say "generate Monday's carousel".
+
+── STAGE 2: WEEKLY DETAILED CONTENT BRIEF ──
+Trigger: user asks to "expand week N", "flesh out week 2", "write the details for this week", or similar. There is already a plan artifact visible (you can see it in conversation history because you created it).
+Call create_artifact with:
+  type: "markdown_doc"
+  title: "Week <N> — Detailed Content Brief"
+  content: markdown structured as ONE section per planned post in that week. Each section is a mini-brief the generation agent can consume directly. Exact structure per post:
+
+## <Day + Date> — <Platform> <Format>
+
+**Topic:** <one line>
+**Angle:** <one sentence — the strategic POV>
+**Hook (line 1 of the post):** "<verbatim hook, in the user's voice>"
+
+**Post content:**
+<For a CAROUSEL: bullet list of slides, one per line. e.g. "Slide 1 (Hook): ...", "Slide 2 (Problem): ...", "Slide 3-5 (Proof): ...", "Slide N (CTA): ..." — one sentence per slide describing the content and the visual concept.>
+<For a REEL: the full spoken script, ~30-60 seconds of copy, line by line as it will be delivered on camera. Add a one-line "Direction:" note at the end for visuals + trending audio if relevant.>
+<For a SINGLE POST: the caption verbatim as it will publish, plus a one-line visual concept for the image.>
+<For a STORY sequence: 3-4 frames described one line each with the on-screen text.>
+<For a LINKEDIN TEXT POST: the full post text verbatim as it will publish (structured per the LinkedIn caption standard — 6-10 short paragraphs, blank lines, one specific proof element).>
+
+**CTA:** <what the reader/viewer should do — comment keyword / link / DM / follow>
+**Success metric:** <e.g. saves, comments, shares, or link clicks — pick ONE per post so we can measure it>
+
+(Repeat for every post in the week. Include every planned post from the overall plan, in day order.)
+
+---
+**Next step:** ask "expand week 2" for the next brief, or turn Plan Mode off and say "generate Monday's carousel" to actually produce the assets from this brief.
+
+QUALITY BAR (this is why the user turned Plan Mode on — deliver on it):
+- Every topic must be REAL and specific to this user. NOT "talk about mindset" — instead something like "The 20-min ritual I did every Sunday for 3 months that fixed my launch cadence."
+- Hooks are ACTUAL scroll-stopping first lines written in the user's voice, in quotes. Not descriptions of the hook.
+- Vary format across the week — don't stack 5 carousels back to back. Mix carousel / reel / single post / story / text post naturally.
+- Anchor topics in the user's Brand DNA, integrated data (products, sales, recent calls, emails), and past content. If you have real signal, USE it. Never generic.
+- Space out asks: hard-sell CTAs no more than 1 in every 3 posts. The rest build audience, teach, or share proof.
+- If the plan covers 3+ weeks, weave a narrative arc: week 1 attention / week 2 education / week 3 proof / week 4 conversion (or similar). State the arc in the header.
+- In Stage 2 briefs, write the ACTUAL post text (caption, script, slide list) verbatim as it will publish. The generation agent should be able to render the piece with zero extra guesses.
+
+WHAT NOT TO DO IN PLAN MODE:
+- Do NOT stream the plan or brief as inline chat text. It MUST go through create_artifact so the user can edit it in the canvas.
+- Do NOT ask more than 2 clarifying questions before creating an artifact.
+- Do NOT default to "Educational tips carousel" for every slot. That's the AI-slop version of a plan.
+- Do NOT delegate to a generation agent even if the user says "and go ahead and make them". Reply in chat: "I'll queue those. Turn Plan Mode off and tell me which day to start with."
+- Do NOT rewrite the plan artifact when the user asks for a week's detail — a brief is a NEW artifact. Two separate artifacts (plan + brief) so the user can navigate between them.
+
+Everything below in this prompt describes non-plan-mode behavior. Ignore anything that would trigger content generation until Plan Mode is turned off.
+
+---
+
+` + systemPrompt;
+  }
   // If a social post (content_post) is currently in the panel, append
   // an EDIT-MODE block so the CEO knows the post exists and can call
   // create_artifact again with edits instead of just chatting. Without
@@ -1243,7 +1343,24 @@ RULES:
 - If the user explicitly asks for a brand-new post on a different topic: call create_artifact with the new post (this becomes a separate snapshot — previous post stays accessible via its chat card).
 `;
   }
-  const tools = buildAgentTools();
+  let tools = buildAgentTools();
+  // Plan Mode: physically restrict the CEO to ONLY ask_user (for scoping
+  // questions) and create_artifact (for the plan itself). Combined with
+  // tool_choice='required' below, this makes it impossible for the model to
+  // produce free-text questions or inline plan prose — every response must
+  // be a tool call. Was: the AI would type prose questions bypassing
+  // ask_user and dump the plan as inline chat instead of the canvas.
+  let ceoToolChoice; // undefined → streamXai defaults to 'auto'
+  let effectiveSearchMode = searchMode;
+  if (planMode) {
+    const allowed = new Set(['ask_user', 'create_artifact']);
+    tools = tools.filter((t) => allowed.has(t.function?.name));
+    ceoToolChoice = 'required';
+    // The searchMode branch of executeCeoOrchestrator routes to
+    // streamXaiResearch which streams free text with no tools — that would
+    // silently bypass the Plan Mode constraint. Force the tool-aware path.
+    effectiveSearchMode = false;
+  }
 
   sendSSE(res, {
     type: 'debug_prompt',
@@ -1294,7 +1411,8 @@ RULES:
     systemPrompt,
     messages: toolAwareMessages,
     tools,
-    searchMode,
+    toolChoice: ceoToolChoice,
+    searchMode: effectiveSearchMode,
     onChunk: (content) => {
       sendSSE(res, { type: 'text_delta', content });
     },

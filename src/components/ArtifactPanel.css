@@ -811,11 +811,73 @@
 }
 
 /* ── Markdown ── */
+.ap-markdown-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.ap-markdown-toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--surface-secondary, #fafafa);
+  flex-shrink: 0;
+}
+.ap-md-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-light);
+  background: var(--surface-primary, #fff);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+.ap-md-btn:hover:not(:disabled) {
+  background: var(--surface-secondary, #f5f5f5);
+  color: var(--text-primary);
+}
+.ap-md-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ap-md-btn--primary {
+  background: var(--brand-red);
+  border-color: var(--brand-red);
+  color: #fff;
+}
+.ap-md-btn--primary:hover:not(:disabled) {
+  background: var(--brand-red-hover, var(--brand-red));
+  color: #fff;
+}
+.ap-markdown-editor {
+  flex: 1;
+  width: 100%;
+  padding: 20px 24px;
+  border: none;
+  outline: none;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-primary);
+  background: var(--surface-primary, #fff);
+  resize: none;
+  min-height: 300px;
+}
 .ap-markdown {
   padding: 24px;
   font-size: 14px;
   line-height: 1.65;
   color: var(--text-primary);
+  overflow-y: auto;
+  flex: 1;
 }
 
 .ap-markdown h1,

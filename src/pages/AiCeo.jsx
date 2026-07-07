@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
-import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap, Paperclip, Loader2, AlertCircle } from 'lucide-react';
+import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap, Paperclip, Loader2, AlertCircle, CalendarDays } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles } from '../lib/api';
@@ -129,6 +129,11 @@ export default function AiCeo() {
   const [hoveredCat, setHoveredCat] = useState(null);
   const [selectedCtxItems, setSelectedCtxItems] = useState(new Set());
   const [researchMode, setResearchMode] = useState(false);
+  // Plan Mode — asks the CEO to produce a full weekly/monthly content plan
+  // instead of individually generating posts. Handed to the backend so the
+  // CEO orchestrator can suppress content-generation tools and produce a
+  // schedule table.
+  const [planMode, setPlanMode] = useState(false);
   const [searchStatus, setSearchStatus] = useState(null); // null | 'searching' | 'writing'
   const [currentQuestion, setCurrentQuestion] = useState(null); // { question, options }
   const [customTyping, setCustomTyping] = useState(false);
@@ -937,6 +942,7 @@ export default function AiCeo() {
         messages: apiMessages,
         mode: 'ceo',
         searchMode: researchMode,
+        planMode,
         sessionId: sessionIdRef.current || null,
         assistantMsgId,
         ...(hasHtmlArtifact ? { currentHtml: currentArtifact.content, currentAgent: currentArtifact.agentSource || 'newsletter' } : {}),
@@ -1957,6 +1963,13 @@ export default function AiCeo() {
                     >
                       <Globe size={13} /> Research
                     </button>
+                    <button
+                      className={`ceo-research-toggle ceo-plan-toggle ${planMode ? 'ceo-research-toggle--active ceo-plan-toggle--active' : ''}`}
+                      onClick={() => setPlanMode((v) => !v)}
+                      title="Plan a week or month of content in one session instead of generating individual pieces"
+                    >
+                      <CalendarDays size={13} /> Plan mode
+                    </button>
                     {selectedCtxItems.size > 0 && (
                       <div className="ceo-ctx-pills">
                         {getSelectedCtxDetails().map((item) => (
@@ -2001,7 +2014,7 @@ export default function AiCeo() {
                     <textarea
                       ref={inputRef}
                       className="ceo-input"
-                      placeholder="How can your AI CEO help you?"
+                      placeholder={planMode ? 'Plan a week or month of content...' : 'How can your AI CEO help you?'}
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onInput={autoResize}
@@ -2283,6 +2296,13 @@ export default function AiCeo() {
                     >
                       <Globe size={13} /> Research
                     </button>
+                    <button
+                      className={`ceo-research-toggle ceo-plan-toggle ${planMode ? 'ceo-research-toggle--active ceo-plan-toggle--active' : ''}`}
+                      onClick={() => setPlanMode((v) => !v)}
+                      title="Plan a week or month of content in one session instead of generating individual pieces"
+                    >
+                      <CalendarDays size={13} /> Plan mode
+                    </button>
                     {selectedCtxItems.size > 0 && (
                       <div className="ceo-ctx-pills">
                         {getSelectedCtxDetails().map((item) => (
@@ -2326,7 +2346,7 @@ export default function AiCeo() {
                   <div className="ceo-input-bottom-row">
                     <textarea
                       className="ceo-input"
-                      placeholder="Ask your AI CEO..."
+                      placeholder={planMode ? 'Plan a week or month of content...' : 'Ask your AI CEO...'}
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onInput={autoResize}

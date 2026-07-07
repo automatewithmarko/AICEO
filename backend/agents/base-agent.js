@@ -269,7 +269,7 @@ async function streamAnthropicCore({ systemPrompt, messages, model, maxTokens, o
 }
 
 // Stream from XAI Grok API (OpenAI-compatible) — via Mentor gateway when configured, else direct
-async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onChunk, onToolCalls, abortSignal, streamIdleMs }) {
+async function streamXai({ systemPrompt, messages, model, maxTokens, tools, toolChoice, onChunk, onToolCalls, abortSignal, streamIdleMs }) {
   const target = xaiChatTarget();
 
   const body = {
@@ -281,7 +281,10 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, onCh
 
   if (tools?.length) {
     body.tools = tools;
-    body.tool_choice = 'auto';
+    // Callers can force the model to call SOME tool (no free-text response)
+    // by passing toolChoice='required'. Used by Plan Mode to prevent the CEO
+    // from typing plans as inline chat instead of calling create_artifact.
+    body.tool_choice = toolChoice || 'auto';
   }
 
   // Link caller's abort signal to our internal controller so the idle watchdog
@@ -655,7 +658,7 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
 
 // Execute the CEO orchestrator with tool_use loop
 // After tool calls, sends results back to the model for a follow-up response
-export async function executeCeoOrchestrator({ systemPrompt, messages, tools, onChunk, onToolCalls, searchMode, onSearchStatus, abortSignal }) {
+export async function executeCeoOrchestrator({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, searchMode, onSearchStatus, abortSignal }) {
   // The Mentor gateway adds cold-start latency on top of the upstream provider's
   // own time-to-first-token. Combined with a long system prompt + tool-call
   // setup, the first chunk on each turn of the orchestrator's tool-use loop
@@ -683,6 +686,7 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, on
       model,
       maxTokens: 16000,
       tools,
+      toolChoice,
       onChunk: iterations === 1 || !lastContent ? onChunk : (content) => {
         // For follow-up turns, append to previous content
         if (onChunk) onChunk(lastContent + content);

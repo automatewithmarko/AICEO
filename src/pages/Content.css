@@ -1726,6 +1726,22 @@
   color: #fff;
 }
 
+/* Plan Mode toggle — sits next to Research. Uses the same pill shape but a
+   distinct hover / active tint so users can tell at a glance which mode is
+   on. The base rules are inherited from .content-research-toggle. */
+.content-plan-toggle:hover {
+  background: #1a1a1a;
+  border-color: #1a1a1a;
+  color: #fff;
+}
+
+.content-plan-toggle--active,
+.content-plan-toggle--active:hover {
+  background: #1a1a1a;
+  border-color: #1a1a1a;
+  color: #fff;
+}
+
 /* Context pills */
 .content-ctx-pills {
   display: flex;
@@ -2543,12 +2559,12 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px 16px;
+  gap: 10px;
+  padding: 18px 20px 20px;
   border: 1px solid var(--border-light);
   border-radius: 12px;
   background: var(--surface-primary, #fff);
-  min-height: 180px;
+  min-height: 320px;
   width: 100%;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -2626,6 +2642,24 @@
   border-color: var(--brand-red, #e63946);
   background: rgba(230, 57, 70, 0.06);
 }
+
+/* One-line explainer sitting under the headline input so users don't get
+   confused by the {{accent}} styling markers they see in the value. */
+.content-carousel-plan-accent-hint {
+  font-size: 10.5px;
+  color: var(--text-muted, #888);
+  line-height: 1.5;
+  margin-top: -2px;
+}
+.content-carousel-plan-accent-hint code {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  background: var(--surface-secondary, #f5f5f5);
+  color: var(--text-primary, #1a1a1a);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border-light);
+}
 .content-carousel-plan-slide-card-head {
   display: flex;
   align-items: center;
@@ -2662,13 +2696,13 @@
 .content-carousel-plan-slide-cta-input,
 .content-carousel-plan-caption-input {
   width: 100%;
-  padding: 6px 8px;
+  padding: 10px 12px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--surface-secondary, #f5f5f5);
   color: var(--text-primary, #1a1a1a);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.5;
   font-family: inherit;
   resize: vertical;
   transition: border-color 0.15s ease, background 0.15s ease;
@@ -2679,10 +2713,18 @@
   font-size: 10px;
   font-weight: 700;
   color: var(--text-muted, #666);
+  padding: 6px 10px;
 }
 .content-carousel-plan-slide-headline-input {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
+  min-height: 80px;
+}
+.content-carousel-plan-slide-body-input {
+  min-height: 150px;
+}
+.content-carousel-plan-slide-cta-input {
+  padding: 8px 12px;
 }
 .content-carousel-plan-slide-badge-input:focus,
 .content-carousel-plan-slide-headline-input:focus,
@@ -2892,6 +2934,50 @@
 /* IG panel bottom toolbar wrapper — flex row, horizontal scroll. */
 .content-carousel-edit-tip-close { opacity: 0.5; flex-shrink: 0; }
 
+/* Toolbar download button with ZIP / PDF dropdown menu.
+   The menu is portal-like: position: fixed set inline from JS anchored to
+   the button's viewport rect. This escapes the toolbar's overflow-x: auto
+   clipping context which was hiding an absolute-positioned dropdown. */
+.content-carousel-download-menu {
+  /* position + coords set inline */
+  z-index: 1000;
+  min-width: 260px;
+  background: var(--surface-primary, #fff);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.content-carousel-download-menu-item {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  color: var(--text-primary, #1a1a1a);
+  font-family: inherit;
+  transition: background 0.12s ease;
+}
+.content-carousel-download-menu-item:hover {
+  background: var(--surface-secondary, #f5f5f5);
+}
+.content-carousel-download-menu-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.content-carousel-download-menu-item-sub {
+  font-size: 11px;
+  color: var(--text-muted, #666);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
 .content-carousel-schedule-wrap { position: relative; }
 .content-carousel-schedule-pop {
   position: absolute;
@@ -3098,19 +3184,18 @@
   margin-left: auto;
 }
 .content-carousel-plan-templates-btn {
-  padding: 4px 10px;
-  border: 1px solid var(--border-light);
-  background: transparent;
-  color: var(--text-muted, #666);
+  padding: 5px 12px;
+  border: 1px solid var(--brand-red, #e63946);
+  background: var(--brand-red, #e63946);
+  color: #fff;
   border-radius: 6px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: opacity 0.15s ease, background 0.15s ease;
 }
 .content-carousel-plan-templates-btn:hover {
-  color: var(--text-primary, #1a1a1a);
-  background: var(--surface-secondary, #f5f5f5);
+  opacity: 0.9;
 }
 .content-carousel-plan-templates-pop {
   position: absolute;
