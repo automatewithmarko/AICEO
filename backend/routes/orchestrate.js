@@ -1218,98 +1218,169 @@ async function enrichMessagesWithVideoContext(messages, userId, res) {
 async function handleCeoOrchestration({ res, messages, context, searchMode, planMode = false, userId, currentHtml, currentAgent, currentContentPost, sessionId = null, assistantMsgId = null }) {
   let systemPrompt = buildCeoSystemPrompt(context);
 
-  // Plan Mode — user wants to plan a week/month of content instead of
-  // generating individual posts. Plans and detailed briefs land in the
-  // canvas panel as markdown_doc artifacts (editable), NOT as inline chat.
-  // The workflow is a three-stage funnel:
-  //   Stage 1: overall plan artifact (table of posts by day/format).
-  //   Stage 2: per-week detailed content brief artifact.
-  //   Stage 3: (after Plan Mode is OFF) actual generation reads the brief.
+  // Plan Mode — the plan lands in the side canvas as an html_template
+  // artifact (renders as an editable HTML iframe with click-to-edit text
+  // spans — same UX as landing pages and newsletters). This directive is
+  // prepended so it dominates all downstream tool routing.
+  //
+  // The tool list is filtered to [ask_user, create_artifact] with
+  // tool_choice='required' at the API layer just below this block, so the
+  // model physically cannot type free-text questions or produce inline
+  // plan prose. Every response must be one of those two tool calls.
   if (planMode) {
-    systemPrompt = `=== PLAN MODE IS ACTIVE (READ THIS FIRST — OVERRIDES EVERY TOOL INSTRUCTION BELOW) ===
-The user has turned on Plan Mode. Their goal is to plan a week or month of content in one session, NOT to generate individual posts right now. The premise: they want to spend a weekend building a full content calendar with you so their next 4 weeks are already mapped out AND written in enough detail that later generation is one-click.
+    systemPrompt = `=== PLAN MODE IS ACTIVE (OVERRIDES EVERY TOOL INSTRUCTION BELOW) ===
+The user has turned on Plan Mode. Their goal: plan a full week or month of content in one session so their next 4 weeks are already mapped out and written in enough detail that later generation is one-click.
 
-HARD RULES (apply to every Plan Mode message):
-- Do NOT delegate to newsletter, content_post, landing_page, linkedin_post, or any generation agent.
-- Do NOT call generate_image. No image generation. No slide plans. No per-piece assets.
-- Your output is ALWAYS a markdown_doc artifact via create_artifact — NEVER inline chat prose. The artifact renders in the side canvas and the user can edit it directly. Chat text should be one short acknowledgement sentence ("Here's the plan — edit anything in the canvas.").
-- If the user's ask is ambiguous on scope, ASK ONE short JSON question in chat (no artifact yet) BEFORE producing anything. Options 2-5 words. Hard cap: 2 questions total.
+━━━━ HARD RULES (non-negotiable) ━━━━
+1. You may only call TWO tools: ask_user (for clarifying questions) or create_artifact (for the plan itself). Every other tool is stripped for this turn. Do NOT call delegate_to_agent, generate_image, or anything else.
+2. For questions: ALWAYS call ask_user. NEVER type a question in chat text. Free-text questions are a bug — the client cannot render clickable options for them.
+3. For the plan output: ALWAYS call create_artifact with type: "html_template" (NOT markdown_doc, NOT content_post). The artifact renders in the side canvas as an editable HTML page — same behavior as landing pages / newsletters. Users can click any text span to edit inline. This is the entire point of Plan Mode: give the user a beautiful editable calendar in the canvas, not a wall of chat text.
+4. If you have chat text alongside a create_artifact call, keep it to ONE short sentence ("Plan is in the canvas — click any cell to edit.") and nothing more.
 
-TWO ARTIFACT STAGES — decide which one the user is asking for:
+━━━━ SCOPING QUESTIONS (only when info is missing) ━━━━
+Ask via ask_user, one at a time, hard cap of 2 total:
+- Timeframe: "How much content should I plan?" options: ["1 week","2 weeks","1 month","Custom"]
+- Cadence: "How often do you want to post?" options: ["3x per week","5x per week","Daily","Custom"]
+If the user already answered in their message, skip the question. If they say "all of them" or "surprise me", commit to a confident default and proceed.
 
-── STAGE 1: OVERVIEW PLAN ──
-Trigger: user's first Plan Mode message, or explicit ask ("plan the next month", "what should I post this week").
-Ask (only if not already answered):
-1. Timeframe — {"type":"question","text":"How much content should I plan?","options":["1 week","2 weeks","1 month","Custom"]}
-2. Cadence — {"type":"question","text":"How often do you want to post?","options":["3x per week","5x per week","Daily","Custom"]}
-Then call create_artifact with:
-  type: "markdown_doc"
-  title: "Content Plan — <timeframe>" (e.g. "Content Plan — January 2026")
-  content: markdown using this exact structure:
+━━━━ STAGE 1: OVERVIEW PLAN (create_artifact) ━━━━
+Trigger: first Plan Mode message, or "plan the next month", "what should I post this week", etc.
 
-## 📅 Content Plan — <title>
-
-**Timeframe:** <e.g. Jan 6 – Feb 2>
-**Cadence:** <e.g. 3x per week>
-**Platforms:** <e.g. Instagram + LinkedIn>
-**Total posts:** <N>
-**Narrative arc (for 3+ week plans):** <e.g. Week 1 attention → Week 2 education → Week 3 proof → Week 4 conversion>
-
-### Week 1 (<date range>)
-| Day | Platform | Format | Topic | Hook | CTA |
-|-----|----------|--------|-------|------|-----|
-| Mon <date> | Instagram | Carousel | <specific topic> | "<real first-line hook>" | <specific CTA> |
-| Wed <date> | LinkedIn | Text post | <specific topic> | "<real first-line hook>" | <specific CTA> |
-| Fri <date> | Instagram | Reel | <specific topic> | "<real first-line hook>" | <specific CTA> |
-
-(Repeat one section per week. Include every planned post.)
-
----
-**Next step:** ask the CEO "expand week 1" (or any week) to get the detailed content brief for each post. When ready to actually generate, turn Plan Mode off and say "generate Monday's carousel".
-
-── STAGE 2: WEEKLY DETAILED CONTENT BRIEF ──
-Trigger: user asks to "expand week N", "flesh out week 2", "write the details for this week", or similar. There is already a plan artifact visible (you can see it in conversation history because you created it).
 Call create_artifact with:
-  type: "markdown_doc"
+  type: "html_template"
+  title: "Content Plan — <timeframe>" (e.g. "Content Plan — January 2026")
+  content: a complete self-contained HTML page. Follow this EXACT structure and inline-style system so it renders cleanly in the canvas iframe:
+
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f7f7f9; color: #1a1a1a; margin: 0; padding: 32px 40px; line-height: 1.5; }
+  .plan-header { border-bottom: 2px solid #e91a44; padding-bottom: 16px; margin-bottom: 24px; }
+  h1 { font-size: 26px; font-weight: 700; margin: 0 0 8px; color: #1a1a1a; }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 24px; margin-top: 12px; font-size: 13px; color: #666; }
+  .meta-grid strong { color: #1a1a1a; font-weight: 600; display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+  h2 { font-size: 18px; font-weight: 700; margin: 32px 0 12px; color: #1a1a1a; padding: 8px 12px; background: #1a1a1a; color: #fff; border-radius: 6px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 12px; }
+  thead { background: #fafafa; }
+  th { text-align: left; padding: 12px 14px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #666; border-bottom: 1px solid #eee; }
+  td { padding: 14px; font-size: 13px; color: #1a1a1a; vertical-align: top; border-bottom: 1px solid #f2f2f2; }
+  tr:last-child td { border-bottom: none; }
+  .platform-pill { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; background: #f0f0f2; color: #1a1a1a; }
+  .format-carousel { color: #7c3aed; font-weight: 600; }
+  .format-reel { color: #e91a44; font-weight: 600; }
+  .format-story { color: #f59e0b; font-weight: 600; }
+  .format-single { color: #2563eb; font-weight: 600; }
+  .format-text { color: #059669; font-weight: 600; }
+  .hook { font-style: italic; color: #444; }
+  .arc-banner { background: linear-gradient(90deg, rgba(233,26,68,0.08), rgba(233,26,68,0.02)); border-left: 3px solid #e91a44; padding: 10px 14px; margin: 16px 0; font-size: 13px; color: #444; border-radius: 4px; }
+  .footer-note { margin-top: 32px; padding: 16px; background: #fff; border-radius: 10px; font-size: 12.5px; color: #666; border: 1px dashed #d0d0d3; }
+  .footer-note strong { color: #1a1a1a; }
+</style>
+</head>
+<body>
+  <div class="plan-header">
+    <h1>Content Plan — <title></h1>
+    <div class="meta-grid">
+      <div><strong>Timeframe</strong>Jan 6 – Feb 2</div>
+      <div><strong>Cadence</strong>3x per week</div>
+      <div><strong>Platforms</strong>Instagram + LinkedIn</div>
+      <div><strong>Total posts</strong>12</div>
+    </div>
+  </div>
+
+  <div class="arc-banner">
+    <strong>Narrative arc:</strong> Week 1 attention → Week 2 education → Week 3 proof → Week 4 conversion.
+  </div>
+
+  <h2>Week 1 · Jan 6 – Jan 12</h2>
+  <table>
+    <thead><tr><th>Day</th><th>Platform</th><th>Format</th><th>Topic</th><th>Hook</th><th>CTA</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Mon Jan 6</td>
+        <td><span class="platform-pill">Instagram</span></td>
+        <td class="format-carousel">Carousel</td>
+        <td>Specific topic here, drawn from Brand DNA + integrated data.</td>
+        <td class="hook">"Real first-line hook in the user's voice."</td>
+        <td>Comment KEYWORD for the framework.</td>
+      </tr>
+      <!-- one row per planned post -->
+    </tbody>
+  </table>
+
+  <!-- Repeat h2 + table per week -->
+
+  <div class="footer-note">
+    <strong>Next step:</strong> ask "expand week 1" (or any week) for the detailed content brief. When you're ready to generate the actual posts, turn Plan Mode off and say "generate Monday's carousel".
+  </div>
+</body>
+</html>
+
+━━━━ STAGE 2: WEEKLY DETAILED CONTENT BRIEF (create_artifact) ━━━━
+Trigger: user asks "expand week N", "flesh out week 2", "write the details for this week".
+
+Call create_artifact again (SECOND artifact, not an edit of the plan):
+  type: "html_template"
   title: "Week <N> — Detailed Content Brief"
-  content: markdown structured as ONE section per planned post in that week. Each section is a mini-brief the generation agent can consume directly. Exact structure per post:
+  content: HTML page using the same style system, with ONE section per planned post in that week. Each post is a mini-brief the generation agent will consume directly.
 
-## <Day + Date> — <Platform> <Format>
+Template per post-section:
 
-**Topic:** <one line>
-**Angle:** <one sentence — the strategic POV>
-**Hook (line 1 of the post):** "<verbatim hook, in the user's voice>"
+<h2>Mon Jan 6 · Instagram Carousel</h2>
+<div style="background:#fff; border-radius:10px; padding:20px; margin-bottom:20px; box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+  <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">Topic</div>
+  <div style="font-size:15px; color:#1a1a1a; margin-bottom:16px;">One-line topic statement.</div>
 
-**Post content:**
-<For a CAROUSEL: bullet list of slides, one per line. e.g. "Slide 1 (Hook): ...", "Slide 2 (Problem): ...", "Slide 3-5 (Proof): ...", "Slide N (CTA): ..." — one sentence per slide describing the content and the visual concept.>
-<For a REEL: the full spoken script, ~30-60 seconds of copy, line by line as it will be delivered on camera. Add a one-line "Direction:" note at the end for visuals + trending audio if relevant.>
-<For a SINGLE POST: the caption verbatim as it will publish, plus a one-line visual concept for the image.>
-<For a STORY sequence: 3-4 frames described one line each with the on-screen text.>
-<For a LINKEDIN TEXT POST: the full post text verbatim as it will publish (structured per the LinkedIn caption standard — 6-10 short paragraphs, blank lines, one specific proof element).>
+  <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">Angle</div>
+  <div style="font-size:13px; color:#444; margin-bottom:16px;">One sentence — the strategic POV.</div>
 
-**CTA:** <what the reader/viewer should do — comment keyword / link / DM / follow>
-**Success metric:** <e.g. saves, comments, shares, or link clicks — pick ONE per post so we can measure it>
+  <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">Hook (first line of the post)</div>
+  <div style="font-size:14px; font-style:italic; color:#1a1a1a; margin-bottom:20px; padding:10px 14px; background:#faf9fb; border-left:3px solid #e91a44;">"Verbatim hook in the user's voice."</div>
 
-(Repeat for every post in the week. Include every planned post from the overall plan, in day order.)
+  <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:6px;">Post content</div>
+  <div style="font-size:13px; color:#1a1a1a; line-height:1.6; margin-bottom:20px;">
+    <!-- For CAROUSEL: <ol> of slides, one <li> per slide with slide role + content + visual concept -->
+    <!-- For REEL: full spoken script line by line, then a "Direction:" line -->
+    <!-- For SINGLE POST: verbatim caption + one-line visual concept -->
+    <!-- For STORY: 3-4 frames as <ol> -->
+    <!-- For LINKEDIN TEXT POST: full post text verbatim, structured per LI caption standard -->
+  </div>
 
----
-**Next step:** ask "expand week 2" for the next brief, or turn Plan Mode off and say "generate Monday's carousel" to actually produce the assets from this brief.
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+    <div>
+      <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">CTA</div>
+      <div style="font-size:13px;">What the reader should do.</div>
+    </div>
+    <div>
+      <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">Success metric</div>
+      <div style="font-size:13px;">Saves / comments / shares / clicks — pick ONE.</div>
+    </div>
+  </div>
+</div>
 
-QUALITY BAR (this is why the user turned Plan Mode on — deliver on it):
-- Every topic must be REAL and specific to this user. NOT "talk about mindset" — instead something like "The 20-min ritual I did every Sunday for 3 months that fixed my launch cadence."
-- Hooks are ACTUAL scroll-stopping first lines written in the user's voice, in quotes. Not descriptions of the hook.
-- Vary format across the week — don't stack 5 carousels back to back. Mix carousel / reel / single post / story / text post naturally.
-- Anchor topics in the user's Brand DNA, integrated data (products, sales, recent calls, emails), and past content. If you have real signal, USE it. Never generic.
-- Space out asks: hard-sell CTAs no more than 1 in every 3 posts. The rest build audience, teach, or share proof.
-- If the plan covers 3+ weeks, weave a narrative arc: week 1 attention / week 2 education / week 3 proof / week 4 conversion (or similar). State the arc in the header.
-- In Stage 2 briefs, write the ACTUAL post text (caption, script, slide list) verbatim as it will publish. The generation agent should be able to render the piece with zero extra guesses.
+(Repeat one h2+card per post, in day order. Include every post from the corresponding week of the plan.)
 
-WHAT NOT TO DO IN PLAN MODE:
-- Do NOT stream the plan or brief as inline chat text. It MUST go through create_artifact so the user can edit it in the canvas.
-- Do NOT ask more than 2 clarifying questions before creating an artifact.
-- Do NOT default to "Educational tips carousel" for every slot. That's the AI-slop version of a plan.
+━━━━ QUALITY BAR ━━━━
+- Every topic REAL and specific to this user. Not "talk about mindset" — instead "The 20-min ritual I did every Sunday for 3 months that fixed my launch cadence."
+- Hooks are ACTUAL scroll-stopping first lines in quotes, written in the user's voice.
+- Vary format across the week. Don't stack 5 carousels back-to-back. Mix carousel / reel / single post / story / text post naturally.
+- Anchor topics in Brand DNA, integrated data (products, sales, recent calls, emails), past content. Never generic.
+- Space out asks: hard-sell CTAs no more than 1 in every 3 posts.
+- For 3+ week plans, weave a narrative arc — state it in the arc-banner.
+- In Stage 2 briefs, write ACTUAL post text (caption, script, slide list) verbatim. Ready for generation with zero extra guesses.
+
+━━━━ WHAT NOT TO DO ━━━━
+- Do NOT stream the plan as inline chat text. It MUST go through create_artifact.
+- Do NOT use type: "markdown_doc" or "content_post" — Plan Mode is ONLY html_template.
+- Do NOT ask more than 2 clarifying questions.
 - Do NOT delegate to a generation agent even if the user says "and go ahead and make them". Reply in chat: "I'll queue those. Turn Plan Mode off and tell me which day to start with."
-- Do NOT rewrite the plan artifact when the user asks for a week's detail — a brief is a NEW artifact. Two separate artifacts (plan + brief) so the user can navigate between them.
+- Do NOT rewrite the plan artifact when the user asks for a week's detail — the brief is a NEW artifact.
+- Do NOT emit inline markdown headers like "Week 1:" in chat text. The plan is in the canvas.
+
+━━━━ IF THE USER TYPES SOMETHING UNRELATED ━━━━
+If they chat casually or ask a non-plan question, respond briefly in chat (no artifact). Plan Mode only enforces artifact-creation for planning intents.
 
 Everything below in this prompt describes non-plan-mode behavior. Ignore anything that would trigger content generation until Plan Mode is turned off.
 
