@@ -2477,34 +2477,154 @@
   text-transform: none;
   letter-spacing: 0;
 }
-.content-carousel-plan-slide-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+/* Slides section — header row with the label + click-to-edit hint. */
+.content-carousel-plan-slide-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 10px;
-  margin-top: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
 }
+.content-carousel-plan-slide-header .content-carousel-plan-label {
+  margin-bottom: 0;
+}
+.content-carousel-plan-edit-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--brand-red, #e63946);
+  background: rgba(230, 57, 70, 0.08);
+  border: 1px solid rgba(230, 57, 70, 0.2);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+/* Carousel row: prev-arrow · slide viewport · next-arrow. Single slide
+   dominant at a time, matching how the finished carousel actually looks. */
+.content-carousel-plan-carousel {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 4px;
+}
+.content-carousel-plan-viewport {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.content-carousel-plan-carousel-nav {
+  flex-shrink: 0;
+  width: 36px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: var(--surface-primary, #fff);
+  color: var(--text-primary, #1a1a1a);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+.content-carousel-plan-carousel-nav:hover:not(:disabled) {
+  background: var(--surface-secondary, #f5f5f5);
+  border-color: var(--text-muted, #888);
+}
+.content-carousel-plan-carousel-nav:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Focused slide card (the one visible in the viewport). Larger and more
+   prominent than the old grid tiles so it reads as the current slide. */
 .content-carousel-plan-slide-card {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 10px 12px;
+  gap: 8px;
+  padding: 14px 16px 16px;
   border: 1px solid var(--border-light);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface-primary, #fff);
-  min-height: 120px;
+  min-height: 180px;
+  width: 100%;
   transition: border-color 0.15s ease, background 0.15s ease;
-  cursor: grab;
 }
-.content-carousel-plan-slide-card:active { cursor: grabbing; }
+.content-carousel-plan-slide-card--focused {
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
+}
 .content-carousel-plan-slide-card--locked {
-  cursor: default;
   background: var(--surface-secondary, #fafafa);
-  opacity: 0.95;
 }
-.content-carousel-plan-slide-card--drop {
+
+/* Dot navigation strip below the viewport. Each dot is a small pill
+   with the slide number; the active one uses the brand color. */
+.content-carousel-plan-dots {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  justify-content: center;
+}
+.content-carousel-plan-dot {
+  min-width: 26px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-light);
+  background: var(--surface-primary, #fff);
+  color: var(--text-muted, #666);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.content-carousel-plan-dot:hover {
+  color: var(--text-primary, #1a1a1a);
+  border-color: var(--text-muted, #888);
+}
+.content-carousel-plan-dot--active,
+.content-carousel-plan-dot--active:hover {
+  background: var(--brand-red, #e63946);
+  color: #fff;
   border-color: var(--brand-red, #e63946);
-  background: rgba(230, 57, 70, 0.04);
+}
+
+/* Action buttons cluster in the slide header (move-left / move-right /
+   insert / delete). Replaces the old drag-and-drop UX. */
+.content-carousel-plan-slide-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.content-carousel-plan-slide-action {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--surface-primary, #fff);
+  color: var(--text-muted, #666);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.content-carousel-plan-slide-action:hover {
+  background: var(--surface-secondary, #f5f5f5);
+  color: var(--text-primary, #1a1a1a);
+  border-color: var(--text-muted, #888);
+}
+.content-carousel-plan-slide-action--danger:hover {
+  color: var(--brand-red, #e63946);
+  border-color: var(--brand-red, #e63946);
+  background: rgba(230, 57, 70, 0.06);
 }
 .content-carousel-plan-slide-card-head {
   display: flex;
