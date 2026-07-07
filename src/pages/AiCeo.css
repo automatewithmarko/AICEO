@@ -1186,6 +1186,22 @@
   color: #fff;
 }
 
+/* Plan Mode toggle — sits next to Research. Inherits the base pill from
+   .ceo-research-toggle but flips the hover / active tint to dark so the
+   two modes are visually distinguishable at a glance. */
+.ceo-plan-toggle:hover {
+  background: #1a1a1a;
+  border-color: #1a1a1a;
+  color: #fff;
+}
+
+.ceo-plan-toggle--active,
+.ceo-plan-toggle--active:hover {
+  background: #1a1a1a;
+  border-color: #1a1a1a;
+  color: #fff;
+}
+
 /* Context pills */
 .ceo-ctx-pills {
   display: flex;

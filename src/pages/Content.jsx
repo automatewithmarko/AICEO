@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2 } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, ChevronDown, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate } from '../lib/api';
@@ -1378,7 +1378,8 @@ function parsePlainTextQuestion(content, hadImages) {
   return null;
 }
 
-function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext, carouselTemplates = [], existingPost = null) {
+function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext, carouselTemplates = [], existingPost = null, opts = {}) {
+  const planMode = !!opts.planMode;
   let prompt = `You are a senior content strategist who creates content that actually performs on social media. You study what top creators and brands do  -  you understand hooks, retention, visual hierarchy, and what makes people stop scrolling.\n\n`;
   prompt += `You do NOT produce generic AI slop. No excessive emojis. No "Hey guys!" energy. No corporate marketing speak. No cartoonish or clip-art style visuals. You write like a real human who understands the platform.\n\n`;
   prompt += `=== ABSOLUTE OUTPUT RULES (NON-NEGOTIABLE) ===\n`;
@@ -1387,6 +1388,51 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `3. NEVER use filler phrases like "Great question!", "Absolutely!", "I'd be happy to help!"\n`;
   prompt += `These rules override everything else below.\n\n`;
   prompt += `Platform: ${platform.name}\n\n`;
+
+  // Plan Mode short-circuits into planning-only behavior. Injected high in
+  // the prompt so it dominates the tool routing further down.
+  if (planMode) {
+    prompt += `=== PLAN MODE IS ACTIVE (READ THIS FIRST — OVERRIDES EVERY TOOL INSTRUCTION BELOW) ===\n`;
+    prompt += `The user has turned on Plan Mode. Their goal is to plan a week or month of content in a single session, NOT to generate individual posts right now. The premise: they want to spend a weekend building a full content calendar with you so their next 4 weeks are already mapped out.\n\n`;
+    prompt += `HARD RULES:\n`;
+    prompt += `- Do NOT call plan_carousel. Do NOT call generate_image. Do NOT emit <<READY_A>> / <<READY_B>> or any edit markers. No image generation. No slide plans. No per-piece assets.\n`;
+    prompt += `- Your ONLY output is a written content PLAN — a schedule the user will approve, then generate piece by piece later.\n`;
+    prompt += `- If the user asks a general question ("what should I post about?", "help me plan"), skip to the plan.\n`;
+    prompt += `- If the user's ask is ambiguous on scope, ASK ONE short JSON question at a time BEFORE producing the plan. Options 2-5 words. Hard cap: 2 questions total.\n\n`;
+    prompt += `WHAT TO ASK (only if not already answered in the message or thread):\n`;
+    prompt += `1. Timeframe — {"type":"question","text":"How much content should I plan?","options":["1 week","2 weeks","1 month","Custom"]}\n`;
+    prompt += `2. Cadence — {"type":"question","text":"How often do you want to post?","options":["3x per week","5x per week","Daily","Custom"]}\n`;
+    prompt += `3. Content mix (optional, only if brand DNA doesn't already answer) — Educate / Inspire / Sell / Mixed.\n`;
+    prompt += `Platform: default to the currently-active platform (${platform.name}) unless the user asks for more.\n\n`;
+    prompt += `THEN PRODUCE THE PLAN using this exact markdown structure so the client can render it cleanly:\n\n`;
+    prompt += `## 📅 Content Plan — <title, e.g. "January 2026 — 4 weeks">\n\n`;
+    prompt += `**Timeframe:** <e.g. Jan 6 – Feb 2>\n`;
+    prompt += `**Cadence:** <e.g. 3x per week>\n`;
+    prompt += `**Platforms:** <e.g. ${platform.name}>\n`;
+    prompt += `**Total posts:** <N>\n`;
+    prompt += `**Theme (optional):** <if there's a coherent monthly angle>\n\n`;
+    prompt += `### Week 1 (<date range>)\n`;
+    prompt += `| Day | Platform | Format | Topic | Hook | CTA |\n`;
+    prompt += `|-----|----------|--------|-------|------|-----|\n`;
+    prompt += `| Mon <date> | ${platform.name} | Carousel | <specific topic> | "<real first-line hook>" | <specific CTA> |\n`;
+    prompt += `| Wed <date> | ${platform.name} | Reel | <specific topic> | "<real first-line hook>" | <specific CTA> |\n`;
+    prompt += `| Fri <date> | ${platform.name} | Single Post | <specific topic> | "<real first-line hook>" | <specific CTA> |\n`;
+    prompt += `(Repeat one section per week. Include every planned post.)\n\n`;
+    prompt += `Close with ONE line: "Ready to generate any of these? Just say the day (e.g. 'generate Monday's carousel') or turn Plan Mode off and paste the row you want to build." No other trailing text.\n\n`;
+    prompt += `QUALITY BAR (this is why the user turned Plan Mode on — deliver on it):\n`;
+    prompt += `- Every topic must be REAL and specific to this user. NOT "talk about mindset" — instead something like "The 20-min ritual I did every Sunday for 3 months that fixed my launch cadence."\n`;
+    prompt += `- Hooks are ACTUAL scroll-stopping first lines written in the user's voice, in quotes. Not descriptions of the hook.\n`;
+    prompt += `- Vary format across the week — don't stack 5 carousels back to back. Mix carousel / reel / single post / story naturally.\n`;
+    prompt += `- Anchor topics in the user's Brand DNA, recent calls, past content, integrated data (products, sales, emails). If you have real signal, USE it. Never generic.\n`;
+    prompt += `- Space out asks: hard-sell CTAs no more than 1 in every 3 posts. The rest should build audience, teach, or share proof.\n`;
+    prompt += `- If the plan covers 3+ weeks, weave a narrative arc: week 1 attention / week 2 education / week 3 proof / week 4 conversion (or similar). State the arc in the header.\n\n`;
+    prompt += `WHAT NOT TO DO IN PLAN MODE:\n`;
+    prompt += `- Do NOT write full captions, slide decks, or scripts. One row per post, that is the deliverable.\n`;
+    prompt += `- Do NOT ask more than 2 clarifying questions before delivering the plan.\n`;
+    prompt += `- Do NOT default to "Educational tips carousel" for every slot. That's the AI-slop version of a plan.\n`;
+    prompt += `- Do NOT generate images or slides even if the user says "and go ahead and make them". Reply: "I'll queue those. Turn Plan Mode off when you're ready and tell me which day to start with."\n\n`;
+    prompt += `Everything below in this prompt describes non-plan-mode behavior. Ignore anything that would trigger plan_carousel or generate_image until Plan Mode is turned off.\n\n`;
+  }
 
   prompt += `=== PLATFORM ENFORCEMENT ===\n`;
   prompt += `You are ONLY creating content for ${platform.name}. If the user asks for content for a different platform (e.g. "make a LinkedIn post" while on YouTube), politely tell them to switch to that platform's tab first. Do NOT generate content for other platforms.\n\n`;
@@ -1422,6 +1468,22 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     const isLinkedin = platform.id === 'linkedin';
     const platformUpper = isLinkedin ? 'LINKEDIN' : 'INSTAGRAM';
     const slideCountLabel = isLinkedin ? '7-12 slides (LinkedIn carousels perform best with 8-10 slides of real depth)' : '5-9 slides';
+
+    // Route the request BEFORE picking a tool. Without this router Claude was
+    // reading the strong "INSTAGRAM CAROUSELS use plan_carousel" block below
+    // and defaulting to plan_carousel even when the user asked for a reel.
+    prompt += `\n${platformUpper} CONTENT-TYPE ROUTER — decide FIRST, then pick the tool.\n`;
+    if (isLinkedin) {
+      prompt += `- CAROUSEL / SLIDE DECK -> call plan_carousel (details in the block below).\n`;
+      prompt += `- TEXT POST (single or with one image) -> use the <<READY_A>> / <<READY_B>> flow described in the LinkedIn platform guidance. Do NOT call plan_carousel.\n`;
+    } else {
+      prompt += `- CAROUSEL (multiple slides swiped side-to-side) -> call plan_carousel (details in the block below).\n`;
+      prompt += `- SINGLE POST (one static image, feed or grid) -> call generate_image ONCE. Do NOT call plan_carousel.\n`;
+      prompt += `- STORY (vertical 9:16 frames) -> call generate_image once per frame (3-4 frames). Do NOT call plan_carousel.\n`;
+      prompt += `- REEL / SHORT-FORM VIDEO -> NO tool calls at all. Write the video SCRIPT as your text output. Do NOT call plan_carousel. Do NOT call generate_image. Reels are video, not slide decks — treating a reel like a carousel is a bug. Scripts follow the format in "REEL / TIKTOK / VIDEO SCRIPT" below.\n`;
+    }
+    prompt += `Only route to plan_carousel when the user's request clearly points to a swipeable slide deck. Words that mean carousel: "carousel", "slides", "slide deck", "swipe post", "multi-slide". Words that DO NOT mean carousel: "reel", "video", "short", "story", "single post", "photo post". If the user's language is ambiguous, ASK a short JSON clarification before generating.\n\n`;
+
     const toneGuidance = isLinkedin
       ? 'Tone: professional thought-leadership — substance and specificity win on LinkedIn. Hook formats: specificity ("I cut churn 62% in 90 days — here\'s exactly how"), contrarian ("Most SaaS founders are wrong about onboarding"), credibility-driven ("What I learned after 100 customer calls"). Avoid trendy/editorial language and emoji. Use LinkedIn\'s intent framework: educating (frameworks), nurturing (stories), soft-sell (client results), hard-sell (direct offer), engagement (contrarian).'
       : 'Tone: editorial/trend-aware. Hook formats: confession ("I did [unexpected thing]"), contrarian ("[belief] is a lie"), specificity ("[number] in [timeframe]"), curiosity gap. NEVER "Are you making these mistakes?" or "X tips for Y".';
@@ -1454,7 +1516,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     prompt += `   HEADLINE ACCENT: mark the hero word(s) of each headline with {{accent}}word{{/accent}} so the client can apply the gradient accent. Every headline must have exactly one accent span.\n`;
     prompt += `   After calling plan_carousel the client will render an approval card and the user decides when to generate images. Your job ends with the plan.\n`;
     prompt += `   Your text output next to the tool call: ONE short line (e.g. "Here's the plan — approve to generate."). Do NOT describe the slides in prose. Do NOT emit the old <<READY_CAROUSEL>> marker — use plan_carousel instead.\n`;
-    prompt += `   For non-carousel ${isLinkedin ? 'LinkedIn' : 'Instagram'} content (${isLinkedin ? 'text post' : 'single post, story'}): ${isLinkedin ? 'use the existing <<READY_A>> / <<READY_B>> flow described in platform guidance' : 'call generate_image as normal'}.\n`;
+    prompt += `   For non-carousel ${isLinkedin ? 'LinkedIn' : 'Instagram'} content: ${isLinkedin ? 'use the existing <<READY_A>> / <<READY_B>> flow described in platform guidance (text posts). Do NOT call plan_carousel.' : 'single-post + story call generate_image as normal. Reel / short-form video: write the script as text output, do NOT call plan_carousel and do NOT call generate_image. See the CONTENT-TYPE ROUTER above.'}\n`;
 
     if (isLinkedin) {
       // LinkedIn audiences reward substance. The default tool schema says
@@ -1524,7 +1586,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `   - SINGLE POST: Call generate_image once for the post image.\n`;
   prompt += `   - STORY FLOW: Call generate_image for each story frame (3-4 images).\n`;
   prompt += `   - YOUTUBE: Call generate_image for the thumbnail.\n`;
-  prompt += `   - REEL / TIKTOK / VIDEO SCRIPT: Do NOT call generate_image. Write the script directly as your text output. The script is the deliverable. Write it as a clean, spoken script  -  the actual words to say on camera, line by line. No labels like [HOOK], [BRIDGE], [SCENE], [VISUAL], [VOICEOVER], or [ON-SCREEN TEXT]. No timestamps. Start with the hook line, flow naturally, end with CTA if needed. Add a brief "Direction:" note at the end for visuals and audio.\n`;
+  prompt += `   - REEL / TIKTOK / VIDEO SCRIPT: Do NOT call generate_image. Do NOT call plan_carousel. Reels are short-form VIDEO — treating a reel like a slide-deck carousel is a bug. Write the script directly as your text output. The script is the deliverable. Write it as a clean, spoken script  -  the actual words to say on camera, line by line. No labels like [HOOK], [BRIDGE], [SCENE], [VISUAL], [VOICEOVER], or [ON-SCREEN TEXT]. No timestamps. Start with the hook line, flow naturally, end with CTA if needed. Add a brief "Direction:" note at the end for visuals and audio.\n`;
   prompt += `   You can make MULTIPLE generate_image calls in the same response. Each slide needs its own call.\n\n`;
 
   // Legacy Instagram carousel layout rules are now owned by plan_carousel +
@@ -1769,7 +1831,7 @@ const PLAN_CAROUSEL_TOOL = {
   type: 'function',
   function: {
     name: 'plan_carousel',
-    description: 'Plan a carousel (Instagram or LinkedIn). Call this FIRST for every carousel request on those platforms. Do NOT call generate_image — the client will fire per-slide image generation after the user approves the plan. Produces a hook, slide roster (5-9 for IG, 7-12 for LinkedIn), locked design system, and a caption. Tone + visual language should match the target platform (IG: editorial-trendy / LinkedIn: professional thought-leadership).',
+    description: 'Plan a carousel (Instagram or LinkedIn). Call this FIRST for every carousel request on those platforms. Do NOT call generate_image — the client will fire per-slide image generation after the user approves the plan. Produces a hook, slide roster (5-9 for IG, 7-12 for LinkedIn), locked design system, and a caption. Tone + visual language should match the target platform (IG: editorial-trendy / LinkedIn: professional thought-leadership). Do NOT call this for reels, videos, short-form video content, single-image posts, or stories — carousels are static swipeable slides, not video, not one-image feed posts, not story frames. If the user said "reel", "video", "TikTok", "short", "single post", or "story", this is the WRONG tool.',
     parameters: {
       type: 'object',
       properties: {
@@ -2182,7 +2244,7 @@ async function readWithIdle(reader, idleMs = STREAM_IDLE_MS) {
   }
 }
 
-async function streamContentResponse(messages, systemPrompt, onTextChunk, onToolCall, abortSignal, { searchMode = false, onSearchStatus } = {}) {
+async function streamContentResponse(messages, systemPrompt, onTextChunk, onToolCall, abortSignal, { searchMode = false, onSearchStatus, planMode = false } = {}) {
   // Responses API mode: web_search + generate_image function tool
   if (searchMode) {
     if (onSearchStatus) onSearchStatus('searching');
@@ -2195,21 +2257,28 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
     // Include both web_search and generate_image tools. plan_carousel
     // is also exposed so Instagram carousel requests can route through
     // the plan-first flow (user approves before any NanoBanana calls).
-    const tools = [
-      { type: 'web_search' },
-      {
-        type: 'function',
-        name: 'generate_image',
-        description: IMAGE_TOOL.function.description,
-        parameters: IMAGE_TOOL.function.parameters,
-      },
-      {
-        type: 'function',
-        name: 'plan_carousel',
-        description: PLAN_CAROUSEL_TOOL.function.description,
-        parameters: PLAN_CAROUSEL_TOOL.function.parameters,
-      },
-    ];
+    // Plan Mode hard-blocks the generation tools at the API level. Prompt-
+    // level "do not call plan_carousel" wasn't strong enough — the model
+    // still reached for the tool because it was available. Removing the
+    // schemas from the tools array makes it physically impossible to call
+    // and forces text-only planning output.
+    const tools = planMode
+      ? [{ type: 'web_search' }]
+      : [
+          { type: 'web_search' },
+          {
+            type: 'function',
+            name: 'generate_image',
+            description: IMAGE_TOOL.function.description,
+            parameters: IMAGE_TOOL.function.parameters,
+          },
+          {
+            type: 'function',
+            name: 'plan_carousel',
+            description: PLAN_CAROUSEL_TOOL.function.description,
+            parameters: PLAN_CAROUSEL_TOOL.function.parameters,
+          },
+        ];
 
     const res = await fetch('/api/xai/v1/responses', {
       method: 'POST',
@@ -2350,8 +2419,10 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
       model: 'grok-4-1-fast-non-reasoning',
       messages: [{ role: 'system', content: systemPrompt }, ...messages],
       stream: true,
-      tools: [IMAGE_TOOL, PLAN_CAROUSEL_TOOL],
-      tool_choice: 'auto',
+      // Same rationale as the searchMode branch — strip generation tools
+      // when Plan Mode is on so the model has no way to bypass the prompt.
+      tools: planMode ? [] : [IMAGE_TOOL, PLAN_CAROUSEL_TOOL],
+      tool_choice: planMode ? 'none' : 'auto',
     }),
     signal: abortSignal,
   });
@@ -2441,11 +2512,15 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
   const failed = plan.failedSlides || [];
   const hasFailed = failed.length > 0 && !plan.generating;
   const editable = !plan.approved; // Only editable BEFORE approval.
-  const [dragIdx, setDragIdx] = useState(null);
-  const [dropIdx, setDropIdx] = useState(null);
+  const [activeSlide, setActiveSlide] = useState(0);
   const [templates, setTemplates] = useState([]);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
+
+  // Clamp activeSlide if slides array shrinks (e.g., delete).
+  useEffect(() => {
+    if (activeSlide >= slides.length) setActiveSlide(Math.max(0, slides.length - 1));
+  }, [slides.length, activeSlide]);
 
   // Lazy-fetch saved templates only when the picker is opened.
   const loadTemplates = async () => {
@@ -2486,6 +2561,7 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
     // Hook (0) and last (CTA) cannot be removed.
     if (idx === 0 || idx === slides.length - 1) return;
     onUpdatePlan({ ...plan, slides: slides.filter((_, i) => i !== idx) });
+    setActiveSlide((cur) => Math.max(0, cur >= idx ? cur - 1 : cur));
   };
   const insertSlideAfter = (idx) => {
     if (!editable || !onUpdatePlan) return;
@@ -2499,6 +2575,7 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
     };
     const next = [...slides.slice(0, idx + 1), newSlide, ...slides.slice(idx + 1)];
     onUpdatePlan({ ...plan, slides: next });
+    setActiveSlide(idx + 1); // jump to the newly-inserted slide
   };
   const moveSlide = (from, to) => {
     if (!editable || !onUpdatePlan) return;
@@ -2510,6 +2587,7 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
     onUpdatePlan({ ...plan, slides: next });
+    setActiveSlide(to); // follow the moved slide
   };
 
   return (
@@ -2576,82 +2654,143 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
         </div>
       )}
       <div className="content-carousel-plan-section">
-        <div className="content-carousel-plan-label">Slides {editable && <span className="content-carousel-plan-hint">drag middle slides to reorder · pencil is always available on generated slides</span>}</div>
-        <div className="content-carousel-plan-slide-grid">
-          {slides.map((s, i) => {
-            const isHook = i === 0;
-            const isFinal = i === slides.length - 1;
-            const isLocked = isHook || isFinal;
-            const canDrag = editable && !isLocked;
-            const isDropZone = editable && dragIdx !== null && dropIdx === i && dragIdx !== i && !isHook && i < slides.length - 1;
-            return (
-              <div key={i} className={`content-carousel-plan-slide-card${isLocked ? ' content-carousel-plan-slide-card--locked' : ''}${isDropZone ? ' content-carousel-plan-slide-card--drop' : ''}`}
-                draggable={canDrag}
-                onDragStart={() => canDrag && setDragIdx(i)}
-                onDragEnter={() => editable && setDropIdx(i)}
-                onDragOver={(e) => editable && e.preventDefault()}
-                onDragEnd={() => { setDragIdx(null); setDropIdx(null); }}
-                onDrop={() => { if (dragIdx !== null && dropIdx !== null) moveSlide(dragIdx, dropIdx); setDragIdx(null); setDropIdx(null); }}
+        <div className="content-carousel-plan-slide-header">
+          <div className="content-carousel-plan-label">Slides</div>
+          {editable && (
+            <div className="content-carousel-plan-edit-hint">
+              <Pencil size={11} />
+              <span>Tap any text to edit. Use arrows or dots to move between slides.</span>
+            </div>
+          )}
+        </div>
+        {slides.length > 0 && (() => {
+          const clampedActive = Math.min(activeSlide, slides.length - 1);
+          const s = slides[clampedActive] || {};
+          const i = clampedActive;
+          const isHook = i === 0;
+          const isFinal = i === slides.length - 1;
+          const isLocked = isHook || isFinal;
+          const canMoveLeft = editable && !isLocked && i > 1;
+          const canMoveRight = editable && !isLocked && i < slides.length - 2;
+          const canDelete = editable && !isLocked;
+          const canInsertAfter = editable && !isFinal;
+          return (
+            <div className="content-carousel-plan-carousel">
+              <button
+                type="button"
+                className="content-carousel-plan-carousel-nav content-carousel-plan-carousel-nav--prev"
+                onClick={() => setActiveSlide((cur) => Math.max(0, cur - 1))}
+                disabled={i === 0}
+                aria-label="Previous slide"
               >
-                <div className="content-carousel-plan-slide-card-head">
-                  <span className="content-carousel-plan-slide-num">{String(i + 1).padStart(2, '0')}</span>
-                  <span className="content-carousel-plan-slide-type">{isHook ? 'HOOK' : isFinal ? 'CTA' : String(s.type || 'SLIDE').toUpperCase()}</span>
-                  {editable && !isLocked && (
-                    <button type="button" className="content-carousel-plan-slide-delete" title="Delete slide" onClick={() => deleteSlide(i)}>
-                      <Trash2 size={12} />
-                    </button>
+                <ChevronLeft size={20} />
+              </button>
+              <div className="content-carousel-plan-viewport">
+                <div className={`content-carousel-plan-slide-card content-carousel-plan-slide-card--focused${isLocked ? ' content-carousel-plan-slide-card--locked' : ''}`}>
+                  <div className="content-carousel-plan-slide-card-head">
+                    <span className="content-carousel-plan-slide-num">{String(i + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}</span>
+                    <span className="content-carousel-plan-slide-type">{isHook ? 'HOOK' : isFinal ? 'CTA' : String(s.type || 'SLIDE').toUpperCase()}</span>
+                    {editable && (
+                      <div className="content-carousel-plan-slide-actions">
+                        {canMoveLeft && (
+                          <button type="button" className="content-carousel-plan-slide-action" title="Move slide left" onClick={() => moveSlide(i, i - 1)}>
+                            <ChevronLeft size={12} />
+                          </button>
+                        )}
+                        {canMoveRight && (
+                          <button type="button" className="content-carousel-plan-slide-action" title="Move slide right" onClick={() => moveSlide(i, i + 1)}>
+                            <ChevronRight size={12} />
+                          </button>
+                        )}
+                        {canInsertAfter && (
+                          <button type="button" className="content-carousel-plan-slide-action" title="Insert slide after this one" onClick={() => insertSlideAfter(i)}>
+                            <Plus size={12} />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button type="button" className="content-carousel-plan-slide-action content-carousel-plan-slide-action--danger" title="Delete slide" onClick={() => deleteSlide(i)}>
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {editable
+                    ? <input
+                        className="content-carousel-plan-slide-badge-input"
+                        value={s.badge || ''}
+                        onChange={(e) => updateSlide(i, { badge: e.target.value })}
+                        placeholder="BADGE LABEL"
+                      />
+                    : <div className="content-carousel-plan-slide-badge">{s.badge || ''}</div>
+                  }
+                  {editable
+                    ? <>
+                        <textarea
+                          className="content-carousel-plan-slide-headline-input"
+                          value={s.headline || ''}
+                          onChange={(e) => updateSlide(i, { headline: e.target.value })}
+                          placeholder="Headline"
+                          rows={3}
+                        />
+                        <div className="content-carousel-plan-accent-hint">
+                          Tip: wrap a word in <code>{'{{accent}}'}word{'{{/accent}}'}</code> to highlight it in your brand color on the final slide.
+                        </div>
+                      </>
+                    : <div className="content-carousel-plan-slide-headline">
+                        {(s.headline || '').replace(/\{\{accent\}\}|\{\{\/accent\}\}/g, '')}
+                      </div>
+                  }
+                  {editable
+                    ? <textarea
+                        className="content-carousel-plan-slide-body-input"
+                        value={s.body || ''}
+                        onChange={(e) => updateSlide(i, { body: e.target.value })}
+                        placeholder="Body copy (2–4 lines)"
+                        rows={6}
+                      />
+                    : (s.body && <div className="content-carousel-plan-slide-body">{s.body}</div>)
+                  }
+                  {isFinal && (
+                    editable
+                      ? <input
+                          className="content-carousel-plan-slide-cta-input"
+                          value={s.cta || ''}
+                          onChange={(e) => updateSlide(i, { cta: e.target.value })}
+                          placeholder="CTA button text"
+                        />
+                      : (s.cta && <div className="content-carousel-plan-slide-cta">CTA: {s.cta}</div>)
                   )}
                 </div>
-                {editable
-                  ? <input
-                      className="content-carousel-plan-slide-badge-input"
-                      value={s.badge || ''}
-                      onChange={(e) => updateSlide(i, { badge: e.target.value })}
-                      placeholder="BADGE LABEL"
-                    />
-                  : <div className="content-carousel-plan-slide-badge">{s.badge || ''}</div>
-                }
-                {editable
-                  ? <textarea
-                      className="content-carousel-plan-slide-headline-input"
-                      value={s.headline || ''}
-                      onChange={(e) => updateSlide(i, { headline: e.target.value })}
-                      placeholder="Headline — wrap the accent word with {{accent}}word{{/accent}}"
-                      rows={2}
-                    />
-                  : <div className="content-carousel-plan-slide-headline">
-                      {(s.headline || '').replace(/\{\{accent\}\}|\{\{\/accent\}\}/g, '')}
-                    </div>
-                }
-                {editable
-                  ? <textarea
-                      className="content-carousel-plan-slide-body-input"
-                      value={s.body || ''}
-                      onChange={(e) => updateSlide(i, { body: e.target.value })}
-                      placeholder="Body copy (2–4 lines)"
-                      rows={3}
-                    />
-                  : (s.body && <div className="content-carousel-plan-slide-body">{s.body}</div>)
-                }
-                {isFinal && (
-                  editable
-                    ? <input
-                        className="content-carousel-plan-slide-cta-input"
-                        value={s.cta || ''}
-                        onChange={(e) => updateSlide(i, { cta: e.target.value })}
-                        placeholder="CTA button text"
-                      />
-                    : (s.cta && <div className="content-carousel-plan-slide-cta">CTA: {s.cta}</div>)
-                )}
-                {editable && !isFinal && i < slides.length - 1 && (
-                  <button type="button" className="content-carousel-plan-slide-insert" onClick={() => insertSlideAfter(i)} title="Insert slide after this one">
-                    <Plus size={12} /> insert slide
-                  </button>
-                )}
               </div>
-            );
-          })}
-        </div>
+              <button
+                type="button"
+                className="content-carousel-plan-carousel-nav content-carousel-plan-carousel-nav--next"
+                onClick={() => setActiveSlide((cur) => Math.min(slides.length - 1, cur + 1))}
+                disabled={i === slides.length - 1}
+                aria-label="Next slide"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+          );
+        })()}
+        {slides.length > 1 && (
+          <div className="content-carousel-plan-dots">
+            {slides.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                className={`content-carousel-plan-dot${i === activeSlide ? ' content-carousel-plan-dot--active' : ''}`}
+                onClick={() => setActiveSlide(i)}
+                title={`Slide ${i + 1}${i === 0 ? ' — Hook' : i === slides.length - 1 ? ' — CTA' : ''}`}
+                aria-label={`Go to slide ${i + 1}`}
+              >
+                {i + 1}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="content-carousel-plan-section">
         <div className="content-carousel-plan-label">Design system {editable ? '(tap a swatch to change)' : '(locked)'}</div>
@@ -2683,7 +2822,6 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
           <div><strong>Font:</strong> {ds.typography?.family || '—'}</div>
           <div><strong>Accent:</strong> {ds.accentTreatment?.slice(0, 80) || '—'}</div>
         </div>
-        {ds.mood && <div className="content-carousel-plan-mood">{ds.mood}</div>}
       </div>
       {(plan.caption || editable) && (
         <div className="content-carousel-plan-section">
@@ -2757,9 +2895,52 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
 
 function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform = 'instagram' }) {
   const [downloading, setDownloading] = useState(false);
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [downloadMenuPos, setDownloadMenuPos] = useState({ left: 0, top: 0 });
+  const downloadBtnRef = useRef(null);
+  const downloadMenuRef = useRef(null);
   const [showTip, setShowTip] = useState(() => {
     try { return localStorage.getItem('aiceo.carouselEditTipDismissed') !== '1'; } catch { return true; }
   });
+
+  // Toolbar containers use overflow-x: auto (li-toolbar-row / content-ig-toolbar)
+  // which clips both axes, so an absolute-positioned dropdown gets hidden.
+  // Position fixed relative to the button's viewport rect instead, and flip
+  // upward when there's not enough room below.
+  const openDownloadMenu = () => {
+    const btn = downloadBtnRef.current;
+    if (!btn) { setDownloadMenuOpen(true); return; }
+    const rect = btn.getBoundingClientRect();
+    const MENU_H = 140; // approximate — two items with subtitles
+    const MENU_W = 260;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const top = spaceBelow > MENU_H + 16 ? rect.bottom + 6 : rect.top - MENU_H - 6;
+    // Keep the menu on-screen horizontally too.
+    const maxLeft = window.innerWidth - MENU_W - 8;
+    const left = Math.max(8, Math.min(rect.left, maxLeft));
+    setDownloadMenuPos({ left, top });
+    setDownloadMenuOpen(true);
+  };
+
+  // Close download menu when clicking outside, or when the toolbar scrolls /
+  // window resizes (position would go stale — cheaper to close than track).
+  useEffect(() => {
+    if (!downloadMenuOpen) return;
+    const onDoc = (e) => {
+      const inMenu = downloadMenuRef.current && downloadMenuRef.current.contains(e.target);
+      const inBtn = downloadBtnRef.current && downloadBtnRef.current.contains(e.target);
+      if (!inMenu && !inBtn) setDownloadMenuOpen(false);
+    };
+    const close = () => setDownloadMenuOpen(false);
+    document.addEventListener('mousedown', onDoc);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true); // capture so nested scrolls close it too
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [downloadMenuOpen]);
   const dismissTip = () => {
     setShowTip(false);
     try { localStorage.setItem('aiceo.carouselEditTipDismissed', '1'); } catch {}
@@ -2824,6 +3005,84 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
     } catch (err) {
       console.error('ZIP download failed:', err);
       alert(err.message || 'Download failed. Try again or download slides individually.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  // Bundle all slides into a single multi-page PDF, one slide per page,
+  // sized to each image's native dimensions. Same source handling as the
+  // ZIP: works for both data: URLs (fresh generation) and remote Supabase
+  // storage URLs (after auto-save swap).
+  const downloadPdf = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      // Sort slides by their carousel index so pages come out in order.
+      const ordered = [...images].filter(x => x?.src).sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
+      if (ordered.length === 0) throw new Error('No slides to include in the PDF.');
+
+      // Load an image and resolve its natural dimensions + a data URL that
+      // jsPDF can embed. Fetches cross-origin sources through the browser
+      // cache so we don't tromp on the network twice.
+      const loadSlide = async (img) => {
+        let dataUrl = img.src;
+        if (!dataUrl.startsWith('data:')) {
+          const res = await fetch(dataUrl, { mode: 'cors' });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const blob = await res.blob();
+          dataUrl = await new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result);
+            r.onerror = () => reject(new Error('Could not read slide as data URL'));
+            r.readAsDataURL(blob);
+          });
+        }
+        // window.Image (not lucide-react's Image icon which shadows the
+        // global in this file's imports).
+        const dims = await new Promise((resolve, reject) => {
+          const im = new window.Image();
+          im.onload = () => resolve({ w: im.naturalWidth, h: im.naturalHeight });
+          im.onerror = () => reject(new Error('Could not decode slide image'));
+          im.src = dataUrl;
+        });
+        const format = dataUrl.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
+        return { dataUrl, format, ...dims };
+      };
+
+      const slides = [];
+      for (const img of ordered) {
+        try {
+          slides.push(await loadSlide(img));
+        } catch (imgErr) {
+          console.warn(`[pdf] slide ${(img.idx ?? 0) + 1} skipped:`, imgErr);
+        }
+      }
+      if (slides.length === 0) throw new Error('No slides could be loaded for the PDF.');
+
+      // Build multi-page PDF. Each page uses the slide's own dimensions
+      // (px unit) so square IG carousels and vertical stories both render
+      // 1:1 with no letterboxing.
+      const first = slides[0];
+      const doc = new jsPDF({
+        unit: 'px',
+        format: [first.w, first.h],
+        orientation: first.w >= first.h ? 'l' : 'p',
+        compress: true,
+      });
+      slides.forEach((s, i) => {
+        if (i > 0) {
+          doc.addPage([s.w, s.h], s.w >= s.h ? 'l' : 'p');
+        }
+        doc.addImage(s.dataUrl, s.format, 0, 0, s.w, s.h);
+      });
+
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      doc.save(`carousel-${ts}.pdf`);
+    } catch (err) {
+      console.error('PDF download failed:', err);
+      alert(err.message || 'PDF export failed. Try the ZIP option instead.');
     } finally {
       setDownloading(false);
     }
@@ -2992,9 +3251,43 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
   // toolbar row (LinkedInPreview / IG panel). No wrapper div.
   return (
     <>
-      <button type="button" className="li-toolbar-btn" onClick={downloadZip} disabled={downloading} title={`Download all ${images.length} slides + caption as a zip`}>
-        <Download size={14} /> {downloading ? 'Packing…' : 'Download'}
+      <button
+        ref={downloadBtnRef}
+        type="button"
+        className="li-toolbar-btn"
+        onClick={() => downloadMenuOpen ? setDownloadMenuOpen(false) : openDownloadMenu()}
+        disabled={downloading}
+        title={`Download all ${images.length} slides`}
+      >
+        <Download size={14} /> {downloading ? 'Packing…' : 'Download'} <ChevronDown size={12} />
       </button>
+      {downloadMenuOpen && (
+        <div
+          ref={downloadMenuRef}
+          className="content-carousel-download-menu"
+          role="menu"
+          style={{ position: 'fixed', left: downloadMenuPos.left, top: downloadMenuPos.top }}
+        >
+          <button
+            type="button"
+            className="content-carousel-download-menu-item"
+            onClick={() => { setDownloadMenuOpen(false); downloadZip(); }}
+            role="menuitem"
+          >
+            <div className="content-carousel-download-menu-item-title">Images (ZIP)</div>
+            <div className="content-carousel-download-menu-item-sub">All {images.length} slides as separate PNG / JPG files, plus caption.txt</div>
+          </button>
+          <button
+            type="button"
+            className="content-carousel-download-menu-item"
+            onClick={() => { setDownloadMenuOpen(false); downloadPdf(); }}
+            role="menuitem"
+          >
+            <div className="content-carousel-download-menu-item-title">PDF</div>
+            <div className="content-carousel-download-menu-item-sub">One multi-page PDF, one slide per page — good for sharing or printing</div>
+          </button>
+        </div>
+      )}
       <button type="button" className="li-toolbar-btn" onClick={() => setScheduleOpen(true)} disabled={scheduling} title="Send to content calendar — draft, schedule, or publish now">
         <CalendarDays size={14} />
         {scheduleStatus === 'published' ? 'Published' : scheduleStatus === 'saved' ? 'Saved' : (scheduling ? 'Saving…' : 'Schedule')}
@@ -3141,6 +3434,10 @@ export default function Content() {
   const [tooltip, setTooltip] = useState({ text: '', x: 0, y: 0, visible: false });
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const [contentResearchMode, setContentResearchMode] = useState(false);
+  // Plan Mode — user asks for content, AI produces a full weekly/monthly
+  // content plan (topics, hooks, formats, dates) INSTEAD of running
+  // generate_image / plan_carousel. Meant for weekend batch planning.
+  const [planMode, setPlanMode] = useState(false);
   const [searchStatus, setSearchStatus] = useState(null);
   const [contentCtxMenuOpen, setContentCtxMenuOpen] = useState(false);
   const [contentHoveredCat, setContentHoveredCat] = useState(null);
@@ -3668,7 +3965,7 @@ export default function Content() {
       // Pass the existing LinkedIn preview state so the prompt can swap
       // into EDIT MODE (preserves images & post text instead of wiping).
       const existingPost = linkedinPreviewRef.current;
-      const systemPrompt = buildSystemPrompt(activePlatform, photos, documents, socialUrls, brandDna, integrationCtx, selectedTemplatesData, existingPost);
+      const systemPrompt = buildSystemPrompt(activePlatform, photos, documents, socialUrls, brandDna, integrationCtx, selectedTemplatesData, existingPost, { planMode });
 
       console.group('📋 Content AI  -  Context being sent');
       console.log('Platform:', activePlatform.name);
@@ -3828,7 +4125,7 @@ export default function Content() {
           }
         },
         abort.signal,
-        { searchMode: true, onSearchStatus: setSearchStatus },
+        { searchMode: true, onSearchStatus: setSearchStatus, planMode },
       );
       // Check if the response contains a JSON question (may be preceded by text)
       const finalContent = streamedContent || '';
@@ -6649,6 +6946,13 @@ export default function Content() {
               >
                 <Globe size={13} /> Research
               </button>
+              <button
+                className={`content-research-toggle content-plan-toggle ${planMode ? 'content-research-toggle--active content-plan-toggle--active' : ''}`}
+                onClick={() => setPlanMode((v) => !v)}
+                title="Plan a week or month of content in one session instead of generating individual posts"
+              >
+                <CalendarDays size={13} /> Plan mode
+              </button>
               {contentSelectedCtx.size > 0 && (
                 <div className="content-ctx-pills">
                   {getContentSelectedDetails().map((item) => (
@@ -6665,7 +6969,9 @@ export default function Content() {
             <div className="content-input-bottom-row">
               <textarea
                 className="content-input"
-                placeholder={`Create content for ${activePlatform.name}...`}
+                placeholder={planMode
+                  ? `Plan a week or month of ${activePlatform.name} content...`
+                  : `Create content for ${activePlatform.name}...`}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onInput={autoResize}

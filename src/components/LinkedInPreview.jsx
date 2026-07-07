@@ -330,15 +330,35 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                       </button>
                     )}
                     {currentImage && (
-                      <a
+                      <button
+                        type="button"
                         className="li-carousel-tool"
-                        href={currentImage.src}
-                        download={`slide-${slideIdx + 1}.png`}
                         title="Download slide"
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={async (e) => {
+                          // <a download> is silently ignored for cross-origin
+                          // URLs (Supabase storage) — browsers navigate to the
+                          // image instead. Fetch as a blob and force-download.
+                          e.stopPropagation();
+                          try {
+                            const res = await fetch(currentImage.src, { mode: 'cors' });
+                            const blob = await res.blob();
+                            const ext = (blob.type.split('/')[1] || 'png').split('+')[0];
+                            const objectUrl = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = objectUrl;
+                            a.download = `slide-${slideIdx + 1}.${ext}`;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+                          } catch (err) {
+                            console.error('Slide download failed:', err);
+                            window.open(currentImage.src, '_blank', 'noopener');
+                          }
+                        }}
                       >
                         <Download size={14} />
-                      </a>
+                      </button>
                     )}
                     {onRemoveSlide && canRemoveCurrent && (
                       <button

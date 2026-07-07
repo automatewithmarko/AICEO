@@ -629,7 +629,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             })()}
             {type === 'image' && <ImageRenderer images={images} pendingImages={artifact.pendingImages} title={title} />}
             {type === 'code_block' && <CodeRenderer content={content} />}
-            {type === 'markdown_doc' && <MarkdownRenderer content={content} />}
+            {type === 'markdown_doc' && <MarkdownRenderer content={content} onContentChange={onContentChange} />}
           </>
         )}
       </div>
@@ -1291,10 +1291,76 @@ function CodeRenderer({ content }) {
   return <pre className="ap-code"><code>{content}</code></pre>;
 }
 
-function MarkdownRenderer({ content }) {
+// Markdown artifact renderer with a view/edit toggle. In view mode it renders
+// the markdown normally; in edit mode it shows a textarea and pushes edits
+// back up through onContentChange so downstream CEO messages (and version
+// history) see the user's changes. Used by Plan Mode plans and detailed
+// content briefs — the user can tweak the plan directly in the canvas
+// before asking the CEO to generate the actual posts.
+function MarkdownRenderer({ content, onContentChange }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(content || '');
+  const [dirty, setDirty] = useState(false);
+
+  // Sync draft when the artifact content changes upstream (new artifact
+  // loaded, version restored, edited elsewhere).
+  useEffect(() => {
+    setDraft(content || '');
+    setDirty(false);
+  }, [content]);
+
+  const save = () => {
+    if (onContentChange) onContentChange(draft);
+    setDirty(false);
+    setEditing(false);
+  };
+  const cancel = () => {
+    setDraft(content || '');
+    setDirty(false);
+    setEditing(false);
+  };
+
   return (
-    <div className="ap-markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+    <div className="ap-markdown-wrap">
+      <div className="ap-markdown-toolbar">
+        {editing ? (
+          <>
+            <button
+              type="button"
+              className="ap-md-btn ap-md-btn--primary"
+              onClick={save}
+              disabled={!dirty}
+              title="Save your edits — subsequent CEO messages will see this version"
+            >
+              <Check size={14} /> Save
+            </button>
+            <button type="button" className="ap-md-btn" onClick={cancel}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="ap-md-btn"
+            onClick={() => setEditing(true)}
+            title="Edit this document"
+          >
+            <PenTool size={14} /> Edit
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <textarea
+          className="ap-markdown-editor"
+          value={draft}
+          onChange={(e) => { setDraft(e.target.value); setDirty(e.target.value !== content); }}
+          spellCheck={true}
+        />
+      ) : (
+        <div className="ap-markdown">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        </div>
+      )}
     </div>
   );
 }
