@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, ChevronDown, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import DOMPurify from 'dompurify';
 import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -1389,48 +1391,79 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `These rules override everything else below.\n\n`;
   prompt += `Platform: ${platform.name}\n\n`;
 
-  // Plan Mode short-circuits into planning-only behavior. Injected high in
-  // the prompt so it dominates the tool routing further down.
+  // Plan Mode — Content tab has no ArtifactPanel, but the assistant
+  // messages render markdown + raw HTML (rehype-raw + DOMPurify) so the
+  // model can output a fully-styled HTML plan document that displays
+  // inline as a canvas-like block. Same UX intent as landing pages in
+  // AICEO chat, but embedded in the chat bubble.
   if (planMode) {
-    prompt += `=== PLAN MODE IS ACTIVE (READ THIS FIRST — OVERRIDES EVERY TOOL INSTRUCTION BELOW) ===\n`;
-    prompt += `The user has turned on Plan Mode. Their goal is to plan a week or month of content in a single session, NOT to generate individual posts right now. The premise: they want to spend a weekend building a full content calendar with you so their next 4 weeks are already mapped out.\n\n`;
-    prompt += `HARD RULES:\n`;
-    prompt += `- Do NOT call plan_carousel. Do NOT call generate_image. Do NOT emit <<READY_A>> / <<READY_B>> or any edit markers. No image generation. No slide plans. No per-piece assets.\n`;
-    prompt += `- Your ONLY output is a written content PLAN — a schedule the user will approve, then generate piece by piece later.\n`;
-    prompt += `- If the user asks a general question ("what should I post about?", "help me plan"), skip to the plan.\n`;
-    prompt += `- If the user's ask is ambiguous on scope, ASK ONE short JSON question at a time BEFORE producing the plan. Options 2-5 words. Hard cap: 2 questions total.\n\n`;
-    prompt += `WHAT TO ASK (only if not already answered in the message or thread):\n`;
-    prompt += `1. Timeframe — {"type":"question","text":"How much content should I plan?","options":["1 week","2 weeks","1 month","Custom"]}\n`;
-    prompt += `2. Cadence — {"type":"question","text":"How often do you want to post?","options":["3x per week","5x per week","Daily","Custom"]}\n`;
-    prompt += `3. Content mix (optional, only if brand DNA doesn't already answer) — Educate / Inspire / Sell / Mixed.\n`;
-    prompt += `Platform: default to the currently-active platform (${platform.name}) unless the user asks for more.\n\n`;
-    prompt += `THEN PRODUCE THE PLAN using this exact markdown structure so the client can render it cleanly:\n\n`;
-    prompt += `## 📅 Content Plan — <title, e.g. "January 2026 — 4 weeks">\n\n`;
-    prompt += `**Timeframe:** <e.g. Jan 6 – Feb 2>\n`;
-    prompt += `**Cadence:** <e.g. 3x per week>\n`;
-    prompt += `**Platforms:** <e.g. ${platform.name}>\n`;
-    prompt += `**Total posts:** <N>\n`;
-    prompt += `**Theme (optional):** <if there's a coherent monthly angle>\n\n`;
-    prompt += `### Week 1 (<date range>)\n`;
-    prompt += `| Day | Platform | Format | Topic | Hook | CTA |\n`;
-    prompt += `|-----|----------|--------|-------|------|-----|\n`;
-    prompt += `| Mon <date> | ${platform.name} | Carousel | <specific topic> | "<real first-line hook>" | <specific CTA> |\n`;
-    prompt += `| Wed <date> | ${platform.name} | Reel | <specific topic> | "<real first-line hook>" | <specific CTA> |\n`;
-    prompt += `| Fri <date> | ${platform.name} | Single Post | <specific topic> | "<real first-line hook>" | <specific CTA> |\n`;
-    prompt += `(Repeat one section per week. Include every planned post.)\n\n`;
-    prompt += `Close with ONE line: "Ready to generate any of these? Just say the day (e.g. 'generate Monday's carousel') or turn Plan Mode off and paste the row you want to build." No other trailing text.\n\n`;
-    prompt += `QUALITY BAR (this is why the user turned Plan Mode on — deliver on it):\n`;
-    prompt += `- Every topic must be REAL and specific to this user. NOT "talk about mindset" — instead something like "The 20-min ritual I did every Sunday for 3 months that fixed my launch cadence."\n`;
-    prompt += `- Hooks are ACTUAL scroll-stopping first lines written in the user's voice, in quotes. Not descriptions of the hook.\n`;
-    prompt += `- Vary format across the week — don't stack 5 carousels back to back. Mix carousel / reel / single post / story naturally.\n`;
-    prompt += `- Anchor topics in the user's Brand DNA, recent calls, past content, integrated data (products, sales, emails). If you have real signal, USE it. Never generic.\n`;
-    prompt += `- Space out asks: hard-sell CTAs no more than 1 in every 3 posts. The rest should build audience, teach, or share proof.\n`;
-    prompt += `- If the plan covers 3+ weeks, weave a narrative arc: week 1 attention / week 2 education / week 3 proof / week 4 conversion (or similar). State the arc in the header.\n\n`;
-    prompt += `WHAT NOT TO DO IN PLAN MODE:\n`;
-    prompt += `- Do NOT write full captions, slide decks, or scripts. One row per post, that is the deliverable.\n`;
-    prompt += `- Do NOT ask more than 2 clarifying questions before delivering the plan.\n`;
-    prompt += `- Do NOT default to "Educational tips carousel" for every slot. That's the AI-slop version of a plan.\n`;
-    prompt += `- Do NOT generate images or slides even if the user says "and go ahead and make them". Reply: "I'll queue those. Turn Plan Mode off when you're ready and tell me which day to start with."\n\n`;
+    prompt += `=== PLAN MODE IS ACTIVE — READ THIS FIRST ===\n\n`;
+    prompt += `PRIMARY DIRECTIVE: Your output is a single self-contained styled HTML block that renders as a canvas-like content plan inside the chat. No narrative prose, no bullet-lists, no chat commentary before or after the HTML. Just the HTML.\n\n`;
+
+    prompt += `WHAT YOU NEVER DO IN PLAN MODE:\n`;
+    prompt += `- Never call plan_carousel. Never call generate_image. Never emit <<READY_A>> / <<READY_B>> / <<READY_CAROUSEL>>. No image or slide generation of any kind.\n`;
+    prompt += `- Never respond with a narrative paragraph like "Week 1: Hook & Hook Again — Focus: Test 4 different hook styles..." That's the exact bug the user is complaining about. The plan lives in the HTML, not in prose.\n`;
+    prompt += `- Never wrap the HTML in \\\`\\\`\\\`html fences. Emit the raw HTML directly as the message text.\n`;
+    prompt += `- Never rewrite an existing plan artifact in prose. If the user asks for a change, output a new HTML block.\n\n`;
+
+    prompt += `SCOPING (only when info is missing — before you emit the HTML plan):\n`;
+    prompt += `Ask via JSON, one at a time, hard cap of 2 total:\n`;
+    prompt += `1. Timeframe: {"type":"question","text":"How much content should I plan?","options":["1 week","2 weeks","1 month","Custom"]}\n`;
+    prompt += `2. Cadence: {"type":"question","text":"How often do you want to post?","options":["3x per week","5x per week","Daily","Custom"]}\n`;
+    prompt += `Skip a question if the user already answered. If they say "surprise me" or "go ahead" or "all of them", commit to a confident default and proceed to the HTML.\n\n`;
+
+    prompt += `THE HTML TEMPLATE — copy this shape exactly, fill in real values:\n\n`;
+    prompt += `<div style="border:1px solid #e5e7eb;border-radius:12px;background:#fafafa;padding:20px 24px;margin:8px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">\n`;
+    prompt += `  <div style="border-bottom:2px solid #e91a44;padding-bottom:12px;margin-bottom:18px;">\n`;
+    prompt += `    <h2 style="margin:0;font-size:20px;font-weight:700;color:#1a1a1a;">📅 Content Plan — <TITLE></h2>\n`;
+    prompt += `    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px 20px;margin-top:10px;font-size:12px;color:#666;">\n`;
+    prompt += `      <div><strong style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#1a1a1a;">Timeframe</strong>Jan 6 – Feb 2</div>\n`;
+    prompt += `      <div><strong style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#1a1a1a;">Cadence</strong>3x per week</div>\n`;
+    prompt += `      <div><strong style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#1a1a1a;">Platforms</strong>${platform.name}</div>\n`;
+    prompt += `      <div><strong style="display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#1a1a1a;">Total posts</strong>12</div>\n`;
+    prompt += `    </div>\n`;
+    prompt += `  </div>\n`;
+    prompt += `  <div style="background:linear-gradient(90deg,rgba(233,26,68,0.08),rgba(233,26,68,0.02));border-left:3px solid #e91a44;padding:8px 12px;margin-bottom:16px;font-size:12.5px;color:#444;border-radius:4px;">\n`;
+    prompt += `    <strong>Narrative arc:</strong> Week 1 attention → Week 2 education → Week 3 proof → Week 4 conversion.\n`;
+    prompt += `  </div>\n`;
+    prompt += `  <h3 style="font-size:15px;margin:20px 0 10px;padding:6px 10px;background:#1a1a1a;color:#fff;border-radius:6px;">Week 1 · Jan 6 – Jan 12</h3>\n`;
+    prompt += `  <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.05);margin-bottom:10px;">\n`;
+    prompt += `    <thead style="background:#fafafa;"><tr>\n`;
+    prompt += `      <th style="text-align:left;padding:9px 12px;font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#666;border-bottom:1px solid #eee;">Day</th>\n`;
+    prompt += `      <th style="text-align:left;padding:9px 12px;font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#666;border-bottom:1px solid #eee;">Format</th>\n`;
+    prompt += `      <th style="text-align:left;padding:9px 12px;font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#666;border-bottom:1px solid #eee;">Topic</th>\n`;
+    prompt += `      <th style="text-align:left;padding:9px 12px;font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#666;border-bottom:1px solid #eee;">Hook</th>\n`;
+    prompt += `      <th style="text-align:left;padding:9px 12px;font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#666;border-bottom:1px solid #eee;">CTA</th>\n`;
+    prompt += `    </tr></thead>\n`;
+    prompt += `    <tbody>\n`;
+    prompt += `      <tr>\n`;
+    prompt += `        <td style="padding:11px 12px;font-size:12px;color:#1a1a1a;vertical-align:top;border-bottom:1px solid #f2f2f2;">Mon Jan 6</td>\n`;
+    prompt += `        <td style="padding:11px 12px;font-size:12px;color:#7c3aed;font-weight:600;vertical-align:top;border-bottom:1px solid #f2f2f2;">Carousel</td>\n`;
+    prompt += `        <td style="padding:11px 12px;font-size:12px;color:#1a1a1a;vertical-align:top;border-bottom:1px solid #f2f2f2;">Real specific topic drawn from Brand DNA.</td>\n`;
+    prompt += `        <td style="padding:11px 12px;font-size:12px;color:#444;font-style:italic;vertical-align:top;border-bottom:1px solid #f2f2f2;">"Real first-line hook in the user's voice."</td>\n`;
+    prompt += `        <td style="padding:11px 12px;font-size:12px;color:#1a1a1a;vertical-align:top;border-bottom:1px solid #f2f2f2;">Comment KEYWORD for the framework.</td>\n`;
+    prompt += `      </tr>\n`;
+    prompt += `    </tbody>\n`;
+    prompt += `  </table>\n`;
+    prompt += `  <!-- Repeat the h3 + table pair for each week -->\n`;
+    prompt += `  <div style="margin-top:20px;padding:12px 14px;background:#fff;border-radius:8px;font-size:11.5px;color:#666;border:1px dashed #d0d0d3;">\n`;
+    prompt += `    <strong>Next step:</strong> when you're ready to generate a specific piece, turn Plan Mode off and say "generate Monday's carousel" or paste the row you want to build.\n`;
+    prompt += `  </div>\n`;
+    prompt += `</div>\n\n`;
+
+    prompt += `FORMAT RULES for the values inside the HTML:\n`;
+    prompt += `- Format colors: Carousel = #7c3aed; Reel = #e91a44; Single Post = #2563eb; Story = #f59e0b; Text post = #059669. Set color inline on the format <td>.\n`;
+    prompt += `- The Platform column can be omitted since the current tab is ${platform.name} — but if the user asked for cross-platform planning, include a Platform column with values in a small pill-style span.\n`;
+    prompt += `- Hooks are wrapped in double quotes and italicized (font-style:italic).\n\n`;
+
+    prompt += `QUALITY BAR:\n`;
+    prompt += `- Every topic must be REAL and specific to this user. NOT "talk about mindset" — something like "The 20-min ritual I did every Sunday for 3 months that fixed my launch cadence."\n`;
+    prompt += `- Hooks are ACTUAL scroll-stopping first lines in the user's voice, quoted verbatim. Not descriptions of the hook.\n`;
+    prompt += `- Vary format across the week. Never stack 5 carousels back-to-back. Mix carousel / reel / single post / story naturally.\n`;
+    prompt += `- Anchor topics in Brand DNA, integrated data (products, sales, calls, emails), past content. Use real signal. Never generic.\n`;
+    prompt += `- Space out asks: hard-sell CTAs no more than 1 in every 3 posts.\n`;
+    prompt += `- For 3+ week plans, weave the narrative arc in the arc-banner.\n\n`;
+
     prompt += `Everything below in this prompt describes non-plan-mode behavior. Ignore anything that would trigger plan_carousel or generate_image until Plan Mode is turned off.\n\n`;
   }
 
@@ -6624,11 +6657,16 @@ export default function Content() {
                     <div className="content-bubble content-bubble--assistant">
                       {parsed.text && (
                         <div className="content-markdown">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-                            table: ({ children, ...props }) => (
-                              <div className="content-table-scroll"><table {...props}>{children}</table></div>
-                            ),
-                          }}>{parsed.text}</ReactMarkdown>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            rehypePlugins={[rehypeRaw]}
+                            skipHtml={false}
+                            components={{
+                              table: ({ children, ...props }) => (
+                                <div className="content-table-scroll"><table {...props}>{children}</table></div>
+                              ),
+                            }}
+                          >{DOMPurify.sanitize(parsed.text, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] })}</ReactMarkdown>
                         </div>
                       )}
                       {/* Carousel plan approval card — Instagram only */}
