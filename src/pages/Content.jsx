@@ -4056,8 +4056,13 @@ export default function Content() {
         async (toolCalls) => {
           // Backward compat: older call sites may still pass bare image arrays.
           const normalized = toolCalls.map(c => c.kind ? c : { kind: 'image', ...c });
-          const planCalls = normalized.filter(c => c.kind === 'plan');
-          const imageCalls = normalized.filter(c => c.kind === 'image');
+          // Defensive filter: in Plan Mode, plan_carousel is stripped from
+          // the tools list AND banned in the prompt, but if a cached JS
+          // bundle or a race with the toggle lets one through, silently
+          // drop it before it can attach a carouselPlan to the message
+          // and render the CAROUSEL PLAN card the user was seeing.
+          const planCalls = planMode ? [] : normalized.filter(c => c.kind === 'plan');
+          const imageCalls = planMode ? [] : normalized.filter(c => c.kind === 'image');
 
           if (planCalls.length > 0) {
             // Only take the first plan — Claude should only produce one.

@@ -2444,6 +2444,20 @@ export default function AiCeo() {
                   setArtifact(prev => prev ? { ...prev, content: html } : prev);
                 }
               }}
+              onArtifactChange={(updater) => {
+                // Canvas image upload / clear pushes patch updates back to
+                // the artifact state so LinkedInPreview + SocialPreview can
+                // reflect newly uploaded images without a round trip.
+                const apply = typeof updater === 'function' ? updater : () => updater;
+                if (selectedMsgId) {
+                  setMessages(prev => prev.map(m => {
+                    if (m.id !== selectedMsgId || !m.artifact) return m;
+                    return { ...m, artifact: apply(m.artifact) };
+                  }));
+                } else {
+                  setArtifact(prev => prev ? apply(prev) : prev);
+                }
+              }}
               sessionId={sessionId}
             />
           </div>
