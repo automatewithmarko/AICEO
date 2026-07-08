@@ -6782,6 +6782,39 @@ export default function Content() {
                   // request — otherwise they'd flip back to animated dots
                   // every time isGenerating is true globally.
                   const stillWorking = isGenerating && msg.id === activeAssistantId;
+                  // Plan Mode gets the themed multi-step working card so
+                  // users see a clear indicator that the plan is being
+                  // built (matches the AICEO chat plan indicator).
+                  if (stillWorking && planMode && !searchStatus) {
+                    return (
+                      <div key={msg.id} className="content-assistant-row">
+                        <img src="/favicon.png" alt="" className="content-assistant-avatar" />
+                        <div className="content-plan-working">
+                          <div className="content-plan-working-header">
+                            <CalendarDays size={14} className="content-plan-working-icon" />
+                            <span>Building your plan</span>
+                          </div>
+                          <div className="content-plan-working-steps">
+                            <div className="content-plan-working-step content-plan-working-step--1">
+                              <span className="content-plan-working-step-dot" />
+                              <span>Reading brand DNA + past content</span>
+                            </div>
+                            <div className="content-plan-working-step content-plan-working-step--2">
+                              <span className="content-plan-working-step-dot" />
+                              <span>Drafting week-by-week roadmap</span>
+                            </div>
+                            <div className="content-plan-working-step content-plan-working-step--3">
+                              <span className="content-plan-working-step-dot" />
+                              <span>Composing hooks + visual briefs</span>
+                            </div>
+                          </div>
+                          <span className="content-plan-working-label">
+                            Working on your content plan<span className="content-dots"><span>.</span><span>.</span><span>.</span></span>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <div key={msg.id} className="content-assistant-row">
                       <img src="/favicon.png" alt="" className="content-assistant-avatar" />
