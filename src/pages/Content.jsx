@@ -1818,9 +1818,47 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   }
 
   const doneSocial = socialUrls.filter((s) => s.status === 'done' && s.result);
-  if (doneSocial.length > 0) {
+  // Split outlier-detector items out of the generic social bucket. Outliers
+  // are user-flagged viral references — "I want content that reads like
+  // this creator's post" — so they need a stronger, more prescriptive
+  // copy directive than a random URL the user pasted for inspiration.
+  const isOutlier = (item) => item?.source === 'outlier-detector' || item?.result?.source === 'outlier-detector';
+  const outlierTemplates = doneSocial.filter(isOutlier);
+  const otherSocial = doneSocial.filter((s) => !isOutlier(s));
+
+  if (outlierTemplates.length > 0) {
+    // Placed BEFORE the generic reference block so the model reads
+    // "copy exactly" before it reads "study the structure and replicate".
+    // Transcript cap raised to 6000 chars per item — viral video scripts
+    // are longer than typical social captions, and the whole point is
+    // that the model reads enough of the actual wording to mirror it.
+    prompt += `=== OUTLIER TEMPLATES — COPY EXACT WORDING, TONE, STRUCTURE ===\n`;
+    prompt += `The user picked these viral posts as templates. Your job is to reproduce them for the user's own topic. This is NOT "get inspired" — it is a strict copy job.\n\n`;
+    outlierTemplates.forEach((item, i) => {
+      const r = item.result || {};
+      prompt += `--- Template ${i + 1}: ${r.title || item.url} ---\n`;
+      if (r.platform) prompt += `Platform: ${r.platform}\n`;
+      if (r.uploader) prompt += `Original creator: ${r.uploader}\n`;
+      prompt += `Source URL: ${r.url || item.url}\n`;
+      if (r.description) prompt += `Description: ${r.description.slice(0, 1000)}\n`;
+      if (r.transcript) {
+        prompt += `Full script / caption:\n${r.transcript.slice(0, 6000)}\n`;
+      }
+      prompt += '\n';
+    });
+    prompt += `HOW TO USE THESE TEMPLATES:\n`;
+    prompt += `1. MIRROR EVERY STRUCTURAL BEAT — hook opening line, sentence lengths, pacing, transitions, paragraph breaks, list vs prose, CTA position and phrasing. Line 1 of the original → line 1 of yours. Same rhythm, same beats.\n`;
+    prompt += `2. MATCH TONE AND VOCABULARY REGISTER — if the original is punchy and profane, yours is punchy and profane. If it's warm, warm. If it's clinical, clinical. Use the same class of vocabulary the original used (technical, colloquial, hype, deadpan).\n`;
+    prompt += `3. PRESERVE SIGNATURE PHRASES — copy verbatim any hook openers ("Here's the truth about…", "Nobody talks about…"), transition phrases, running metaphors, and CTA phrasings. Change only the nouns and verbs that carry the topic.\n`;
+    prompt += `4. ONLY SWAP THE TOPIC — the subject matter changes to what the user asked about. Everything else — structure, voice, cadence, emotional beats — stays.\n`;
+    prompt += `5. DO NOT SOFTEN OR "IMPROVE" — do not add hedges, safety disclaimers, brand-safe rewording, extra emojis, or generic marketing polish the original didn't have. If the original was raw, your output is raw.\n\n`;
+    prompt += `Concrete test: line up the original template and your output side by side. Line count, hook shape, CTA position, and voice should match. Only the topic differs. If a reader wouldn't recognise your output as clearly modelled on the original, you did it wrong.\n\n`;
+    hasContext = true;
+  }
+
+  if (otherSocial.length > 0) {
     prompt += `=== SOCIAL MEDIA LINKS ===\n`;
-    doneSocial.forEach((item) => {
+    otherSocial.forEach((item) => {
       const r = item.result;
       prompt += `--- ${r.title || item.url} ---\n`;
       prompt += `URL: ${r.url || item.url}\n`;
@@ -1836,13 +1874,14 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
 
   if (hasContext) {
     prompt += `=== CONTEXT PRIORITY (CRITICAL) ===\n`;
-    prompt += `The content above (social media links, transcripts, documents, photos) is the user's REFERENCE MATERIAL. It takes the HIGHEST PRIORITY, even above system writing guidelines.\n\n`;
+    prompt += `The content above (outlier templates, social media links, transcripts, documents, photos) is the user's REFERENCE MATERIAL. It takes the HIGHEST PRIORITY, even above system writing guidelines.\n\n`;
     prompt += `When the user attaches a post, video, or link and asks you to create content:\n`;
     prompt += `1. STUDY THE STRUCTURE: Analyze the reference content's exact structure. How does it hook? How does it flow? What's the CTA? How long are the sentences? What's the pacing?\n`;
     prompt += `2. REPLICATE THE FRAMEWORK: Your output must follow the SAME structural pattern. Same hook style, same content flow, same engagement mechanics, same CTA approach. Mirror it precisely.\n`;
     prompt += `3. APPLY THE USER'S TOPIC: Keep the structure identical but swap the subject matter to whatever topic the user specifies.\n`;
     prompt += `4. MATCH THE ENERGY: If the reference is punchy and direct, yours must be too. If it's storytelling, match that. The reference IS the template.\n\n`;
     prompt += `Example: If the user attaches a video transcript with a specific hook pattern, 3-part story arc, and "DM me X" CTA, your content must use that EXACT same hook pattern, 3-part story arc, and "DM me X" CTA structure. Only the topic changes.\n\n`;
+    prompt += `Outlier templates specifically override every default writing rule below (em-dash policy, hashtag policy, opener bans) if the template itself uses them — a viral post with hashtags means your output for that template also has hashtags. Match the template.\n\n`;
     prompt += `The reference content overrides any conflicting advice in the writing guidelines below. The reference IS the prompt.\n\n`;
   }
 
@@ -4448,13 +4487,32 @@ export default function Content() {
         const variationName = readyA ? 'Variation A (Framework-Heavy)' : 'Variation B (Story-Flow)';
         const postMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
 
-        // Build reference context for Call 2 (social links, docs, transcripts)
+        // Build reference context for Call 2 (social links, docs, transcripts).
+        // Outlier-detector items are the user's explicit "copy this viral
+        // post" templates — separated into their own section with a stricter
+        // copy directive than the generic reference block.
         let refContext = '';
         const doneSocial = socialUrls.filter(s => s.status === 'done' && s.result);
-        if (doneSocial.length > 0) {
+        const isOutlierRef = (item) => item?.source === 'outlier-detector' || item?.result?.source === 'outlier-detector';
+        const outlierRefs = doneSocial.filter(isOutlierRef);
+        const otherRefs = doneSocial.filter((s) => !isOutlierRef(s));
+        if (outlierRefs.length > 0) {
+          refContext += `=== OUTLIER TEMPLATES — COPY EXACT WORDING, TONE, STRUCTURE ===\n`;
+          refContext += `The user picked these viral posts as templates. This is NOT "get inspired" — reproduce them for the user's own topic. Mirror hook openings verbatim, sentence pacing, transition phrasing, CTA wording. Change only the nouns/verbs that carry the topic.\n\n`;
+          outlierRefs.forEach((item, i) => {
+            const r = item.result;
+            refContext += `--- Template ${i + 1}: ${r.platform || 'Post'}: ${r.title || item.url} ---\n`;
+            if (r.uploader) refContext += `Original creator: ${r.uploader}\n`;
+            if (r.description) refContext += `Caption: ${r.description.slice(0, 2000)}\n`;
+            if (r.transcript) refContext += `Full script:\n${r.transcript.slice(0, 6000)}\n`;
+            refContext += '\n';
+          });
+          refContext += `Do NOT soften, generic-ify, or add safety hedges the original didn't have. Match voice, cadence, vocabulary register, and emotional beats. Line 1 of yours mirrors line 1 of theirs.\n\n`;
+        }
+        if (otherRefs.length > 0) {
           refContext += `=== REFERENCE CONTENT (HIGHEST PRIORITY) ===\n`;
           refContext += `The user attached this content as a STRUCTURAL BLUEPRINT. Your post MUST mirror its exact structure: same hook style, same flow, same engagement mechanics, same CTA approach. Only change the topic.\n\n`;
-          doneSocial.forEach(item => {
+          otherRefs.forEach(item => {
             const r = item.result;
             refContext += `--- ${r.platform || 'Post'}: ${r.title || item.url} ---\n`;
             if (r.uploader) refContext += `Creator: ${r.uploader}\n`;
@@ -4502,13 +4560,30 @@ export default function Content() {
         ));
         const carouselMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
 
-        // Build reference context for carousel Call 2
+        // Build reference context for carousel Call 2. Same split as
+        // Call 2 above — outlier-detector picks get a stricter directive.
         let carouselRefContext = '';
         const doneSocialC = socialUrls.filter(s => s.status === 'done' && s.result);
-        if (doneSocialC.length > 0) {
+        const isOutlierC = (item) => item?.source === 'outlier-detector' || item?.result?.source === 'outlier-detector';
+        const outlierCarouselRefs = doneSocialC.filter(isOutlierC);
+        const otherCarouselRefs = doneSocialC.filter((s) => !isOutlierC(s));
+        if (outlierCarouselRefs.length > 0) {
+          carouselRefContext += `=== OUTLIER TEMPLATES — COPY EXACT SLIDE FLOW, TONE, HOOK ===\n`;
+          carouselRefContext += `The user picked these viral carousels/videos as templates. Reproduce their slide flow for the user's topic: same hook slide format, same slide-by-slide beats, same CTA slide. Change only the topic.\n\n`;
+          outlierCarouselRefs.forEach((item, i) => {
+            const r = item.result;
+            carouselRefContext += `--- Template ${i + 1}: ${r.platform || 'Post'}: ${r.title || item.url} ---\n`;
+            if (r.uploader) carouselRefContext += `Original creator: ${r.uploader}\n`;
+            if (r.description) carouselRefContext += `Caption: ${r.description.slice(0, 2000)}\n`;
+            if (r.transcript) carouselRefContext += `Full script:\n${r.transcript.slice(0, 6000)}\n`;
+            carouselRefContext += '\n';
+          });
+          carouselRefContext += `Do NOT soften or generic-ify. Match voice + slide cadence + emotional beats. Slide 1 of yours mirrors slide 1 of theirs.\n\n`;
+        }
+        if (otherCarouselRefs.length > 0) {
           carouselRefContext += `=== REFERENCE CONTENT (HIGHEST PRIORITY) ===\n`;
           carouselRefContext += `The user attached this content as a STRUCTURAL BLUEPRINT. Your carousel MUST mirror its structure: same hook style, same slide flow, same engagement mechanics, same CTA. Only change the topic.\n\n`;
-          doneSocialC.forEach(item => {
+          otherCarouselRefs.forEach(item => {
             const r = item.result;
             carouselRefContext += `--- ${r.platform || 'Post'}: ${r.title || item.url} ---\n`;
             if (r.uploader) carouselRefContext += `Creator: ${r.uploader}\n`;
@@ -5801,11 +5876,16 @@ export default function Content() {
           const m = item.metadata || {};
           savedSocial.push({
             url: item.url, dbId: item.id, status: 'done',
+            // Preserve metadata.source so buildSystemPrompt can route
+            // outlier-detector items into the dedicated COPY-EXACT block
+            // instead of the generic social-links block.
+            source: m.source || null,
             result: {
               url: item.url, title: m.title, uploader: m.uploader,
               thumbnail: m.thumbnail, platform: m.platform,
               duration: m.duration, transcript: item.transcript,
               description: m.description,
+              source: m.source || null,
             },
           });
         }
