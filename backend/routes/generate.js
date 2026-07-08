@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
 import { requireCredits } from '../middleware/gate.js';
+import { generateImageWithOpenAI, isOpenAIImageConfigured } from '../services/openai-image.js';
 
 const router = Router();
 
@@ -519,7 +520,46 @@ ${prompt}`;
     const model = pConfig.model;
     const timeout = model === GEMINI_MODEL_PRO ? GEMINI_PRO_TIMEOUT_MS : GEMINI_TIMEOUT_MS;
 
-    console.log(`[generate/image] Platform: ${platform || 'default'}, Model: ${model}, Parts: ${requestParts.length} (1 text + ${requestParts.length - 1} images), Prompt: ${prompt.slice(0, 120)}...`);
+    // ── Provider order: OpenAI (gpt-image-1) → Gemini fallback ──
+    // OpenAI is the primary generator now. We fall through to Gemini
+    // when: OpenAI is unconfigured, times out, errors (5xx / network),
+    // or refuses (400/422). A refusal on OpenAI is typically an image-
+    // policy block, and Gemini's policy engine sometimes accepts what
+    // OpenAI rejects (and vice versa), so the fallback isn't wasted.
+    //
+    // Reference images: requestParts[0] is the text prompt; every
+    // subsequent element is a Gemini-shaped {inlineData:{data,mimeType}}.
+    // Extract them for OpenAI's edits endpoint, which expects raw base64.
+    const openaiRefs = requestParts
+      .filter((p) => p.inlineData?.data)
+      .map((p) => p.inlineData);
+
+    if (isOpenAIImageConfigured()) {
+      const openaiResult = await generateImageWithOpenAI({
+        prompt: imagePrompt,
+        referenceImages: openaiRefs,
+        aspectRatio: pConfig.aspectRatio,
+        // Map imageSize ('1K'/'2K') → quality hint. 2K platforms
+        // (stories, tiktok) get 'high'; others also get 'high' but
+        // could be downgraded to 'medium' later if latency becomes a
+        // concern.
+        quality: 'high',
+      });
+      if (openaiResult.ok) {
+        return res.json({
+          text: null,
+          image: { data: openaiResult.data, mimeType: openaiResult.mimeType },
+        });
+      }
+      // Non-fatal — log and fall through to Gemini. We still surface
+      // OpenAI's error via the log so ops can tell whether the fallback
+      // is being hit because of a policy block, quota, or a code bug.
+      console.warn(`[generate/image] OpenAI failed (${openaiResult.status || 'n/a'}${openaiResult.timeout ? ' TIMEOUT' : ''}): ${openaiResult.error} — falling back to Gemini`);
+    } else {
+      console.log('[generate/image] OpenAI unconfigured — using Gemini directly');
+    }
+
+    console.log(`[generate/image] Gemini fallback — Platform: ${platform || 'default'}, Model: ${model}, Parts: ${requestParts.length} (1 text + ${requestParts.length - 1} images), Prompt: ${prompt.slice(0, 120)}...`);
 
     // Build request body with imageConfig and optional thinking
     const requestBody = {
