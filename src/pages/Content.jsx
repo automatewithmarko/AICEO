@@ -1407,17 +1407,28 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     prompt += `- Never rewrite an existing plan artifact in prose. If the user asks for a change, output a new HTML block.\n\n`;
 
     prompt += `SCOPING QUESTIONS (MANDATORY — do NOT skip any that the user hasn't already answered):\n`;
-    prompt += `Ask via JSON, ONE AT A TIME, in this order. Only skip a question if the initial message explicitly answered it. "Plan next 3 weeks" only answers Timeframe — the other three are still required.\n\n`;
+    prompt += `Ask via JSON, ONE AT A TIME, in this order. Only skip a question if the initial message explicitly answered it. "Plan next 3 weeks" only answers Timeframe — the other four are still required.\n\n`;
     prompt += `Q1 — Timeframe: {"type":"question","text":"How much content should I plan?","options":["1 week","2 weeks","1 month","Custom"]}\n`;
     prompt += `Q2 — Cadence: {"type":"question","text":"How often do you want to post?","options":["3x per week","5x per week","Daily","Custom"]}\n`;
     prompt += `Q3 — Primary goal: {"type":"question","text":"What's the primary goal for this stretch?","options":["Audience growth","Engagement","Drive sales / signups","Thought leadership / authority"]}\n`;
     prompt += `Q4 — Topic focus (build three real candidates from Brand DNA / products / recent calls / past content — NOT generic "productivity tips"):\n`;
-    prompt += `{"type":"question","text":"What should the content focus on?","options":["<topic tied to a specific product they sell>","<topic tied to a recent win / case study>","<topic tied to a core belief in their brand voice>","Surprise me — pick from my brand"]}\n\n`;
+    prompt += `{"type":"question","text":"What should the content focus on?","options":["<topic tied to a specific product they sell>","<topic tied to a recent win / case study>","<topic tied to a core belief in their brand voice>","Surprise me — pick from my brand"]}\n`;
+    prompt += `Q5 — Format mix (prevents "all carousels" plans — pick options tailored to ${platform.name}):\n`;
+    if (platform.id === 'instagram') {
+      prompt += `{"type":"question","text":"What format mix do you want?","options":["Balanced (carousels + reels + single posts + stories)","Carousel-heavy (educational)","Reel-heavy (reach + growth)","Let me decide per post"]}\n\n`;
+    } else if (platform.id === 'linkedin') {
+      prompt += `{"type":"question","text":"What format mix do you want?","options":["Balanced (text posts + carousels + single-image posts)","Text-post heavy (authority + engagement)","Carousel-heavy (educational)","Let me decide per post"]}\n\n`;
+    } else {
+      prompt += `{"type":"question","text":"What format mix do you want?","options":["Balanced across formats","Long-form heavy","Short-form heavy","Let me decide per post"]}\n\n`;
+    }
     prompt += `RULES:\n`;
     prompt += `- One question per response. Wait for the answer before asking the next.\n`;
     prompt += `- "surprise me" / "go ahead" / "all of them" → commit to a confident default anchored in Brand DNA and move to the NEXT question. Never re-ask.\n`;
-    prompt += `- Hard cap: 4 questions. After the 4th is answered, IMMEDIATELY emit the HTML plan — no confirmation prose, no further questions.\n`;
+    prompt += `- Hard cap: 5 questions. After the 5th is answered, IMMEDIATELY emit the HTML plan — no confirmation prose, no further questions.\n`;
     prompt += `- Never bundle two questions into one message. Never type a question outside the JSON format.\n\n`;
+
+    prompt += `FORMAT VARIETY RULE (mandatory when building the plan):\n`;
+    prompt += `The plan MUST mix formats. Even on a "carousel-heavy" or "reel-heavy" preference, no more than 2 posts in a row can share the same format. Rotate through the formats appropriate to ${platform.name}. Never ship a plan where every post is the same format — that's a broken plan. If format variety fights the user's stated preference (e.g. "carousel-heavy"), lean toward their preference but STILL include at least 2 non-preferred-format posts per week for variety.\n\n`;
 
     prompt += `THE HTML TEMPLATE — copy this shape exactly, fill in real values.\n`;
     prompt += `CRITICAL: the ROOT element MUST be a <div class="plan-artifact" ...> so the client can detect the plan block and render it with a Download / Copy / Fullscreen toolbar. Do not rename or omit the plan-artifact class.\n\n`;
@@ -4732,7 +4743,7 @@ export default function Content() {
         return { ...m, content: "The AI didn't produce a response. Please try again." };
       }));
     }
-  }, [activePlatform, photos, documents, socialUrls, brandDna, integrationCtx]);
+  }, [activePlatform, photos, documents, socialUrls, brandDna, integrationCtx, planMode]);
 
   const stopGenerating = useCallback(() => {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; setIsGenerating(false); setActiveAssistantId(null); }

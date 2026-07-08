@@ -9,6 +9,8 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
   const [postState, setPostState] = useState('idle'); // idle | posting | posted | error
   const [postError, setPostError] = useState('');
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [schedulePos, setSchedulePos] = useState({ left: 0, top: 0 });
+  const scheduleBtnRef = useRef(null);
   const [schedDate, setSchedDate] = useState('');
   const [schedTime, setSchedTime] = useState('09:00');
   const [schedState, setSchedState] = useState('idle'); // idle | saving | saved
@@ -580,14 +582,33 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
             {!isCarousel && (
               <div className="li-schedule-wrap" ref={schedRef}>
                 <button
+                  ref={scheduleBtnRef}
                   className="li-toolbar-btn li-toolbar-btn--outline"
-                  onClick={() => setScheduleOpen(o => !o)}
+                  onClick={() => {
+                    // Toolbar row has overflow-x:auto which clips popovers
+                    // on both axes. Anchor with position:fixed to the
+                    // button rect so the popover escapes the scroll clip.
+                    if (!scheduleOpen && scheduleBtnRef.current) {
+                      const rect = scheduleBtnRef.current.getBoundingClientRect();
+                      const POP_W = 260, POP_H = 220;
+                      const spaceAbove = rect.top;
+                      const top = spaceAbove > POP_H + 12
+                        ? rect.top - POP_H - 8
+                        : rect.bottom + 8;
+                      const left = Math.max(8, Math.min(rect.left, window.innerWidth - POP_W - 8));
+                      setSchedulePos({ left, top });
+                    }
+                    setScheduleOpen(o => !o);
+                  }}
                   disabled={streaming}
                 >
                   <CalendarClock size={14} /> Schedule
                 </button>
                 {scheduleOpen && (
-                  <div className="li-schedule-popover">
+                  <div
+                    className="li-schedule-popover"
+                    style={{ position: 'fixed', left: schedulePos.left, top: schedulePos.top }}
+                  >
                     <div className="li-schedule-title">Schedule post</div>
                     <label className="li-schedule-label">
                       Date

@@ -76,7 +76,13 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
           reader.onerror = () => reject(new Error('read failed'));
           reader.readAsDataURL(file);
         });
-        const url = await uploadImageToStorage(base64, file.type || 'image/png');
+        const uploaded = await uploadImageToStorage(base64, file.type || 'image/png');
+        // uploadImageToStorage returns the response JSON `{ url, path, ... }`
+        // — need to extract .url. Previously we treated the whole object as
+        // the src string, which rendered as [object Object] and produced
+        // the "image appears then disappears" bug.
+        const url = uploaded?.url || uploaded?.publicUrl || null;
+        if (!url) throw new Error('upload returned no URL');
         onArtifactChange((prev) => ({
           ...prev,
           images: (prev?.images || []).map((im) =>
@@ -85,6 +91,11 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
         }));
       } catch (err) {
         console.error('[canvas-upload] failed for slot', idx, err);
+        // Clear the broken blob placeholder instead of leaving it hanging.
+        onArtifactChange((prev) => ({
+          ...prev,
+          images: (prev?.images || []).filter((im) => im.idx !== idx),
+        }));
       }
     }
   };
