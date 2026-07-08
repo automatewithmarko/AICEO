@@ -881,7 +881,19 @@ export default function AiCeo() {
     // user can click them again after the turn settles.
     setSelectedMsgId(null);
     const assistantMsgId = `msg-${Date.now()}-ai`;
-    setMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', content: '', hasArtifact: false }]);
+    // When Plan Mode is on, seed the assistant bubble with a rich
+    // "planWorking" status so the user immediately sees the AI is
+    // building the plan. Regular chats get the default 'Thinking...'
+    // triggered by the backend's status SSE event. The planWorking
+    // flag is cleared once real content, a question, or an artifact
+    // lands on the message.
+    setMessages(prev => [...prev, {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      hasArtifact: false,
+      ...(planMode ? { planWorking: true, status: 'Building your plan' } : {}),
+    }]);
 
     // TEMP DEBUG — track which tools actually fired this turn so we can
     // detect when the orchestrator wrote text claiming an image but never
@@ -2128,9 +2140,43 @@ export default function AiCeo() {
                     );
                   }
                   if (!msg.content && !msg.hasArtifact) {
+                    // Plan Mode gets a themed multi-step working card so
+                    // the user sees a distinct signal that the plan is
+                    // being built (rather than the plain "thinking..."
+                    // dots which don't communicate the heavier workload).
+                    const isPlanWorking = msg.planWorking || (planMode && !searchStatus);
                     return (
-                      <div key={msg.id} className={searchStatus === 'searching' ? 'ceo-research-card' : 'ceo-thinking'}>
-                        {searchStatus === 'searching' ? (
+                      <div key={msg.id} className={
+                        isPlanWorking ? 'ceo-plan-working'
+                        : searchStatus === 'searching' ? 'ceo-research-card'
+                        : 'ceo-thinking'
+                      }>
+                        {isPlanWorking ? (
+                          <>
+                            <div className="ceo-plan-working-header">
+                              <CalendarDays size={14} className="ceo-plan-working-icon" />
+                              <span>Building your plan</span>
+                            </div>
+                            <div className="ceo-plan-working-steps">
+                              <div className="ceo-plan-working-step ceo-plan-working-step--1">
+                                <span className="ceo-plan-working-step-dot" />
+                                <span>Reading brand DNA + past content</span>
+                              </div>
+                              <div className="ceo-plan-working-step ceo-plan-working-step--2">
+                                <span className="ceo-plan-working-step-dot" />
+                                <span>Drafting week-by-week roadmap</span>
+                              </div>
+                              <div className="ceo-plan-working-step ceo-plan-working-step--3">
+                                <span className="ceo-plan-working-step-dot" />
+                                <span>Composing hooks + visual briefs</span>
+                              </div>
+                            </div>
+                            <span className="ceo-plan-working-label">
+                              {msg.status || 'Working on your content plan'}
+                              <span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span>
+                            </span>
+                          </>
+                        ) : searchStatus === 'searching' ? (
                           <>
                             <div className="ceo-research-header">
                               <Globe size={14} className="ceo-research-icon" />
