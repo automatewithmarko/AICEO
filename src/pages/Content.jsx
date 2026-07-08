@@ -1406,14 +1406,22 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     prompt += `- Never wrap the HTML in \\\`\\\`\\\`html fences. Emit the raw HTML directly as the message text.\n`;
     prompt += `- Never rewrite an existing plan artifact in prose. If the user asks for a change, output a new HTML block.\n\n`;
 
-    prompt += `SCOPING (only when info is missing — before you emit the HTML plan):\n`;
-    prompt += `Ask via JSON, one at a time, hard cap of 2 total:\n`;
-    prompt += `1. Timeframe: {"type":"question","text":"How much content should I plan?","options":["1 week","2 weeks","1 month","Custom"]}\n`;
-    prompt += `2. Cadence: {"type":"question","text":"How often do you want to post?","options":["3x per week","5x per week","Daily","Custom"]}\n`;
-    prompt += `Skip a question if the user already answered. If they say "surprise me" or "go ahead" or "all of them", commit to a confident default and proceed to the HTML.\n\n`;
+    prompt += `SCOPING QUESTIONS (MANDATORY — do NOT skip any that the user hasn't already answered):\n`;
+    prompt += `Ask via JSON, ONE AT A TIME, in this order. Only skip a question if the initial message explicitly answered it. "Plan next 3 weeks" only answers Timeframe — the other three are still required.\n\n`;
+    prompt += `Q1 — Timeframe: {"type":"question","text":"How much content should I plan?","options":["1 week","2 weeks","1 month","Custom"]}\n`;
+    prompt += `Q2 — Cadence: {"type":"question","text":"How often do you want to post?","options":["3x per week","5x per week","Daily","Custom"]}\n`;
+    prompt += `Q3 — Primary goal: {"type":"question","text":"What's the primary goal for this stretch?","options":["Audience growth","Engagement","Drive sales / signups","Thought leadership / authority"]}\n`;
+    prompt += `Q4 — Topic focus (build three real candidates from Brand DNA / products / recent calls / past content — NOT generic "productivity tips"):\n`;
+    prompt += `{"type":"question","text":"What should the content focus on?","options":["<topic tied to a specific product they sell>","<topic tied to a recent win / case study>","<topic tied to a core belief in their brand voice>","Surprise me — pick from my brand"]}\n\n`;
+    prompt += `RULES:\n`;
+    prompt += `- One question per response. Wait for the answer before asking the next.\n`;
+    prompt += `- "surprise me" / "go ahead" / "all of them" → commit to a confident default anchored in Brand DNA and move to the NEXT question. Never re-ask.\n`;
+    prompt += `- Hard cap: 4 questions. After the 4th is answered, IMMEDIATELY emit the HTML plan — no confirmation prose, no further questions.\n`;
+    prompt += `- Never bundle two questions into one message. Never type a question outside the JSON format.\n\n`;
 
-    prompt += `THE HTML TEMPLATE — copy this shape exactly, fill in real values:\n\n`;
-    prompt += `<div style="border:1px solid #e5e7eb;border-radius:12px;background:#fafafa;padding:20px 24px;margin:8px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">\n`;
+    prompt += `THE HTML TEMPLATE — copy this shape exactly, fill in real values.\n`;
+    prompt += `CRITICAL: the ROOT element MUST be a <div class="plan-artifact" ...> so the client can detect the plan block and render it with a Download / Copy / Fullscreen toolbar. Do not rename or omit the plan-artifact class.\n\n`;
+    prompt += `<div class="plan-artifact" style="border:1px solid #e5e7eb;border-radius:12px;background:#fafafa;padding:20px 24px;margin:8px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">\n`;
     prompt += `  <div style="border-bottom:2px solid #e91a44;padding-bottom:12px;margin-bottom:18px;">\n`;
     prompt += `    <h2 style="margin:0;font-size:20px;font-weight:700;color:#1a1a1a;">📅 Content Plan — <TITLE></h2>\n`;
     prompt += `    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px 20px;margin-top:10px;font-size:12px;color:#666;">\n`;
@@ -1469,6 +1477,15 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
 
   prompt += `=== PLATFORM ENFORCEMENT ===\n`;
   prompt += `You are ONLY creating content for ${platform.name}. If the user asks for content for a different platform (e.g. "make a LinkedIn post" while on YouTube), politely tell them to switch to that platform's tab first. Do NOT generate content for other platforms.\n\n`;
+
+  prompt += `=== PRIOR PLAN AWARENESS ===\n`;
+  prompt += `Scan the conversation history for any earlier assistant message that contains a <div class="plan-artifact">...</div> block. That is a Content Plan the user built with you in Plan Mode. If the user's current message references a specific piece from that plan (e.g. "generate Monday's post", "make the reel from week 1 Wednesday", "build the AICEO checkout carousel from the plan"), you MUST:\n`;
+  prompt += `1. Find the matching row/section in the plan HTML (by day + format + topic).\n`;
+  prompt += `2. Use its Topic, Hook, and CTA as the SPECIFIC content brief for this generation. Do NOT generate a generic version — the plan is the source of truth.\n`;
+  prompt += `3. Follow the normal generation flow (plan_carousel for carousels, generate_image for single posts / stories, plain-text script for reels). Do NOT emit the old <<READY_CAROUSEL>> marker.\n`;
+  prompt += `4. Do NOT rewrite the plan or ask more scoping questions — the plan already answered them.\n`;
+  prompt += `5. Do NOT type the plan row as prose in your chat text before generating. Just make the tool call.\n`;
+  prompt += `If no plan-artifact exists in history, ignore this section and follow normal generation flow.\n\n`;
 
   prompt += `=== WHEN TO ENGAGE (READ THIS FIRST) ===\n`;
   prompt += `Default posture: quiet, capable partner. React to what the user actually asked, nothing more. Do NOT push analysis, strategy ideas, or content pitches unprompted.\n\n`;
@@ -2241,6 +2258,43 @@ The reader swipes and NOTHING shifts vertically except the content itself. Same 
 }
 
 // Extract image prompt from AI text when it describes an image instead of calling the tool
+// Extract a `<div class="plan-artifact">…</div>` block from assistant
+// message text. Returns { before, planHtml, after } if a well-balanced
+// block is found; null otherwise. Used to hoist Plan Mode HTML into a
+// canvas card with Download / Copy / Open-in-canvas actions.
+function extractPlanArtifact(text) {
+  if (!text || typeof text !== 'string') return null;
+  const openMatch = text.match(/<div\b[^>]*class="[^"]*\bplan-artifact\b[^"]*"[^>]*>/i);
+  if (!openMatch) return null;
+  const startIdx = openMatch.index;
+  const afterOpen = startIdx + openMatch[0].length;
+  // Balance nested divs until the matching close tag.
+  let depth = 1;
+  let i = afterOpen;
+  const openRe = /<div\b/gi;
+  const closeRe = /<\/div>/gi;
+  while (depth > 0 && i < text.length) {
+    openRe.lastIndex = i;
+    closeRe.lastIndex = i;
+    const nextOpen = openRe.exec(text);
+    const nextClose = closeRe.exec(text);
+    if (!nextClose) return null; // unterminated
+    if (nextOpen && nextOpen.index < nextClose.index) {
+      depth++;
+      i = nextOpen.index + nextOpen[0].length;
+    } else {
+      depth--;
+      i = nextClose.index + nextClose[0].length;
+    }
+  }
+  if (depth !== 0) return null;
+  return {
+    before: text.slice(0, startIdx),
+    planHtml: text.slice(startIdx, i),
+    after: text.slice(i),
+  };
+}
+
 function extractImagePromptFromText(text) {
   // Look for common patterns: "Image Description:", "Image Concept:", "Thumbnail Concept:", markdown image blocks, etc.
   const patterns = [
@@ -3481,6 +3535,12 @@ export default function Content() {
   // content plan (topics, hooks, formats, dates) INSTEAD of running
   // generate_image / plan_carousel. Meant for weekend batch planning.
   const [planMode, setPlanMode] = useState(false);
+  // Plan Mode canvas modal — pops when the user clicks "Open in canvas"
+  // on a plan-artifact HTML block. Holds the HTML string being viewed +
+  // edited so the modal survives message re-renders and cross-message
+  // navigation.
+  const [planCanvasHtml, setPlanCanvasHtml] = useState(null);
+  const [planCanvasMsgId, setPlanCanvasMsgId] = useState(null);
   const [searchStatus, setSearchStatus] = useState(null);
   const [contentCtxMenuOpen, setContentCtxMenuOpen] = useState(false);
   const [contentHoveredCat, setContentHoveredCat] = useState(null);
@@ -6660,20 +6720,97 @@ export default function Content() {
                   <div key={msg.id} className="content-assistant-row">
                     <img src="/favicon.png" alt="" className="content-assistant-avatar" />
                     <div className="content-bubble content-bubble--assistant">
-                      {parsed.text && (
-                        <div className="content-markdown">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            rehypePlugins={[rehypeRaw]}
-                            skipHtml={false}
-                            components={{
-                              table: ({ children, ...props }) => (
-                                <div className="content-table-scroll"><table {...props}>{children}</table></div>
-                              ),
-                            }}
-                          >{DOMPurify.sanitize(parsed.text, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] })}</ReactMarkdown>
-                        </div>
-                      )}
+                      {parsed.text && (() => {
+                        // Plan Mode HTML detection — if the message
+                        // contains a <div class="plan-artifact">…</div>
+                        // block, hoist it into a compact canvas card
+                        // with Download / Copy / Open buttons instead
+                        // of inlining the whole HTML.
+                        const planParts = extractPlanArtifact(parsed.text);
+                        if (planParts) {
+                          const renderMd = (chunk) => chunk && chunk.trim() ? (
+                            <div className="content-markdown">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                rehypePlugins={[rehypeRaw]}
+                                skipHtml={false}
+                                components={{
+                                  table: ({ children, ...props }) => (
+                                    <div className="content-table-scroll"><table {...props}>{children}</table></div>
+                                  ),
+                                }}
+                              >{DOMPurify.sanitize(chunk, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] })}</ReactMarkdown>
+                            </div>
+                          ) : null;
+                          return (
+                            <>
+                              {renderMd(planParts.before)}
+                              <div className="content-plan-card">
+                                <div className="content-plan-card-preview">
+                                  <div
+                                    className="content-plan-card-preview-inner"
+                                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(planParts.planHtml, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] }) }}
+                                  />
+                                  <div className="content-plan-card-fade" />
+                                </div>
+                                <div className="content-plan-card-actions">
+                                  <button
+                                    type="button"
+                                    className="content-plan-card-btn content-plan-card-btn--primary"
+                                    onClick={() => { setPlanCanvasHtml(planParts.planHtml); setPlanCanvasMsgId(msg.id); }}
+                                    title="Open the plan in a full canvas view to edit or copy"
+                                  >
+                                    <Maximize2 size={13} /> Open in canvas
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="content-plan-card-btn"
+                                    onClick={() => {
+                                      const blob = new Blob([`<!doctype html><meta charset="utf-8"><title>Content Plan</title>${planParts.planHtml}`], { type: 'text/html' });
+                                      const url = URL.createObjectURL(blob);
+                                      const a = document.createElement('a');
+                                      a.href = url;
+                                      a.download = `content-plan-${new Date().toISOString().slice(0,10)}.html`;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      a.remove();
+                                      setTimeout(() => URL.revokeObjectURL(url), 2000);
+                                    }}
+                                    title="Download this plan as an .html file"
+                                  >
+                                    <Download size={13} /> Download HTML
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="content-plan-card-btn"
+                                    onClick={() => {
+                                      navigator.clipboard?.writeText(planParts.planHtml);
+                                    }}
+                                    title="Copy the plan HTML to your clipboard"
+                                  >
+                                    Copy HTML
+                                  </button>
+                                </div>
+                              </div>
+                              {renderMd(planParts.after)}
+                            </>
+                          );
+                        }
+                        return (
+                          <div className="content-markdown">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              rehypePlugins={[rehypeRaw]}
+                              skipHtml={false}
+                              components={{
+                                table: ({ children, ...props }) => (
+                                  <div className="content-table-scroll"><table {...props}>{children}</table></div>
+                                ),
+                              }}
+                            >{DOMPurify.sanitize(parsed.text, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] })}</ReactMarkdown>
+                          </div>
+                        );
+                      })()}
                       {/* Carousel plan approval card — Instagram only */}
                       {msg.carouselPlan && (
                         <CarouselPlanCard
@@ -7260,6 +7397,65 @@ export default function Content() {
           );
         })()}
       </div>
+
+      {/* Plan Mode canvas modal — pops when the user clicks "Open in
+          canvas" on a plan-artifact card. Renders the plan HTML inside
+          a sandboxed iframe (so its inline CSS never leaks into the
+          host page), with a toolbar for Download / Copy / Close. */}
+      {planCanvasHtml && (
+        <div
+          className="content-plan-canvas-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => { setPlanCanvasHtml(null); setPlanCanvasMsgId(null); }}
+        >
+          <div className="content-plan-canvas-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="content-plan-canvas-toolbar">
+              <span className="content-plan-canvas-title">Content Plan</span>
+              <div className="content-plan-canvas-actions">
+                <button
+                  type="button"
+                  className="content-plan-card-btn"
+                  onClick={() => {
+                    const blob = new Blob([`<!doctype html><meta charset="utf-8"><title>Content Plan</title>${planCanvasHtml}`], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `content-plan-${new Date().toISOString().slice(0,10)}.html`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 2000);
+                  }}
+                >
+                  <Download size={13} /> Download
+                </button>
+                <button
+                  type="button"
+                  className="content-plan-card-btn"
+                  onClick={() => navigator.clipboard?.writeText(planCanvasHtml)}
+                >
+                  Copy HTML
+                </button>
+                <button
+                  type="button"
+                  className="content-plan-canvas-close"
+                  onClick={() => { setPlanCanvasHtml(null); setPlanCanvasMsgId(null); }}
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <iframe
+              className="content-plan-canvas-iframe"
+              title="Content Plan"
+              srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;background:#f5f5f7;}</style></head><body>${DOMPurify.sanitize(planCanvasHtml, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] })}</body></html>`}
+              sandbox=""
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
