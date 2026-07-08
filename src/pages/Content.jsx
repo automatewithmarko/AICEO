@@ -2427,10 +2427,12 @@ async function streamContentResponse(messages, systemPrompt, onTextChunk, onTool
       model: 'grok-4-1-fast-non-reasoning',
       messages: [{ role: 'system', content: systemPrompt }, ...messages],
       stream: true,
-      // Same rationale as the searchMode branch — strip generation tools
-      // when Plan Mode is on so the model has no way to bypass the prompt.
-      tools: planMode ? [] : [IMAGE_TOOL, PLAN_CAROUSEL_TOOL],
-      tool_choice: planMode ? 'none' : 'auto',
+      // Plan Mode: omit tools and tool_choice entirely — sending an empty
+      // tools array with tool_choice='none' can trip xAI into returning
+      // an empty response, which the UI surfaces as "The AI didn't produce
+      // a response." With no tools present, the model can only emit text —
+      // which is exactly what the Plan Mode directive asks for.
+      ...(planMode ? {} : { tools: [IMAGE_TOOL, PLAN_CAROUSEL_TOOL], tool_choice: 'auto' }),
     }),
     signal: abortSignal,
   });
