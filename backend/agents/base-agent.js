@@ -659,98 +659,322 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
 // Execute the CEO orchestrator with tool_use loop
 // After tool calls, sends results back to the model for a follow-up response
 export async function executeCeoOrchestrator({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, searchMode, onSearchStatus, abortSignal, planMode = false }) {
-  // The Mentor gateway adds cold-start latency on top of the upstream provider's
-  // own time-to-first-token. Combined with a long system prompt + tool-call
-  // setup, the first chunk on each turn of the orchestrator's tool-use loop
-  // can cross the default 60s idle watchdog. Bumping to 180s gives Mentor +
-  // Grok room for the first chunk on every turn. Per-chunk reset means a
-  // healthy stream is unaffected.
+  // The Mentor gateway adds cold-start latency on top of the upstream
+  // provider's own time-to-first-token. Combined with a long system
+  // prompt + tool-call setup, the first chunk on each turn of the
+  // orchestrator's tool-use loop can cross the default 60s idle watchdog.
+  // Bumping to 180s gives Mentor + Claude room for the first chunk on
+  // every turn. Per-chunk reset means a healthy stream is unaffected.
   const ceoStreamIdleMs = 180_000;
 
+  // Web research still routes through Grok (it has native web_search).
+  // The CEO REASONING + tool routing is on Claude — Grok's habit of
+  // typing plan text as chat AND calling tools in the same iteration
+  // caused the observed repetition + "Something went wrong" bugs.
   if (searchMode) {
     return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal, streamIdleMs: ceoStreamIdleMs });
   }
 
-  const model = 'grok-4-1-fast-non-reasoning';
-  let conversationMessages = [...messages];
+  return executeCeoOrchestratorClaude({
+    systemPrompt,
+    messages,
+    tools,
+    toolChoice,
+    onChunk,
+    onToolCalls,
+    abortSignal,
+    planMode,
+    streamIdleMs: ceoStreamIdleMs,
+  });
+}
+
+// Translate OpenAI-format tool schemas (used by the rest of AICEO) into
+// Anthropic-format tool blocks. OpenAI: { type: 'function', function: {
+// name, description, parameters } }. Anthropic: { name, description,
+// input_schema }. Only OpenAI-style entries are translated; anything
+// already shaped correctly passes through.
+function openAiToolsToAnthropic(tools) {
+  if (!Array.isArray(tools)) return [];
+  return tools.map((t) => {
+    if (t?.function?.name) {
+      return {
+        name: t.function.name,
+        description: t.function.description || '',
+        input_schema: t.function.parameters || { type: 'object', properties: {} },
+      };
+    }
+    if (t?.name && (t.input_schema || t.parameters)) {
+      return {
+        name: t.name,
+        description: t.description || '',
+        input_schema: t.input_schema || t.parameters,
+      };
+    }
+    return null;
+  }).filter(Boolean);
+}
+
+// Translate our OpenAI-format tool_choice ('auto' | 'required' | 'none' |
+// { function: { name } }) to Anthropic's shape ({ type: 'auto' | 'any' |
+// 'tool', name? }). Anthropic doesn't support 'none' — the caller should
+// just not pass tools instead. If undefined, we return undefined and let
+// Anthropic default (which is equivalent to 'auto').
+function openAiToolChoiceToAnthropic(toolChoice) {
+  if (!toolChoice) return undefined;
+  if (toolChoice === 'auto') return { type: 'auto' };
+  if (toolChoice === 'required') return { type: 'any' };
+  if (toolChoice === 'none') return undefined; // caller should strip tools
+  if (typeof toolChoice === 'object' && toolChoice.function?.name) {
+    return { type: 'tool', name: toolChoice.function.name };
+  }
+  return undefined;
+}
+
+// CEO orchestrator on Claude Sonnet. Uses Anthropic's native streaming
+// tool_use protocol. Loop follows the same shape as the Grok version:
+//   Iteration 1 — model streams text + optional tool_use blocks.
+//   If tool_use fires, run handlers, feed results back, iterate.
+//   If ask_user was one of the tools OR planMode is on, exit after one
+//   iteration (single tool call = the whole response).
+// Automatically opts into the 1M-context beta header when the estimated
+// input tokens exceed the safe 200K cap (Sonnet-only feature).
+async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, abortSignal, planMode, streamIdleMs }) {
+  const anthropicTools = openAiToolsToAnthropic(tools);
+  const anthropicToolChoice = openAiToolChoiceToAnthropic(toolChoice);
+  const model = SONNET_MODEL;
+
+  // Anthropic requires alternating user/assistant roles. Our incoming
+  // messages are already normalized to that shape by callers.
+  let conversationMessages = messages
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .map(m => ({ role: m.role, content: m.content }));
+
   let iterations = 0;
   const MAX_ITERATIONS = 5;
-  let lastContent = '';
+  let accumulatedText = '';
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
 
-    const result = await streamXai({
+    const streamResult = await streamAnthropicWithTools({
       systemPrompt,
       messages: conversationMessages,
       model,
+      tools: anthropicTools,
+      toolChoice: anthropicToolChoice,
       maxTokens: 16000,
-      tools,
-      toolChoice,
-      onChunk: iterations === 1 || !lastContent ? onChunk : (content) => {
-        // For follow-up turns, append to previous content
-        if (onChunk) onChunk(lastContent + content);
+      // For follow-up iterations, prepend the already-emitted text so the
+      // frontend's cumulative-append onChunk contract holds (each chunk
+      // is the FULL rolling content, not a delta).
+      onChunk: (rollingChunk) => {
+        if (onChunk) onChunk(accumulatedText + rollingChunk);
       },
-      onToolCalls: null, // We handle tool calls here, not in streamXai
       abortSignal,
-      streamIdleMs: ceoStreamIdleMs,
+      streamIdleMs,
     });
 
-    const { content, toolCalls } = result;
+    const { text, toolUses } = streamResult;
 
-    // If there are tool calls, execute them and continue the loop
+    // Convert Anthropic tool_use blocks to the OpenAI-style shape that
+    // orchestrate.js expects: { id, name, arguments (JSON string) }.
+    // Preserves compatibility with all existing tool handlers.
+    const toolCalls = toolUses.map((tu) => ({
+      id: tu.id,
+      name: tu.name,
+      arguments: JSON.stringify(tu.input || {}),
+    }));
+
     if (toolCalls.length > 0) {
-      // Execute tool calls via the handler
       if (onToolCalls) await onToolCalls(toolCalls);
 
-      // If ask_user was called, stop the loop  -  wait for user's answer
+      // Same early-exit behavior as the Grok version — ask_user always
+      // exits (wait for user's answer), planMode exits after any tool.
       const hasAskUser = toolCalls.some(tc => tc.name === 'ask_user');
-      if (hasAskUser) {
-        if (content) lastContent += content;
-        return { content: lastContent, toolCalls: [] };
+      if (hasAskUser || planMode) {
+        if (text) accumulatedText += text;
+        return { content: accumulatedText, toolCalls: [] };
       }
 
-      // Plan Mode: exit after ONE tool call of any kind. Without this the
-      // loop iterates again, and Grok re-generates the same short
-      // acknowledgement text ("Plan is in the canvas...") each iteration.
-      // The accumulator prepends it every time, producing the 15x-repeat
-      // bug. In Plan Mode a single tool call is the whole response —
-      // create_artifact drops the plan in the canvas, chat is done.
-      if (planMode) {
-        if (content) lastContent += content;
-        return { content: lastContent, toolCalls: [] };
+      // Push assistant turn (with tool_use blocks) into conversation
+      // history, then push the tool_result blocks as a user turn — this
+      // is Anthropic's protocol for multi-turn tool use.
+      const assistantBlocks = [];
+      if (text) assistantBlocks.push({ type: 'text', text });
+      for (const tu of toolUses) {
+        assistantBlocks.push({ type: 'tool_use', id: tu.id, name: tu.name, input: tu.input });
       }
+      conversationMessages.push({ role: 'assistant', content: assistantBlocks });
 
-      // Build assistant message with tool calls (OpenAI format)
-      const assistantMsg = { role: 'assistant', content: content || null };
-      assistantMsg.tool_calls = toolCalls.map(tc => ({
-        id: tc.id,
-        type: 'function',
-        function: { name: tc.name, arguments: tc.arguments },
-      }));
-      conversationMessages.push(assistantMsg);
-
-      // Build tool result messages. Handlers can attach `tc.result` to feed
-      // real data back to the model (e.g. check_emails returns the inbox).
+      const userToolResults = [];
       for (const tc of toolCalls) {
-        conversationMessages.push({
-          role: 'tool',
-          tool_call_id: tc.id,
+        userToolResults.push({
+          type: 'tool_result',
+          tool_use_id: tc.id,
           content: typeof tc.result === 'string' && tc.result.length > 0 ? tc.result : 'Done',
         });
       }
+      conversationMessages.push({ role: 'user', content: userToolResults });
 
-      // Track accumulated content
-      if (content) lastContent += content;
-
-      // Continue loop  -  model will respond with follow-up text
+      if (text) accumulatedText += text;
       continue;
     }
 
-    // No tool calls  -  we have the final text response
-    if (content) lastContent += content;
-    return { content: lastContent, toolCalls: [] };
+    // No tool calls → this is the final text response.
+    if (text) accumulatedText += text;
+    return { content: accumulatedText, toolCalls: [] };
   }
 
-  return { content: lastContent || '', toolCalls: [] };
+  return { content: accumulatedText, toolCalls: [] };
+}
+
+// Streaming Anthropic call with tool_use support. Returns the assembled
+// text + tool_use blocks. Wraps with 1M-context auto-opt-in via the
+// existing streamAnthropic prompt-too-long retry.
+async function streamAnthropicWithTools(args) {
+  try {
+    return await streamAnthropicWithToolsCore(args);
+  } catch (err) {
+    if (!isPromptTooLongError(err)) throw err;
+    if (!/sonnet/i.test(args.model || SONNET_MODEL)) throw err;
+    console.log('[anthropic] CEO orchestrator — prompt-too-long, retrying with 1M context flag forced');
+    try {
+      return await streamAnthropicWithToolsCore({ ...args, forceMillionContext: true });
+    } catch (retryErr) {
+      if (isPromptTooLongError(retryErr)) {
+        const e = new Error('Prompt exceeded the 1M context window — conversation is too large to continue. Start a fresh chat session.');
+        e.code = 'CONTEXT_EXCEEDED';
+        throw e;
+      }
+      throw retryErr;
+    }
+  }
+}
+
+async function streamAnthropicWithToolsCore({ systemPrompt, messages, model, tools, toolChoice, maxTokens, onChunk, abortSignal, streamIdleMs, forceMillionContext = false }) {
+  const target = anthropicTarget();
+
+  // Estimate tokens the same way streamAnthropicCore does. Messages here
+  // may contain structured tool_use / tool_result blocks — sum their
+  // string content for the estimate.
+  const stringifyBlock = (b) => typeof b === 'string' ? b : JSON.stringify(b);
+  const charCount =
+    (systemPrompt?.length || 0) +
+    messages.reduce((sum, m) => {
+      const c = m.content;
+      if (typeof c === 'string') return sum + c.length;
+      if (Array.isArray(c)) return sum + c.reduce((s, b) => s + stringifyBlock(b).length, 0);
+      return sum;
+    }, 0);
+  const estimatedTokens = Math.ceil(charCount / 3.5);
+  const safeInputCap = 200_000 - (maxTokens || 16_000) - 10_000;
+  const threshold = Math.max(140_000, safeInputCap);
+  const wantMillion = estimatedTokens > threshold;
+  const isSonnet = /sonnet/i.test(model || SONNET_MODEL);
+  const useMillionContext = (forceMillionContext || wantMillion) && isSonnet;
+
+  if (useMillionContext) {
+    console.log(`[anthropic] CEO 1M-context engaged — model=${model} estimated=${estimatedTokens.toLocaleString()} threshold=${threshold.toLocaleString()} forced=${forceMillionContext}`);
+  }
+
+  const controller = new AbortController();
+  if (abortSignal) {
+    if (abortSignal.aborted) controller.abort();
+    else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+
+  const buildInit = (t) => ({
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': t.key,
+      'anthropic-version': '2023-06-01',
+      ...(useMillionContext ? { 'anthropic-beta': 'context-1m-2025-08-07' } : {}),
+    },
+    body: JSON.stringify({
+      model: model || SONNET_MODEL,
+      max_tokens: maxTokens || 16000,
+      system: systemPrompt,
+      messages,
+      stream: true,
+      ...(tools?.length ? { tools } : {}),
+      ...(toolChoice ? { tool_choice: toolChoice } : {}),
+    }),
+    signal: controller.signal,
+  });
+  const res = await fetchWithMentorFallback(target, buildInit);
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Anthropic API error (${res.status}): ${errText}`);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error('No response body from Anthropic');
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullText = '';
+  // Anthropic streams content_block_start / content_block_delta events.
+  // We assemble tool_use blocks by index. `toolBlocks[idx] = { id, name,
+  // inputJson }` — the JSON is accumulated as a string then parsed at
+  // the end (safer than parsing partial JSON on every delta).
+  const toolBlocks = {};
+
+  while (true) {
+    const { done, value } = await readWithIdleTimeout(reader, controller, streamIdleMs);
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith('data: ')) continue;
+      const data = trimmed.slice(6);
+      if (data === '[DONE]') continue;
+
+      try {
+        const parsed = JSON.parse(data);
+        // Text chunks: content_block_delta with delta.type === 'text_delta'
+        if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
+          fullText += parsed.delta.text || '';
+          if (onChunk) onChunk(fullText);
+        }
+        // Tool use block starts: content_block_start with content_block.type === 'tool_use'
+        if (parsed.type === 'content_block_start' && parsed.content_block?.type === 'tool_use') {
+          const idx = parsed.index ?? 0;
+          toolBlocks[idx] = {
+            id: parsed.content_block.id,
+            name: parsed.content_block.name,
+            inputJson: '',
+          };
+        }
+        // Tool input deltas: content_block_delta with delta.type === 'input_json_delta'
+        if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'input_json_delta') {
+          const idx = parsed.index ?? 0;
+          if (toolBlocks[idx]) {
+            toolBlocks[idx].inputJson += parsed.delta.partial_json || '';
+          }
+        }
+        // Errors surface as message_delta or explicit error events.
+        if (parsed.type === 'error') {
+          console.error('[anthropic] CEO stream error:', JSON.stringify(parsed));
+          throw new Error(parsed.error?.message || 'Anthropic stream error');
+        }
+      } catch (e) {
+        if (e?.message?.startsWith('Anthropic')) throw e;
+        // Skip malformed SSE lines.
+      }
+    }
+  }
+
+  // Parse accumulated tool inputs.
+  const toolUses = Object.values(toolBlocks).map((tb) => {
+    let input = {};
+    try { input = tb.inputJson ? JSON.parse(tb.inputJson) : {}; } catch { input = {}; }
+    return { id: tb.id, name: tb.name, input };
+  });
+
+  return { text: fullText, toolUses };
 }

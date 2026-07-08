@@ -1601,7 +1601,9 @@ RULES:
   sendSSE(res, {
     type: 'debug_prompt',
     site: 'ceo-orchestrator',
-    model: 'grok-4-1-fast-non-reasoning',
+    // CEO runs on Claude Sonnet (with 1M context auto-opt-in). Research
+    // mode still routes to Grok for the native web_search.
+    model: searchMode ? 'grok-4-1-fast-non-reasoning' : 'claude-sonnet-4-6',
     systemPrompt,
     lastUser: messages?.findLast?.((m) => m.role === 'user')?.content?.toString?.().slice(0, 2000) || null,
   });
