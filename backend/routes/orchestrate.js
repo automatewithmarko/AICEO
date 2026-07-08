@@ -792,7 +792,20 @@ function detectNewArtifactInFlow(messages, currentAgent) {
 // mode: "ceo" or "direct" (direct handles both generation and editing)
 router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, res) => {
   const userId = req.user?.id;
-  const { messages, mode = 'ceo', agent: agentName, searchMode = false, planMode = false, currentHtml, editInstruction, currentAgent, currentContentPost, sessionId = null, assistantMsgId = null } = req.body;
+  const { messages, mode = 'ceo', agent: agentName, searchMode = false, planMode = false, currentHtml, editInstruction, currentAgent, currentTitle = '', currentContentPost, sessionId = null, assistantMsgId = null } = req.body;
+
+  // Detect Plan Mode artifacts on screen. These are html_template artifacts
+  // whose HTML content wraps the plan in a <div class="plan-artifact">
+  // AND/OR whose title matches the plan naming convention. When the on-
+  // screen artifact is a Plan/Brief, we SKIP the file-based edit shortcut
+  // entirely — otherwise every follow-up ("generate Monday's carousel")
+  // gets misrouted as an edit-the-plan operation, and the reply title
+  // shows "Updated newsletter" because the Plan artifact defaults to the
+  // newsletter agent renderer.
+  const isPlanArtifactOnScreen = !!(
+    (currentHtml && /class=["'][^"']*\bplan-artifact\b/.test(currentHtml)) ||
+    /^Content Plan\b|^Week \d+ /i.test(String(currentTitle || ''))
+  );
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array required' });
@@ -821,6 +834,16 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
 
     if (mode === 'direct') {
       await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction, sessionId, assistantMsgId });
+    } else if (mode === 'ceo' && isPlanArtifactOnScreen) {
+      // Plan/Brief artifact on screen — NEVER use the edit shortcut. Every
+      // new message goes through full CEO orchestration where the model
+      // decides: generate a real content_post from the plan, edit the
+      // plan, or reply conversationally. This is the isolation fix — the
+      // Plan Mode flow does not hijack the AICEO chat once the artifact
+      // is created; the CEO returns to normal routing.
+      console.log(`[orchestrate] Plan artifact on screen (title="${currentTitle}") — bypassing edit shortcut, routing to full CEO orchestration`);
+      await handleCeoOrchestration({ res, messages, context, searchMode, planMode, userId, currentHtml, currentAgent, currentContentPost, sessionId, assistantMsgId });
+      return;
     } else if (mode === 'ceo' && currentHtml && currentAgent) {
       // User is editing an existing artifact  -  try surgical file-based edit first.
       // Pass the whole conversation so the edit agent remembers what was built,
@@ -1547,14 +1570,14 @@ RULES:
   if (planMode) {
     const allowed = new Set(['ask_user', 'create_artifact']);
     tools = tools.filter((t) => allowed.has(t.function?.name));
-    // Force the model to call a tool on every response. With 'auto', Grok
-    // was reading the directive and still choosing to write the plan as
-    // inline chat text instead of calling create_artifact — the bug the
-    // user reported ("still writing inline-chat instead of html in
-    // canvas"). 'required' is OpenAI/xAI-compatible and boxes the model
-    // into calling one of the two remaining tools (ask_user or
-    // create_artifact) so no free-text output can leak through.
-    ceoToolChoice = 'required';
+    // Use 'auto', not 'required'. With 'required' the CEO tool-loop was
+    // firing multiple iterations back-to-back (Grok MUST call a tool
+    // every iteration, so after create_artifact it looped again and
+    // re-typed the same acknowledgement text ~15x — the transcript
+    // repetition bug). With 'auto' + the tools list already trimmed to
+    // [ask_user, create_artifact] + strong Plan Mode directive, the
+    // model calls the right tool once then stops cleanly.
+    ceoToolChoice = 'auto';
     // The searchMode branch of executeCeoOrchestrator routes to
     // streamXaiResearch which streams free text with no tools — that would
     // silently bypass the Plan Mode constraint. Force the tool-aware path.
@@ -1611,6 +1634,7 @@ RULES:
     messages: toolAwareMessages,
     tools,
     toolChoice: ceoToolChoice,
+    planMode,
     searchMode: effectiveSearchMode,
     onChunk: (content) => {
       sendSSE(res, { type: 'text_delta', content });

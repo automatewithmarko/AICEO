@@ -658,7 +658,7 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
 
 // Execute the CEO orchestrator with tool_use loop
 // After tool calls, sends results back to the model for a follow-up response
-export async function executeCeoOrchestrator({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, searchMode, onSearchStatus, abortSignal }) {
+export async function executeCeoOrchestrator({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, searchMode, onSearchStatus, abortSignal, planMode = false }) {
   // The Mentor gateway adds cold-start latency on top of the upstream provider's
   // own time-to-first-token. Combined with a long system prompt + tool-call
   // setup, the first chunk on each turn of the orchestrator's tool-use loop
@@ -706,6 +706,17 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
       // If ask_user was called, stop the loop  -  wait for user's answer
       const hasAskUser = toolCalls.some(tc => tc.name === 'ask_user');
       if (hasAskUser) {
+        if (content) lastContent += content;
+        return { content: lastContent, toolCalls: [] };
+      }
+
+      // Plan Mode: exit after ONE tool call of any kind. Without this the
+      // loop iterates again, and Grok re-generates the same short
+      // acknowledgement text ("Plan is in the canvas...") each iteration.
+      // The accumulator prepends it every time, producing the 15x-repeat
+      // bug. In Plan Mode a single tool call is the whole response —
+      // create_artifact drops the plan in the canvas, chat is done.
+      if (planMode) {
         if (content) lastContent += content;
         return { content: lastContent, toolCalls: [] };
       }

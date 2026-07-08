@@ -945,7 +945,11 @@ export default function AiCeo() {
         planMode,
         sessionId: sessionIdRef.current || null,
         assistantMsgId,
-        ...(hasHtmlArtifact ? { currentHtml: currentArtifact.content, currentAgent: currentArtifact.agentSource || 'newsletter' } : {}),
+        ...(hasHtmlArtifact ? {
+          currentHtml: currentArtifact.content,
+          currentAgent: currentArtifact.agentSource || 'newsletter',
+          currentTitle: currentArtifact.title || '',
+        } : {}),
         ...(hasContentPostArtifact ? {
           currentContentPost: {
             content: currentArtifact.content,
@@ -1500,8 +1504,21 @@ export default function AiCeo() {
         // Edit summary after file-based edits complete
         onEditSummary: (summary) => {
           if (summary) {
+            // Derive a real title from the CURRENT artifact so the edit
+            // card doesn't hard-code "Updated newsletter" for every edit.
+            // Preserves the original artifact's identity (Content Plan,
+            // Week N brief, landing page, etc.) and appends a version
+            // suffix so the chat clearly shows lineage.
+            const currentArt = artifactRef.current || artifact;
+            const baseTitle = currentArt?.title || 'Updated output';
+            // If the previous title already has "v2" / "v3" / … increment;
+            // otherwise start at v2.
+            const vMatch = baseTitle.match(/\bv(\d+)\s*$/i);
+            const versionedTitle = vMatch
+              ? baseTitle.replace(/\bv(\d+)\s*$/i, `v${Number(vMatch[1]) + 1}`)
+              : `${baseTitle} v2`;
             setMessages(prev => prev.map(m =>
-              m.id === assistantMsgId ? { ...m, content: summary, hasArtifact: true, artifactTitle: 'Updated newsletter' } : m
+              m.id === assistantMsgId ? { ...m, content: summary, hasArtifact: true, artifactTitle: versionedTitle } : m
             ));
             // Snapshot the post-edit artifact onto this edit-turn message.
             // The pre-edit message keeps its original frozen snapshot, so the
@@ -1781,7 +1798,7 @@ export default function AiCeo() {
 
   // ── Render ──
   return (
-    <div className="ceo-page">
+    <div className={`ceo-page${planMode ? ' ceo-page--plan-mode' : ''}`}>
       {/* Window-level drag-and-drop overlay. Visible while a file
           is being dragged over the page; drop wires straight into
           the same ingestFiles() the paperclip button uses. */}

@@ -3,6 +3,17 @@
   flex-direction: row;
   height: 100vh;
   overflow: hidden;
+  transition: background 0.35s ease;
+}
+
+/* Plan Mode ambient tint — matches AICEO chat so the mode signal is
+   consistent across the app. Isolation: removing this class is a
+   byte-identical revert. */
+.content-page--plan-mode {
+  background:
+    radial-gradient(1000px 500px at 100% 0%, rgba(124, 58, 237, 0.06), transparent 60%),
+    radial-gradient(800px 400px at 0% 100%, rgba(233, 26, 68, 0.04), transparent 60%),
+    linear-gradient(180deg, #fbf9ff 0%, #fff7f9 100%);
 }
 
 /* ── Content Sidebar ── */

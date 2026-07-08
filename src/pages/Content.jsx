@@ -6175,7 +6175,7 @@ export default function Content() {
   }
 
   return (
-    <div className="content-page">
+    <div className={`content-page${planMode ? ' content-page--plan-mode' : ''}`}>
       {/* Window-level drag-and-drop overlay. Drops anywhere on the page
           land in the chat context (images → photos strip, others →
           documents list). The existing sidebar drop-target stays — it

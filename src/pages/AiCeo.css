@@ -5,6 +5,18 @@
   height: 100%;
   max-height: 100%;
   overflow: hidden;
+  transition: background 0.35s ease;
+}
+
+/* Plan Mode ambient tint — subtle warm gradient so users feel the
+   mode change on toggle without any layout shift. Isolation guarantee:
+   this class is the ONLY visual change when Plan Mode is on; removing
+   it is a byte-identical revert to the normal AICEO surface. */
+.ceo-page--plan-mode {
+  background:
+    radial-gradient(1000px 500px at 100% 0%, rgba(124, 58, 237, 0.06), transparent 60%),
+    radial-gradient(800px 400px at 0% 100%, rgba(233, 26, 68, 0.04), transparent 60%),
+    linear-gradient(180deg, #fbf9ff 0%, #fff7f9 100%);
 }
 
 /* ── Split Layout ── */
