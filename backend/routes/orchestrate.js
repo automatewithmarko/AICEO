@@ -1426,12 +1426,14 @@ RULES:
   if (planMode) {
     const allowed = new Set(['ask_user', 'create_artifact']);
     tools = tools.filter((t) => allowed.has(t.function?.name));
-    // Stay on 'auto'. The reduced two-tool list plus the strong Plan Mode
-    // directive already box the model into calling one of ask_user or
-    // create_artifact. tool_choice='required' can trip xAI into returning
-    // an empty response ("The AI didn't produce a response") when it
-    // doesn't accept that value the same way OpenAI does.
-    ceoToolChoice = undefined;
+    // Force the model to call a tool on every response. With 'auto', Grok
+    // was reading the directive and still choosing to write the plan as
+    // inline chat text instead of calling create_artifact — the bug the
+    // user reported ("still writing inline-chat instead of html in
+    // canvas"). 'required' is OpenAI/xAI-compatible and boxes the model
+    // into calling one of the two remaining tools (ask_user or
+    // create_artifact) so no free-text output can leak through.
+    ceoToolChoice = 'required';
     // The searchMode branch of executeCeoOrchestrator routes to
     // streamXaiResearch which streams free text with no tools — that would
     // silently bypass the Plan Mode constraint. Force the tool-aware path.
