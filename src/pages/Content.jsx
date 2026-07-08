@@ -1406,14 +1406,33 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     prompt += `- Never wrap the HTML in \\\`\\\`\\\`html fences. Emit the raw HTML directly as the message text.\n`;
     prompt += `- Never rewrite an existing plan artifact in prose. If the user asks for a change, output a new HTML block.\n\n`;
 
-    prompt += `SCOPING (only when info is missing — before you emit the HTML plan):\n`;
-    prompt += `Ask via JSON, one at a time, hard cap of 2 total:\n`;
-    prompt += `1. Timeframe: {"type":"question","text":"How much content should I plan?","options":["1 week","2 weeks","1 month","Custom"]}\n`;
-    prompt += `2. Cadence: {"type":"question","text":"How often do you want to post?","options":["3x per week","5x per week","Daily","Custom"]}\n`;
-    prompt += `Skip a question if the user already answered. If they say "surprise me" or "go ahead" or "all of them", commit to a confident default and proceed to the HTML.\n\n`;
+    prompt += `SCOPING QUESTIONS (MANDATORY — do NOT skip any that the user hasn't already answered):\n`;
+    prompt += `Ask via JSON, ONE AT A TIME, in this order. Only skip a question if the initial message explicitly answered it. "Plan next 3 weeks" only answers Timeframe — the other four are still required.\n\n`;
+    prompt += `Q1 — Timeframe: {"type":"question","text":"How much content should I plan?","options":["1 week","2 weeks","1 month","Custom"]}\n`;
+    prompt += `Q2 — Cadence: {"type":"question","text":"How often do you want to post?","options":["3x per week","5x per week","Daily","Custom"]}\n`;
+    prompt += `Q3 — Primary goal: {"type":"question","text":"What's the primary goal for this stretch?","options":["Audience growth","Engagement","Drive sales / signups","Thought leadership / authority"]}\n`;
+    prompt += `Q4 — Topic focus (build three real candidates from Brand DNA / products / recent calls / past content — NOT generic "productivity tips"):\n`;
+    prompt += `{"type":"question","text":"What should the content focus on?","options":["<topic tied to a specific product they sell>","<topic tied to a recent win / case study>","<topic tied to a core belief in their brand voice>","Surprise me — pick from my brand"]}\n`;
+    prompt += `Q5 — Format mix (prevents "all carousels" plans — pick options tailored to ${platform.name}):\n`;
+    if (platform.id === 'instagram') {
+      prompt += `{"type":"question","text":"What format mix do you want?","options":["Balanced (carousels + reels + single posts + stories)","Carousel-heavy (educational)","Reel-heavy (reach + growth)","Let me decide per post"]}\n\n`;
+    } else if (platform.id === 'linkedin') {
+      prompt += `{"type":"question","text":"What format mix do you want?","options":["Balanced (text posts + carousels + single-image posts)","Text-post heavy (authority + engagement)","Carousel-heavy (educational)","Let me decide per post"]}\n\n`;
+    } else {
+      prompt += `{"type":"question","text":"What format mix do you want?","options":["Balanced across formats","Long-form heavy","Short-form heavy","Let me decide per post"]}\n\n`;
+    }
+    prompt += `RULES:\n`;
+    prompt += `- One question per response. Wait for the answer before asking the next.\n`;
+    prompt += `- "surprise me" / "go ahead" / "all of them" → commit to a confident default anchored in Brand DNA and move to the NEXT question. Never re-ask.\n`;
+    prompt += `- Hard cap: 5 questions. After the 5th is answered, IMMEDIATELY emit the HTML plan — no confirmation prose, no further questions.\n`;
+    prompt += `- Never bundle two questions into one message. Never type a question outside the JSON format.\n\n`;
 
-    prompt += `THE HTML TEMPLATE — copy this shape exactly, fill in real values:\n\n`;
-    prompt += `<div style="border:1px solid #e5e7eb;border-radius:12px;background:#fafafa;padding:20px 24px;margin:8px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">\n`;
+    prompt += `FORMAT VARIETY RULE (mandatory when building the plan):\n`;
+    prompt += `The plan MUST mix formats. Even on a "carousel-heavy" or "reel-heavy" preference, no more than 2 posts in a row can share the same format. Rotate through the formats appropriate to ${platform.name}. Never ship a plan where every post is the same format — that's a broken plan. If format variety fights the user's stated preference (e.g. "carousel-heavy"), lean toward their preference but STILL include at least 2 non-preferred-format posts per week for variety.\n\n`;
+
+    prompt += `THE HTML TEMPLATE — copy this shape exactly, fill in real values.\n`;
+    prompt += `CRITICAL: the ROOT element MUST be a <div class="plan-artifact" ...> so the client can detect the plan block and render it with a Download / Copy / Fullscreen toolbar. Do not rename or omit the plan-artifact class.\n\n`;
+    prompt += `<div class="plan-artifact" style="border:1px solid #e5e7eb;border-radius:12px;background:#fafafa;padding:20px 24px;margin:8px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">\n`;
     prompt += `  <div style="border-bottom:2px solid #e91a44;padding-bottom:12px;margin-bottom:18px;">\n`;
     prompt += `    <h2 style="margin:0;font-size:20px;font-weight:700;color:#1a1a1a;">📅 Content Plan — <TITLE></h2>\n`;
     prompt += `    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px 20px;margin-top:10px;font-size:12px;color:#666;">\n`;
@@ -1469,6 +1488,15 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
 
   prompt += `=== PLATFORM ENFORCEMENT ===\n`;
   prompt += `You are ONLY creating content for ${platform.name}. If the user asks for content for a different platform (e.g. "make a LinkedIn post" while on YouTube), politely tell them to switch to that platform's tab first. Do NOT generate content for other platforms.\n\n`;
+
+  prompt += `=== PRIOR PLAN AWARENESS ===\n`;
+  prompt += `Scan the conversation history for any earlier assistant message that contains a <div class="plan-artifact">...</div> block. That is a Content Plan the user built with you in Plan Mode. If the user's current message references a specific piece from that plan (e.g. "generate Monday's post", "make the reel from week 1 Wednesday", "build the AICEO checkout carousel from the plan"), you MUST:\n`;
+  prompt += `1. Find the matching row/section in the plan HTML (by day + format + topic).\n`;
+  prompt += `2. Use its Topic, Hook, and CTA as the SPECIFIC content brief for this generation. Do NOT generate a generic version — the plan is the source of truth.\n`;
+  prompt += `3. Follow the normal generation flow (plan_carousel for carousels, generate_image for single posts / stories, plain-text script for reels). Do NOT emit the old <<READY_CAROUSEL>> marker.\n`;
+  prompt += `4. Do NOT rewrite the plan or ask more scoping questions — the plan already answered them.\n`;
+  prompt += `5. Do NOT type the plan row as prose in your chat text before generating. Just make the tool call.\n`;
+  prompt += `If no plan-artifact exists in history, ignore this section and follow normal generation flow.\n\n`;
 
   prompt += `=== WHEN TO ENGAGE (READ THIS FIRST) ===\n`;
   prompt += `Default posture: quiet, capable partner. React to what the user actually asked, nothing more. Do NOT push analysis, strategy ideas, or content pitches unprompted.\n\n`;
@@ -1801,9 +1829,47 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   }
 
   const doneSocial = socialUrls.filter((s) => s.status === 'done' && s.result);
-  if (doneSocial.length > 0) {
+  // Split outlier-detector items out of the generic social bucket. Outliers
+  // are user-flagged viral references — "I want content that reads like
+  // this creator's post" — so they need a stronger, more prescriptive
+  // copy directive than a random URL the user pasted for inspiration.
+  const isOutlier = (item) => item?.source === 'outlier-detector' || item?.result?.source === 'outlier-detector';
+  const outlierTemplates = doneSocial.filter(isOutlier);
+  const otherSocial = doneSocial.filter((s) => !isOutlier(s));
+
+  if (outlierTemplates.length > 0) {
+    // Placed BEFORE the generic reference block so the model reads
+    // "copy exactly" before it reads "study the structure and replicate".
+    // Transcript cap raised to 6000 chars per item — viral video scripts
+    // are longer than typical social captions, and the whole point is
+    // that the model reads enough of the actual wording to mirror it.
+    prompt += `=== OUTLIER TEMPLATES — COPY EXACT WORDING, TONE, STRUCTURE ===\n`;
+    prompt += `The user picked these viral posts as templates. Your job is to reproduce them for the user's own topic. This is NOT "get inspired" — it is a strict copy job.\n\n`;
+    outlierTemplates.forEach((item, i) => {
+      const r = item.result || {};
+      prompt += `--- Template ${i + 1}: ${r.title || item.url} ---\n`;
+      if (r.platform) prompt += `Platform: ${r.platform}\n`;
+      if (r.uploader) prompt += `Original creator: ${r.uploader}\n`;
+      prompt += `Source URL: ${r.url || item.url}\n`;
+      if (r.description) prompt += `Description: ${r.description.slice(0, 1000)}\n`;
+      if (r.transcript) {
+        prompt += `Full script / caption:\n${r.transcript.slice(0, 6000)}\n`;
+      }
+      prompt += '\n';
+    });
+    prompt += `HOW TO USE THESE TEMPLATES:\n`;
+    prompt += `1. MIRROR EVERY STRUCTURAL BEAT — hook opening line, sentence lengths, pacing, transitions, paragraph breaks, list vs prose, CTA position and phrasing. Line 1 of the original → line 1 of yours. Same rhythm, same beats.\n`;
+    prompt += `2. MATCH TONE AND VOCABULARY REGISTER — if the original is punchy and profane, yours is punchy and profane. If it's warm, warm. If it's clinical, clinical. Use the same class of vocabulary the original used (technical, colloquial, hype, deadpan).\n`;
+    prompt += `3. PRESERVE SIGNATURE PHRASES — copy verbatim any hook openers ("Here's the truth about…", "Nobody talks about…"), transition phrases, running metaphors, and CTA phrasings. Change only the nouns and verbs that carry the topic.\n`;
+    prompt += `4. ONLY SWAP THE TOPIC — the subject matter changes to what the user asked about. Everything else — structure, voice, cadence, emotional beats — stays.\n`;
+    prompt += `5. DO NOT SOFTEN OR "IMPROVE" — do not add hedges, safety disclaimers, brand-safe rewording, extra emojis, or generic marketing polish the original didn't have. If the original was raw, your output is raw.\n\n`;
+    prompt += `Concrete test: line up the original template and your output side by side. Line count, hook shape, CTA position, and voice should match. Only the topic differs. If a reader wouldn't recognise your output as clearly modelled on the original, you did it wrong.\n\n`;
+    hasContext = true;
+  }
+
+  if (otherSocial.length > 0) {
     prompt += `=== SOCIAL MEDIA LINKS ===\n`;
-    doneSocial.forEach((item) => {
+    otherSocial.forEach((item) => {
       const r = item.result;
       prompt += `--- ${r.title || item.url} ---\n`;
       prompt += `URL: ${r.url || item.url}\n`;
@@ -1819,13 +1885,14 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
 
   if (hasContext) {
     prompt += `=== CONTEXT PRIORITY (CRITICAL) ===\n`;
-    prompt += `The content above (social media links, transcripts, documents, photos) is the user's REFERENCE MATERIAL. It takes the HIGHEST PRIORITY, even above system writing guidelines.\n\n`;
+    prompt += `The content above (outlier templates, social media links, transcripts, documents, photos) is the user's REFERENCE MATERIAL. It takes the HIGHEST PRIORITY, even above system writing guidelines.\n\n`;
     prompt += `When the user attaches a post, video, or link and asks you to create content:\n`;
     prompt += `1. STUDY THE STRUCTURE: Analyze the reference content's exact structure. How does it hook? How does it flow? What's the CTA? How long are the sentences? What's the pacing?\n`;
     prompt += `2. REPLICATE THE FRAMEWORK: Your output must follow the SAME structural pattern. Same hook style, same content flow, same engagement mechanics, same CTA approach. Mirror it precisely.\n`;
     prompt += `3. APPLY THE USER'S TOPIC: Keep the structure identical but swap the subject matter to whatever topic the user specifies.\n`;
     prompt += `4. MATCH THE ENERGY: If the reference is punchy and direct, yours must be too. If it's storytelling, match that. The reference IS the template.\n\n`;
     prompt += `Example: If the user attaches a video transcript with a specific hook pattern, 3-part story arc, and "DM me X" CTA, your content must use that EXACT same hook pattern, 3-part story arc, and "DM me X" CTA structure. Only the topic changes.\n\n`;
+    prompt += `Outlier templates specifically override every default writing rule below (em-dash policy, hashtag policy, opener bans) if the template itself uses them — a viral post with hashtags means your output for that template also has hashtags. Match the template.\n\n`;
     prompt += `The reference content overrides any conflicting advice in the writing guidelines below. The reference IS the prompt.\n\n`;
   }
 
@@ -2241,6 +2308,43 @@ The reader swipes and NOTHING shifts vertically except the content itself. Same 
 }
 
 // Extract image prompt from AI text when it describes an image instead of calling the tool
+// Extract a `<div class="plan-artifact">…</div>` block from assistant
+// message text. Returns { before, planHtml, after } if a well-balanced
+// block is found; null otherwise. Used to hoist Plan Mode HTML into a
+// canvas card with Download / Copy / Open-in-canvas actions.
+function extractPlanArtifact(text) {
+  if (!text || typeof text !== 'string') return null;
+  const openMatch = text.match(/<div\b[^>]*class="[^"]*\bplan-artifact\b[^"]*"[^>]*>/i);
+  if (!openMatch) return null;
+  const startIdx = openMatch.index;
+  const afterOpen = startIdx + openMatch[0].length;
+  // Balance nested divs until the matching close tag.
+  let depth = 1;
+  let i = afterOpen;
+  const openRe = /<div\b/gi;
+  const closeRe = /<\/div>/gi;
+  while (depth > 0 && i < text.length) {
+    openRe.lastIndex = i;
+    closeRe.lastIndex = i;
+    const nextOpen = openRe.exec(text);
+    const nextClose = closeRe.exec(text);
+    if (!nextClose) return null; // unterminated
+    if (nextOpen && nextOpen.index < nextClose.index) {
+      depth++;
+      i = nextOpen.index + nextOpen[0].length;
+    } else {
+      depth--;
+      i = nextClose.index + nextClose[0].length;
+    }
+  }
+  if (depth !== 0) return null;
+  return {
+    before: text.slice(0, startIdx),
+    planHtml: text.slice(startIdx, i),
+    after: text.slice(i),
+  };
+}
+
 function extractImagePromptFromText(text) {
   // Look for common patterns: "Image Description:", "Image Concept:", "Thumbnail Concept:", markdown image blocks, etc.
   const patterns = [
@@ -3481,6 +3585,12 @@ export default function Content() {
   // content plan (topics, hooks, formats, dates) INSTEAD of running
   // generate_image / plan_carousel. Meant for weekend batch planning.
   const [planMode, setPlanMode] = useState(false);
+  // Plan Mode canvas modal — pops when the user clicks "Open in canvas"
+  // on a plan-artifact HTML block. Holds the HTML string being viewed +
+  // edited so the modal survives message re-renders and cross-message
+  // navigation.
+  const [planCanvasHtml, setPlanCanvasHtml] = useState(null);
+  const [planCanvasMsgId, setPlanCanvasMsgId] = useState(null);
   const [searchStatus, setSearchStatus] = useState(null);
   const [contentCtxMenuOpen, setContentCtxMenuOpen] = useState(false);
   const [contentHoveredCat, setContentHoveredCat] = useState(null);
@@ -4388,13 +4498,32 @@ export default function Content() {
         const variationName = readyA ? 'Variation A (Framework-Heavy)' : 'Variation B (Story-Flow)';
         const postMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
 
-        // Build reference context for Call 2 (social links, docs, transcripts)
+        // Build reference context for Call 2 (social links, docs, transcripts).
+        // Outlier-detector items are the user's explicit "copy this viral
+        // post" templates — separated into their own section with a stricter
+        // copy directive than the generic reference block.
         let refContext = '';
         const doneSocial = socialUrls.filter(s => s.status === 'done' && s.result);
-        if (doneSocial.length > 0) {
+        const isOutlierRef = (item) => item?.source === 'outlier-detector' || item?.result?.source === 'outlier-detector';
+        const outlierRefs = doneSocial.filter(isOutlierRef);
+        const otherRefs = doneSocial.filter((s) => !isOutlierRef(s));
+        if (outlierRefs.length > 0) {
+          refContext += `=== OUTLIER TEMPLATES — COPY EXACT WORDING, TONE, STRUCTURE ===\n`;
+          refContext += `The user picked these viral posts as templates. This is NOT "get inspired" — reproduce them for the user's own topic. Mirror hook openings verbatim, sentence pacing, transition phrasing, CTA wording. Change only the nouns/verbs that carry the topic.\n\n`;
+          outlierRefs.forEach((item, i) => {
+            const r = item.result;
+            refContext += `--- Template ${i + 1}: ${r.platform || 'Post'}: ${r.title || item.url} ---\n`;
+            if (r.uploader) refContext += `Original creator: ${r.uploader}\n`;
+            if (r.description) refContext += `Caption: ${r.description.slice(0, 2000)}\n`;
+            if (r.transcript) refContext += `Full script:\n${r.transcript.slice(0, 6000)}\n`;
+            refContext += '\n';
+          });
+          refContext += `Do NOT soften, generic-ify, or add safety hedges the original didn't have. Match voice, cadence, vocabulary register, and emotional beats. Line 1 of yours mirrors line 1 of theirs.\n\n`;
+        }
+        if (otherRefs.length > 0) {
           refContext += `=== REFERENCE CONTENT (HIGHEST PRIORITY) ===\n`;
           refContext += `The user attached this content as a STRUCTURAL BLUEPRINT. Your post MUST mirror its exact structure: same hook style, same flow, same engagement mechanics, same CTA approach. Only change the topic.\n\n`;
-          doneSocial.forEach(item => {
+          otherRefs.forEach(item => {
             const r = item.result;
             refContext += `--- ${r.platform || 'Post'}: ${r.title || item.url} ---\n`;
             if (r.uploader) refContext += `Creator: ${r.uploader}\n`;
@@ -4442,13 +4571,30 @@ export default function Content() {
         ));
         const carouselMsgs = [...chatHistory.map(m => ({ role: m.role, content: m.content })), { role: 'assistant', content: chatMsg }];
 
-        // Build reference context for carousel Call 2
+        // Build reference context for carousel Call 2. Same split as
+        // Call 2 above — outlier-detector picks get a stricter directive.
         let carouselRefContext = '';
         const doneSocialC = socialUrls.filter(s => s.status === 'done' && s.result);
-        if (doneSocialC.length > 0) {
+        const isOutlierC = (item) => item?.source === 'outlier-detector' || item?.result?.source === 'outlier-detector';
+        const outlierCarouselRefs = doneSocialC.filter(isOutlierC);
+        const otherCarouselRefs = doneSocialC.filter((s) => !isOutlierC(s));
+        if (outlierCarouselRefs.length > 0) {
+          carouselRefContext += `=== OUTLIER TEMPLATES — COPY EXACT SLIDE FLOW, TONE, HOOK ===\n`;
+          carouselRefContext += `The user picked these viral carousels/videos as templates. Reproduce their slide flow for the user's topic: same hook slide format, same slide-by-slide beats, same CTA slide. Change only the topic.\n\n`;
+          outlierCarouselRefs.forEach((item, i) => {
+            const r = item.result;
+            carouselRefContext += `--- Template ${i + 1}: ${r.platform || 'Post'}: ${r.title || item.url} ---\n`;
+            if (r.uploader) carouselRefContext += `Original creator: ${r.uploader}\n`;
+            if (r.description) carouselRefContext += `Caption: ${r.description.slice(0, 2000)}\n`;
+            if (r.transcript) carouselRefContext += `Full script:\n${r.transcript.slice(0, 6000)}\n`;
+            carouselRefContext += '\n';
+          });
+          carouselRefContext += `Do NOT soften or generic-ify. Match voice + slide cadence + emotional beats. Slide 1 of yours mirrors slide 1 of theirs.\n\n`;
+        }
+        if (otherCarouselRefs.length > 0) {
           carouselRefContext += `=== REFERENCE CONTENT (HIGHEST PRIORITY) ===\n`;
           carouselRefContext += `The user attached this content as a STRUCTURAL BLUEPRINT. Your carousel MUST mirror its structure: same hook style, same slide flow, same engagement mechanics, same CTA. Only change the topic.\n\n`;
-          doneSocialC.forEach(item => {
+          otherCarouselRefs.forEach(item => {
             const r = item.result;
             carouselRefContext += `--- ${r.platform || 'Post'}: ${r.title || item.url} ---\n`;
             if (r.uploader) carouselRefContext += `Creator: ${r.uploader}\n`;
@@ -4597,7 +4743,7 @@ export default function Content() {
         return { ...m, content: "The AI didn't produce a response. Please try again." };
       }));
     }
-  }, [activePlatform, photos, documents, socialUrls, brandDna, integrationCtx]);
+  }, [activePlatform, photos, documents, socialUrls, brandDna, integrationCtx, planMode]);
 
   const stopGenerating = useCallback(() => {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; setIsGenerating(false); setActiveAssistantId(null); }
@@ -5741,11 +5887,16 @@ export default function Content() {
           const m = item.metadata || {};
           savedSocial.push({
             url: item.url, dbId: item.id, status: 'done',
+            // Preserve metadata.source so buildSystemPrompt can route
+            // outlier-detector items into the dedicated COPY-EXACT block
+            // instead of the generic social-links block.
+            source: m.source || null,
             result: {
               url: item.url, title: m.title, uploader: m.uploader,
               thumbnail: m.thumbnail, platform: m.platform,
               duration: m.duration, transcript: item.transcript,
               description: m.description,
+              source: m.source || null,
             },
           });
         }
@@ -6035,7 +6186,7 @@ export default function Content() {
   }
 
   return (
-    <div className="content-page">
+    <div className={`content-page${planMode ? ' content-page--plan-mode' : ''}`}>
       {/* Window-level drag-and-drop overlay. Drops anywhere on the page
           land in the chat context (images → photos strip, others →
           documents list). The existing sidebar drop-target stays — it
@@ -6660,20 +6811,97 @@ export default function Content() {
                   <div key={msg.id} className="content-assistant-row">
                     <img src="/favicon.png" alt="" className="content-assistant-avatar" />
                     <div className="content-bubble content-bubble--assistant">
-                      {parsed.text && (
-                        <div className="content-markdown">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            rehypePlugins={[rehypeRaw]}
-                            skipHtml={false}
-                            components={{
-                              table: ({ children, ...props }) => (
-                                <div className="content-table-scroll"><table {...props}>{children}</table></div>
-                              ),
-                            }}
-                          >{DOMPurify.sanitize(parsed.text, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] })}</ReactMarkdown>
-                        </div>
-                      )}
+                      {parsed.text && (() => {
+                        // Plan Mode HTML detection — if the message
+                        // contains a <div class="plan-artifact">…</div>
+                        // block, hoist it into a compact canvas card
+                        // with Download / Copy / Open buttons instead
+                        // of inlining the whole HTML.
+                        const planParts = extractPlanArtifact(parsed.text);
+                        if (planParts) {
+                          const renderMd = (chunk) => chunk && chunk.trim() ? (
+                            <div className="content-markdown">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                rehypePlugins={[rehypeRaw]}
+                                skipHtml={false}
+                                components={{
+                                  table: ({ children, ...props }) => (
+                                    <div className="content-table-scroll"><table {...props}>{children}</table></div>
+                                  ),
+                                }}
+                              >{DOMPurify.sanitize(chunk, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] })}</ReactMarkdown>
+                            </div>
+                          ) : null;
+                          return (
+                            <>
+                              {renderMd(planParts.before)}
+                              <div className="content-plan-card">
+                                <div className="content-plan-card-preview">
+                                  <div
+                                    className="content-plan-card-preview-inner"
+                                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(planParts.planHtml, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] }) }}
+                                  />
+                                  <div className="content-plan-card-fade" />
+                                </div>
+                                <div className="content-plan-card-actions">
+                                  <button
+                                    type="button"
+                                    className="content-plan-card-btn content-plan-card-btn--primary"
+                                    onClick={() => { setPlanCanvasHtml(planParts.planHtml); setPlanCanvasMsgId(msg.id); }}
+                                    title="Open the plan in a full canvas view to edit or copy"
+                                  >
+                                    <Maximize2 size={13} /> Open in canvas
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="content-plan-card-btn"
+                                    onClick={() => {
+                                      const blob = new Blob([`<!doctype html><meta charset="utf-8"><title>Content Plan</title>${planParts.planHtml}`], { type: 'text/html' });
+                                      const url = URL.createObjectURL(blob);
+                                      const a = document.createElement('a');
+                                      a.href = url;
+                                      a.download = `content-plan-${new Date().toISOString().slice(0,10)}.html`;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      a.remove();
+                                      setTimeout(() => URL.revokeObjectURL(url), 2000);
+                                    }}
+                                    title="Download this plan as an .html file"
+                                  >
+                                    <Download size={13} /> Download HTML
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="content-plan-card-btn"
+                                    onClick={() => {
+                                      navigator.clipboard?.writeText(planParts.planHtml);
+                                    }}
+                                    title="Copy the plan HTML to your clipboard"
+                                  >
+                                    Copy HTML
+                                  </button>
+                                </div>
+                              </div>
+                              {renderMd(planParts.after)}
+                            </>
+                          );
+                        }
+                        return (
+                          <div className="content-markdown">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              rehypePlugins={[rehypeRaw]}
+                              skipHtml={false}
+                              components={{
+                                table: ({ children, ...props }) => (
+                                  <div className="content-table-scroll"><table {...props}>{children}</table></div>
+                                ),
+                              }}
+                            >{DOMPurify.sanitize(parsed.text, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] })}</ReactMarkdown>
+                          </div>
+                        );
+                      })()}
                       {/* Carousel plan approval card — Instagram only */}
                       {msg.carouselPlan && (
                         <CarouselPlanCard
@@ -7260,6 +7488,65 @@ export default function Content() {
           );
         })()}
       </div>
+
+      {/* Plan Mode canvas modal — pops when the user clicks "Open in
+          canvas" on a plan-artifact card. Renders the plan HTML inside
+          a sandboxed iframe (so its inline CSS never leaks into the
+          host page), with a toolbar for Download / Copy / Close. */}
+      {planCanvasHtml && (
+        <div
+          className="content-plan-canvas-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => { setPlanCanvasHtml(null); setPlanCanvasMsgId(null); }}
+        >
+          <div className="content-plan-canvas-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="content-plan-canvas-toolbar">
+              <span className="content-plan-canvas-title">Content Plan</span>
+              <div className="content-plan-canvas-actions">
+                <button
+                  type="button"
+                  className="content-plan-card-btn"
+                  onClick={() => {
+                    const blob = new Blob([`<!doctype html><meta charset="utf-8"><title>Content Plan</title>${planCanvasHtml}`], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `content-plan-${new Date().toISOString().slice(0,10)}.html`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 2000);
+                  }}
+                >
+                  <Download size={13} /> Download
+                </button>
+                <button
+                  type="button"
+                  className="content-plan-card-btn"
+                  onClick={() => navigator.clipboard?.writeText(planCanvasHtml)}
+                >
+                  Copy HTML
+                </button>
+                <button
+                  type="button"
+                  className="content-plan-canvas-close"
+                  onClick={() => { setPlanCanvasHtml(null); setPlanCanvasMsgId(null); }}
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <iframe
+              className="content-plan-canvas-iframe"
+              title="Content Plan"
+              srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;background:#f5f5f7;}</style></head><body>${DOMPurify.sanitize(planCanvasHtml, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] })}</body></html>`}
+              sandbox=""
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Send, ChevronDown, Upload, X } from 'lucide-react';
 import { createMeeting, getTemplates } from '../../lib/meetings-api';
+import { useAuth } from '../../context/AuthContext';
 import './BotLauncher.css';
 
 const AVATAR_STORAGE_KEY = 'pp.botAvatar.v1';
@@ -25,7 +26,33 @@ function writeStoredAvatar(value) {
   }
 }
 
+// Fetch a remote image (e.g. the user's profile avatar) and turn it into
+// the same { dataUrl, mime } shape a file-upload produces. Used to fill
+// the Display Photo when the user hasn't picked one manually.
+//
+// Returns null on any failure (CORS, 404, non-image content-type) so the
+// caller can silently fall back to submitting without a photo. Never throws.
+async function fetchRemoteAvatarAsDataUrl(url) {
+  if (!url) return null;
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    if (!/^image\/(jpeg|png|webp|gif)$/i.test(blob.type)) return null;
+    const mime = /^image\/png$/i.test(blob.type) ? 'image/png' : 'image/jpeg';
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ dataUrl: String(reader.result || ''), mime });
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 export default function BotLauncher({ onClose, onCreated }) {
+  const { user } = useAuth();
   const [meetingUrl, setMeetingUrl] = useState('');
   const [title, setTitle] = useState('');
   const [template, setTemplate] = useState('general');
@@ -97,10 +124,19 @@ export default function BotLauncher({ onClose, onCreated }) {
     setError('');
 
     try {
-      const avatarPayload = botAvatar?.dataUrl
+      // Priority: user-uploaded > logged-in user's profile avatar > nothing.
+      // The profile fallback runs at submit time (not render time) so we
+      // don't block the launcher opening while a slow avatar host responds,
+      // and so a CORS-blocked host silently omits the payload instead of
+      // breaking the submit.
+      let effectiveAvatar = botAvatar;
+      if (!effectiveAvatar?.dataUrl && user?.avatar) {
+        effectiveAvatar = await fetchRemoteAvatarAsDataUrl(user.avatar);
+      }
+      const avatarPayload = effectiveAvatar?.dataUrl
         ? {
-            bot_avatar_b64: botAvatar.dataUrl.split(',')[1],
-            bot_avatar_mime: botAvatar.mime,
+            bot_avatar_b64: effectiveAvatar.dataUrl.split(',')[1],
+            bot_avatar_mime: effectiveAvatar.mime,
           }
         : {};
       const result = await createMeeting({
@@ -215,6 +251,8 @@ export default function BotLauncher({ onClose, onCreated }) {
                   >
                     {botAvatar?.dataUrl ? (
                       <img src={botAvatar.dataUrl} alt="Bot display" />
+                    ) : user?.avatar ? (
+                      <img src={user.avatar} alt={user.name || 'Your photo'} />
                     ) : (
                       <div className="bot-avatar-default">
                         <Upload size={16} />
@@ -227,7 +265,7 @@ export default function BotLauncher({ onClose, onCreated }) {
                       className="bot-avatar-btn"
                       onClick={() => avatarInputRef.current?.click()}
                     >
-                      {botAvatar ? 'Replace' : 'Upload photo'}
+                      {botAvatar || user?.avatar ? 'Replace' : 'Upload photo'}
                     </button>
                     {botAvatar && (
                       <button
