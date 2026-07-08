@@ -6,13 +6,15 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
-import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion } from '../lib/api';
+import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, schedulePost, uploadImageToStorage } from '../lib/api';
+import { useNavigate } from 'react-router-dom';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, sessionId = null, brandDna = null, user = null }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, sessionId = null, brandDna = null, user = null }) {
+  const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -20,6 +22,72 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
   const [selectedAccountId, setSelectedAccountId] = useState(externalAccounts?.[0]?.id || null);
   const [deploying, setDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState(null);
+
+  // Canvas Schedule / Upload / Post handlers — parity with Content.jsx so
+  // the buttons inside LinkedInPreview + SocialPreview actually work when
+  // the preview is rendered inside the AICEO chat's canvas panel.
+  const handleCanvasPostToLinkedIn = async ({ text, images: imgs, connect }) => {
+    if (connect) {
+      navigate('/settings', { state: { scrollTo: 'integrations' } });
+      return;
+    }
+    const imageUrl = imgs?.[0]?.src || null;
+    await postToLinkedIn(text, imageUrl);
+  };
+  const handleCanvasSchedule = async ({ text, images: imgs, date, time, platform }) => {
+    const scheduledAt = `${date}T${time}:00`;
+    const thumbnailUrl = imgs?.[0]?.src || null;
+    await schedulePost({
+      platform,
+      caption: text,
+      scheduledAt,
+      thumbnailUrl,
+      contentSessionId: sessionId || null,
+    });
+  };
+  const handleCanvasUploadImages = async (files) => {
+    if (!files?.length || !onArtifactChange) return;
+    // Optimistic blob URLs first so the preview updates instantly, then
+    // swap to real Supabase URLs after upload — same pattern as Content.
+    const startIdx = (artifact?.images?.length || 0);
+    const optimistic = files.map((file, i) => ({
+      src: URL.createObjectURL(file),
+      idx: startIdx + i,
+      _uploading: true,
+    }));
+    onArtifactChange((prev) => ({
+      ...prev,
+      images: [...(prev?.images || []), ...optimistic],
+      totalSlides: optimistic.length > 1
+        ? (prev?.images?.length || 0) + optimistic.length
+        : (prev?.totalSlides || 0),
+    }));
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const idx = startIdx + i;
+      try {
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = String(reader.result || '');
+            const comma = result.indexOf(',');
+            resolve(comma !== -1 ? result.slice(comma + 1) : result);
+          };
+          reader.onerror = () => reject(new Error('read failed'));
+          reader.readAsDataURL(file);
+        });
+        const url = await uploadImageToStorage(base64, file.type || 'image/png');
+        onArtifactChange((prev) => ({
+          ...prev,
+          images: (prev?.images || []).map((im) =>
+            im.idx === idx ? { src: url, idx } : im
+          ),
+        }));
+      } catch (err) {
+        console.error('[canvas-upload] failed for slot', idx, err);
+      }
+    }
+  };
 
   // Netlify connection modal (triggered when deploy hits 400/401 token issue)
   const [netlifyModalOpen, setNetlifyModalOpen] = useState(false);
@@ -605,10 +673,17 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                     images={images || []}
                     userName={user?.user_metadata?.full_name || user?.email || ''}
                     userAvatar={user?.user_metadata?.avatar_url || null}
+                    userSubtitle={brandDna?.description?.split(/[.!?]/)[0]?.trim().slice(0, 80) || 'Author'}
+                    followerCount={brandDna?.linkedin_followers || '1,200'}
+                    postAge="1w"
                     totalSlides={artifact.totalSlides || 0}
                     plan={artifact.carouselPlan || null}
                     streaming={!!artifact.streaming}
                     isGenerating={(artifact.pendingImages || 0) > 0}
+                    onContentChange={onContentChange}
+                    onUploadImages={handleCanvasUploadImages}
+                    onPostToLinkedIn={handleCanvasPostToLinkedIn}
+                    onSchedule={handleCanvasSchedule}
                   />
                 );
               }
@@ -624,6 +699,8 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                   brandDna={brandDna}
                   user={user}
                   showHeader={false}
+                  onUploadImages={handleCanvasUploadImages}
+                  onSchedule={handleCanvasSchedule}
                 />
               );
             })()}

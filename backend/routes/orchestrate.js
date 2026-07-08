@@ -1238,10 +1238,11 @@ The user has turned on Plan Mode. Their goal: plan a full week or month of conte
 4. If you have chat text alongside a create_artifact call, keep it to ONE short sentence ("Plan is in the canvas — click any cell to edit.") and nothing more.
 
 ━━━━ SCOPING QUESTIONS (only when info is missing) ━━━━
-Ask via ask_user, one at a time, hard cap of 2 total:
+Ask via ask_user, one at a time, hard cap of 3 total:
 - Timeframe: "How much content should I plan?" options: ["1 week","2 weeks","1 month","Custom"]
 - Cadence: "How often do you want to post?" options: ["3x per week","5x per week","Daily","Custom"]
-If the user already answered in their message, skip the question. If they say "all of them" or "surprise me", commit to a confident default and proceed.
+- Platforms: "Which platforms should I plan for?" options: ["Instagram","LinkedIn","Instagram + LinkedIn","All my connected platforms"]
+If the user already answered in their message, skip the question. If they say "all of them" or "surprise me", commit to a confident default and proceed. Always ask Platforms unless the user already named one — a plan without a defined platform is useless because the format mix changes per platform.
 
 ━━━━ STAGE 1: OVERVIEW PLAN (create_artifact) ━━━━
 Trigger: first Plan Mode message, or "plan the next month", "what should I post this week", etc.
@@ -1256,64 +1257,98 @@ Call create_artifact with:
 <head>
 <meta charset="utf-8">
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f7f7f9; color: #1a1a1a; margin: 0; padding: 32px 40px; line-height: 1.5; }
-  .plan-header { border-bottom: 2px solid #e91a44; padding-bottom: 16px; margin-bottom: 24px; }
-  h1 { font-size: 26px; font-weight: 700; margin: 0 0 8px; color: #1a1a1a; }
-  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 24px; margin-top: 12px; font-size: 13px; color: #666; }
-  .meta-grid strong { color: #1a1a1a; font-weight: 600; display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
-  h2 { font-size: 18px; font-weight: 700; margin: 32px 0 12px; color: #1a1a1a; padding: 8px 12px; background: #1a1a1a; color: #fff; border-radius: 6px; }
-  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 12px; }
-  thead { background: #fafafa; }
-  th { text-align: left; padding: 12px 14px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #666; border-bottom: 1px solid #eee; }
-  td { padding: 14px; font-size: 13px; color: #1a1a1a; vertical-align: top; border-bottom: 1px solid #f2f2f2; }
-  tr:last-child td { border-bottom: none; }
-  .platform-pill { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; background: #f0f0f2; color: #1a1a1a; }
-  .format-carousel { color: #7c3aed; font-weight: 600; }
-  .format-reel { color: #e91a44; font-weight: 600; }
-  .format-story { color: #f59e0b; font-weight: 600; }
-  .format-single { color: #2563eb; font-weight: 600; }
-  .format-text { color: #059669; font-weight: 600; }
-  .hook { font-style: italic; color: #444; }
-  .arc-banner { background: linear-gradient(90deg, rgba(233,26,68,0.08), rgba(233,26,68,0.02)); border-left: 3px solid #e91a44; padding: 10px 14px; margin: 16px 0; font-size: 13px; color: #444; border-radius: 4px; }
-  .footer-note { margin-top: 32px; padding: 16px; background: #fff; border-radius: 10px; font-size: 12.5px; color: #666; border: 1px dashed #d0d0d3; }
-  .footer-note strong { color: #1a1a1a; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: #f5f5f7; color: #1a1a1a; margin: 0; padding: 28px 32px 60px; line-height: 1.55; }
+  .plan-shell { max-width: 980px; margin: 0 auto; }
+  .plan-header { position: relative; padding: 28px 32px; margin-bottom: 28px; background: linear-gradient(135deg, #1a1a1a 0%, #2b2b2b 100%); border-radius: 16px; color: #fff; box-shadow: 0 8px 24px rgba(0,0,0,0.12); overflow: hidden; }
+  .plan-header::before { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 240px; background: radial-gradient(circle at top right, rgba(233,26,68,0.35), transparent 70%); pointer-events: none; }
+  .plan-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #e91a44; margin-bottom: 8px; display: inline-flex; align-items: center; gap: 6px; }
+  .plan-eyebrow::before { content: '●'; font-size: 8px; }
+  h1 { font-size: 30px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .plan-sub { color: rgba(255,255,255,0.72); font-size: 14px; margin-bottom: 22px; }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px 20px; }
+  .meta-cell { padding: 10px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; }
+  .meta-cell strong { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.55); font-weight: 600; margin-bottom: 4px; }
+  .meta-cell span { font-size: 14px; font-weight: 600; color: #fff; }
+  .arc-banner { background: linear-gradient(90deg, rgba(233,26,68,0.1), rgba(233,26,68,0.02)); border: 1px solid rgba(233,26,68,0.18); border-left: 4px solid #e91a44; padding: 14px 18px; margin: 0 0 24px; font-size: 13.5px; color: #333; border-radius: 8px; }
+  .arc-banner strong { color: #e91a44; font-weight: 700; }
+  .week-block { margin-bottom: 28px; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 1px solid #ececef; }
+  .week-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; background: #1a1a1a; color: #fff; }
+  .week-head h2 { font-size: 16px; font-weight: 700; margin: 0; }
+  .week-head .week-dates { font-size: 12px; color: rgba(255,255,255,0.6); }
+  .week-block table { width: 100%; border-collapse: collapse; }
+  .week-block th { text-align: left; padding: 12px 16px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #8a8a92; background: #fafafa; border-bottom: 1px solid #ececef; }
+  .week-block td { padding: 14px 16px; font-size: 13px; color: #1a1a1a; vertical-align: top; border-bottom: 1px solid #f2f2f4; }
+  .week-block tr:last-child td { border-bottom: none; }
+  .week-block tr:hover td { background: #fafafa; }
+  .day-cell { font-weight: 600; color: #444; white-space: nowrap; }
+  .platform-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .platform-instagram { background: #ffe8ed; color: #c2185b; }
+  .platform-linkedin { background: #e3f0ff; color: #0a66c2; }
+  .platform-facebook { background: #eaf3ff; color: #1877f2; }
+  .platform-tiktok { background: #eee; color: #111; }
+  .platform-youtube { background: #ffece9; color: #c00; }
+  .format-cell { font-weight: 600; }
+  .format-carousel { color: #7c3aed; }
+  .format-reel { color: #e91a44; }
+  .format-story { color: #f59e0b; }
+  .format-single { color: #2563eb; }
+  .format-text { color: #059669; }
+  .hook-cell { font-style: italic; color: #555; font-size: 12.5px; }
+  .cta-cell { font-size: 12.5px; color: #333; }
+  .footer-note { margin-top: 24px; padding: 18px 22px; background: #fff; border-radius: 12px; font-size: 13px; color: #555; border: 1px dashed #d5d5da; }
+  .footer-note strong { color: #1a1a1a; font-weight: 700; display: block; margin-bottom: 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #e91a44; }
 </style>
 </head>
 <body>
-  <div class="plan-header">
-    <h1>Content Plan — <title></h1>
-    <div class="meta-grid">
-      <div><strong>Timeframe</strong>Jan 6 – Feb 2</div>
-      <div><strong>Cadence</strong>3x per week</div>
-      <div><strong>Platforms</strong>Instagram + LinkedIn</div>
-      <div><strong>Total posts</strong>12</div>
+  <div class="plan-shell">
+    <div class="plan-header">
+      <div class="plan-eyebrow">Content Plan</div>
+      <h1><Plan Title></h1>
+      <div class="plan-sub"><One-line summary describing the strategic focus of these weeks></div>
+      <div class="meta-grid">
+        <div class="meta-cell"><strong>Timeframe</strong><span>Jan 6 – Feb 2</span></div>
+        <div class="meta-cell"><strong>Cadence</strong><span>3x per week</span></div>
+        <div class="meta-cell"><strong>Platforms</strong><span>Instagram + LinkedIn</span></div>
+        <div class="meta-cell"><strong>Total posts</strong><span>12</span></div>
+      </div>
     </div>
-  </div>
 
-  <div class="arc-banner">
-    <strong>Narrative arc:</strong> Week 1 attention → Week 2 education → Week 3 proof → Week 4 conversion.
-  </div>
+    <div class="arc-banner">
+      <strong>Narrative arc:</strong> Week 1 attention → Week 2 education → Week 3 proof → Week 4 conversion.
+    </div>
 
-  <h2>Week 1 · Jan 6 – Jan 12</h2>
-  <table>
-    <thead><tr><th>Day</th><th>Platform</th><th>Format</th><th>Topic</th><th>Hook</th><th>CTA</th></tr></thead>
-    <tbody>
-      <tr>
-        <td>Mon Jan 6</td>
-        <td><span class="platform-pill">Instagram</span></td>
-        <td class="format-carousel">Carousel</td>
-        <td>Specific topic here, drawn from Brand DNA + integrated data.</td>
-        <td class="hook">"Real first-line hook in the user's voice."</td>
-        <td>Comment KEYWORD for the framework.</td>
-      </tr>
-      <!-- one row per planned post -->
-    </tbody>
-  </table>
+    <div class="week-block">
+      <div class="week-head">
+        <h2>Week 1 · Attention</h2>
+        <span class="week-dates">Jan 6 – Jan 12</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Day</th><th>Platform</th><th>Format</th><th>Topic</th><th>Hook</th><th>CTA</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="day-cell">Mon<br>Jan 6</td>
+            <td><span class="platform-pill platform-instagram">Instagram</span></td>
+            <td class="format-cell format-carousel">Carousel</td>
+            <td>Specific topic drawn from Brand DNA + integrated data.</td>
+            <td class="hook-cell">"Real first-line hook in the user's voice."</td>
+            <td class="cta-cell">Comment KEYWORD for the framework.</td>
+          </tr>
+          <!-- one row per planned post -->
+        </tbody>
+      </table>
+    </div>
 
-  <!-- Repeat h2 + table per week -->
+    <!-- Repeat one week-block per week -->
 
-  <div class="footer-note">
-    <strong>Next step:</strong> ask "expand week 1" (or any week) for the detailed content brief. When you're ready to generate the actual posts, turn Plan Mode off and say "generate Monday's carousel".
+    <div class="footer-note">
+      <strong>Next step</strong>
+      Ask "expand week 1" (or any week) to get the detailed content brief for each post. When you're ready to actually generate an asset, turn Plan Mode off and say "generate Monday's carousel".
+    </div>
   </div>
 </body>
 </html>
@@ -1341,11 +1376,16 @@ Template per post-section:
 
   <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:6px;">Post content</div>
   <div style="font-size:13px; color:#1a1a1a; line-height:1.6; margin-bottom:20px;">
-    <!-- For CAROUSEL: <ol> of slides, one <li> per slide with slide role + content + visual concept -->
-    <!-- For REEL: full spoken script line by line, then a "Direction:" line -->
-    <!-- For SINGLE POST: verbatim caption + one-line visual concept -->
-    <!-- For STORY: 3-4 frames as <ol> -->
-    <!-- For LINKEDIN TEXT POST: full post text verbatim, structured per LI caption standard -->
+    <!-- For CAROUSEL: <ol> of slides, one <li> per slide. For EACH slide list: slide role + copy + visual concept. Every slide of a carousel is an image, so describe the visual for each. -->
+    <!-- For REEL: full spoken script line by line, then a "Direction:" line describing the on-camera visual (b-roll / face-to-camera / demo shot) + trending audio. -->
+    <!-- For SINGLE POST: verbatim caption + a rich 2-3 sentence visual description of the accompanying image. Do NOT skip the visual — a single post without an image is dead. -->
+    <!-- For STORY: 3-4 frames as <ol>, each frame with its on-screen text AND a one-line visual concept. -->
+    <!-- For LINKEDIN TEXT POST: full post text verbatim, structured per LI caption standard. Then a single "Image:" line — LinkedIn posts with a supporting graphic/photo outperform text-only by ~2x. Only skip the image if the post is a pure short story-style anecdote where a visual would dilute it. -->
+  </div>
+
+  <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:6px;">Visual / Image plan</div>
+  <div style="font-size:13px; color:#1a1a1a; line-height:1.55; margin-bottom:20px; padding:12px 14px; background:#f8faff; border-left:3px solid #2563eb; border-radius:4px;">
+    Concrete image description that a designer or an AI image generator can execute. Include: subject, composition, background style, text overlay if any, color palette hint anchored to Brand DNA. Example: "Founder facing camera, holding a laptop showing a Notion dashboard. Warm daylight through window behind. Bold text overlay top-third: 'I killed my $2k SaaS to build this.' Muted terracotta + off-white palette." Never write "add a nice image" — that's not a plan.
   </div>
 
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
@@ -1361,6 +1401,12 @@ Template per post-section:
 </div>
 
 (Repeat one h2+card per post, in day order. Include every post from the corresponding week of the plan.)
+
+━━━━ IMAGE / VISUAL RULES (mandatory in Stage 2) ━━━━
+- Every post that CAN have a visual MUST have a "Visual / Image plan" section. That's carousels (every slide), reels (on-camera direction + b-roll), single posts (the main image), stories (each frame), and LinkedIn text posts (unless clearly text-only).
+- The only formats that skip visuals: pure LinkedIn text posts where the copy IS the whole story (e.g. a raw personal confession where an image would cheapen it) — and even then, prefer to include an image.
+- Anchor visual descriptions to the user's Brand DNA colors and photo library if any signals exist. Don't invent aesthetic decisions that clash with the brand.
+- When Plan Mode is turned OFF and the user says "generate Monday's carousel", the generation agent will read the Visual / Image plan verbatim as the image prompt. Write it accordingly — actionable, specific, executable.
 
 ━━━━ QUALITY BAR ━━━━
 - Every topic REAL and specific to this user. Not "talk about mindset" — instead "The 20-min ritual I did every Sunday for 3 months that fixed my launch cadence."
