@@ -668,24 +668,108 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
   const ceoStreamIdleMs = 180_000;
 
   // Web research still routes through Grok (it has native web_search).
-  // The CEO REASONING + tool routing is on Claude — Grok's habit of
-  // typing plan text as chat AND calling tools in the same iteration
-  // caused the observed repetition + "Something went wrong" bugs.
   if (searchMode) {
     return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal, streamIdleMs: ceoStreamIdleMs });
   }
 
-  return executeCeoOrchestratorClaude({
-    systemPrompt,
-    messages,
-    tools,
-    toolChoice,
-    onChunk,
-    onToolCalls,
-    abortSignal,
-    planMode,
-    streamIdleMs: ceoStreamIdleMs,
-  });
+  // Primary: Claude Sonnet with native tool_use + 1M context.
+  // Backup: Grok orchestrator on any Claude failure (5xx, network,
+  // context-exceeded that survives the 1M retry, or explicit throws in
+  // the tool-use loop). The user asked to keep xAI as a fallback so we
+  // don't take an outage from either provider individually.
+  try {
+    return await executeCeoOrchestratorClaude({
+      systemPrompt,
+      messages,
+      tools,
+      toolChoice,
+      onChunk,
+      onToolCalls,
+      abortSignal,
+      planMode,
+      streamIdleMs: ceoStreamIdleMs,
+    });
+  } catch (err) {
+    // Never fall back on user aborts — the user cancelled deliberately.
+    if (err?.name === 'AbortError' || abortSignal?.aborted) throw err;
+    // Never fall back on CONTEXT_EXCEEDED — the conversation genuinely
+    // won't fit in either provider's window. Let it bubble to the route
+    // handler so the frontend can show the "start a fresh chat" message.
+    if (err?.code === 'CONTEXT_EXCEEDED') throw err;
+    console.warn(`[ceo] Claude failed (${err?.message?.slice(0, 200) || err}), falling back to Grok`);
+    return executeCeoOrchestratorGrok({
+      systemPrompt,
+      messages,
+      tools,
+      toolChoice,
+      onChunk,
+      onToolCalls,
+      abortSignal,
+      planMode,
+      streamIdleMs: ceoStreamIdleMs,
+    });
+  }
+}
+
+// Grok orchestrator — kept as a fallback path so a Claude outage doesn't
+// take the app down. Same shape as the previous CEO loop: OpenAI-style
+// tool_calls, 5-iteration cap, planMode + ask_user early exit.
+async function executeCeoOrchestratorGrok({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, abortSignal, planMode, streamIdleMs }) {
+  const model = 'grok-4-1-fast-non-reasoning';
+  let conversationMessages = [...messages];
+  let iterations = 0;
+  const MAX_ITERATIONS = 5;
+  let lastContent = '';
+
+  while (iterations < MAX_ITERATIONS) {
+    iterations++;
+    const result = await streamXai({
+      systemPrompt,
+      messages: conversationMessages,
+      model,
+      maxTokens: 16000,
+      tools,
+      toolChoice,
+      onChunk: iterations === 1 || !lastContent ? onChunk : (content) => {
+        if (onChunk) onChunk(lastContent + content);
+      },
+      onToolCalls: null,
+      abortSignal,
+      streamIdleMs,
+    });
+
+    const { content, toolCalls } = result;
+
+    if (toolCalls.length > 0) {
+      if (onToolCalls) await onToolCalls(toolCalls);
+      const hasAskUser = toolCalls.some(tc => tc.name === 'ask_user');
+      if (hasAskUser || planMode) {
+        if (content) lastContent += content;
+        return { content: lastContent, toolCalls: [] };
+      }
+      const assistantMsg = { role: 'assistant', content: content || null };
+      assistantMsg.tool_calls = toolCalls.map(tc => ({
+        id: tc.id,
+        type: 'function',
+        function: { name: tc.name, arguments: tc.arguments },
+      }));
+      conversationMessages.push(assistantMsg);
+      for (const tc of toolCalls) {
+        conversationMessages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: typeof tc.result === 'string' && tc.result.length > 0 ? tc.result : 'Done',
+        });
+      }
+      if (content) lastContent += content;
+      continue;
+    }
+
+    if (content) lastContent += content;
+    return { content: lastContent, toolCalls: [] };
+  }
+
+  return { content: lastContent, toolCalls: [] };
 }
 
 // Translate OpenAI-format tool schemas (used by the rest of AICEO) into
@@ -730,6 +814,77 @@ function openAiToolChoiceToAnthropic(toolChoice) {
   return undefined;
 }
 
+// Convert incoming CEO conversation history (OpenAI-shaped tool_calls +
+// tool-result messages) into Anthropic's tool_use / tool_result content
+// blocks. Anthropic rejects content: null and content: string when the
+// message either has tool_use blocks or follows one. This translation
+// runs on every request because our callers (routes/orchestrate.js) build
+// the OpenAI shape for compatibility with the previous Grok orchestrator.
+//
+// OpenAI shape we accept:
+//   { role: 'user', content: string }
+//   { role: 'assistant', content: string }
+//   { role: 'assistant', content: null, tool_calls: [{ id, type, function: { name, arguments } }] }
+//   { role: 'tool', tool_call_id: string, content: string }
+// Anthropic shape we emit:
+//   { role: 'user', content: string }
+//   { role: 'assistant', content: string }
+//   { role: 'assistant', content: [ {type:'text', text}?, {type:'tool_use', id, name, input} ] }
+//   { role: 'user',      content: [ {type:'tool_result', tool_use_id, content} ] }
+function convertOpenAiHistoryToAnthropic(messages) {
+  const out = [];
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      // Tool result — Anthropic wraps in a user turn.
+      out.push({
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: m.tool_call_id || 'unknown',
+          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''),
+        }],
+      });
+      continue;
+    }
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+      const blocks = [];
+      if (typeof m.content === 'string' && m.content.length > 0) {
+        blocks.push({ type: 'text', text: m.content });
+      }
+      for (const tc of m.tool_calls) {
+        let input = {};
+        try { input = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {}; } catch { input = {}; }
+        blocks.push({
+          type: 'tool_use',
+          id: tc.id,
+          name: tc.function?.name || tc.name,
+          input,
+        });
+      }
+      out.push({ role: 'assistant', content: blocks });
+      continue;
+    }
+    // Plain user or assistant message — normalize null content to empty
+    // string (Anthropic rejects null but accepts '').
+    if (m.role === 'user' || m.role === 'assistant') {
+      out.push({
+        role: m.role,
+        content: typeof m.content === 'string' ? m.content : (m.content == null ? '' : JSON.stringify(m.content)),
+      });
+    }
+  }
+  // Anthropic requires the last message to be role: 'user'. If the
+  // history ends with an assistant turn (e.g. an unresolved tool_use),
+  // append a synthetic user prompt so the model has something to
+  // respond to. This shouldn't happen in practice — the CEO route always
+  // ends the transformed history with a real user message — but the
+  // guardrail is cheap and makes the failure mode explicit.
+  if (out.length === 0 || out[out.length - 1].role !== 'user') {
+    out.push({ role: 'user', content: 'Continue.' });
+  }
+  return out;
+}
+
 // CEO orchestrator on Claude Sonnet. Uses Anthropic's native streaming
 // tool_use protocol. Loop follows the same shape as the Grok version:
 //   Iteration 1 — model streams text + optional tool_use blocks.
@@ -743,11 +898,11 @@ async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, too
   const anthropicToolChoice = openAiToolChoiceToAnthropic(toolChoice);
   const model = SONNET_MODEL;
 
-  // Anthropic requires alternating user/assistant roles. Our incoming
-  // messages are already normalized to that shape by callers.
-  let conversationMessages = messages
-    .filter(m => m.role === 'user' || m.role === 'assistant')
-    .map(m => ({ role: m.role, content: m.content }));
+  // Translate OpenAI-format conversation (with tool_calls / tool
+  // messages) into Anthropic's tool_use / tool_result content blocks.
+  // Without this, Anthropic rejects the request with 400
+  // "Input should be a valid array" because content: null is invalid.
+  let conversationMessages = convertOpenAiHistoryToAnthropic(messages);
 
   let iterations = 0;
   const MAX_ITERATIONS = 5;
