@@ -2245,8 +2245,16 @@ async function readWithIdle(reader, idleMs = STREAM_IDLE_MS) {
 }
 
 async function streamContentResponse(messages, systemPrompt, onTextChunk, onToolCall, abortSignal, { searchMode = false, onSearchStatus, planMode = false } = {}) {
+  // Plan Mode routes through the Chat Completions fallback path with empty
+  // tools + tool_choice='none' — the model is producing a written plan,
+  // not searching the web or running generation. The Responses API path
+  // requires at least one tool (we'd have to include web_search which
+  // pulls the model toward research it shouldn't do in Plan Mode) so it
+  // was returning empty responses. Force the tool-less path instead.
+  const usesResponsesApi = searchMode && !planMode;
+
   // Responses API mode: web_search + generate_image function tool
-  if (searchMode) {
+  if (usesResponsesApi) {
     if (onSearchStatus) onSearchStatus('searching');
 
     const input = [
