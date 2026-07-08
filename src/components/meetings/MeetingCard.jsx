@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, Users, FileText, Pencil, Trash2 } from 'lucide-react';
+import { Clock, Users, FileText, Pencil, Trash2, Loader, Check } from 'lucide-react';
 import { formatDuration, getPlatformInfo, getStatusInfo, getSourceInfo, updateMeeting, deleteMeeting } from '../../lib/meetings-api';
+import { addCallToContext } from '../../lib/api';
 import AssignContactModal from './AssignContactModal';
 import './MeetingCard.css';
 
@@ -17,7 +18,21 @@ export default function MeetingCard({ meeting }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(meeting.title || 'Untitled Meeting');
   const [showAssign, setShowAssign] = useState(false);
+  // Add-to-context button state. Optimistic — no pre-load from server; if the
+  // meeting was already in context the POST returns { already: true } and we
+  // still land in the "In context" visual state, so the user sees the
+  // correct answer either way.
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextAdded, setContextAdded] = useState(!!meeting.in_context);
   const inputRef = useRef(null);
+
+  // Meeting is "context-ready" when it has been processed and there's
+  // real content to attach (transcript / summary / action items). External
+  // recordings don't carry a transcript in the same shape yet, so we hide
+  // the button there — assigning to a contact is the main action for them.
+  const contextEligible =
+    !isExternal
+    && (meeting.recall_bot_status === 'done' || meeting.recall_bot_status === 'processed');
 
   const date = meeting.started_at || meeting.created_at;
   const formattedDate = new Date(date).toLocaleDateString('en-US', {
@@ -66,6 +81,22 @@ export default function MeetingCard({ meeting }) {
       e.target.closest('.meeting-card').style.display = 'none';
     } catch (err) {
       console.error('Failed to delete meeting:', err);
+    }
+  };
+
+  const handleAddToContext = async (e) => {
+    e.stopPropagation();
+    if (contextLoading || contextAdded) return;
+    setContextLoading(true);
+    try {
+      // addCallToContext accepts either raw meeting UUID or pp-<uuid>;
+      // the backend strips the prefix. Passing the raw ID is fine.
+      await addCallToContext(meeting.id);
+      setContextAdded(true);
+    } catch (err) {
+      alert(err.message || 'Could not add meeting to context');
+    } finally {
+      setContextLoading(false);
     }
   };
 
@@ -150,6 +181,23 @@ export default function MeetingCard({ meeting }) {
               </div>
             ) : (
               <div className="meeting-card-actions">
+                {contextEligible && (
+                  <button
+                    className={`meeting-card-context-btn ${contextAdded ? 'meeting-card-context-btn--added' : ''}`}
+                    onClick={handleAddToContext}
+                    disabled={contextLoading || contextAdded}
+                    title={contextAdded ? 'This meeting is available to AI CEO, Marketing, and Content agents' : 'Send transcript + summary to the AI CEO / Marketing / Content agents'}
+                  >
+                    {contextLoading ? (
+                      <Loader size={13} className="meeting-card-spin" />
+                    ) : contextAdded ? (
+                      <Check size={13} />
+                    ) : (
+                      <FileText size={13} />
+                    )}
+                    {contextAdded ? 'In context' : 'Add to context'}
+                  </button>
+                )}
                 <button className="meeting-card-assign-btn" onClick={(e) => { e.stopPropagation(); setShowAssign(true); }}>
                   <img src="/icon-assign-contact.png" alt="" className="meeting-card-assign-icon" />
                   Assign Contact

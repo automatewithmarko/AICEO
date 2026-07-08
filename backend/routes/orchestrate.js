@@ -528,11 +528,44 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
       prompt += '\n';
     }
     if (salesData.calls?.length) {
-      prompt += `=== RECENT SALES CALLS (${salesData.calls.length}) ===\n`;
-      salesData.calls.slice(0, 10).forEach(call => {
-        prompt += `- ${call.contact_name || call.title || 'Call'} (${call.date || call.created_at?.slice(0, 10) || ''})\n`;
+      // Show up to 5 calls with real content (summary + action items +
+      // transcript excerpt), then list the remainder as one-liners so the
+      // agent still knows they exist without blowing the token budget.
+      // Per-call transcript cap = 1500 chars → ~5 detailed calls × 1.5k
+      // ≈ 7.5k chars worst case, plus summaries. Fits every agent budget.
+      const TRANSCRIPT_CAP_PER_CALL = 1500;
+      const DETAIL_CALLS = 5;
+      const detail = salesData.calls.slice(0, DETAIL_CALLS);
+      const rest = salesData.calls.slice(DETAIL_CALLS, 10);
+      prompt += `=== MEETINGS THE USER ADDED TO CONTEXT (${salesData.calls.length}) ===\n`;
+      prompt += `These are meetings the user explicitly flagged as important. Reference specific things discussed when relevant.\n\n`;
+      detail.forEach((call) => {
+        const dateStr = call.date || call.created_at?.slice(0, 10) || '';
+        prompt += `--- ${call.title || 'Meeting'}${dateStr ? ` (${dateStr})` : ''} ---\n`;
+        if (call.summary) {
+          prompt += `Summary: ${String(call.summary).slice(0, 500)}\n`;
+        }
+        if (Array.isArray(call.action_items) && call.action_items.length) {
+          const items = call.action_items
+            .map((a) => (typeof a === 'string' ? a : (a?.text || a?.title || '')))
+            .filter(Boolean)
+            .slice(0, 8);
+          if (items.length) prompt += `Action items:\n${items.map((t) => `  - ${t}`).join('\n')}\n`;
+        }
+        if (call.transcript) {
+          const excerpt = String(call.transcript).slice(0, TRANSCRIPT_CAP_PER_CALL);
+          const truncated = call.transcript.length > TRANSCRIPT_CAP_PER_CALL;
+          prompt += `Transcript${truncated ? ' (excerpt)' : ''}:\n${excerpt}${truncated ? '…' : ''}\n`;
+        }
+        prompt += '\n';
       });
-      prompt += '\n';
+      if (rest.length) {
+        prompt += `Other meetings in context (title only):\n`;
+        rest.forEach((call) => {
+          prompt += `  - ${call.title || 'Meeting'} (${call.date || call.created_at?.slice(0, 10) || ''})\n`;
+        });
+        prompt += '\n';
+      }
     }
   }
 
@@ -1238,7 +1271,7 @@ The user has turned on Plan Mode. Their goal: plan a full week or month of conte
 4. If you have chat text alongside a create_artifact call, keep it to ONE short sentence ("Plan is in the canvas — click any cell to edit.") and nothing more.
 
 ━━━━ SCOPING QUESTIONS (MANDATORY — do NOT skip) ━━━━
-Before you emit the plan artifact, you MUST ask ALL FOUR of these questions via ask_user, ONE at a time, in this exact order. Only skip a question if the user's initial message explicitly and unambiguously answered it (e.g. "plan Instagram + LinkedIn for the next month, 3x a week to drive signups" answers all four). "Plan next 3 weeks" only answers Timeframe — the other three are still required.
+Before you emit the plan artifact, you MUST ask ALL FIVE of these questions via ask_user, ONE at a time, in this exact order. Only skip a question if the user's initial message explicitly and unambiguously answered it (e.g. "plan Instagram + LinkedIn for the next month, 3x a week to drive signups about our AICEO checkout fixes" answers all five). "Plan next 3 weeks" only answers Timeframe — the other four are still required.
 
 QUESTION 1 — Platforms (ask FIRST):
 {"type":"question","text":"Which platforms should I plan for?","options":["Instagram","LinkedIn","Instagram + LinkedIn","All my connected platforms"]}
@@ -1252,12 +1285,17 @@ QUESTION 3 — Cadence:
 QUESTION 4 — Primary goal (drives topic + CTA selection):
 {"type":"question","text":"What's the primary goal for this stretch?","options":["Audience growth","Engagement","Drive sales / signups","Thought leadership / authority"]}
 
+QUESTION 5 — Topic focus (drives every post's angle — WITHOUT this the plan reads generic):
+Pull 3 concrete topic candidates from the user's Brand DNA, products, recent calls, past content, or integrated data. Offer them as options with a "Surprise me" fallback. Example ask_user call:
+{"type":"question","text":"What should the content focus on?","options":["<topic drawn from a specific product they sell>","<topic tied to a recent win / case study>","<topic tied to a core belief in their brand voice>","Surprise me — pick from my brand"]}
+The three custom options are NOT generic. They must be built from what you actually know about this user's business, not "productivity tips" or "mindset content".
+
 RULES:
 - One question per response. Wait for the user's answer before asking the next.
 - If the user says "surprise me" or "all of them" or "you decide" for any question, commit to a confident default based on their brand DNA + integrated data and MOVE ON to the next question. Never re-ask.
-- After all four are answered (or skipped because the initial message covered them), IMMEDIATELY call create_artifact with the Plan HTML — no further chat text, no confirmation ("Sounds good, here it is"), no additional questions.
+- After all five are answered (or skipped because the initial message covered them), IMMEDIATELY call create_artifact with the Plan HTML — no further chat text, no confirmation ("Sounds good, here it is"), no additional questions.
 - Never bundle two questions into one ask_user call. Never type a question in chat text. Every question is a discrete ask_user call.
-- The hard cap is 4. Never exceed 4 questions in a Plan Mode session.
+- The hard cap is 5. Never exceed 5 questions in a Plan Mode session.
 
 ━━━━ STAGE 1: OVERVIEW PLAN (create_artifact) ━━━━
 Trigger: first Plan Mode message, or "plan the next month", "what should I post this week", etc.
@@ -1449,6 +1487,28 @@ Everything below in this prompt describes non-plan-mode behavior. Ignore anythin
 
 ` + systemPrompt;
   }
+  // Prior plan awareness — for non-Plan-Mode messages, if the user has
+  // an earlier plan artifact in this conversation and references a
+  // specific piece from it ("generate Monday's carousel"), use its row
+  // as the source-of-truth brief instead of asking new scoping
+  // questions or making up a generic version.
+  if (!planMode) {
+    systemPrompt += `
+
+=== PRIOR PLAN AWARENESS ===
+Scan conversation history for any earlier assistant message that produced an html_template artifact titled "Content Plan — …" (or any create_artifact call with type: "html_template" and a plan-artifact class in the content). That is a Content Plan the user built with you in Plan Mode.
+
+If the user's current message references a specific piece from that plan (e.g. "generate Monday's post", "make the reel from week 1 Wednesday", "build the AICEO checkout carousel"):
+1. Locate the matching row in the plan HTML (by day + format + topic).
+2. Use its Topic, Hook, and CTA as the source-of-truth brief for this generation. Do NOT make up a generic version — the plan is authoritative.
+3. If a Stage 2 detailed brief for that week also exists in history, use its Visual / Image plan field as the image prompt.
+4. Route to the correct generation path — delegate_to_agent for newsletter/landing pages, create_artifact with type "content_post" for single social posts, etc. Do not re-ask the scoping questions.
+5. Do NOT retype the plan row as prose in chat before generating. Make the tool call directly.
+
+If no prior plan artifact exists, ignore this section.
+`;
+  }
+
   // If a social post (content_post) is currently in the panel, append
   // an EDIT-MODE block so the CEO knows the post exists and can call
   // create_artifact again with edits instead of just chatting. Without

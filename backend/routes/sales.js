@@ -492,6 +492,24 @@ router.post('/api/sales/calls/:id/add-to-context', async (req, res) => {
   const meeting = await resolveMeeting(userId, req.params.id);
   if (!meeting) return res.status(404).json({ error: 'Call not found' });
 
+  // Refuse "calendar placeholder" additions — meetings that haven't been
+  // processed yet carry only title + participants + duration. If none of
+  // transcript / summary / action_items is set, there's nothing meaningful
+  // to feed to the agent prompt beyond the meeting title, so an "In
+  // context" tag would be misleading. The Sales tab already gates its
+  // button on recall_bot_status in ('processed','done'); the Meetings tab
+  // now also has this button and its status check may race with
+  // processing, so we defend server-side too.
+  const hasContent =
+    !!(meeting.transcript_text && meeting.transcript_text.trim())
+    || !!meetingSummaryText(meeting)
+    || (Array.isArray(meeting.action_items) && meeting.action_items.length > 0);
+  if (!hasContent) {
+    return res.status(422).json({
+      error: 'Meeting has no transcript or summary yet. Wait for processing to finish, then try again.',
+    });
+  }
+
   const { data: existing } = await supabase
     .from('sales_calls')
     .select('id')
@@ -508,6 +526,10 @@ router.post('/api/sales/calls/:id/add-to-context', async (req, res) => {
     action_items: meeting.action_items || [],
     participants: meeting.participants || [],
     duration: meeting.duration_seconds || null,
+    // Full transcript text so the agent prompt can quote actual discussion
+    // instead of just the one-line summary. Backend caps at insert; the
+    // prompt formatter further truncates per-call at read time.
+    transcript: meeting.transcript_text || null,
   });
   // 23505 = unique violation: a concurrent click already added it — fine.
   if (error && error.code !== '23505') {
