@@ -30,15 +30,24 @@ export async function loadUserContext(userId) {
   const contacts = contactsRes.status === 'fulfilled' ? (contactsRes.value.data || []) : [];
   const soulNotes = soulRes.status === 'fulfilled' ? (soulRes.value.data || []) : [];
 
-  // Build sales data
-  let salesData = null;
+  // Build sales data. Stats and calls are independent — a user who has
+  // recorded and added a meeting to context but hasn't logged any actual
+  // sales yet still needs their meeting to reach the marketing / AICEO
+  // agents. Previously salesData was gated on salesRows.length, which
+  // silently dropped the meeting context whenever revenue was empty.
   const salesRows = statsRes.status === 'fulfilled' ? (statsRes.value.data || []) : [];
-  if (salesRows.length > 0) {
-    const totalRevenue = salesRows.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
-    salesData = {
-      stats: { total_revenue: totalRevenue, total_sales: salesRows.length, avg_deal_size: totalRevenue / salesRows.length },
-      calls: callsRes.status === 'fulfilled' ? (callsRes.value.data || []) : [],
-    };
+  const salesCalls = callsRes.status === 'fulfilled' ? (callsRes.value.data || []) : [];
+  let salesData = null;
+  if (salesRows.length > 0 || salesCalls.length > 0) {
+    salesData = { calls: salesCalls };
+    if (salesRows.length > 0) {
+      const totalRevenue = salesRows.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+      salesData.stats = {
+        total_revenue: totalRevenue,
+        total_sales: salesRows.length,
+        avg_deal_size: totalRevenue / salesRows.length,
+      };
+    }
   }
 
   // Build outlier data
