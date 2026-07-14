@@ -3,7 +3,6 @@ import { getAgent, buildAgentTools } from '../agents/registry.js';
 import { executeAgent, executeCeoOrchestrator, executeAnthropicWithTools } from '../agents/base-agent.js';
 import { SONNET_MODEL } from '../config/models.js';
 import { loadUserContext, saveSoulNote, loadActiveBrief, upsertActiveBrief, formatBriefForPrompt } from '../services/context.js';
-import { SOCIAL_POST_DISCOVERY_PROMPT } from '../shared/social-post-discovery.js';
 import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
@@ -68,8 +67,7 @@ CRITICAL RULES:
    - Question 3: What tone? (e.g., "Authority/Hormozi style", "Witty/Morning Brew style", "Wisdom/James Clear style", "Growth/Sahil Bloom style")
    - Question 4: What's the main CTA? Offer options relevant to THEIR actual offers/links/goals.
    NEVER fabricate product names, features, or services. If unsure, keep options generic ("Your main product", "Your latest offer") rather than guessing wrong.
-5. For simple emails / docs / code, call create_artifact directly.
-5a. For SOCIAL POSTS (LinkedIn, Instagram, X/Twitter, TikTok, Facebook — NOT reels/videos), you MUST run the SOCIAL POST DISCOVERY FLOW (defined lower in this prompt) via ask_user BEFORE calling create_artifact. Skip any question the user already answered in their message. Never dump a social post into the canvas without at least confirming format + goal + angle.
+5. For simple stuff (emails, posts, docs, code, reel scripts) just create_artifact directly.
 8. REELS / VIDEO SCRIPTS (THIS OVERRIDES EVERYTHING ABOVE): When the user asks to "make a reel", "create a reel", "write a reel script", "make a TikTok", "make a Short", or ANYTHING about short-form video content  -  you MUST use create_artifact IMMEDIATELY to write a VIDEO SCRIPT. Do NOT ask questions first. Do NOT use ask_user. Do NOT delegate to any agent. Do NOT generate images. Reels are NOT carousels, NOT stories, NOT slides. Just write the script as a clean, spoken script  -  the actual words they will say on camera, line by line. Do NOT use labels like [HOOK], [BRIDGE], [SCENE], [VISUAL], [VOICEOVER], [ON-SCREEN TEXT], or timestamps. Write it as a natural flowing script that the user can read straight to camera. Start with the hook line (the scroll-stopper), flow into the body, and end with a CTA if needed. Add a brief "Direction:" note at the end for suggested visuals and trending audio. Keep it punchy, under 60 seconds.
 6. For sending emails, use send_email. Confirm count first if more than 5 recipients.
 7. If the user asks to CHECK / READ / REVIEW / SUMMARIZE their emails or inbox, or asks what's new, or wants to find a specific email  -  call check_emails IMMEDIATELY with sensible defaults. DO NOT use ask_user to clarify first. DO NOT send them an email asking what they want. Just read the inbox, then summarize in plain talk (who, subject, one-line gist). Only ask follow-ups after you've already shown them what's there.
@@ -95,8 +93,6 @@ SOCIAL POST RULE (READ THIS BEFORE EVERY LinkedIn/IG/X/TikTok/Facebook REQUEST):
 - Platform mapping — pick from what the user said: "LinkedIn post" → platform:"linkedin". "Instagram post" → platform:"instagram". "Tweet / X post" → platform:"twitter". "TikTok caption" → platform:"tiktok". "Facebook post" → platform:"facebook".
 - Why this matters: the artifact panel renders content_post + platform="linkedin" as a LinkedIn feed card (the canvas the user expects). type:"html_template" renders as a full HTML page — a PDF-looking wall of styled HTML. Getting this wrong is a visible bug the user WILL complain about.
 - The content field for content_post is PLAIN TEXT — the exact post copy, with normal line breaks. Do NOT put HTML tags, style blocks, or html/body wrappers in it. Do NOT wrap it in markdown fences. Just the raw post text, ready to paste into LinkedIn / IG / etc.
-
-${SOCIAL_POST_DISCOVERY_PROMPT}
 
 send_email: Send an email from the user's connected account. Works for newsletters and plain text. NEVER use this to "check" emails  -  only for outbound sends.
 
