@@ -961,6 +961,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                     onSchedule={handleCanvasSchedule}
                     onEdit={onEditCarouselSlide}
                     onRegenerate={onRegenerateCarouselSlide}
+                    onContentChange={onContentChange}
                     actionsSlot={
                       <CanvasActionsBar
                         text={content || ''}

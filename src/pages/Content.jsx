@@ -7491,6 +7491,15 @@ export default function Content() {
                   onEditSlide={(idx, src, instruction) => executeCarouselSlideEdit(panelMsg.id, idx, instruction)}
                   onRegenerateSlide={(idx) => handleCarouselSlideRegenerate(panelMsg.id, idx)}
                   onFullscreen={(idx) => setSlideViewer({ msgId: panelMsg.id, idx })}
+                  onContentChange={(nextCaption) => {
+                    // Persist the edited LinkedIn carousel caption on
+                    // the source message so downstream publish/schedule
+                    // sees the user's version, not the AI's original.
+                    setMessages(prev => prev.map(m => m.id === panelMsg.id
+                      ? { ...m, carouselPlan: { ...m.carouselPlan, caption: nextCaption } }
+                      : m
+                    ));
+                  }}
                   isLinkedInConnected={isLinkedInConnected}
                   onPostToLinkedIn={async ({ text, images: imgs, connect, reconnect }) => {
                     if (connect || reconnect) {
@@ -7539,6 +7548,21 @@ export default function Content() {
                 isGenerating={isGenerating}
                 onClose={() => setCarouselSideView(null)}
                 onFullscreen={(idx) => setSlideViewer({ msgId: panelMsg.id, idx })}
+                onContentChange={(nextCaption) => {
+                  // Persist the edited caption on the source message so
+                  // subsequent renders and any downstream publish/schedule
+                  // pipeline see the user's version, not the AI's original.
+                  // Update carouselPlan.caption when present (single source
+                  // of truth for carousels) and fall back to content for
+                  // plain single/text posts.
+                  setMessages(prev => prev.map(m => {
+                    if (m.id !== panelMsg.id) return m;
+                    if (m.carouselPlan) {
+                      return { ...m, carouselPlan: { ...m.carouselPlan, caption: nextCaption } };
+                    }
+                    return { ...m, content: nextCaption };
+                  }));
+                }}
                 actionsSlot={
                   <CarouselActionsBar
                     msgId={panelMsg.id}
