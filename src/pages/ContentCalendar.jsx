@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, ArrowRight, Check, Image as ImageIcon, Clock, CalendarDays, Video, Layers, Camera, Play, Send, Loader } from 'lucide-react';
-import { getCalendarPosts, createCalendarPost, updateCalendarPost, deleteCalendarPost, publishCalendarPost, getInstagramAccounts } from '../lib/api';
+import { useNavigate } from 'react-router-dom';
+import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, ArrowRight, Check, Image as ImageIcon, Clock, CalendarDays, Video, Layers, Camera, Play, Send, Loader, ExternalLink, RefreshCw } from 'lucide-react';
+import { getCalendarPosts, createCalendarPost, updateCalendarPost, deleteCalendarPost, publishCalendarPost, getInstagramAccounts, getLinkedInAuthUrl } from '../lib/api';
 import './Pages.css';
 import './ContentCalendar.css';
 
@@ -424,7 +425,23 @@ function PlatformPicker({ onPick }) {
 
 // ─── Scheduled post view (read-only) ───────────────────────────────────────
 
+// Classify a publish error string so the UI can offer the right recovery
+// action. IG/BooSend permission errors (usually "does not exist, cannot
+// be loaded due to missing permissions") mean the connected token no
+// longer authorizes the target account — reconnect BooSend. LinkedIn
+// expired-token errors mean re-run OAuth. Anything else falls through
+// to a plain retry.
+function classifyPublishError(text) {
+  const s = String(text || '').toLowerCase();
+  if (!s) return null;
+  if (/linkedin.*expired|linkedin_token_expired|reconnect.*linkedin/.test(s)) return 'linkedin_expired';
+  if (/does not exist|cannot be loaded|missing permissions|does not support this operation|invalid access token|oauthexception|access_token|token has expired|session has expired|permissions? removed|instagram.*token/.test(s)) return 'instagram_reconnect';
+  if (/boosend/.test(s)) return 'instagram_reconnect';
+  return null;
+}
+
 function ScheduledView({ post, onClose, onDelete, onPublish, onRetry, onReschedule }) {
+  const navigate = useNavigate();
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState(null); // { ok, error, url }
   const [retrying, setRetrying] = useState(false);
@@ -570,11 +587,62 @@ function ScheduledView({ post, onClose, onDelete, onPublish, onRetry, onReschedu
         </div>
       )}
 
-      {post.status === 'failed' && post.lastError && (
-        <div className="cc-publish-error">
-          <strong>Publish failed:</strong> {post.lastError}
-        </div>
-      )}
+      {(() => {
+        // Merge the two error surfaces so the reconnect banner appears
+        // once and covers both the persisted last_error and the
+        // in-session publishResult.error.
+        const err = (post.status === 'failed' && post.lastError) || publishResult?.error || '';
+        if (!err) return null;
+        const kind = classifyPublishError(err);
+        return (
+          <div className="cc-publish-error">
+            <div><strong>Publish failed:</strong> {err}</div>
+            {kind === 'instagram_reconnect' && (
+              <div className="cc-publish-error-actions">
+                <button
+                  type="button"
+                  className="cc-error-action-btn"
+                  onClick={() => navigate('/settings', { state: { scrollTo: 'integrations', highlight: 'boosend' } })}
+                  title="Instagram's connected token can no longer post to this account. Reconnect BooSend to grant fresh permissions."
+                >
+                  <ExternalLink size={12} /> Reconnect Instagram
+                </button>
+                {onRetry && post.status === 'failed' && (
+                  <button
+                    type="button"
+                    className="cc-error-action-btn cc-error-action-btn--ghost"
+                    disabled={retrying}
+                    onClick={async () => {
+                      setRetrying(true);
+                      try { await onRetry(post.id); }
+                      finally { setRetrying(false); }
+                    }}
+                  >
+                    <RefreshCw size={12} /> Try again
+                  </button>
+                )}
+              </div>
+            )}
+            {kind === 'linkedin_expired' && (
+              <div className="cc-publish-error-actions">
+                <button
+                  type="button"
+                  className="cc-error-action-btn"
+                  onClick={async () => {
+                    try {
+                      const { url } = await getLinkedInAuthUrl();
+                      if (url) { window.location.href = url; return; }
+                    } catch (e) { console.error('[linkedin] auth URL fetch failed:', e.message); }
+                    navigate('/settings', { state: { scrollTo: 'integrations' } });
+                  }}
+                >
+                  <ExternalLink size={12} /> Reconnect LinkedIn
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {post.status === 'published' && post.url && (
         <div className="cc-publish-success">
           <Check size={14} /> Published — <a href={post.url} target="_blank" rel="noopener noreferrer">View post</a>
@@ -584,9 +652,6 @@ function ScheduledView({ post, onClose, onDelete, onPublish, onRetry, onReschedu
         <div className="cc-publish-success">
           <Check size={14} /> Published! {publishResult.url && <a href={publishResult.url} target="_blank" rel="noopener noreferrer">View post</a>}
         </div>
-      )}
-      {publishResult?.error && (
-        <div className="cc-publish-error">{publishResult.error}</div>
       )}
 
       <div className="cc-actions">

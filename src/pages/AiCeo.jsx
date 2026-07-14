@@ -4,6 +4,7 @@ import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations } from '../lib/api';
+import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
@@ -1401,10 +1402,109 @@ export default function AiCeo() {
             }
           }
         },
-        // Direct tool calls (create_artifact, generate_image)
+        // Direct tool calls (create_artifact, generate_image, plan_carousel)
         onToolCall: async (name, args) => {
           firedTools.push(name);
           console.log(`[AiCeo] 🔧 tool_call: ${name}`, args);
+
+          // ── Format-question hard gate ──
+          // Sonnet has been skipping the "text post vs carousel" (LinkedIn)
+          // and "single vs carousel vs story" (Instagram) discovery
+          // question despite the system prompt telling it not to. Multiple
+          // prompt-level tightenings didn't hold; this is the client-side
+          // enforcement.
+          //
+          // Rule: for LinkedIn/Instagram content_post artifacts AND for
+          // any plan_carousel call, if the current session's recent user
+          // messages don't contain a literal format keyword, we intercept
+          // the tool call, drop it, and surface the format question
+          // ourselves. On the next user turn the answer lands in
+          // messages, Sonnet sees it, and the follow-up create_artifact /
+          // plan_carousel goes through.
+          const isSocialArtifact = (
+            (name === 'create_artifact' && args.type === 'content_post')
+            || name === 'plan_carousel'
+          );
+          if (isSocialArtifact) {
+            // IMPORTANT: use `chatHistory` (the fresh post-userMsg array
+            // sendToAI was called with), NOT the closure's `messages`
+            // which is stale by one setMessages tick. answerQuestion
+            // triggers sendToAI(updated) with the just-picked option
+            // as the latest user message; that message ONLY exists in
+            // chatHistory at gate-check time.
+            //
+            // We scan the FULL history (not just last 4). Original
+            // platform mention often sits at message 1 and gets dropped
+            // by a windowed scan after 3+ discovery answers.
+            const recentUserText = chatHistory
+              .filter((m) => m.role === 'user')
+              .map((m) => String(m.content || ''))
+              .join(' ')
+              .toLowerCase();
+            // Format keywords covering LinkedIn (text/carousel), Instagram
+            // (single/carousel/story), X (tweet/thread), Facebook (story/
+            // question/announcement). Users clicking a popup option get
+            // that option string appended as a user message, so answering
+            // via ask_user counts here too.
+            const FORMAT_KEYWORDS = [
+              'text post', 'carousel', 'single post', 'story', 'stories',
+              'tweet', 'thread', 'reply', 'quote',
+              'question post', 'announcement',
+              'surprise me',
+            ];
+            const formatConfirmed = FORMAT_KEYWORDS.some((kw) => recentUserText.includes(kw));
+            if (!formatConfirmed) {
+              // Derive platform for the question wording. plan_carousel
+              // itself doesn't carry it — infer from recent user text.
+              const isLinkedin = /\blinkedin\b/.test(recentUserText);
+              const isInstagram = /\binstagram\b/.test(recentUserText);
+              const isTwitter = /\b(twitter|x post|tweet)\b/.test(recentUserText);
+              const isFacebook = /\bfacebook\b/.test(recentUserText);
+              // Argment platform (from create_artifact) is a stronger
+              // signal when present.
+              const argsPlatform = String(args.platform || '').toLowerCase();
+              const platform = argsPlatform
+                || (isLinkedin ? 'linkedin'
+                  : isInstagram ? 'instagram'
+                  : isTwitter ? 'twitter'
+                  : isFacebook ? 'facebook'
+                  : 'linkedin');
+
+              const questionByPlatform = {
+                linkedin: {
+                  question: 'What type of LinkedIn post?',
+                  options: ['Text post', 'Carousel', 'Surprise me'],
+                },
+                instagram: {
+                  question: 'What kind of Instagram post?',
+                  options: ['Single post', 'Carousel', 'Story', 'Surprise me'],
+                },
+                twitter: {
+                  question: 'What kind of X post?',
+                  options: ['Single tweet', 'Thread', 'Reply/quote', 'Surprise me'],
+                },
+                facebook: {
+                  question: 'What kind of Facebook post?',
+                  options: ['Story post', 'Question/discussion', 'Announcement', 'Surprise me'],
+                },
+              };
+              const q = questionByPlatform[platform] || questionByPlatform.linkedin;
+
+              console.warn(`[AiCeo] ${name} intercepted — format never confirmed. Surfacing format question for ${platform}.`);
+              askUserFiredRef.current = true;
+              setCurrentQuestion({ question: q.question, options: q.options });
+              setCustomTyping(false);
+              setCustomText('');
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMsgId
+                  ? { ...m, content: q.question, status: null, wasAskUser: true, askUserOptions: q.options }
+                  : m
+              ));
+              // Swallow the tool call — do NOT continue below.
+              return;
+            }
+          }
+
           if (name === 'create_artifact') {
             // `platform` arrives for content_post artifacts so the
             // panel can route LinkedIn posts to the LinkedIn card
@@ -1472,6 +1572,85 @@ export default function AiCeo() {
               m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: effectiveType } : m
             ));
             commitOwnedArtifact(assistantMsgId, newArt);
+          }
+          if (name === 'plan_carousel') {
+            // Instagram / LinkedIn carousel — Sonnet has emitted the plan
+            // (hook, angle, caption, slides, designSystem). Two-step UX
+            // matching /Content: show the plan card in the canvas with an
+            // Approve button, then run the per-slide image generation loop
+            // once the user approves. Auto-generating without approval
+            // ate credits and prevented the user from catching bad plans
+            // (wrong slide count, off-brand palette, etc.).
+            const plan = {
+              hook: args.hook || '',
+              angle: args.angle || '',
+              caption: args.caption || '',
+              slides: Array.isArray(args.slides) ? args.slides : [],
+              designSystem: args.designSystem || {},
+              approved: false,
+            };
+            if (plan.slides.length === 0) {
+              console.warn('[AiCeo] plan_carousel with zero slides — ignoring');
+              return;
+            }
+            // Platform: the tool schema now REQUIRES args.platform, so
+            // Sonnet is the authoritative source. Detection from message
+            // scans stays as belt-and-suspenders in case Sonnet ever
+            // omits it, but USER messages take priority over assistant
+            // messages — the original request is the source of truth.
+            let platform = null;
+            const argsPlat = String(args.platform || '').toLowerCase();
+            if (argsPlat === 'linkedin' || argsPlat === 'instagram') {
+              platform = argsPlat;
+            } else {
+              // Fallback: scan USER messages first (their intent).
+              const userText = chatHistory
+                .filter((m) => m.role === 'user')
+                .map((m) => String(m.content || m.displayText || ''))
+                .join(' ')
+                .toLowerCase();
+              if (/\blinkedin\b/.test(userText)) platform = 'linkedin';
+              else if (/\binstagram\b/.test(userText)) platform = 'instagram';
+              else {
+                // No user mention — check assistant turns (Sonnet's
+                // discovery questions carry the platform word).
+                const asstText = chatHistory
+                  .filter((m) => m.role === 'assistant')
+                  .map((m) => String(m.content || ''))
+                  .join(' ')
+                  .toLowerCase();
+                if (/\blinkedin\b/.test(asstText)) platform = 'linkedin';
+                else if (/\binstagram\b/.test(asstText)) platform = 'instagram';
+                else platform = 'instagram'; // absolute last resort
+              }
+              console.warn(`[AiCeo] plan_carousel: platform missing from args, fell back to "${platform}"`);
+            }
+            console.log(`[AiCeo] plan_carousel platform: ${platform} (from args=${argsPlat || 'missing'})`);
+            const initialArt = {
+              id: Date.now(),
+              type: 'content_post',
+              title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel plan`,
+              content: plan.caption,
+              images: [],
+              // Zero pending until the user approves — the plan card
+              // renders, no spinner runs. On approve, we'll flip these.
+              pendingImages: 0,
+              totalSlides: plan.slides.length,
+              carouselPlan: plan,
+              agentSource: platform,
+              streaming: false,
+              // Stash the message id so handleApproveCarousel can commit
+              // the finished artifact to the right chat card at the end.
+              _assistantMsgId: assistantMsgId,
+            };
+            setArtifact(initialArt);
+            setPanelOpen(true);
+            if (isMobileRef.current) setMobileArtifactOpen(true);
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsgId
+                ? { ...m, hasArtifact: true, artifactTitle: initialArt.title, artifactType: 'content_post' }
+                : m
+            ));
           }
           if (name === 'generate_image') {
             // Build referenceImages from any image the user attached
@@ -1684,6 +1863,160 @@ export default function AiCeo() {
     }
   }, []);
 
+  // Shared runner used by handleApproveCarousel + regenerate + edit.
+  // Builds one slide's prompt (with an optional edit instruction),
+  // regenerates the image, and replaces the artifact's image at that idx.
+  // Returns true on success, false on failure.
+  const runSingleCarouselSlide = useCallback(async (slideIdx, editInstruction = null) => {
+    const current = artifactRef.current;
+    const plan = current?.carouselPlan;
+    const slide = plan?.slides?.[slideIdx];
+    if (!plan || !slide) return false;
+    const platform = current.agentSource === 'linkedin' ? 'linkedin' : 'instagram';
+    const brandName = brandDna?.brand_name || user?.name || '';
+    let prompt;
+    try {
+      prompt = buildCarouselSlidePrompt({
+        designSystem: plan.designSystem,
+        slide,
+        index: slideIdx,
+        total: plan.slides.length,
+        brand: { name: brandName },
+        platform,
+      });
+    } catch (buildErr) {
+      console.error(`[AiCeo] slide prompt build failed for ${slideIdx + 1}:`, buildErr);
+      return false;
+    }
+    if (editInstruction) {
+      prompt += `\n\n=== USER EDIT INSTRUCTION (apply this change to the slide) ===\n${editInstruction}`;
+    }
+    try {
+      const backendPlatform = platform === 'linkedin' ? 'linkedin_carousel' : 'instagram';
+      const result = await generateImage(prompt, backendPlatform, null, null, {});
+      if (result?.image?.data) {
+        const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+        setArtifact((prev) => {
+          if (!prev) return prev;
+          const existing = Array.isArray(prev.images) ? prev.images : [];
+          // Replace image with matching idx, or append if none exists yet.
+          const withoutIdx = existing.filter((im) => im.idx !== slideIdx);
+          return {
+            ...prev,
+            images: [...withoutIdx, { src, idx: slideIdx }],
+          };
+        });
+        return true;
+      }
+      return false;
+    } catch (imgErr) {
+      console.error(`[AiCeo] slide ${slideIdx + 1} regen failed:`, imgErr);
+      return false;
+    }
+  }, [brandDna, user]);
+
+  const handleRegenerateCarouselSlide = useCallback(async (slideIdx) => {
+    if (typeof slideIdx !== 'number') return;
+    // Mark slide as being edited (show spinner overlay in LinkedInPreview)
+    setArtifact((prev) => prev ? { ...prev, editingSlideIdx: slideIdx } : prev);
+    await runSingleCarouselSlide(slideIdx, null);
+    setArtifact((prev) => prev ? { ...prev, editingSlideIdx: null } : prev);
+  }, [runSingleCarouselSlide]);
+
+  const handleEditCarouselSlide = useCallback(async (slideIdx, _src, instruction) => {
+    if (typeof slideIdx !== 'number' || !instruction?.trim()) return;
+    setArtifact((prev) => prev ? { ...prev, editingSlideIdx: slideIdx } : prev);
+    await runSingleCarouselSlide(slideIdx, instruction.trim());
+    setArtifact((prev) => prev ? { ...prev, editingSlideIdx: null } : prev);
+  }, [runSingleCarouselSlide]);
+
+  const handleDeleteCarouselSlide = useCallback((slideIdx) => {
+    if (typeof slideIdx !== 'number') return;
+    setArtifact((prev) => {
+      if (!prev?.carouselPlan?.slides) return prev;
+      const slides = prev.carouselPlan.slides;
+      // Hook (0) and last (CTA) can't be deleted — same rule as /Content.
+      if (slideIdx === 0 || slideIdx === slides.length - 1) return prev;
+      const nextSlides = slides.filter((_, i) => i !== slideIdx);
+      // Also drop the rendered image at that idx and re-index later ones
+      // so the visible carousel keeps counting 1..N without gaps.
+      const nextImages = (prev.images || [])
+        .filter((im) => im.idx !== slideIdx)
+        .map((im) => ({ ...im, idx: im.idx > slideIdx ? im.idx - 1 : im.idx }));
+      return {
+        ...prev,
+        carouselPlan: { ...prev.carouselPlan, slides: nextSlides },
+        images: nextImages,
+        totalSlides: nextSlides.length,
+      };
+    });
+  }, []);
+
+  // Kick off the per-slide image gen loop after the user approves the
+  // carousel plan. Reads from the current artifact (carouselPlan +
+  // stashed _assistantMsgId), flips approved/streaming/pendingImages,
+  // then loops through slides with the shared buildCarouselSlidePrompt.
+  // Sequential to keep API concurrency polite and give the progress
+  // banner clean "1/N, 2/N, ..." updates.
+  const handleApproveCarousel = useCallback(() => {
+    const current = artifactRef.current;
+    const plan = current?.carouselPlan;
+    if (!plan || plan.approved) return;
+    const slides = plan.slides || [];
+    if (slides.length === 0) return;
+    const platform = current.agentSource === 'linkedin' ? 'linkedin' : 'instagram';
+    const brandName = brandDna?.brand_name || user?.name || '';
+    const assistantMsgId = current._assistantMsgId || null;
+
+    setArtifact((prev) => prev ? {
+      ...prev,
+      title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel: ${plan.hook.slice(0, 60)}`,
+      pendingImages: slides.length,
+      streaming: true,
+      carouselPlan: { ...prev.carouselPlan, approved: true },
+    } : prev);
+
+    (async () => {
+      for (let i = 0; i < slides.length; i++) {
+        const slide = slides[i];
+        let prompt;
+        try {
+          prompt = buildCarouselSlidePrompt({
+            designSystem: plan.designSystem,
+            slide,
+            index: i,
+            total: slides.length,
+            brand: { name: brandName },
+            platform,
+          });
+        } catch (buildErr) {
+          console.error(`[AiCeo] carousel prompt build failed for slide ${i + 1}:`, buildErr);
+          setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+          continue;
+        }
+        try {
+          const backendPlatform = platform === 'linkedin' ? 'linkedin_carousel' : 'instagram';
+          const result = await generateImage(prompt, backendPlatform, null, null, {});
+          if (result?.image?.data) {
+            const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+            setArtifact((prev) => prev ? {
+              ...prev,
+              images: [...(prev.images || []), { src, idx: i }],
+              pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
+            } : prev);
+          } else {
+            setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+          }
+        } catch (imgErr) {
+          console.error(`[AiCeo] carousel slide ${i + 1} failed:`, imgErr);
+          setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+        }
+      }
+      setArtifact((prev) => prev ? { ...prev, streaming: false } : prev);
+      if (assistantMsgId) commitOwnedArtifact(assistantMsgId);
+    })();
+  }, [brandDna, user, commitOwnedArtifact]);
+
   const answerQuestion = useCallback((answer) => {
     if (!answer.trim() || isGenerating) return;
     setCurrentQuestion(null);
@@ -1699,6 +2032,36 @@ export default function AiCeo() {
       displayText: answer.trim(),
     };
     const updated = [...messages, userMsg];
+
+    // Carousel pre-open: Sonnet takes 15-30s to stream a plan_carousel
+    // tool call. During that time the canvas would otherwise be blank
+    // (or still showing the previous turn's artifact) and the user
+    // thinks the app is stuck. If this answer is "Carousel" (or the
+    // user typed something with carousel in it), open the panel with a
+    // "Building carousel plan…" placeholder immediately. plan_carousel
+    // firing later replaces the placeholder with the real plan card.
+    const answerLower = answer.trim().toLowerCase();
+    if (answerLower === 'carousel' || /\bcarousel\b/.test(answerLower)) {
+      // Detect platform from the FULL history so the placeholder chrome
+      // matches (LinkedIn preview vs Instagram preview).
+      const fullChatText = updated
+        .map((m) => String(m.content || m.displayText || ''))
+        .join(' ')
+        .toLowerCase();
+      const placeholderPlatform = /\blinkedin\b/i.test(fullChatText) ? 'linkedin' : 'instagram';
+      setArtifact({
+        id: `plan-pending-${Date.now()}`,
+        type: 'content_post',
+        title: `Building your ${placeholderPlatform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel plan…`,
+        content: '',
+        images: [],
+        agentSource: placeholderPlatform,
+        _planPending: true,
+      });
+      setPanelOpen(true);
+      if (isMobileRef.current) setMobileArtifactOpen(true);
+    }
+
     setMessages(updated);
     sendToAI(updated);
   }, [isGenerating, messages, sendToAI, selectedCtxItems, ceoContextCategories]);
@@ -2562,6 +2925,10 @@ export default function AiCeo() {
                   setArtifact(prev => prev ? apply(prev) : prev);
                 }
               }}
+              onApproveCarousel={handleApproveCarousel}
+              onEditCarouselSlide={handleEditCarouselSlide}
+              onRegenerateCarouselSlide={handleRegenerateCarouselSlide}
+              onDeleteCarouselSlide={handleDeleteCarouselSlide}
               sessionId={sessionId}
             />
           </div>
@@ -2591,6 +2958,7 @@ export default function AiCeo() {
                 setArtifact(prev => prev ? { ...prev, content: html } : prev);
               }
             }}
+            onApproveCarousel={handleApproveCarousel}
           />
         </div>
       )}

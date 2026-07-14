@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, ChevronDown, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2 } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, ChevronDown, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -3249,6 +3249,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
   });
   const [scheduling, setScheduling] = useState(false);
   const [scheduleStatus, setScheduleStatus] = useState(null); // 'saved' | 'published' | null
+  const [scheduleError, setScheduleError] = useState(''); // last publish/schedule error text, shown inline
 
   // Upload any data-URL slides to storage and return the media array
   // ready for social_posts.
@@ -3299,7 +3300,10 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
       setTimeout(() => setScheduleStatus(null), 4000);
     } catch (err) {
       console.error('Calendar save failed:', err);
-      alert(err.message || 'Failed to save to calendar');
+      // Prefer the inline error banner (with Reconnect actions) over
+      // the blocking browser alert() so the user can act on the error
+      // without losing their draft.
+      setScheduleError(err?.message || 'Failed to save to calendar');
     } finally {
       setScheduling(false);
     }
@@ -3457,15 +3461,27 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
           LinkedIn button below — both route through the same BooSend →
           platform publish pipeline. */}
       {platform === 'instagram' && (
-        <button
-          type="button"
-          className="li-toolbar-btn li-toolbar-btn--instagram"
-          onClick={() => saveToCalendar('publish')}
-          disabled={scheduling}
-          title="Publish now to your connected Instagram account"
-        >
-          <Send size={14} /> Post to Instagram
-        </button>
+        <>
+          <button
+            type="button"
+            className="li-toolbar-btn li-toolbar-btn--instagram"
+            onClick={() => { setScheduleError(''); saveToCalendar('publish'); }}
+            disabled={scheduling}
+            title="Publish now to your connected Instagram account"
+          >
+            <Send size={14} /> Post to Instagram
+          </button>
+          {scheduleError && /does not exist|missing permissions|cannot be loaded|invalid access token|expired|boosend|reconnect/i.test(scheduleError) && (
+            <button
+              type="button"
+              className="li-toolbar-btn li-toolbar-btn--linkedin-connect"
+              onClick={() => navigate('/settings', { state: { scrollTo: 'integrations', highlight: 'boosend' } })}
+              title="Instagram token can't post to this account — reconnect BooSend to grant fresh permissions"
+            >
+              <ExternalLink size={14} /> Reconnect Instagram
+            </button>
+          )}
+        </>
       )}
       {/* Schedule modal — centered overlay so it escapes the toolbar's
           overflow clipping. Backed by the same draft/schedule/publish
@@ -7416,8 +7432,10 @@ export default function Content() {
                   navigate('/settings', { state: { scrollTo: 'integrations' } });
                   return;
                 }
-                const imageUrl = images?.[0]?.src || null;
-                await postToLinkedIn(text, imageUrl);
+                const orderedImgs = Array.isArray(images)
+                  ? [...images].sort((a, b) => (a?.idx || 0) - (b?.idx || 0)).map((im) => im?.src).filter(Boolean)
+                  : [];
+                await postToLinkedIn(text, orderedImgs);
               }}
               onSchedule={async ({ text, images, date, time, platform }) => {
                 const [y, m, d] = date.split('-').map(Number);
@@ -7483,8 +7501,10 @@ export default function Content() {
                       navigate('/settings', { state: { scrollTo: 'integrations' } });
                       return;
                     }
-                    const imageUrl = imgs?.[0]?.src || null;
-                    await postToLinkedIn(text, imageUrl);
+                    const orderedImgs = Array.isArray(imgs)
+                      ? [...imgs].sort((a, b) => (a?.idx || 0) - (b?.idx || 0)).map((im) => im?.src).filter(Boolean)
+                      : [];
+                    await postToLinkedIn(text, orderedImgs);
                   }}
                   onSchedule={async ({ text, images: imgs, date, time, platform }) => {
                     const [y, m, d] = date.split('-').map(Number);

@@ -6,6 +6,7 @@ import squeezePage from './squeeze-page.js';
 import storySequence from './story-sequence.js';
 import leadMagnet from './lead-magnet.js';
 import dmAutomation from './dm-automation.js';
+import { PLAN_CAROUSEL_TOOL } from './plan-carousel-tool.js';
 
 const agents = {
   newsletter,
@@ -112,6 +113,10 @@ export function buildAgentTools() {
         },
       },
     },
+    // plan_carousel: Instagram / LinkedIn carousels only. Same schema
+    // /Content uses today, so both tabs generate slides through the same
+    // per-slide prompt builder for identical visual cohesion.
+    PLAN_CAROUSEL_TOOL,
     {
       type: 'function',
       function: {

@@ -2,18 +2,20 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download, ChevronRight, History, Undo2, Maximize2, Image as ImageIcon } from 'lucide-react';
 import SocialPreview from './SocialPreview';
 import LinkedInPreview from './LinkedInPreview';
+import CanvasActionsBar from './CanvasActionsBar';
+import CarouselPlanApproval from './CarouselPlanApproval';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
-import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, schedulePost, uploadImageToStorage, getLinkedInAuthUrl } from '../lib/api';
+import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, postToInstagram, schedulePost, uploadImageToStorage, getLinkedInAuthUrl, getIntegrations } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, onApproveCarousel = null, onEditCarouselSlide = null, onRegenerateCarouselSlide = null, onDeleteCarouselSlide = null, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
@@ -26,6 +28,91 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
   // Canvas Schedule / Upload / Post handlers — parity with Content.jsx so
   // the buttons inside LinkedInPreview + SocialPreview actually work when
   // the preview is rendered inside the AICEO chat's canvas panel.
+  // Track which social integrations the user has connected so the canvas
+  // toolbar can show the right CTA ("Post to Instagram" vs "Connect
+  // Instagram"). One /api/integrations call on mount; short-lived local
+  // state — a full auth resolution would fire on the next chat cycle
+  // anyway, so we don't need to re-poll aggressively.
+  const [connectedSocials, setConnectedSocials] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    getIntegrations().then(({ integrations }) => {
+      if (cancelled) return;
+      const map = {};
+      for (const i of integrations || []) {
+        if (i.is_active) map[i.provider] = true;
+      }
+      setConnectedSocials(map);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleCanvasPostToInstagram = async ({ text, images: imgs, connect, reconnect }) => {
+    if (connect || reconnect) {
+      // Instagram publishing runs through BooSend. When the token no
+      // longer authorizes the target account (Meta "does not exist,
+      // cannot be loaded due to missing permissions"), the user needs
+      // to paste a fresh BooSend API key. Deep-link straight into that
+      // modal so the fix is one step.
+      navigate('/settings', { state: { scrollTo: 'integrations', highlight: 'boosend' } });
+      return;
+    }
+    // Meta / BooSend can only fetch publicly-reachable URLs. Blob URLs
+    // (from URL.createObjectURL) and data: URLs live in the browser
+    // and produce the "image URL not attached / does not exist" error
+    // when forwarded verbatim. Upload every non-public slide to
+    // Supabase storage first, then publish.
+    const orderedImgs = Array.isArray(imgs)
+      ? [...imgs].sort((a, b) => (a?.idx || 0) - (b?.idx || 0))
+      : [];
+    const publicUrls = [];
+    for (const im of orderedImgs) {
+      const src = im?.src;
+      if (!src) continue;
+      if (src.startsWith('data:')) {
+        const commaIdx = src.indexOf(',');
+        const mime = (src.match(/^data:([^;]+);/) || [])[1] || 'image/png';
+        const base64 = src.slice(commaIdx + 1);
+        const uploaded = await uploadImageToStorage(base64, mime);
+        const url = uploaded?.url || uploaded?.publicUrl || null;
+        if (url) publicUrls.push(url);
+      } else if (src.startsWith('blob:')) {
+        // Fetch the blob → data URL → upload. Blob URLs are only valid
+        // in the current tab, so this is the only reliable path.
+        const blob = await (await fetch(src)).blob();
+        const base64 = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => {
+            const s = String(r.result || '');
+            resolve(s.slice(s.indexOf(',') + 1));
+          };
+          r.onerror = () => reject(new Error('read failed'));
+          r.readAsDataURL(blob);
+        });
+        const uploaded = await uploadImageToStorage(base64, blob.type || 'image/png');
+        const url = uploaded?.url || uploaded?.publicUrl || null;
+        if (url) publicUrls.push(url);
+      } else {
+        publicUrls.push(src);
+      }
+    }
+    if (publicUrls.length === 0) throw new Error('No images to publish. Attach at least one image before posting.');
+    const mediaItems = publicUrls.map((url) => ({ url }));
+    const postType = mediaItems.length > 1 ? 'carousel' : 'single';
+    await postToInstagram({
+      caption: text,
+      media_items: mediaItems,
+      post_type: postType,
+    });
+  };
+
+  const handleCanvasConnectInstagram = () => {
+    // Instagram OAuth flow lives on the Settings page (BooSend integration
+    // block). Deep-link there and open the BooSend modal, same pattern
+    // as the LinkedIn "Connect" fallback.
+    navigate('/settings', { state: { scrollTo: 'integrations', highlight: 'boosend' } });
+  };
+
   const handleCanvasPostToLinkedIn = async ({ text, images: imgs, connect, reconnect }) => {
     if (connect || reconnect) {
       // Kick straight into LinkedIn's OAuth consent so the user doesn't
@@ -41,8 +128,12 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
       navigate('/settings', { state: { scrollTo: 'integrations' } });
       return;
     }
-    const imageUrl = imgs?.[0]?.src || null;
-    await postToLinkedIn(text, imageUrl);
+    // Pass every slide (sorted by idx) so LinkedIn ships a real
+    // multi-image carousel instead of just the first slide.
+    const orderedImgs = Array.isArray(imgs)
+      ? [...imgs].sort((a, b) => (a?.idx || 0) - (b?.idx || 0)).map((im) => im?.src).filter(Boolean)
+      : [];
+    await postToLinkedIn(text, orderedImgs);
   };
   const handleCanvasSchedule = async ({ text, images: imgs, date, time, platform }) => {
     // Build the ISO string from a real Date so the user's local timezone
@@ -686,6 +777,90 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
             {type === 'content_post' && (() => {
+              // Pre-plan "AI is building the plan" state — Sonnet takes
+              // 15-30s to stream a plan_carousel tool call, so AiCeo
+              // pre-opens the canvas with an artifact._planPending=true
+              // placeholder the moment the user picks Carousel from the
+              // format popup. Without this, the panel was blank the whole
+              // time and users thought the app was stuck.
+              if (artifact._planPending) {
+                return (
+                  <div className="ap-plan-pending" role="status" aria-live="polite">
+                    <div className="ap-plan-pending-spinner-wrap">
+                      <div className="ap-plan-pending-spinner" />
+                    </div>
+                    <div className="ap-plan-pending-title">Building your carousel plan…</div>
+                    <div className="ap-plan-pending-sub">
+                      The AI CEO is picking a hook, drafting slides, and locking down the palette. This usually takes 15–30 seconds.
+                    </div>
+                    <div className="ap-plan-pending-steps">
+                      <div className="ap-plan-pending-step ap-plan-pending-step--active">
+                        <span className="ap-plan-pending-step-dot" />
+                        Analyzing your topic
+                      </div>
+                      <div className="ap-plan-pending-step ap-plan-pending-step--active">
+                        <span className="ap-plan-pending-step-dot" />
+                        Drafting the slide roster
+                      </div>
+                      <div className="ap-plan-pending-step">
+                        <span className="ap-plan-pending-step-dot" />
+                        Selecting brand colors + typography
+                      </div>
+                      <div className="ap-plan-pending-step">
+                        <span className="ap-plan-pending-step-dot" />
+                        Writing the caption
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Carousel two-step flow: plan_carousel tool call lands here
+              // with carouselPlan.approved === false. Show the plan card
+              // for user approval; only after Approve is clicked do we
+              // flip approved=true and start the per-slide image gen loop
+              // (handled by AiCeo.jsx handleApproveCarousel).
+              const carouselPlan = artifact.carouselPlan;
+              const awaitingApproval = !!(carouselPlan && carouselPlan.slides?.length > 0 && !carouselPlan.approved);
+              if (awaitingApproval) {
+                const planPlatform = /linkedin/i.test(String(agentSource || '')) ? 'linkedin' : 'instagram';
+                return (
+                  <CarouselPlanApproval
+                    plan={carouselPlan}
+                    platform={planPlatform}
+                    generating={false}
+                    onApprove={() => onApproveCarousel && onApproveCarousel()}
+                    onDeleteSlide={onDeleteCarouselSlide}
+                  />
+                );
+              }
+
+              // Carousel generation banner — visible feedback while the
+              // per-slide image gen loop runs. Sits above whichever
+              // preview component renders below. Shows the CURRENT
+              // progress even after the first slide has landed (unlike
+              // SocialPreview's skeleton which vanishes as soon as
+              // images.length > 0). Hides itself once every slide is
+              // done or when the artifact isn't a carousel.
+              const totalPlanSlides = artifact.carouselPlan?.slides?.length || artifact.totalSlides || 0;
+              const pending = artifact.pendingImages || 0;
+              const rendered = Math.max(0, totalPlanSlides - pending);
+              const carouselGenerating = totalPlanSlides > 0 && pending > 0;
+              const carouselBanner = carouselGenerating ? (
+                <div className="ap-carousel-progress" role="status" aria-live="polite">
+                  <span className="ap-carousel-progress-spinner" aria-hidden="true" />
+                  <span className="ap-carousel-progress-text">
+                    Generating slide {rendered + 1} of {totalPlanSlides}…
+                  </span>
+                  <div className="ap-carousel-progress-bar">
+                    <div
+                      className="ap-carousel-progress-bar-fill"
+                      style={{ width: `${(rendered / Math.max(1, totalPlanSlides)) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null;
+
               // LinkedIn posts route to LinkedInPreview (proper LI chrome,
               // text-only support). SocialPreview is image-based and falls
               // into a "preparing post…" skeleton when images=[] — fine
@@ -695,41 +870,112 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
               const isLinkedin = /linkedin/i.test(String(agentSource || ''));
               if (isLinkedin) {
                 return (
-                  <LinkedInPreview
-                    content={content || ''}
-                    images={images || []}
-                    userName={user?.user_metadata?.full_name || user?.email || ''}
-                    userAvatar={user?.user_metadata?.avatar_url || null}
-                    userSubtitle={brandDna?.description?.split(/[.!?]/)[0]?.trim().slice(0, 80) || 'Author'}
-                    followerCount={brandDna?.linkedin_followers || '1,200'}
-                    postAge="1w"
-                    totalSlides={artifact.totalSlides || 0}
-                    plan={artifact.carouselPlan || null}
-                    streaming={!!artifact.streaming}
-                    isGenerating={(artifact.pendingImages || 0) > 0}
-                    onContentChange={onContentChange}
-                    onUploadImages={handleCanvasUploadImages}
-                    onPostToLinkedIn={handleCanvasPostToLinkedIn}
-                    onSchedule={handleCanvasSchedule}
-                    isLinkedInConnected={isLinkedInConnected}
-                  />
+                  <>
+                    {carouselBanner}
+                    <LinkedInPreview
+                      content={content || ''}
+                      images={images || []}
+                      userName={user?.user_metadata?.full_name || user?.email || ''}
+                      userAvatar={user?.user_metadata?.avatar_url || null}
+                      userSubtitle={brandDna?.description?.split(/[.!?]/)[0]?.trim().slice(0, 80) || 'Author'}
+                      followerCount={brandDna?.linkedin_followers || '1,200'}
+                      postAge="1w"
+                      totalSlides={artifact.totalSlides || 0}
+                      plan={artifact.carouselPlan || null}
+                      streaming={!!artifact.streaming}
+                      isGenerating={(artifact.pendingImages || 0) > 0}
+                      onContentChange={onContentChange}
+                      onUploadImages={handleCanvasUploadImages}
+                      onPostToLinkedIn={handleCanvasPostToLinkedIn}
+                      onSchedule={handleCanvasSchedule}
+                      onEditSlide={onEditCarouselSlide}
+                      onRegenerateSlide={onRegenerateCarouselSlide}
+                      onRemoveSlide={onDeleteCarouselSlide}
+                      isLinkedInConnected={isLinkedInConnected}
+                      actionsSlot={
+                        // LinkedInPreview renders Upload / Post-to-LI
+                        // inline for text posts, but its Schedule
+                        // button hides for carousels (assumes the
+                        // parent passes a schedule-capable actionsSlot).
+                        // We plug both Download AND Schedule in here so
+                        // the LinkedIn carousel canvas has parity with
+                        // /Content: schedule the carousel, download the
+                        // PDF for manual upload if wanted.
+                        <CanvasActionsBar
+                          text={content || ''}
+                          images={images || []}
+                          platform="linkedin"
+                          streaming={!!artifact.streaming}
+                          onSchedule={handleCanvasSchedule}
+                        />
+                      }
+                    />
+                  </>
                 );
               }
+              // Derive platform from agentSource so the preview chrome +
+              // toolbar match the network the CEO tagged the artifact for.
+              // Falls back to Instagram (parity with prior default) when
+              // nothing usable is set on agentSource.
+              const src = String(agentSource || '').toLowerCase();
+              const socialPlatform =
+                src.includes('instagram') ? 'instagram'
+                : src.includes('twitter') || src === 'x' ? 'twitter'
+                : src.includes('tiktok') ? 'tiktok'
+                : src.includes('facebook') ? 'facebook'
+                : 'instagram';
+              // Post-to-platform handler + connection state per platform.
+              // Instagram has a first-class handler; the other three have
+              // no direct-publish endpoint yet, so we leave onPostToPlatform
+              // undefined for them (the Post button just doesn't render).
+              const onPost = socialPlatform === 'instagram'
+                ? handleCanvasPostToInstagram
+                : undefined;
+              const onConnect = socialPlatform === 'instagram'
+                ? handleCanvasConnectInstagram
+                : undefined;
+              const isPlatformConnected = socialPlatform === 'instagram'
+                ? !!(connectedSocials.instagram || connectedSocials.boosend)
+                : false;
               return (
-                <SocialPreview
-                  msg={{
-                    id: artifact.id || `content-${type}-${(content || '').length}`,
-                    platform: 'instagram',
-                    images: images || [],
-                    content: content || '',
-                    pendingImages: artifact.pendingImages,
-                  }}
-                  brandDna={brandDna}
-                  user={user}
-                  showHeader={false}
-                  onUploadImages={handleCanvasUploadImages}
-                  onSchedule={handleCanvasSchedule}
-                />
+                <>
+                  {carouselBanner}
+                  <SocialPreview
+                    msg={{
+                      id: artifact.id || `content-${type}-${(content || '').length}`,
+                      platform: socialPlatform,
+                      images: images || [],
+                      content: content || '',
+                      pendingImages: artifact.pendingImages,
+                      // carouselPlan trips SocialPreview into the
+                      // "Rendering N / M slides…" skeleton state while
+                      // the per-slide image gen loop runs (see AiCeo.jsx
+                      // plan_carousel handler). Without this, the panel
+                      // sat empty for 30+ seconds giving no feedback.
+                      carouselPlan: artifact.carouselPlan || null,
+                    }}
+                    brandDna={brandDna}
+                    user={user}
+                    showHeader={false}
+                    onUploadImages={handleCanvasUploadImages}
+                    onSchedule={handleCanvasSchedule}
+                    onEdit={onEditCarouselSlide}
+                    onRegenerate={onRegenerateCarouselSlide}
+                    actionsSlot={
+                      <CanvasActionsBar
+                        text={content || ''}
+                        images={images || []}
+                        platform={socialPlatform}
+                        onUploadImages={handleCanvasUploadImages}
+                        onSchedule={handleCanvasSchedule}
+                        onPostToPlatform={onPost}
+                        onConnect={onConnect}
+                        isConnected={isPlatformConnected}
+                        streaming={!!artifact.streaming}
+                      />
+                    }
+                  />
+                </>
               );
             })()}
             {type === 'image' && <ImageRenderer images={images} pendingImages={artifact.pendingImages} title={title} />}

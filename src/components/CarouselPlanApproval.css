@@ -1,0 +1,258 @@
+/* Carousel plan approval card — shown in AICEO's canvas before
+   per-slide image generation. Uses app theme variables so it tracks
+   the wider design system. */
+
+.cpa-container {
+  padding: 20px 22px;
+  background: #ffffff;
+  color: var(--text-primary, #1a1a2e);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+.cpa-header {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  background: linear-gradient(90deg, rgba(233, 26, 68, 0.08), rgba(233, 26, 68, 0.02));
+  border-left: 3px solid var(--brand-red, #e91a44);
+  border-radius: 8px;
+  margin-bottom: 18px;
+}
+
+.cpa-header-icon {
+  color: var(--brand-red, #e91a44);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.cpa-header-title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-primary, #1a1a2e);
+}
+
+.cpa-header-sub {
+  font-size: 12.5px;
+  color: var(--text-secondary, #6b7280);
+  margin-top: 2px;
+}
+
+.cpa-section {
+  margin-bottom: 18px;
+}
+
+.cpa-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #6b7280);
+  margin-bottom: 8px;
+}
+
+.cpa-hook {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary, #1a1a2e);
+  padding: 12px 14px;
+  background: var(--bg-light, #f9fafb);
+  border-radius: 8px;
+  border-left: 2px solid var(--brand-red, #e91a44);
+}
+
+/* Slide list */
+.cpa-slides-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cpa-slide {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-light, #f9fafb);
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 8px;
+  font-size: 13px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.cpa-slide:hover {
+  background: #f3f4f6;
+  border-color: var(--border-medium, #d1d5db);
+}
+
+.cpa-slide-num {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text-muted, #9ca3af);
+  min-width: 22px;
+}
+
+.cpa-slide-badge {
+  flex-shrink: 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(233, 26, 68, 0.08);
+  color: var(--brand-red, #e91a44);
+  border: 1px solid rgba(233, 26, 68, 0.15);
+  white-space: nowrap;
+}
+
+.cpa-slide-headline {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-primary, #1a1a2e);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.cpa-slide-delete {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-muted, #9ca3af);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.cpa-slide:hover .cpa-slide-delete {
+  color: var(--text-secondary, #6b7280);
+}
+.cpa-slide-delete:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+
+/* Palette swatches */
+.cpa-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cpa-swatch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: var(--bg-light, #f9fafb);
+  border: 1px solid var(--border-light, #e5e7eb);
+  font-size: 11.5px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.cpa-swatch-chip {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+.cpa-swatch-label {
+  font-weight: 500;
+}
+
+.cpa-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+}
+.cpa-meta strong {
+  color: var(--text-primary, #1a1a2e);
+  font-weight: 600;
+}
+.cpa-meta-mood {
+  flex-basis: 100%;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+/* Caption preview */
+.cpa-caption {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-primary, #1a1a2e);
+  padding: 10px 12px;
+  background: var(--bg-light, #f9fafb);
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+
+/* Approve button */
+.cpa-approve-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  background: var(--brand-red, #e91a44);
+  border: 1px solid var(--brand-red, #e91a44);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.05s;
+  font-family: inherit;
+  margin-top: 4px;
+}
+.cpa-approve-btn:hover:not(:disabled) {
+  background: var(--brand-red-hover, #c71538);
+  border-color: var(--brand-red-hover, #c71538);
+}
+.cpa-approve-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.cpa-approve-btn:disabled {
+  background: var(--text-muted, #9ca3af);
+  border-color: var(--text-muted, #9ca3af);
+  cursor: default;
+  opacity: 0.9;
+}
+
+.cpa-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: cpa-spin 0.8s linear infinite;
+  display: inline-block;
+}
+@keyframes cpa-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

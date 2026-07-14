@@ -1686,7 +1686,7 @@ RULES:
           await handleCheckEmails({ res, call, userId });
         } else if (call.name === 'create_form') {
           await handleCreateForm({ res, call, userId });
-        } else if (call.name === 'create_artifact' || call.name === 'generate_image') {
+        } else if (call.name === 'create_artifact' || call.name === 'generate_image' || call.name === 'plan_carousel') {
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });

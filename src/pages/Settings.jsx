@@ -112,6 +112,13 @@ export default function Settings() {
         setTimeout(() => setBrandDnaPulse(false), 3000);
       }, 200);
     }
+    // Auto-open a specific integration's connect modal when Calendar /
+    // canvas error banners deep-link with a highlight — saves the user
+    // an extra click after clicking "Reconnect Instagram".
+    if (location.state?.scrollTo === 'integrations' && location.state?.highlight) {
+      const target = location.state.highlight;
+      setTimeout(() => setModalOpen(target), 250);
+    }
   }, [location.state]);
 
   // Handle Outlook OAuth callback
