@@ -291,24 +291,26 @@ router.post('/api/boosend/instagram/publish', requireFeature('instagram_posting'
 
   try {
     const url = new URL('/api/publishing/instagram/publish', BOOSEND_API);
-    // BooSend expects `image_url` (singular top-level) as the primary
-    // image, with `media_items` carrying additional slides for
-    // carousels. Confirmed via the Railway logs where the omit
-    // branch's error was "The parameter image_url is required".
+    const publishBody = {
+      instagram_account_id: instagram_account_id || undefined,
+      image_url: firstUrl,
+      media_items: items,
+      caption: caption || '',
+      post_type: post_type || 'single',
+    };
+    console.log('[boosend] IG publish request:', JSON.stringify({ ...publishBody, image_url: publishBody.image_url?.slice(0, 60) + '…', media_items: `[${items.length}]` }));
+
     const bsRes = await fetch(url.toString(), {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        instagram_account_id: instagram_account_id || undefined,
-        image_url: firstUrl,
-        media_items: items,
-        caption: caption || '',
-        post_type: post_type || 'single',
-      }),
+      body: JSON.stringify(publishBody),
     });
 
     const data = await bsRes.json();
-    if (bsRes.status >= 400) return res.status(bsRes.status).json(data);
+    if (bsRes.status >= 400) {
+      console.warn(`[boosend] IG publish rejected (${bsRes.status}):`, JSON.stringify(data).slice(0, 500));
+      return res.status(bsRes.status).json(data);
+    }
 
     // Record in AICEO's social_posts for calendar display
     await supabase.from('social_posts').insert({
