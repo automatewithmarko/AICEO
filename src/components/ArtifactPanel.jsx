@@ -2,11 +2,12 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocket, ChevronDown, Search, Download, ChevronRight, History, Undo2, Maximize2, Image as ImageIcon } from 'lucide-react';
 import SocialPreview from './SocialPreview';
 import LinkedInPreview from './LinkedInPreview';
+import CanvasActionsBar from './CanvasActionsBar';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
-import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, schedulePost, uploadImageToStorage, getLinkedInAuthUrl } from '../lib/api';
+import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, postToInstagram, schedulePost, uploadImageToStorage, getLinkedInAuthUrl, getIntegrations } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
@@ -26,6 +27,46 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
   // Canvas Schedule / Upload / Post handlers — parity with Content.jsx so
   // the buttons inside LinkedInPreview + SocialPreview actually work when
   // the preview is rendered inside the AICEO chat's canvas panel.
+  // Track which social integrations the user has connected so the canvas
+  // toolbar can show the right CTA ("Post to Instagram" vs "Connect
+  // Instagram"). One /api/integrations call on mount; short-lived local
+  // state — a full auth resolution would fire on the next chat cycle
+  // anyway, so we don't need to re-poll aggressively.
+  const [connectedSocials, setConnectedSocials] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    getIntegrations().then(({ integrations }) => {
+      if (cancelled) return;
+      const map = {};
+      for (const i of integrations || []) {
+        if (i.is_active) map[i.provider] = true;
+      }
+      setConnectedSocials(map);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleCanvasPostToInstagram = async ({ text, images: imgs }) => {
+    // BooSend Instagram publish. The backend resolves the connected
+    // Instagram account from the user's active integration — no need to
+    // pass instagram_account_id from the client. Errors surface up to
+    // CanvasActionsBar which shows them in the button state.
+    const mediaItems = (imgs || []).map((im) => ({ url: im?.src })).filter((m) => m.url);
+    const postType = mediaItems.length > 1 ? 'carousel' : (mediaItems.length === 1 ? 'image' : 'text');
+    await postToInstagram({
+      caption: text,
+      media_items: mediaItems,
+      post_type: postType,
+    });
+  };
+
+  const handleCanvasConnectInstagram = () => {
+    // Instagram OAuth flow lives on the Settings page (BooSend integration
+    // block). Deep-link there and highlight the integrations section, same
+    // pattern as the LinkedIn "Connect" fallback.
+    navigate('/settings', { state: { scrollTo: 'integrations' } });
+  };
+
   const handleCanvasPostToLinkedIn = async ({ text, images: imgs, connect, reconnect }) => {
     if (connect || reconnect) {
       // Kick straight into LinkedIn's OAuth consent so the user doesn't
@@ -715,11 +756,35 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                   />
                 );
               }
+              // Derive platform from agentSource so the preview chrome +
+              // toolbar match the network the CEO tagged the artifact for.
+              // Falls back to Instagram (parity with prior default) when
+              // nothing usable is set on agentSource.
+              const src = String(agentSource || '').toLowerCase();
+              const socialPlatform =
+                src.includes('instagram') ? 'instagram'
+                : src.includes('twitter') || src === 'x' ? 'twitter'
+                : src.includes('tiktok') ? 'tiktok'
+                : src.includes('facebook') ? 'facebook'
+                : 'instagram';
+              // Post-to-platform handler + connection state per platform.
+              // Instagram has a first-class handler; the other three have
+              // no direct-publish endpoint yet, so we leave onPostToPlatform
+              // undefined for them (the Post button just doesn't render).
+              const onPost = socialPlatform === 'instagram'
+                ? handleCanvasPostToInstagram
+                : undefined;
+              const onConnect = socialPlatform === 'instagram'
+                ? handleCanvasConnectInstagram
+                : undefined;
+              const isPlatformConnected = socialPlatform === 'instagram'
+                ? !!(connectedSocials.instagram || connectedSocials.boosend)
+                : false;
               return (
                 <SocialPreview
                   msg={{
                     id: artifact.id || `content-${type}-${(content || '').length}`,
-                    platform: 'instagram',
+                    platform: socialPlatform,
                     images: images || [],
                     content: content || '',
                     pendingImages: artifact.pendingImages,
@@ -729,6 +794,19 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                   showHeader={false}
                   onUploadImages={handleCanvasUploadImages}
                   onSchedule={handleCanvasSchedule}
+                  actionsSlot={
+                    <CanvasActionsBar
+                      text={content || ''}
+                      images={images || []}
+                      platform={socialPlatform}
+                      onUploadImages={handleCanvasUploadImages}
+                      onSchedule={handleCanvasSchedule}
+                      onPostToPlatform={onPost}
+                      onConnect={onConnect}
+                      isConnected={isPlatformConnected}
+                      streaming={!!artifact.streaming}
+                    />
+                  }
                 />
               );
             })()}

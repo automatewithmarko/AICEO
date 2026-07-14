@@ -1,0 +1,163 @@
+/* Canvas Actions Bar — Upload / Schedule / Post buttons for AICEO's
+   non-LinkedIn social previews. Mirrors LinkedInPreview's toolbar look. */
+
+.cab-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 6px 0;
+}
+
+.cab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1a1a2e;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+}
+.cab-btn:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+.cab-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.cab-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.cab-btn--outline {
+  background: transparent;
+}
+
+.cab-btn--primary {
+  background: #0a0a0a;
+  border-color: #0a0a0a;
+  color: #ffffff;
+}
+.cab-btn--primary:hover:not(:disabled) {
+  background: #1f1f1f;
+  border-color: #1f1f1f;
+}
+
+/* Per-platform post button colors */
+.cab-btn--instagram {
+  background: linear-gradient(90deg, #F58529 0%, #DD2A7B 50%, #8134AF 100%);
+  border-color: transparent;
+  color: #ffffff;
+}
+.cab-btn--instagram:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+.cab-btn--twitter {
+  background: #000000;
+  border-color: #000000;
+  color: #ffffff;
+}
+.cab-btn--twitter:hover:not(:disabled) {
+  background: #1a1a1a;
+}
+.cab-btn--facebook {
+  background: #1877F2;
+  border-color: #1877F2;
+  color: #ffffff;
+}
+.cab-btn--facebook:hover:not(:disabled) {
+  background: #166FE5;
+}
+.cab-btn--tiktok {
+  background: #000000;
+  border-color: #000000;
+  color: #ffffff;
+}
+.cab-btn--tiktok:hover:not(:disabled) {
+  background: #1a1a1a;
+}
+
+.cab-btn--connect {
+  background: #ffffff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.cab-schedule-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.cab-schedule-popover {
+  position: fixed;
+  width: 260px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cab-schedule-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.cab-schedule-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cab-schedule-input {
+  padding: 6px 10px;
+  font-size: 13px;
+  color: #1a1a2e;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  outline: none;
+  text-transform: none;
+}
+.cab-schedule-input:focus {
+  border-color: #0a0a0a;
+  background: #ffffff;
+}
+
+.cab-schedule-confirm {
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.cab-schedule-error {
+  font-size: 12px;
+  color: #dc2626;
+  padding: 6px 8px;
+  background: #fef2f2;
+  border-radius: 6px;
+}
+
+@keyframes cab-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.cab-spin {
+  animation: cab-spin 0.8s linear infinite;
+}
