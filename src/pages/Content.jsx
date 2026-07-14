@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import DOMPurify from 'dompurify';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
@@ -7407,8 +7407,12 @@ export default function Content() {
                 }
               }}
               isLinkedInConnected={isLinkedInConnected}
-              onPostToLinkedIn={async ({ text, images, connect }) => {
-                if (connect) {
+              onPostToLinkedIn={async ({ text, images, connect, reconnect }) => {
+                if (connect || reconnect) {
+                  try {
+                    const { url } = await getLinkedInAuthUrl();
+                    if (url) { window.location.href = url; return; }
+                  } catch (err) { console.error('[linkedin] auth URL fetch failed:', err.message); }
                   navigate('/settings', { state: { scrollTo: 'integrations' } });
                   return;
                 }
@@ -7470,8 +7474,15 @@ export default function Content() {
                   onRegenerateSlide={(idx) => handleCarouselSlideRegenerate(panelMsg.id, idx)}
                   onFullscreen={(idx) => setSlideViewer({ msgId: panelMsg.id, idx })}
                   isLinkedInConnected={isLinkedInConnected}
-                  onPostToLinkedIn={async ({ text, images: imgs, connect }) => {
-                    if (connect) { navigate('/settings', { state: { scrollTo: 'integrations' } }); return; }
+                  onPostToLinkedIn={async ({ text, images: imgs, connect, reconnect }) => {
+                    if (connect || reconnect) {
+                      try {
+                        const { url } = await getLinkedInAuthUrl();
+                        if (url) { window.location.href = url; return; }
+                      } catch (err) { console.error('[linkedin] auth URL fetch failed:', err.message); }
+                      navigate('/settings', { state: { scrollTo: 'integrations' } });
+                      return;
+                    }
                     const imageUrl = imgs?.[0]?.src || null;
                     await postToLinkedIn(text, imageUrl);
                   }}

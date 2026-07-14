@@ -657,7 +657,18 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                       )}
                     </button>
                     {schedState === 'error' && schedError && (
-                      <div className="li-schedule-error" role="alert">{schedError}</div>
+                      <div className="li-schedule-error" role="alert">
+                        <span>{schedError}</span>
+                        {/expired|reconnect|linkedin_token_expired/i.test(schedError) && onPostToLinkedIn && (
+                          <button
+                            type="button"
+                            className="li-schedule-error-action"
+                            onClick={() => onPostToLinkedIn?.({ reconnect: true })}
+                          >
+                            <ExternalLink size={12} /> Reconnect LinkedIn
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -666,21 +677,33 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
 
             {/* Post to LinkedIn button */}
             {isLinkedInConnected ? (
-              <button
-                className="li-toolbar-btn li-toolbar-btn--linkedin"
-                onClick={handlePostToLinkedIn}
-                disabled={postState === 'posting' || postState === 'posted'}
-              >
-                {postState === 'posting' ? (
-                  <><Loader size={14} className="li-spin" /> Posting...</>
-                ) : postState === 'posted' ? (
-                  <><Check size={14} /> Posted!</>
-                ) : postState === 'error' ? (
-                  <><X size={14} /> {postError || 'Failed'}</>
-                ) : (
-                  <><Send size={14} /> Post to LinkedIn</>
+              <>
+                <button
+                  className="li-toolbar-btn li-toolbar-btn--linkedin"
+                  onClick={handlePostToLinkedIn}
+                  disabled={postState === 'posting' || postState === 'posted'}
+                >
+                  {postState === 'posting' ? (
+                    <><Loader size={14} className="li-spin" /> Posting...</>
+                  ) : postState === 'posted' ? (
+                    <><Check size={14} /> Posted!</>
+                  ) : postState === 'error' ? (
+                    <><X size={14} /> {postError || 'Failed'}</>
+                  ) : (
+                    <><Send size={14} /> Post to LinkedIn</>
+                  )}
+                </button>
+                {postState === 'error' && /expired|reconnect|linkedin_token_expired/i.test(postError) && (
+                  <button
+                    type="button"
+                    className="li-toolbar-btn li-toolbar-btn--linkedin-connect"
+                    onClick={() => onPostToLinkedIn?.({ reconnect: true })}
+                    title="Your LinkedIn access token expired — reconnect to resume posting"
+                  >
+                    <ExternalLink size={14} /> Reconnect LinkedIn
+                  </button>
                 )}
-              </button>
+              </>
             ) : (
               <button
                 className="li-toolbar-btn li-toolbar-btn--linkedin-connect"

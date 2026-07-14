@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
-import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, schedulePost, uploadImageToStorage } from '../lib/api';
+import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, schedulePost, uploadImageToStorage, getLinkedInAuthUrl } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
@@ -26,8 +26,18 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
   // Canvas Schedule / Upload / Post handlers — parity with Content.jsx so
   // the buttons inside LinkedInPreview + SocialPreview actually work when
   // the preview is rendered inside the AICEO chat's canvas panel.
-  const handleCanvasPostToLinkedIn = async ({ text, images: imgs, connect }) => {
-    if (connect) {
+  const handleCanvasPostToLinkedIn = async ({ text, images: imgs, connect, reconnect }) => {
+    if (connect || reconnect) {
+      // Kick straight into LinkedIn's OAuth consent so the user doesn't
+      // need to hunt through Settings after seeing a "token expired"
+      // banner. On failure fall back to the Settings deep-link so they
+      // can retry from a stable page.
+      try {
+        const { url } = await getLinkedInAuthUrl();
+        if (url) { window.location.href = url; return; }
+      } catch (err) {
+        console.error('[linkedin] auth URL fetch failed:', err.message);
+      }
       navigate('/settings', { state: { scrollTo: 'integrations' } });
       return;
     }
