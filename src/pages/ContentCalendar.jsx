@@ -355,6 +355,20 @@ export default function ContentCalendar() {
                   const { post } = await updateCalendarPost(postId, { status: 'scheduled', last_error: null });
                   setPosts((prev) => prev.map((p) => p.id === postId ? dbToLocal(post) : p));
                 }}
+                onReschedule={async (postId, newDate, newTime) => {
+                  // Build the ISO string from local time components — same
+                  // technique as schedulePost() so the timezone survives.
+                  const [y, m, d] = newDate.split('-').map(Number);
+                  const [hh, mm] = newTime.split(':').map(Number);
+                  const scheduledAt = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0).toISOString();
+                  const { post: updated } = await updateCalendarPost(postId, {
+                    scheduled_at: scheduledAt,
+                    // If the post had failed, flip it back to scheduled so
+                    // the dispatcher picks it up at the new time.
+                    ...(posts.find((p) => p.id === postId)?.status === 'failed' ? { status: 'scheduled', last_error: null } : {}),
+                  });
+                  setPosts((prev) => prev.map((p) => p.id === postId ? dbToLocal(updated) : p));
+                }}
                 onPublish={async (postId) => {
                   const result = await publishCalendarPost(postId);
                   // Update local state to reflect published status
@@ -410,10 +424,23 @@ function PlatformPicker({ onPick }) {
 
 // ─── Scheduled post view (read-only) ───────────────────────────────────────
 
-function ScheduledView({ post, onClose, onDelete, onPublish, onRetry }) {
+function ScheduledView({ post, onClose, onDelete, onPublish, onRetry, onReschedule }) {
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState(null); // { ok, error, url }
   const [retrying, setRetrying] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [reschedDate, setReschedDate] = useState(post?.date || '');
+  const [reschedTime, setReschedTime] = useState(post?.time || '09:00');
+  const [rescheduling, setRescheduling] = useState(false);
+  const [reschedError, setReschedError] = useState('');
+  useEffect(() => {
+    // Keep the local edit state in sync when the parent post changes
+    // (e.g. after a successful save).
+    if (post) {
+      setReschedDate(post.date);
+      setReschedTime(post.time);
+    }
+  }, [post?.id, post?.date, post?.time]);
   if (!post) return null;
   const platform = getPlatform(post.platform);
   const igConfig = post.igType ? getIgType(post.igType) : null;
@@ -481,9 +508,65 @@ function ScheduledView({ post, onClose, onDelete, onPublish, onRetry }) {
         </div>
       </div>
 
-      {post.status !== 'failed' && post.status !== 'published' && (
+      {rescheduleOpen && post.status !== 'published' && onReschedule && (
+        <div className="cc-reschedule">
+          <div className="cc-reschedule-title">Move to a new time</div>
+          <div className="cc-reschedule-row">
+            <label className="cc-reschedule-label">
+              Date
+              <input
+                type="date"
+                className="cc-reschedule-input"
+                value={reschedDate}
+                onChange={(e) => setReschedDate(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+              />
+            </label>
+            <label className="cc-reschedule-label">
+              Time
+              <input
+                type="time"
+                className="cc-reschedule-input"
+                value={reschedTime}
+                onChange={(e) => setReschedTime(e.target.value)}
+              />
+            </label>
+          </div>
+          {reschedError && <div className="cc-publish-error">{reschedError}</div>}
+          <div className="cc-reschedule-actions">
+            <button
+              type="button"
+              className="cc-ghost-btn"
+              onClick={() => { setRescheduleOpen(false); setReschedError(''); }}
+              disabled={rescheduling}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="cc-primary-btn cc-primary-btn--lg"
+              disabled={rescheduling || !reschedDate || !reschedTime}
+              onClick={async () => {
+                setRescheduling(true);
+                setReschedError('');
+                try {
+                  await onReschedule(post.id, reschedDate, reschedTime);
+                  setRescheduleOpen(false);
+                } catch (err) {
+                  setReschedError(err.message || 'Failed to reschedule');
+                } finally {
+                  setRescheduling(false);
+                }
+              }}
+            >
+              {rescheduling ? <><Loader size={14} className="cc-spin" /> Saving…</> : <><Clock size={14} /> Save new time</>}
+            </button>
+          </div>
+        </div>
+      )}
+      {!rescheduleOpen && post.status !== 'failed' && post.status !== 'published' && (
         <div className="cc-view-note">
-          <span>Scheduled posts can't be edited. Cancel the schedule to make changes.</span>
+          <span>To change the schedule, click Reschedule. To edit the post itself, cancel and re-generate from AICEO or Content.</span>
         </div>
       )}
 
@@ -511,6 +594,15 @@ function ScheduledView({ post, onClose, onDelete, onPublish, onRetry }) {
           {post.status === 'published' ? 'Delete from calendar' : 'Cancel schedule'}
         </button>
         <div className="cc-actions-right">
+          {post.status !== 'published' && onReschedule && !rescheduleOpen && (
+            <button
+              className="cc-ghost-btn"
+              onClick={() => { setRescheduleOpen(true); setReschedError(''); }}
+              title="Move this post to a different date or time"
+            >
+              <Clock size={14} /> Reschedule
+            </button>
+          )}
           {post.status === 'failed' && onRetry && (
             <button
               className="cc-primary-btn cc-primary-btn--lg"

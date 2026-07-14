@@ -394,6 +394,58 @@
   white-space: nowrap;
 }
 
+/* ─── Inline reschedule form ─────────────────────────────────────── */
+.cc-reschedule {
+  margin: 12px 0;
+  padding: 14px 16px;
+  background: #f5f3ff;
+  border: 1px solid rgba(109, 40, 217, 0.18);
+  border-radius: 10px;
+}
+.cc-reschedule-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #6d28d9;
+  margin-bottom: 10px;
+}
+.cc-reschedule-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cc-reschedule-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(0,0,0,0.65);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex: 1;
+  min-width: 130px;
+}
+.cc-reschedule-input {
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid rgba(0,0,0,0.14);
+  border-radius: 8px;
+  background: #fff;
+  font-family: inherit;
+  color: rgba(0,0,0,0.9);
+}
+.cc-reschedule-input:focus {
+  outline: none;
+  border-color: #6d28d9;
+  box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.15);
+}
+.cc-reschedule-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
 /* ─── Modal ─────────────────────────────────────────────────────────── */
 
 .cc-modal-overlay {
