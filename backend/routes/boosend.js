@@ -274,15 +274,34 @@ router.post('/api/boosend/instagram/publish', requireFeature('instagram_posting'
 
   const { caption, media_items, post_type, instagram_account_id } = req.body;
 
+  // Reject blob:/data: URLs early — Meta can't fetch them and BooSend
+  // would return the confusing "image_url does not exist" error. The
+  // frontend is expected to upload to Supabase before hitting this
+  // endpoint; failing loudly here surfaces the bug at the boundary.
+  const items = Array.isArray(media_items) ? media_items.filter((m) => m?.url) : [];
+  const invalidUrl = items.find((m) => /^(blob:|data:)/i.test(m.url));
+  if (invalidUrl) {
+    return res.status(400).json({
+      error: 'Image URL is not publicly reachable. Upload the image first (blob:/data: URLs cannot be published).',
+      code: 'ig_local_url',
+    });
+  }
+  const firstUrl = items[0]?.url || null;
+  if (!firstUrl) return res.status(400).json({ error: 'Image URL is required to publish to Instagram.', code: 'ig_missing_image' });
+
   try {
-    // BooSend handles token lookup internally — just proxy the request
     const url = new URL('/api/publishing/instagram/publish', BOOSEND_API);
+    // BooSend expects `image_url` (singular top-level) as the primary
+    // image, with `media_items` carrying additional slides for
+    // carousels. Confirmed via the Railway logs where the omit
+    // branch's error was "The parameter image_url is required".
     const bsRes = await fetch(url.toString(), {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         instagram_account_id: instagram_account_id || undefined,
-        media_items: media_items || [],
+        image_url: firstUrl,
+        media_items: items,
         caption: caption || '',
         post_type: post_type || 'single',
       }),
@@ -317,15 +336,26 @@ router.post('/api/boosend/instagram/schedule', requireFeature('instagram_posting
   const { caption, media_items, post_type, instagram_account_id, scheduled_at } = req.body;
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
 
+  const items = Array.isArray(media_items) ? media_items.filter((m) => m?.url) : [];
+  const invalidUrl = items.find((m) => /^(blob:|data:)/i.test(m.url));
+  if (invalidUrl) {
+    return res.status(400).json({
+      error: 'Image URL is not publicly reachable. Upload the image first (blob:/data: URLs cannot be published).',
+      code: 'ig_local_url',
+    });
+  }
+  const firstUrl = items[0]?.url || null;
+  if (!firstUrl) return res.status(400).json({ error: 'Image URL is required to schedule to Instagram.', code: 'ig_missing_image' });
+
   try {
-    // BooSend handles scheduling + token lookup internally
     const url = new URL('/api/publishing/instagram/schedule', BOOSEND_API);
     const bsRes = await fetch(url.toString(), {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         instagram_account_id: instagram_account_id || undefined,
-        media_items: media_items || [],
+        image_url: firstUrl,
+        media_items: items,
         caption: caption || '',
         post_type: post_type || 'single',
         scheduled_at,

@@ -184,7 +184,12 @@ router.post('/api/integrations/linkedin/post', requireFeature('linkedin_posting'
   try {
     let result;
     if (urlList.length > 1) {
-      result = await linkedinApi.postWithImages(access_token, linkedin_user_id, text, urlList);
+      // Multi-slide carousels ship as native LinkedIn documents so they
+      // render as a swipeable slide viewer on web + mobile (matches
+      // the "traditional carousel" UX users expect). The multiImage
+      // path renders as a grid on desktop.
+      const docTitle = text ? text.slice(0, 60) : 'Carousel';
+      result = await linkedinApi.postWithDocument(access_token, linkedin_user_id, text, urlList, docTitle);
     } else if (urlList.length === 1) {
       result = await linkedinApi.postWithImage(access_token, linkedin_user_id, text, urlList[0]);
     } else {

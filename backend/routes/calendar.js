@@ -183,7 +183,10 @@ export async function publishSocialPostRow(userId, post) {
       : [];
     let result;
     if (imageUrls.length > 1) {
-      result = await linkedinApi.postWithImages(access_token, linkedin_user_id, post.caption || '', imageUrls);
+      // Ship carousels as native LinkedIn documents (swipeable slide
+      // viewer on web + mobile) rather than multi-image grid.
+      const docTitle = post.caption ? post.caption.slice(0, 60) : 'Carousel';
+      result = await linkedinApi.postWithDocument(access_token, linkedin_user_id, post.caption || '', imageUrls, docTitle);
     } else if (imageUrls.length === 1) {
       result = await linkedinApi.postWithImage(access_token, linkedin_user_id, post.caption || '', imageUrls[0]);
     } else {
@@ -229,33 +232,51 @@ export async function publishSocialPostRow(userId, post) {
           ? 'reel'
           : 'single';
 
-    // Try publish variants in order. The failing shape was
-    // { instagram_account_id: <BooSend-UUID> } → BooSend forwarded the
-    // UUID to Meta as an Instagram Business Account ID. Prefer the
-    // Meta-facing id if BooSend exposes one; then try omitting the
-    // account id entirely so BooSend resolves from the API key; only
-    // fall back to the UUID as a last resort.
+    // Body shape confirmed from Railway logs:
+    //   - Omitting instagram_account_id → BooSend requires `image_url`
+    //     (singular, top-level) — the media_items shape is ignored on
+    //     that code path.
+    //   - Sending instagram_account_id as the BooSend UUID was
+    //     forwarded straight to Meta and rejected.
+    //   - Sending it as the Meta 17-digit ID got "No Instagram account
+    //     found. Connect one in BooSend first." (BooSend's DB lookup
+    //     didn't accept it there either).
+    // Best-known-working shape: pass BOTH image_url (first slide) at
+    // top level AND media_items (for the carousel case), and let
+    // BooSend resolve the account from the API key. First slide URL
+    // duplicates as image_url so BooSend's validator is happy.
+    const mediaItems = (post.media || []).map((m) => ({ url: m?.url })).filter((m) => m.url);
+    const firstUrl = mediaItems[0]?.url || null;
+    if (!firstUrl) {
+      const err = new Error('No image URL to publish. Attach at least one image before publishing.');
+      err.code = 'ig_missing_image';
+      throw err;
+    }
+
+    // Build attempts. Every attempt now includes image_url + media_items
+    // so BooSend's validator sees a top-level image regardless of the
+    // account-lookup mode it takes.
     const metaId = pickMetaInstagramId(igAccount);
-    const attempts = [];
-    if (metaId) attempts.push({ label: 'meta_id', body: { instagram_account_id: metaId } });
-    attempts.push({ label: 'omit', body: {} });
-    if (igAccount.id) attempts.push({ label: 'boosend_uuid', body: { instagram_account_id: igAccount.id } });
+    const commonBody = {
+      image_url: firstUrl,
+      media_items: mediaItems,
+      caption: post.caption || '',
+      post_type: inferredType,
+    };
+    const attempts = [
+      { label: 'omit+image_url', body: commonBody },
+      ...(igAccount.id ? [{ label: 'boosend_uuid+image_url', body: { ...commonBody, instagram_account_id: igAccount.id } }] : []),
+      ...(metaId ? [{ label: 'meta_id+image_url', body: { ...commonBody, instagram_account_id: metaId } }] : []),
+    ];
 
     let bsData = {};
     let bsRes;
     let lastErrText = '';
     for (const attempt of attempts) {
-      const publishBody = {
-        ...attempt.body,
-        media_items: post.media || [],
-        caption: post.caption || '',
-        post_type: inferredType,
-      };
-
       bsRes = await fetch(`${BOOSEND_API}/api/publishing/instagram/publish`, {
         method: 'POST',
         headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify(publishBody),
+        body: JSON.stringify(attempt.body),
       });
       bsData = await bsRes.json().catch(() => ({}));
       if (bsRes.ok) {
