@@ -1408,6 +1408,7 @@ export default function AiCeo() {
             // content second (less reliable but catches edge cases
             // like "Here is your LinkedIn post: ...").
             let inferredPlatform = args.platform || null;
+            let effectiveType = args.type;
             if (!inferredPlatform && args.type === 'content_post') {
               const haystack = `${args.title || ''} ${(args.content || '').slice(0, 400)}`.toLowerCase();
               if (/\blinkedin\b/.test(haystack)) inferredPlatform = 'linkedin';
@@ -1417,9 +1418,38 @@ export default function AiCeo() {
               else if (/\binstagram\b/.test(haystack)) inferredPlatform = 'instagram';
               if (inferredPlatform) console.log(`[AiCeo] create_artifact platform missing — inferred "${inferredPlatform}" from title/content`);
             }
+            // Defensive fallback: the model sometimes picks type='html_template'
+            // (or 'markdown_doc') for a LinkedIn post despite the tool
+            // description telling it not to. Detect that case and reroute to
+            // content_post so the LinkedIn feed card renders instead of a
+            // full-page HTML canvas / markdown wall.
+            //
+            // Gate: content must NOT contain real HTML document markers
+            // (a legit html_template will have <html>/<body>/<!DOCTYPE>).
+            // Title or content must mention a social platform. Content
+            // length has to be plausibly post-sized (< 4000 chars).
+            if ((args.type === 'html_template' || args.type === 'markdown_doc') && args.content) {
+              const contentLower = (args.content || '').toLowerCase();
+              const looksLikeHtml = /<(?:!doctype|html|body|head|style|table)\b/.test(contentLower);
+              const isShort = (args.content || '').length < 4000;
+              if (!looksLikeHtml && isShort) {
+                const haystack = `${args.title || ''} ${args.content || ''}`.toLowerCase();
+                let sniffed = null;
+                if (/\blinkedin\b/.test(haystack)) sniffed = 'linkedin';
+                else if (/\btwitter\b|\bx post\b|\btweet\b/.test(haystack)) sniffed = 'twitter';
+                else if (/\btiktok\b/.test(haystack)) sniffed = 'tiktok';
+                else if (/\bfacebook\b/.test(haystack)) sniffed = 'facebook';
+                else if (/\binstagram\b/.test(haystack)) sniffed = 'instagram';
+                if (sniffed) {
+                  console.warn(`[AiCeo] create_artifact type=${args.type} but content looks like a ${sniffed} post — rerouting to content_post`);
+                  effectiveType = 'content_post';
+                  inferredPlatform = sniffed;
+                }
+              }
+            }
             const newArt = {
               id: Date.now(),
-              type: args.type,
+              type: effectiveType,
               title: args.title,
               content: args.content,
               images: [],
@@ -1429,7 +1459,7 @@ export default function AiCeo() {
             setPanelOpen(true);
             if (isMobileRef.current) setMobileArtifactOpen(true);
             setMessages(prev => prev.map(m =>
-              m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: args.type } : m
+              m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: effectiveType } : m
             ));
             commitOwnedArtifact(assistantMsgId, newArt);
           }

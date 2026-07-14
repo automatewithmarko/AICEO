@@ -68,14 +68,14 @@ export function buildAgentTools() {
       type: 'function',
       function: {
         name: 'create_artifact',
-        description: 'Create a visual artifact directly in the split-screen panel. Use for emails, social posts, code, or documents  -  NOT for newsletters, landing pages, or other marketing assets (use delegate_to_agent for those). For emails, follow the Daniel Paul Email Framework: result before story, one sentence per paragraph, one CTA only, PS line mandatory, first name sign-off only, invite framing not sales framing. NEVER use "leverage/synergy/utilize/paradigm", passive voice, em dashes, or hashtags.',
+        description: 'Create a visual artifact directly in the split-screen panel. Use for emails, social posts, code, or documents  -  NOT for newsletters, landing pages, or other marketing assets (use delegate_to_agent for those). For emails, follow the Daniel Paul Email Framework: result before story, one sentence per paragraph, one CTA only, PS line mandatory, first name sign-off only, invite framing not sales framing. NEVER use "leverage/synergy/utilize/paradigm", passive voice, em dashes, or hashtags.\n\nTYPE MAPPING — choose based on what the user asked for (this is not optional, mis-choosing renders the wrong preview UI):\n- "content_post" — ANY social media post (LinkedIn, Instagram, X/Twitter, TikTok, Facebook). This is the ONLY correct type for a social post. NEVER use html_template for a social post. NEVER use markdown_doc for a social post. If the user said "post", "caption", "LinkedIn post", "IG post", "tweet", "TikTok caption", etc. -> content_post. You MUST also set platform="linkedin"|"instagram"|"twitter"|"tiktok"|"facebook" — the preview UI (LinkedIn card vs Instagram card vs Twitter card) is chosen from that field.\n- "email" — a single email body (subject + body, plain or minimal HTML).\n- "code_block" — code snippets in any language.\n- "markdown_doc" — long-form docs, reports, checklists, briefs, meeting notes, video scripts, reels, TikTok scripts. Plain markdown.\n- "html_template" — a full styled HTML page (Content Plan, plan-mode calendar, one-off HTML mockups). Do NOT use for social posts.\n\nCRITICAL LINKEDIN GOTCHA: LinkedIn posts are NOT html pages. When user says "LinkedIn post" you MUST call create_artifact with type="content_post" AND platform="linkedin". Using html_template makes the UI render a full-page HTML canvas instead of the LinkedIn feed card — the user will see their post styled like a PDF/webpage and complain.',
         parameters: {
           type: 'object',
           properties: {
             type: {
               type: 'string',
               enum: ['email', 'html_template', 'content_post', 'code_block', 'markdown_doc'],
-              description: 'The artifact type.',
+              description: 'Artifact type. SOCIAL MEDIA POSTS -> "content_post" (ALWAYS). LinkedIn / Instagram / Twitter / TikTok / Facebook posts are ALL "content_post" — never "html_template". "html_template" is reserved for full HTML pages (plans, mockups). See tool description for the full mapping.',
             },
             title: {
               type: 'string',
