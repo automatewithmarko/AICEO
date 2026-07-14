@@ -4,6 +4,7 @@ import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations } from '../lib/api';
+import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
@@ -1472,6 +1473,111 @@ export default function AiCeo() {
               m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: effectiveType } : m
             ));
             commitOwnedArtifact(assistantMsgId, newArt);
+          }
+          if (name === 'plan_carousel') {
+            // Instagram / LinkedIn carousel — Sonnet has emitted the plan
+            // (hook, angle, caption, slides, designSystem). We render the
+            // plan in the canvas immediately so the user sees progress,
+            // then loop through slides calling generate_image with the
+            // SAME deterministic per-slide prompt builder /Content uses.
+            // Result: byte-identical visual cohesion across AICEO and
+            // /Content, and the user's own upload / schedule / post
+            // buttons in the canvas keep working because we produce a
+            // real content_post artifact.
+            const plan = {
+              hook: args.hook || '',
+              angle: args.angle || '',
+              caption: args.caption || '',
+              slides: Array.isArray(args.slides) ? args.slides : [],
+              designSystem: args.designSystem || {},
+            };
+            if (plan.slides.length === 0) {
+              console.warn('[AiCeo] plan_carousel with zero slides — ignoring');
+              return;
+            }
+            // Platform detection: scan the recent user messages in this
+            // session for a literal platform mention. LinkedIn takes
+            // priority when both appear (rare). Fall back to instagram —
+            // Content's own default for plan_carousel — when neither
+            // side has spoken the platform yet (a Surprise-me path).
+            const recentUserText = messages
+              .filter((m) => m.role === 'user')
+              .slice(-3)
+              .map((m) => String(m.content || ''))
+              .join(' ')
+              .toLowerCase();
+            const platform = /\blinkedin\b/i.test(recentUserText) ? 'linkedin' : 'instagram';
+            const brandName = brandDna?.brand_name || user?.name || '';
+
+            const initialArt = {
+              id: Date.now(),
+              type: 'content_post',
+              title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel: ${plan.hook.slice(0, 60)}`,
+              content: plan.caption,
+              images: [],
+              pendingImages: plan.slides.length,
+              totalSlides: plan.slides.length,
+              carouselPlan: plan,
+              agentSource: platform,
+              streaming: true,
+            };
+            setArtifact(initialArt);
+            setPanelOpen(true);
+            if (isMobileRef.current) setMobileArtifactOpen(true);
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsgId
+                ? { ...m, hasArtifact: true, artifactTitle: initialArt.title, artifactType: 'content_post' }
+                : m
+            ));
+
+            // Generate slides sequentially. Parallel would be faster but
+            // caps out on the image API's concurrent-request limit and
+            // produces choppy UI updates. Sequential shows a visible
+            // "1/8 done, 2/8 done, …" progression via pendingImages.
+            (async () => {
+              for (let i = 0; i < plan.slides.length; i++) {
+                const slide = plan.slides[i];
+                let prompt;
+                try {
+                  prompt = buildCarouselSlidePrompt({
+                    designSystem: plan.designSystem,
+                    slide,
+                    index: i,
+                    total: plan.slides.length,
+                    brand: { name: brandName },
+                    platform,
+                  });
+                } catch (buildErr) {
+                  console.error(`[AiCeo] carousel prompt build failed for slide ${i + 1}:`, buildErr);
+                  setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+                  continue;
+                }
+                try {
+                  // Backend has a dedicated 'linkedin_carousel' config
+                  // (3:4 portrait). Instagram carousels use the regular
+                  // 'instagram' platform (1:1 square).
+                  const backendPlatform = platform === 'linkedin' ? 'linkedin_carousel' : 'instagram';
+                  const result = await generateImage(prompt, backendPlatform, null, null, {});
+                  if (result?.image?.data) {
+                    const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+                    setArtifact((prev) => prev ? {
+                      ...prev,
+                      images: [...(prev.images || []), { src, idx: i }],
+                      pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
+                    } : prev);
+                  } else {
+                    setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+                  }
+                } catch (imgErr) {
+                  console.error(`[AiCeo] carousel slide ${i + 1} failed:`, imgErr);
+                  setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+                }
+              }
+              // All slides attempted — clear streaming flag and stamp
+              // the snapshot so the chat card owns the finished artifact.
+              setArtifact((prev) => prev ? { ...prev, streaming: false } : prev);
+              commitOwnedArtifact(assistantMsgId);
+            })();
           }
           if (name === 'generate_image') {
             // Build referenceImages from any image the user attached
