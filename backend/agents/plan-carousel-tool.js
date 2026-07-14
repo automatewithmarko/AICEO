@@ -18,6 +18,11 @@ export const PLAN_CAROUSEL_TOOL = {
     parameters: {
       type: 'object',
       properties: {
+        platform: {
+          type: 'string',
+          enum: ['linkedin', 'instagram'],
+          description: 'REQUIRED. Which platform this carousel is for. MUST match what the user asked for: "LinkedIn carousel" -> linkedin, "Instagram carousel" -> instagram. This drives the canvas aspect ratio (LinkedIn 3:4 portrait, Instagram 1:1 square) and the preview chrome (LinkedIn feed card vs Instagram card). FAILING TO SET THIS OR SETTING THE WRONG VALUE IS A VISIBLE BUG — the user sees the wrong preview and complains. If the user says only "carousel" without a platform, ask them via ask_user before calling this tool.',
+        },
         hook: {
           type: 'string',
           description: 'Scroll-stopping headline for slide 1. Use one of: confession ("I [did unexpected thing]. Here\'s what happened."), contrarian ("[Belief] is a lie."), specificity ("[Number] in [timeframe]."), curiosity gap. NEVER "Are you making these mistakes?" or "X tips for Y".',
@@ -121,7 +126,7 @@ export const PLAN_CAROUSEL_TOOL = {
           required: ['mode', 'palette', 'texture', 'card', 'badge', 'typography', 'accentTreatment', 'glowCorners', 'mood'],
         },
       },
-      required: ['hook', 'caption', 'slides', 'designSystem'],
+      required: ['platform', 'hook', 'caption', 'slides', 'designSystem'],
     },
   },
 };

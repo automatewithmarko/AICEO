@@ -1432,9 +1432,12 @@ export default function AiCeo() {
             // triggers sendToAI(updated) with the just-picked option
             // as the latest user message; that message ONLY exists in
             // chatHistory at gate-check time.
+            //
+            // We scan the FULL history (not just last 4). Original
+            // platform mention often sits at message 1 and gets dropped
+            // by a windowed scan after 3+ discovery answers.
             const recentUserText = chatHistory
               .filter((m) => m.role === 'user')
-              .slice(-4)
               .map((m) => String(m.content || ''))
               .join(' ')
               .toLowerCase();
@@ -1590,22 +1593,39 @@ export default function AiCeo() {
               console.warn('[AiCeo] plan_carousel with zero slides — ignoring');
               return;
             }
-            // Platform detection — scan the FULL chat history (both user
-            // and assistant turns). Previous slice(-3) missed cases like
-            //   user: "make me a LinkedIn carousel"
-            //   assistant: (discovery flow: 3 questions)
-            //   user: "Carousel" / "Educate" / "Some angle"
-            // The last 3 user messages are the discovery answers — the
-            // original "LinkedIn" mention is at position 1 and gets
-            // dropped. Scanning everything picks it up wherever it lands,
-            // and Sonnet's own questions ("What type of LinkedIn post?")
-            // also count.
-            const fullChatText = chatHistory
-              .map((m) => String(m.content || m.displayText || ''))
-              .join(' ')
-              .toLowerCase();
-            const platform = /\blinkedin\b/i.test(fullChatText) ? 'linkedin' : 'instagram';
-            console.log(`[AiCeo] plan_carousel platform detection: ${platform}`);
+            // Platform: the tool schema now REQUIRES args.platform, so
+            // Sonnet is the authoritative source. Detection from message
+            // scans stays as belt-and-suspenders in case Sonnet ever
+            // omits it, but USER messages take priority over assistant
+            // messages — the original request is the source of truth.
+            let platform = null;
+            const argsPlat = String(args.platform || '').toLowerCase();
+            if (argsPlat === 'linkedin' || argsPlat === 'instagram') {
+              platform = argsPlat;
+            } else {
+              // Fallback: scan USER messages first (their intent).
+              const userText = chatHistory
+                .filter((m) => m.role === 'user')
+                .map((m) => String(m.content || m.displayText || ''))
+                .join(' ')
+                .toLowerCase();
+              if (/\blinkedin\b/.test(userText)) platform = 'linkedin';
+              else if (/\binstagram\b/.test(userText)) platform = 'instagram';
+              else {
+                // No user mention — check assistant turns (Sonnet's
+                // discovery questions carry the platform word).
+                const asstText = chatHistory
+                  .filter((m) => m.role === 'assistant')
+                  .map((m) => String(m.content || ''))
+                  .join(' ')
+                  .toLowerCase();
+                if (/\blinkedin\b/.test(asstText)) platform = 'linkedin';
+                else if (/\binstagram\b/.test(asstText)) platform = 'instagram';
+                else platform = 'instagram'; // absolute last resort
+              }
+              console.warn(`[AiCeo] plan_carousel: platform missing from args, fell back to "${platform}"`);
+            }
+            console.log(`[AiCeo] plan_carousel platform: ${platform} (from args=${argsPlat || 'missing'})`);
             const initialArt = {
               id: Date.now(),
               type: 'content_post',
@@ -2012,6 +2032,36 @@ export default function AiCeo() {
       displayText: answer.trim(),
     };
     const updated = [...messages, userMsg];
+
+    // Carousel pre-open: Sonnet takes 15-30s to stream a plan_carousel
+    // tool call. During that time the canvas would otherwise be blank
+    // (or still showing the previous turn's artifact) and the user
+    // thinks the app is stuck. If this answer is "Carousel" (or the
+    // user typed something with carousel in it), open the panel with a
+    // "Building carousel plan…" placeholder immediately. plan_carousel
+    // firing later replaces the placeholder with the real plan card.
+    const answerLower = answer.trim().toLowerCase();
+    if (answerLower === 'carousel' || /\bcarousel\b/.test(answerLower)) {
+      // Detect platform from the FULL history so the placeholder chrome
+      // matches (LinkedIn preview vs Instagram preview).
+      const fullChatText = updated
+        .map((m) => String(m.content || m.displayText || ''))
+        .join(' ')
+        .toLowerCase();
+      const placeholderPlatform = /\blinkedin\b/i.test(fullChatText) ? 'linkedin' : 'instagram';
+      setArtifact({
+        id: `plan-pending-${Date.now()}`,
+        type: 'content_post',
+        title: `Building your ${placeholderPlatform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel plan…`,
+        content: '',
+        images: [],
+        agentSource: placeholderPlatform,
+        _planPending: true,
+      });
+      setPanelOpen(true);
+      if (isMobileRef.current) setMobileArtifactOpen(true);
+    }
+
     setMessages(updated);
     sendToAI(updated);
   }, [isGenerating, messages, sendToAI, selectedCtxItems, ceoContextCategories]);

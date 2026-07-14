@@ -777,6 +777,44 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
             {type === 'content_post' && (() => {
+              // Pre-plan "AI is building the plan" state — Sonnet takes
+              // 15-30s to stream a plan_carousel tool call, so AiCeo
+              // pre-opens the canvas with an artifact._planPending=true
+              // placeholder the moment the user picks Carousel from the
+              // format popup. Without this, the panel was blank the whole
+              // time and users thought the app was stuck.
+              if (artifact._planPending) {
+                return (
+                  <div className="ap-plan-pending" role="status" aria-live="polite">
+                    <div className="ap-plan-pending-spinner-wrap">
+                      <div className="ap-plan-pending-spinner" />
+                    </div>
+                    <div className="ap-plan-pending-title">Building your carousel plan…</div>
+                    <div className="ap-plan-pending-sub">
+                      The AI CEO is picking a hook, drafting slides, and locking down the palette. This usually takes 15–30 seconds.
+                    </div>
+                    <div className="ap-plan-pending-steps">
+                      <div className="ap-plan-pending-step ap-plan-pending-step--active">
+                        <span className="ap-plan-pending-step-dot" />
+                        Analyzing your topic
+                      </div>
+                      <div className="ap-plan-pending-step ap-plan-pending-step--active">
+                        <span className="ap-plan-pending-step-dot" />
+                        Drafting the slide roster
+                      </div>
+                      <div className="ap-plan-pending-step">
+                        <span className="ap-plan-pending-step-dot" />
+                        Selecting brand colors + typography
+                      </div>
+                      <div className="ap-plan-pending-step">
+                        <span className="ap-plan-pending-step-dot" />
+                        Writing the caption
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
               // Carousel two-step flow: plan_carousel tool call lands here
               // with carouselPlan.approved === false. Show the plan card
               // for user approval; only after Approve is clicked do we

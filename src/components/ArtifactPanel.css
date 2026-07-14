@@ -303,19 +303,117 @@
   z-index: 1;
 }
 
-/* Carousel-generation progress banner — sits above SocialPreview /
-   LinkedInPreview while the per-slide image gen loop runs. Slides in
-   from the top, disappears when pendingImages hits 0. */
-.ap-carousel-progress {
+/* Plan-pending placeholder — shown while Sonnet streams the
+   plan_carousel tool call. 15-30s of blank canvas is why users think
+   the app is stuck; this fills the whole panel with a clear
+   "AI is working" state until the real plan card arrives. */
+.ap-plan-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 32px;
+  min-height: 320px;
+  text-align: center;
+  color: var(--text-primary, #1a1a2e);
+}
+
+.ap-plan-pending-spinner-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(233, 26, 68, 0.08), rgba(233, 26, 68, 0.02));
+}
+
+.ap-plan-pending-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(233, 26, 68, 0.15);
+  border-top-color: var(--brand-red, #e91a44);
+  border-radius: 50%;
+  animation: ap-plan-pending-spin 0.9s linear infinite;
+}
+@keyframes ap-plan-pending-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.ap-plan-pending-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.ap-plan-pending-sub {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-secondary, #6b7280);
+  max-width: 440px;
+  margin-bottom: 24px;
+}
+
+.ap-plan-pending-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px;
+  background: var(--bg-light, #f9fafb);
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 10px;
+  width: 100%;
+  max-width: 340px;
+}
+
+.ap-plan-pending-step {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
-  margin: 8px 12px 4px;
-  background: #ffffff;
-  border: 1px solid var(--border-light, #e5e7eb);
+  font-size: 13px;
+  color: var(--text-muted, #9ca3af);
+  text-align: left;
+}
+
+.ap-plan-pending-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-medium, #d1d5db);
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.ap-plan-pending-step--active {
+  color: var(--text-primary, #1a1a2e);
+}
+.ap-plan-pending-step--active .ap-plan-pending-step-dot {
+  background: var(--brand-red, #e91a44);
+  box-shadow: 0 0 0 3px rgba(233, 26, 68, 0.15);
+  animation: ap-plan-pending-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ap-plan-pending-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.2); }
+}
+
+/* Carousel-generation progress banner — sits above SocialPreview /
+   LinkedInPreview while the per-slide image gen loop runs. Slides in
+   from the top, disappears when pendingImages hits 0. Made bigger and
+   higher-contrast so users don't miss it. */
+.ap-carousel-progress {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  margin: 12px 12px 6px;
+  background: linear-gradient(90deg, rgba(233, 26, 68, 0.08), rgba(233, 26, 68, 0.02));
+  border: 1px solid rgba(233, 26, 68, 0.25);
+  border-left: 3px solid var(--brand-red, #e91a44);
   border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 14px rgba(233, 26, 68, 0.10);
   animation: ap-carousel-progress-in 0.2s ease-out;
   position: relative;
   z-index: 2;
@@ -327,9 +425,9 @@
 
 .ap-carousel-progress-spinner {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border-medium, #d1d5db);
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid rgba(233, 26, 68, 0.20);
   border-top-color: var(--brand-red, #e91a44);
   border-radius: 50%;
   animation: ap-carousel-spin 0.8s linear infinite;
@@ -341,9 +439,10 @@
 
 .ap-carousel-progress-text {
   flex-shrink: 0;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-primary, #1a1a2e);
+  letter-spacing: -0.005em;
 }
 
 .ap-carousel-progress-bar {
