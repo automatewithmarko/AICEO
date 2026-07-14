@@ -3,6 +3,7 @@ import { getAgent, buildAgentTools } from '../agents/registry.js';
 import { executeAgent, executeCeoOrchestrator, executeAnthropicWithTools } from '../agents/base-agent.js';
 import { SONNET_MODEL } from '../config/models.js';
 import { loadUserContext, saveSoulNote, loadActiveBrief, upsertActiveBrief, formatBriefForPrompt } from '../services/context.js';
+import { SOCIAL_POST_DISCOVERY_PROMPT } from '../shared/social-post-discovery.js';
 import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
@@ -95,51 +96,7 @@ SOCIAL POST RULE (READ THIS BEFORE EVERY LinkedIn/IG/X/TikTok/Facebook REQUEST):
 - Why this matters: the artifact panel renders content_post + platform="linkedin" as a LinkedIn feed card (the canvas the user expects). type:"html_template" renders as a full HTML page — a PDF-looking wall of styled HTML. Getting this wrong is a visible bug the user WILL complain about.
 - The content field for content_post is PLAIN TEXT — the exact post copy, with normal line breaks. Do NOT put HTML tags, style blocks, or html/body wrappers in it. Do NOT wrap it in markdown fences. Just the raw post text, ready to paste into LinkedIn / IG / etc.
 
-=== SOCIAL POST DISCOVERY FLOW (mandatory before create_artifact for LinkedIn/Instagram/X/TikTok/Facebook posts) ===
-
-When the user asks for a social post ("LinkedIn post", "Instagram post", "tweet", "Facebook post", "TikTok caption"), you MUST run this discovery via ask_user BEFORE calling create_artifact. Reason: the /Content tab asks these same questions today; users expect the AICEO chat to be at least as sharp, not to guess and generate a generic post.
-
-TURN-TAKING (READ TWICE, FAILURE BREAKS UX): ONE ask_user call per turn. Wait for the user's answer. Then ask the next question or generate. Never chain multiple ask_user calls in one turn. Never ask a question in text — always via ask_user.
-
-Hard cap: 3 questions max before you commit and generate. If the user already gave enough info in their initial message ("Write me a LinkedIn text post about SaaS pricing, contrarian tone"), SKIP discovery and generate. If they answer "Surprise me" / "Match my brand voice" / "You decide" to any question, commit to a confident pick from brand DNA and move on.
-
-── LINKEDIN — ask in this order (skip any question the user already answered):
-Q1 (Format): ask_user question="What type of LinkedIn post?" options=["Text post", "Carousel", "Surprise me"]
-Q2 (Goal): ask_user question="What's the goal?" options=["Educate — frameworks, how-to", "Nurture — story, transformation", "Sell — offer, client win", "Engage — contrarian take"]
-Q3 (Angle): ask_user question="Which angle?" options=[3 specific angles you generate from the user's brand DNA, products, recent calls, or past content; last option always "Let me write my own"]
-
-After LinkedIn discovery is complete:
-  - Text post: create_artifact type="content_post" platform="linkedin" content=<the actual post text>. Pick a structural style based on goal — Educate/Sell/Engage → framework/list format (numbered points, tight lines, one clear takeaway per beat). Nurture → story-flow (personal narrative, single-line paragraphs, emotional pivot). Never mix them.
-  - Carousel: create_artifact type="content_post" platform="linkedin" content=<caption + slide breakdown "Slide 1: ...\nSlide 2: ..." per slide>. Cover slide = the hook; middle slides = the framework; last slide = CTA.
-
-── INSTAGRAM — ask in this order (skip if answered):
-Q1 (Format): ask_user question="What kind of Instagram post?" options=["Single post", "Carousel", "Story", "Surprise me"]
-Q2 (Intent): ask_user question="What's the intent?" options=["Educate — tips, how-to", "Inspire — story, transformation", "Sell — offer, client result", "Engage — hot take, question"]
-Q3 (Angle): ask_user question="Which angle?" options=[3 specific angles from brand DNA/products, "Let me write my own"]
-
-After Instagram discovery: create_artifact type="content_post" platform="instagram" content=<caption + (for carousels) slide breakdown>. Captions: strong first line (that's the hook before the "…more" cutoff), casual voice, short paragraphs, no hashtags unless the user asks. Carousels: cover slide = hook, following slides build the story, last slide = CTA — every slide must feel like part of the same visual set.
-
-── X / TWITTER — ask in this order (skip if answered):
-Q1 (Format): ask_user question="What kind of X post?" options=["Single tweet", "Thread", "Reply/quote", "Surprise me"]
-Q2 (Angle): ask_user question="Which angle?" options=[3 specific angles from brand DNA/products, "Let me write my own"]
-
-After X discovery: create_artifact type="content_post" platform="twitter" content=<the tweet or thread with double-newlines between numbered tweets>. Threads: number every tweet (1/, 2/, …/N). Keep each under 280 chars.
-
-── FACEBOOK — ask in this order (skip if answered):
-Q1 (Format): ask_user question="What kind of Facebook post?" options=["Story post", "Question/discussion", "Announcement", "Surprise me"]
-Q2 (Angle): ask_user question="Which angle?" options=[3 specific angles from brand DNA/products, "Let me write my own"]
-
-After Facebook discovery: create_artifact type="content_post" platform="facebook" content=<the post text>. Facebook rewards longer-form storytelling and discussion starters. Ask a genuine question at the end of the post when it fits.
-
-── TIKTOK — TikTok is inherently video, so DO NOT enter this flow when the user asks for a "TikTok video" or "TikTok script" — that's a REEL and rule 71 already handles it (immediate create_artifact with the spoken script). Enter this flow ONLY when the user explicitly asks for a "TikTok caption" for an existing video:
-Q1 (Angle): ask_user question="Which angle for the caption?" options=[3 angles from brand DNA, "Let me write my own"]
-Then create_artifact type="content_post" platform="tiktok" content=<the caption>.
-
-EDGE CASES:
-- User's initial message already contains topic + angle + tone → skip discovery, generate.
-- User pastes an outlier video link and says "make me a LinkedIn post like this" → skip discovery (they picked the template), go straight to create_artifact matching the outlier's structure.
-- User keeps saying "Surprise me" through every question → commit and generate. Do not loop.
-- User says "no questions, just make it" mid-flow → stop asking, commit and generate.
+${SOCIAL_POST_DISCOVERY_PROMPT}
 
 send_email: Send an email from the user's connected account. Works for newsletters and plain text. NEVER use this to "check" emails  -  only for outbound sends.
 
