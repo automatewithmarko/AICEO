@@ -88,8 +88,12 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
       navigate('/settings', { state: { scrollTo: 'integrations' } });
       return;
     }
-    const imageUrl = imgs?.[0]?.src || null;
-    await postToLinkedIn(text, imageUrl);
+    // Pass every slide (sorted by idx) so LinkedIn ships a real
+    // multi-image carousel instead of just the first slide.
+    const orderedImgs = Array.isArray(imgs)
+      ? [...imgs].sort((a, b) => (a?.idx || 0) - (b?.idx || 0)).map((im) => im?.src).filter(Boolean)
+      : [];
+    await postToLinkedIn(text, orderedImgs);
   };
   const handleCanvasSchedule = async ({ text, images: imgs, date, time, platform }) => {
     // Build the ISO string from a real Date so the user's local timezone

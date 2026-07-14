@@ -174,14 +174,21 @@ export async function publishSocialPostRow(userId, post) {
       throw err;
     }
 
-    // Route to postWithImage when the row carries media so scheduled
-    // posts don't silently drop their images. Only the first slide is
-    // uploaded — LinkedIn multi-image via REST is a separate flow that
-    // isn't wired yet (tracked in the audit as a follow-up).
-    const firstImageUrl = Array.isArray(post.media) ? post.media[0]?.url : null;
-    const result = firstImageUrl
-      ? await linkedinApi.postWithImage(access_token, linkedin_user_id, post.caption || '', firstImageUrl)
-      : await linkedinApi.postText(access_token, linkedin_user_id, post.caption || '');
+    // Route to the right publish path based on how many slides the
+    // scheduled row carries. Multi-image posts ship all slides as a
+    // LinkedIn carousel; single-image posts stay on the simpler path;
+    // text-only posts skip the image pipeline entirely.
+    const imageUrls = Array.isArray(post.media)
+      ? post.media.map((m) => m?.url).filter(Boolean)
+      : [];
+    let result;
+    if (imageUrls.length > 1) {
+      result = await linkedinApi.postWithImages(access_token, linkedin_user_id, post.caption || '', imageUrls);
+    } else if (imageUrls.length === 1) {
+      result = await linkedinApi.postWithImage(access_token, linkedin_user_id, post.caption || '', imageUrls[0]);
+    } else {
+      result = await linkedinApi.postText(access_token, linkedin_user_id, post.caption || '');
+    }
 
     await supabase
       .from('social_posts')

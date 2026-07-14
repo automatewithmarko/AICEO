@@ -7432,8 +7432,10 @@ export default function Content() {
                   navigate('/settings', { state: { scrollTo: 'integrations' } });
                   return;
                 }
-                const imageUrl = images?.[0]?.src || null;
-                await postToLinkedIn(text, imageUrl);
+                const orderedImgs = Array.isArray(images)
+                  ? [...images].sort((a, b) => (a?.idx || 0) - (b?.idx || 0)).map((im) => im?.src).filter(Boolean)
+                  : [];
+                await postToLinkedIn(text, orderedImgs);
               }}
               onSchedule={async ({ text, images, date, time, platform }) => {
                 const [y, m, d] = date.split('-').map(Number);
@@ -7499,8 +7501,10 @@ export default function Content() {
                       navigate('/settings', { state: { scrollTo: 'integrations' } });
                       return;
                     }
-                    const imageUrl = imgs?.[0]?.src || null;
-                    await postToLinkedIn(text, imageUrl);
+                    const orderedImgs = Array.isArray(imgs)
+                      ? [...imgs].sort((a, b) => (a?.idx || 0) - (b?.idx || 0)).map((im) => im?.src).filter(Boolean)
+                      : [];
+                    await postToLinkedIn(text, orderedImgs);
                   }}
                   onSchedule={async ({ text, images: imgs, date, time, platform }) => {
                     const [y, m, d] = date.split('-').map(Number);

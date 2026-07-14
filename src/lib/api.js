@@ -1325,12 +1325,26 @@ export async function postToInstagram({ caption, media_items, post_type, instagr
 
 // ─── LinkedIn Posting ───
 
-export async function postToLinkedIn(text, imageUrl) {
+// Publish a text / single-image / multi-image (carousel) post to
+// LinkedIn. Second arg is polymorphic: pass a string for a single
+// image, or a string[] for a carousel. The backend routes to the right
+// LinkedIn REST content type based on length.
+export async function postToLinkedIn(text, imageOrImages) {
+  const imageUrls = Array.isArray(imageOrImages)
+    ? imageOrImages.filter(Boolean)
+    : (imageOrImages ? [imageOrImages] : []);
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/integrations/linkedin/post`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, imageUrl }),
+    body: JSON.stringify({
+      text,
+      // Send imageUrl for the single-image case so older backend
+      // versions still work during rollout; send imageUrls whenever
+      // there are 2+ slides.
+      imageUrl: imageUrls[0] || null,
+      imageUrls: imageUrls.length > 1 ? imageUrls : undefined,
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

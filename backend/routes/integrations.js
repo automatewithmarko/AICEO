@@ -152,8 +152,14 @@ router.post('/api/integrations/linkedin/post', requireFeature('linkedin_posting'
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
-  const { text, imageUrl } = req.body;
+  // Accept either a single imageUrl (back-compat with older callers)
+  // or an imageUrls[] array for carousels — LinkedIn's multi-image
+  // content type renders 2-20 images as a swipeable carousel.
+  const { text, imageUrl, imageUrls } = req.body;
   if (!text) return res.status(400).json({ error: 'text is required' });
+  const urlList = Array.isArray(imageUrls) && imageUrls.length
+    ? imageUrls.filter(Boolean)
+    : (imageUrl ? [imageUrl] : []);
 
   // Fetch stored LinkedIn credentials
   const { data: integration, error: fetchErr } = await supabase
@@ -177,8 +183,10 @@ router.post('/api/integrations/linkedin/post', requireFeature('linkedin_posting'
 
   try {
     let result;
-    if (imageUrl) {
-      result = await linkedinApi.postWithImage(access_token, linkedin_user_id, text, imageUrl);
+    if (urlList.length > 1) {
+      result = await linkedinApi.postWithImages(access_token, linkedin_user_id, text, urlList);
+    } else if (urlList.length === 1) {
+      result = await linkedinApi.postWithImage(access_token, linkedin_user_id, text, urlList[0]);
     } else {
       result = await linkedinApi.postText(access_token, linkedin_user_id, text);
     }
@@ -190,7 +198,7 @@ router.post('/api/integrations/linkedin/post', requireFeature('linkedin_posting'
       external_post_id: result.postUrn || null,
       url: result.postUrl || null,
       caption: text.slice(0, 5000),
-      thumbnail_url: imageUrl || null,
+      thumbnail_url: urlList[0] || null,
       published_at: new Date().toISOString(),
     });
 

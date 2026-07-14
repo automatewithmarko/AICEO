@@ -189,3 +189,109 @@ export async function postWithImage(accessToken, linkedinUserId, text, imageUrl)
 
   return { postUrl, postUrn };
 }
+
+/**
+ * Upload one image to LinkedIn's Images API. Returns the image URN
+ * that a later posts call can attach. Broken out from postWithImage so
+ * postWithImages can reuse it for every slide of a carousel.
+ */
+async function uploadSingleImage(accessToken, personUrn, imageUrl) {
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    'LinkedIn-Version': LINKEDIN_VERSION,
+  };
+
+  const initRes = await fetch('https://api.linkedin.com/rest/images?action=initializeUpload', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ initializeUploadRequest: { owner: personUrn } }),
+  });
+  if (!initRes.ok) {
+    const errBody = await initRes.text().catch(() => '');
+    throw new Error(`LinkedIn image init failed (${initRes.status}): ${errBody.slice(0, 500)}`);
+  }
+  const initData = await initRes.json();
+  const { uploadUrl, image: imageUrn } = initData.value;
+
+  const imgRes = await fetch(imageUrl);
+  if (!imgRes.ok) {
+    throw new Error(`Failed to download image from ${imageUrl}: ${imgRes.status}`);
+  }
+  const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
+
+  const uploadRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/octet-stream',
+    },
+    body: imageBuffer,
+  });
+  if (!uploadRes.ok) {
+    const errBody = await uploadRes.text().catch(() => '');
+    throw new Error(`LinkedIn image upload failed (${uploadRes.status}): ${errBody.slice(0, 500)}`);
+  }
+
+  return imageUrn;
+}
+
+/**
+ * Publish a multi-image carousel post to LinkedIn. Uses LinkedIn's
+ * feed multi-image content type — up to 20 images render as a
+ * swipeable carousel in the LinkedIn feed on both web and mobile.
+ * @param {string[]} imageUrls — public URLs of every slide, in order
+ * @returns {{ postUrl: string, postUrn: string }}
+ */
+export async function postWithImages(accessToken, linkedinUserId, text, imageUrls) {
+  const urls = (imageUrls || []).filter(Boolean);
+  if (urls.length === 0) throw new Error('postWithImages requires at least one image URL');
+  if (urls.length === 1) {
+    // No point going through multiImage for a single slide — it
+    // requires ≥2 images anyway. Fall through to the single-image
+    // publish path so we don't get a schema rejection.
+    return postWithImage(accessToken, linkedinUserId, text, urls[0]);
+  }
+
+  const personUrn = `urn:li:person:${linkedinUserId}`;
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    'LinkedIn-Version': LINKEDIN_VERSION,
+  };
+
+  // Upload every slide in parallel; LinkedIn rate-limits image uploads
+  // per-app but a 7-20 slide carousel comfortably fits under it and
+  // parallel cuts the perceived wall-clock roughly in half.
+  const imageUrns = await Promise.all(urls.map((u) => uploadSingleImage(accessToken, personUrn, u)));
+
+  // Multi-image content shape per LinkedIn REST /posts contract.
+  const postBody = {
+    author: personUrn,
+    commentary: text,
+    visibility: 'PUBLIC',
+    distribution: { feedDistribution: 'MAIN_FEED' },
+    lifecycleState: 'PUBLISHED',
+    content: {
+      multiImage: {
+        images: imageUrns.map((id) => ({ id })),
+      },
+    },
+  };
+
+  const postRes = await fetch('https://api.linkedin.com/rest/posts', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(postBody),
+  });
+  if (!postRes.ok) {
+    const errBody = await postRes.text().catch(() => '');
+    throw new Error(`LinkedIn carousel post failed (${postRes.status}): ${errBody.slice(0, 500)}`);
+  }
+
+  const postUrn = postRes.headers.get('x-restli-id') || '';
+  const postUrl = postUrn
+    ? `https://www.linkedin.com/feed/update/${postUrn}/`
+    : 'https://www.linkedin.com/feed/';
+  return { postUrl, postUrn };
+}
