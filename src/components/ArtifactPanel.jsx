@@ -47,11 +47,16 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
     return () => { cancelled = true; };
   }, []);
 
-  const handleCanvasPostToInstagram = async ({ text, images: imgs }) => {
-    // BooSend Instagram publish. The backend resolves the connected
-    // Instagram account from the user's active integration — no need to
-    // pass instagram_account_id from the client. Errors surface up to
-    // CanvasActionsBar which shows them in the button state.
+  const handleCanvasPostToInstagram = async ({ text, images: imgs, connect, reconnect }) => {
+    if (connect || reconnect) {
+      // Instagram publishing runs through BooSend. When the token no
+      // longer authorizes the target account (Meta "does not exist,
+      // cannot be loaded due to missing permissions"), the user needs
+      // to paste a fresh BooSend API key. Deep-link straight into that
+      // modal so the fix is one step.
+      navigate('/settings', { state: { scrollTo: 'integrations', highlight: 'boosend' } });
+      return;
+    }
     const mediaItems = (imgs || []).map((im) => ({ url: im?.src })).filter((m) => m.url);
     const postType = mediaItems.length > 1 ? 'carousel' : (mediaItems.length === 1 ? 'image' : 'text');
     await postToInstagram({
@@ -63,9 +68,9 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
 
   const handleCanvasConnectInstagram = () => {
     // Instagram OAuth flow lives on the Settings page (BooSend integration
-    // block). Deep-link there and highlight the integrations section, same
-    // pattern as the LinkedIn "Connect" fallback.
-    navigate('/settings', { state: { scrollTo: 'integrations' } });
+    // block). Deep-link there and open the BooSend modal, same pattern
+    // as the LinkedIn "Connect" fallback.
+    navigate('/settings', { state: { scrollTo: 'integrations', highlight: 'boosend' } });
   };
 
   const handleCanvasPostToLinkedIn = async ({ text, images: imgs, connect, reconnect }) => {

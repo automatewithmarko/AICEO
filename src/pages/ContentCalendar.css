@@ -446,6 +446,40 @@
   margin-top: 12px;
 }
 
+/* ─── Error banner reconnect actions ─────────────────────────────── */
+.cc-publish-error-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.cc-error-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: #E4405F;
+  border: 1px solid #E4405F;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: opacity 0.15s;
+}
+.cc-error-action-btn:hover { opacity: 0.9; }
+.cc-error-action-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.cc-error-action-btn--ghost {
+  background: #fff;
+  color: rgba(0,0,0,0.85);
+  border-color: rgba(0,0,0,0.16);
+}
+.cc-error-action-btn--ghost:hover {
+  background: rgba(0,0,0,0.04);
+  opacity: 1;
+}
+
 /* ─── Modal ─────────────────────────────────────────────────────────── */
 
 .cc-modal-overlay {

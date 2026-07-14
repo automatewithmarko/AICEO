@@ -202,7 +202,16 @@ export default function CanvasActionsBar({
               </button>
               {schedState === 'error' && schedError && (
                 <div className="cab-schedule-error" role="alert">
-                  {schedError}
+                  <span>{schedError}</span>
+                  {/does not exist|missing permissions|cannot be loaded|invalid access token|expired|boosend|reconnect/i.test(schedError) && onConnect && (
+                    <button
+                      type="button"
+                      className="cab-schedule-error-action"
+                      onClick={() => onConnect?.()}
+                    >
+                      <ExternalLink size={12} /> Reconnect {platformLabel}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -213,21 +222,33 @@ export default function CanvasActionsBar({
       {/* Post to <platform> */}
       {onPostToPlatform && !streaming && (
         isConnected ? (
-          <button
-            className={`cab-btn cab-btn--${platform}`}
-            onClick={handlePost}
-            disabled={postState === 'posting' || postState === 'posted'}
-          >
-            {postState === 'posting' ? (
-              <><Loader size={14} className="cab-spin" /> Posting...</>
-            ) : postState === 'posted' ? (
-              <><Check size={14} /> Posted!</>
-            ) : postState === 'error' ? (
-              <><X size={14} /> {postError.slice(0, 40) || 'Failed'}</>
-            ) : (
-              <><Send size={14} /> Post to {platformLabel}</>
+          <>
+            <button
+              className={`cab-btn cab-btn--${platform}`}
+              onClick={handlePost}
+              disabled={postState === 'posting' || postState === 'posted'}
+            >
+              {postState === 'posting' ? (
+                <><Loader size={14} className="cab-spin" /> Posting...</>
+              ) : postState === 'posted' ? (
+                <><Check size={14} /> Posted!</>
+              ) : postState === 'error' ? (
+                <><X size={14} /> {postError.slice(0, 40) || 'Failed'}</>
+              ) : (
+                <><Send size={14} /> Post to {platformLabel}</>
+              )}
+            </button>
+            {postState === 'error' && /does not exist|missing permissions|cannot be loaded|invalid access token|expired|boosend|reconnect/i.test(postError) && onConnect && (
+              <button
+                type="button"
+                className="cab-btn cab-btn--connect"
+                onClick={() => onConnect?.()}
+                title={`Your ${platformLabel} token can't post to this account — reconnect to grant fresh permissions.`}
+              >
+                <ExternalLink size={14} /> Reconnect {platformLabel}
+              </button>
             )}
-          </button>
+          </>
         ) : (
           <button
             className="cab-btn cab-btn--connect"
