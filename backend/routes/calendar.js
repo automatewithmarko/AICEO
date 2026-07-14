@@ -125,12 +125,19 @@ async function fetchBoosendInstagramAccount(apiKey) {
 }
 
 // Pick the Meta-side Instagram business account id from BooSend's
-// account object. BooSend has surfaced different field names over time
-// depending on tenant setup — try the well-known Meta-side names in
-// order and fall back to the BooSend UUID only if none exist.
+// account object. Confirmed shape from Railway logs:
+//   { id: '<boosend-uuid>', username, instagram_account_id: '17841…',
+//     profile_picture_url }
+// The Meta id lives in `instagram_account_id` (17-digit numeric). The
+// BooSend UUID in `id` is NOT accepted by the publish endpoint — it
+// gets forwarded straight to Meta as-is and Meta rejects it.
 function pickMetaInstagramId(acc) {
   if (!acc) return null;
+  // Prefer numeric Meta ids. BooSend's `instagram_account_id` field
+  // holds the real Meta id, but if some tenant surfaces it under a
+  // different name we accept the well-known aliases too.
   return (
+    acc.instagram_account_id ||
     acc.instagram_business_account_id ||
     acc.ig_business_id ||
     acc.ig_user_id ||
