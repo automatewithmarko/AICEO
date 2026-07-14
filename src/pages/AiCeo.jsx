@@ -1572,29 +1572,24 @@ export default function AiCeo() {
           }
           if (name === 'plan_carousel') {
             // Instagram / LinkedIn carousel — Sonnet has emitted the plan
-            // (hook, angle, caption, slides, designSystem). We render the
-            // plan in the canvas immediately so the user sees progress,
-            // then loop through slides calling generate_image with the
-            // SAME deterministic per-slide prompt builder /Content uses.
-            // Result: byte-identical visual cohesion across AICEO and
-            // /Content, and the user's own upload / schedule / post
-            // buttons in the canvas keep working because we produce a
-            // real content_post artifact.
+            // (hook, angle, caption, slides, designSystem). Two-step UX
+            // matching /Content: show the plan card in the canvas with an
+            // Approve button, then run the per-slide image generation loop
+            // once the user approves. Auto-generating without approval
+            // ate credits and prevented the user from catching bad plans
+            // (wrong slide count, off-brand palette, etc.).
             const plan = {
               hook: args.hook || '',
               angle: args.angle || '',
               caption: args.caption || '',
               slides: Array.isArray(args.slides) ? args.slides : [],
               designSystem: args.designSystem || {},
+              approved: false,
             };
             if (plan.slides.length === 0) {
               console.warn('[AiCeo] plan_carousel with zero slides — ignoring');
               return;
             }
-            // Platform detection: scan the recent user messages for a
-            // literal platform mention. Uses chatHistory (fresh) rather
-            // than the closure's stale messages — same reason as the
-            // gate above.
             const recentUserText = chatHistory
               .filter((m) => m.role === 'user')
               .slice(-3)
@@ -1602,19 +1597,22 @@ export default function AiCeo() {
               .join(' ')
               .toLowerCase();
             const platform = /\blinkedin\b/i.test(recentUserText) ? 'linkedin' : 'instagram';
-            const brandName = brandDna?.brand_name || user?.name || '';
-
             const initialArt = {
               id: Date.now(),
               type: 'content_post',
-              title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel: ${plan.hook.slice(0, 60)}`,
+              title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel plan`,
               content: plan.caption,
               images: [],
-              pendingImages: plan.slides.length,
+              // Zero pending until the user approves — the plan card
+              // renders, no spinner runs. On approve, we'll flip these.
+              pendingImages: 0,
               totalSlides: plan.slides.length,
               carouselPlan: plan,
               agentSource: platform,
-              streaming: true,
+              streaming: false,
+              // Stash the message id so handleApproveCarousel can commit
+              // the finished artifact to the right chat card at the end.
+              _assistantMsgId: assistantMsgId,
             };
             setArtifact(initialArt);
             setPanelOpen(true);
@@ -1624,55 +1622,6 @@ export default function AiCeo() {
                 ? { ...m, hasArtifact: true, artifactTitle: initialArt.title, artifactType: 'content_post' }
                 : m
             ));
-
-            // Generate slides sequentially. Parallel would be faster but
-            // caps out on the image API's concurrent-request limit and
-            // produces choppy UI updates. Sequential shows a visible
-            // "1/8 done, 2/8 done, …" progression via pendingImages.
-            (async () => {
-              for (let i = 0; i < plan.slides.length; i++) {
-                const slide = plan.slides[i];
-                let prompt;
-                try {
-                  prompt = buildCarouselSlidePrompt({
-                    designSystem: plan.designSystem,
-                    slide,
-                    index: i,
-                    total: plan.slides.length,
-                    brand: { name: brandName },
-                    platform,
-                  });
-                } catch (buildErr) {
-                  console.error(`[AiCeo] carousel prompt build failed for slide ${i + 1}:`, buildErr);
-                  setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
-                  continue;
-                }
-                try {
-                  // Backend has a dedicated 'linkedin_carousel' config
-                  // (3:4 portrait). Instagram carousels use the regular
-                  // 'instagram' platform (1:1 square).
-                  const backendPlatform = platform === 'linkedin' ? 'linkedin_carousel' : 'instagram';
-                  const result = await generateImage(prompt, backendPlatform, null, null, {});
-                  if (result?.image?.data) {
-                    const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-                    setArtifact((prev) => prev ? {
-                      ...prev,
-                      images: [...(prev.images || []), { src, idx: i }],
-                      pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
-                    } : prev);
-                  } else {
-                    setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
-                  }
-                } catch (imgErr) {
-                  console.error(`[AiCeo] carousel slide ${i + 1} failed:`, imgErr);
-                  setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
-                }
-              }
-              // All slides attempted — clear streaming flag and stamp
-              // the snapshot so the chat card owns the finished artifact.
-              setArtifact((prev) => prev ? { ...prev, streaming: false } : prev);
-              commitOwnedArtifact(assistantMsgId);
-            })();
           }
           if (name === 'generate_image') {
             // Build referenceImages from any image the user attached
@@ -1884,6 +1833,71 @@ export default function AiCeo() {
       setIsGenerating(false);
     }
   }, []);
+
+  // Kick off the per-slide image gen loop after the user approves the
+  // carousel plan. Reads from the current artifact (carouselPlan +
+  // stashed _assistantMsgId), flips approved/streaming/pendingImages,
+  // then loops through slides with the shared buildCarouselSlidePrompt.
+  // Sequential to keep API concurrency polite and give the progress
+  // banner clean "1/N, 2/N, ..." updates.
+  const handleApproveCarousel = useCallback(() => {
+    const current = artifactRef.current;
+    const plan = current?.carouselPlan;
+    if (!plan || plan.approved) return;
+    const slides = plan.slides || [];
+    if (slides.length === 0) return;
+    const platform = current.agentSource === 'linkedin' ? 'linkedin' : 'instagram';
+    const brandName = brandDna?.brand_name || user?.name || '';
+    const assistantMsgId = current._assistantMsgId || null;
+
+    setArtifact((prev) => prev ? {
+      ...prev,
+      title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel: ${plan.hook.slice(0, 60)}`,
+      pendingImages: slides.length,
+      streaming: true,
+      carouselPlan: { ...prev.carouselPlan, approved: true },
+    } : prev);
+
+    (async () => {
+      for (let i = 0; i < slides.length; i++) {
+        const slide = slides[i];
+        let prompt;
+        try {
+          prompt = buildCarouselSlidePrompt({
+            designSystem: plan.designSystem,
+            slide,
+            index: i,
+            total: slides.length,
+            brand: { name: brandName },
+            platform,
+          });
+        } catch (buildErr) {
+          console.error(`[AiCeo] carousel prompt build failed for slide ${i + 1}:`, buildErr);
+          setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+          continue;
+        }
+        try {
+          const backendPlatform = platform === 'linkedin' ? 'linkedin_carousel' : 'instagram';
+          const result = await generateImage(prompt, backendPlatform, null, null, {});
+          if (result?.image?.data) {
+            const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+            setArtifact((prev) => prev ? {
+              ...prev,
+              images: [...(prev.images || []), { src, idx: i }],
+              pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
+            } : prev);
+          } else {
+            setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+          }
+        } catch (imgErr) {
+          console.error(`[AiCeo] carousel slide ${i + 1} failed:`, imgErr);
+          setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+        }
+      }
+      setArtifact((prev) => prev ? { ...prev, streaming: false } : prev);
+      if (assistantMsgId) commitOwnedArtifact(assistantMsgId);
+    })();
+  }, [brandDna, user, commitOwnedArtifact]);
 
   const answerQuestion = useCallback((answer) => {
     if (!answer.trim() || isGenerating) return;
@@ -2763,6 +2777,7 @@ export default function AiCeo() {
                   setArtifact(prev => prev ? apply(prev) : prev);
                 }
               }}
+              onApproveCarousel={handleApproveCarousel}
               sessionId={sessionId}
             />
           </div>
@@ -2792,6 +2807,7 @@ export default function AiCeo() {
                 setArtifact(prev => prev ? { ...prev, content: html } : prev);
               }
             }}
+            onApproveCarousel={handleApproveCarousel}
           />
         </div>
       )}

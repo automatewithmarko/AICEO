@@ -3,6 +3,7 @@ import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocke
 import SocialPreview from './SocialPreview';
 import LinkedInPreview from './LinkedInPreview';
 import CanvasActionsBar from './CanvasActionsBar';
+import CarouselPlanApproval from './CarouselPlanApproval';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
@@ -14,7 +15,7 @@ import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, onApproveCarousel = null, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
@@ -727,6 +728,25 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
             {type === 'content_post' && (() => {
+              // Carousel two-step flow: plan_carousel tool call lands here
+              // with carouselPlan.approved === false. Show the plan card
+              // for user approval; only after Approve is clicked do we
+              // flip approved=true and start the per-slide image gen loop
+              // (handled by AiCeo.jsx handleApproveCarousel).
+              const carouselPlan = artifact.carouselPlan;
+              const awaitingApproval = !!(carouselPlan && carouselPlan.slides?.length > 0 && !carouselPlan.approved);
+              if (awaitingApproval) {
+                const planPlatform = /linkedin/i.test(String(agentSource || '')) ? 'linkedin' : 'instagram';
+                return (
+                  <CarouselPlanApproval
+                    plan={carouselPlan}
+                    platform={planPlatform}
+                    generating={false}
+                    onApprove={() => onApproveCarousel && onApproveCarousel()}
+                  />
+                );
+              }
+
               // Carousel generation banner — visible feedback while the
               // per-slide image gen loop runs. Sits above whichever
               // preview component renders below. Shows the CURRENT
