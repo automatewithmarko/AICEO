@@ -19,7 +19,7 @@
 //   onConnect     — click handler for the connect state
 
 import { useState, useRef, useEffect } from 'react';
-import { Upload, CalendarClock, Send, Loader, Check, X, ExternalLink } from 'lucide-react';
+import { Upload, CalendarClock, Send, Loader, Check, X, ExternalLink, Download } from 'lucide-react';
 import './CanvasActionsBar.css';
 
 const PLATFORM_LABEL = {
@@ -50,6 +50,7 @@ export default function CanvasActionsBar({
   const [schedError, setSchedError] = useState('');
   const [postState, setPostState] = useState('idle'); // idle|posting|posted|error
   const [postError, setPostError] = useState('');
+  const [downloadState, setDownloadState] = useState('idle'); // idle|downloading|done|error
 
   // Close popover on outside click / scroll / resize (same pattern as
   // LinkedInPreview — toolbar row has overflow:auto so we anchor with
@@ -104,6 +105,75 @@ export default function CanvasActionsBar({
     }
   };
 
+  const handleDownload = async () => {
+    if (downloadState === 'downloading') return;
+    setDownloadState('downloading');
+    try {
+      // Single image: skip the zip and just download the image directly.
+      if (!images?.length) {
+        setDownloadState('idle');
+        return;
+      }
+      if (images.length === 1) {
+        const img = images[0];
+        const a = document.createElement('a');
+        a.href = img.src;
+        a.download = `${platform || 'post'}-image.${img.src.startsWith('data:image/png') ? 'png' : 'jpg'}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setDownloadState('done');
+        setTimeout(() => setDownloadState('idle'), 1200);
+        return;
+      }
+      // Carousel: zip all slides + caption.
+      const { default: JSZip } = await import('jszip');
+      const zip = new JSZip();
+      let added = 0;
+      for (const img of images) {
+        if (!img?.src) continue;
+        const label = String((img.idx ?? added) + 1).padStart(2, '0');
+        try {
+          if (img.src.startsWith('data:')) {
+            const commaIdx = img.src.indexOf(',');
+            if (commaIdx === -1) continue;
+            const b64 = img.src.slice(commaIdx + 1);
+            const mime = (img.src.match(/^data:([^;]+);/) || [])[1] || 'image/png';
+            const ext = (mime.split('/')[1] || 'png').split('+')[0];
+            zip.file(`slide-${label}.${ext}`, b64, { base64: true });
+            added++;
+          } else {
+            const res = await fetch(img.src, { mode: 'cors' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const ext = ((blob.type || 'image/png').split('/')[1] || 'png').split('+')[0];
+            zip.file(`slide-${label}.${ext}`, blob);
+            added++;
+          }
+        } catch (imgErr) {
+          console.warn(`[cab-download] slide ${label} failed:`, imgErr);
+        }
+      }
+      if (text?.trim()) zip.file('caption.txt', text.trim());
+      if (added === 0) throw new Error('No slides could be added.');
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${platform || 'carousel'}-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setDownloadState('done');
+      setTimeout(() => setDownloadState('idle'), 1200);
+    } catch (err) {
+      console.error('[cab-download] failed:', err);
+      setDownloadState('error');
+      setTimeout(() => setDownloadState('idle'), 1600);
+    }
+  };
+
   const handlePost = async () => {
     if (!onPostToPlatform || postState === 'posting' || postState === 'posted') return;
     setPostState('posting');
@@ -146,6 +216,27 @@ export default function CanvasActionsBar({
           title="Upload images to this post"
         >
           <Upload size={14} /> Upload Image
+        </button>
+      )}
+
+      {/* Download — zip when multi-image, single image otherwise. Only
+          renders when there's actual media to download. */}
+      {images?.length > 0 && !streaming && (
+        <button
+          className="cab-btn"
+          onClick={handleDownload}
+          disabled={downloadState === 'downloading'}
+          title={images.length > 1 ? 'Download all slides as .zip' : 'Download image'}
+        >
+          {downloadState === 'downloading' ? (
+            <><Loader size={14} className="cab-spin" /> Zipping…</>
+          ) : downloadState === 'done' ? (
+            <><Check size={14} /> Downloaded</>
+          ) : downloadState === 'error' ? (
+            <><X size={14} /> Failed</>
+          ) : (
+            <><Download size={14} /> {images.length > 1 ? 'Download .zip' : 'Download'}</>
+          )}
         </button>
       )}
 

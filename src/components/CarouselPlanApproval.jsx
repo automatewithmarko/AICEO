@@ -16,10 +16,10 @@
 //   onApprove  — click handler for the "Approve & generate slides" button
 //   generating — bool; when true, button disables and label changes to "Generating slides…"
 
-import { Check, Sparkles } from 'lucide-react';
+import { Check, Sparkles, Trash2 } from 'lucide-react';
 import './CarouselPlanApproval.css';
 
-export default function CarouselPlanApproval({ plan, platform = 'instagram', onApprove, generating = false }) {
+export default function CarouselPlanApproval({ plan, platform = 'instagram', onApprove, onDeleteSlide, generating = false }) {
   if (!plan) return null;
   const slides = plan.slides || [];
   const ds = plan.designSystem || {};
@@ -62,18 +62,37 @@ export default function CarouselPlanApproval({ plan, platform = 'instagram', onA
           <ol className="cpa-slides-list">
             {slides.map((s, i) => {
               const badge = String(s.badge || '').toUpperCase();
-              // Strip {{accent}}...{{/accent}} markers so the plan-card
-              // preview never leaks marker syntax as visible text.
+              // Universal marker cleanup — same rule the shared prompt
+              // builder applies so the plan card matches the rendered
+              // slide's text: strip {{accent}} / [ACCENT] structured
+              // markers AND any stray {{...}} / <...> / [ALLCAPS] wrappers.
               const cleanHeadline = String(s.headline || '')
                 .replace(/\{\{\/?accent\}\}/gi, '')
                 .replace(/\[\/?ACCENT\]/gi, '')
+                .replace(/\{\{([^{}]+?)\}\}/g, '$1')
+                .replace(/<\/?[a-zA-Z][^<>]*>/g, '')
+                .replace(/\[([A-Z][A-Z0-9_-]{1,30})\]/g, '$1')
                 .replace(/\s{2,}/g, ' ')
                 .trim();
+              // Hook (idx 0) and last (CTA) are structural — can't be
+              // deleted. Same rule as /Content tab's CarouselPlanCard.
+              const canDelete = !!onDeleteSlide && i !== 0 && i !== slides.length - 1;
               return (
                 <li key={i} className="cpa-slide">
                   <span className="cpa-slide-num">{String(i + 1).padStart(2, '0')}</span>
                   {badge && <span className="cpa-slide-badge">{badge}</span>}
                   <span className="cpa-slide-headline">{cleanHeadline}</span>
+                  {canDelete && (
+                    <button
+                      type="button"
+                      className="cpa-slide-delete"
+                      onClick={() => onDeleteSlide(i)}
+                      title={`Remove slide ${i + 1}`}
+                      aria-label={`Remove slide ${i + 1}`}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
                 </li>
               );
             })}

@@ -16,15 +16,30 @@
 // Pulls text between {{accent}}...{{/accent}} or [ACCENT]...[/ACCENT] out
 // as separate strings so we can describe the highlight to the image model
 // in plain English rather than leaving marker syntax in the visible text.
+//
+// Also strips ANY OTHER curly-brace / angle-bracket wrapper that Sonnet
+// might have introduced ({{sales team}}, <highlight>foo</highlight>, etc.)
+// — image models were literally rendering those brackets on the slide.
+// Wrapped tokens are kept, only the brackets are stripped.
 export function extractAccent(text) {
   const accentWords = [];
   const capture = (_, w) => { const t = w.trim(); if (t) accentWords.push(t); return w; };
   let cleaned = String(text || '')
+    // Structured accent markers: capture the inner word first.
     .replace(/\{\{accent\}\}([\s\S]*?)\{\{\/accent\}\}/gi, capture)
     .replace(/\[ACCENT\]([\s\S]*?)\[\/ACCENT\]/gi, capture);
   cleaned = cleaned
+    // Defensive cleanup of stray / malformed accent tags.
     .replace(/\{\{\/?accent\}\}/gi, '')
     .replace(/\[\/?ACCENT\]/gi, '')
+    // Universal cleanup of any remaining bracket wrappers Sonnet may have
+    // slipped in ({{sales team}}, {{key point}}, <highlight>foo</highlight>,
+    // <em>bar</em>). Keep the inner text, drop the wrapper.
+    .replace(/\{\{([^{}]+?)\}\}/g, '$1')
+    .replace(/<\/?[a-zA-Z][^<>]*>/g, '')
+    // Also strip stray single-brace [something] wrappers when they look
+    // like a marker (all-caps or short keyword).
+    .replace(/\[([A-Z][A-Z0-9_-]{1,30})\]/g, '$1')
     .replace(/\s{2,}/g, ' ')
     .trim();
   return { cleaned, accentWords };
@@ -112,7 +127,18 @@ export function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total
   const isMiddle = !isHook && !isFinal;
 
   const { cleaned: headlineClean, accentWords } = extractAccent(slide.headline);
-  const bodyClean = String(slide.body || '').replace(/\{\{\/?accent\}\}/gi, '').replace(/\[\/?ACCENT\]/gi, '').trim();
+  // Same universal marker-stripper we apply to the headline via
+  // extractAccent — Sonnet's body copy also arrived with {{key term}},
+  // <em>foo</em> etc. and the image models were rendering the brackets
+  // as literal characters.
+  const bodyClean = String(slide.body || '')
+    .replace(/\{\{\/?accent\}\}/gi, '')
+    .replace(/\[\/?ACCENT\]/gi, '')
+    .replace(/\{\{([^{}]+?)\}\}/g, '$1')
+    .replace(/<\/?[a-zA-Z][^<>]*>/g, '')
+    .replace(/\[([A-Z][A-Z0-9_-]{1,30})\]/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
   const badgeText = String(slide.badge || '').toUpperCase().replace(/[{}<>]/g, '').trim();
   const brandName = String(brandStrip.brandName || brand?.name || '').trim();
   const chapterNum = `CH ${String(index).padStart(2, '0')}`;

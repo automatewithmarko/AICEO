@@ -1843,6 +1843,95 @@ export default function AiCeo() {
     }
   }, []);
 
+  // Shared runner used by handleApproveCarousel + regenerate + edit.
+  // Builds one slide's prompt (with an optional edit instruction),
+  // regenerates the image, and replaces the artifact's image at that idx.
+  // Returns true on success, false on failure.
+  const runSingleCarouselSlide = useCallback(async (slideIdx, editInstruction = null) => {
+    const current = artifactRef.current;
+    const plan = current?.carouselPlan;
+    const slide = plan?.slides?.[slideIdx];
+    if (!plan || !slide) return false;
+    const platform = current.agentSource === 'linkedin' ? 'linkedin' : 'instagram';
+    const brandName = brandDna?.brand_name || user?.name || '';
+    let prompt;
+    try {
+      prompt = buildCarouselSlidePrompt({
+        designSystem: plan.designSystem,
+        slide,
+        index: slideIdx,
+        total: plan.slides.length,
+        brand: { name: brandName },
+        platform,
+      });
+    } catch (buildErr) {
+      console.error(`[AiCeo] slide prompt build failed for ${slideIdx + 1}:`, buildErr);
+      return false;
+    }
+    if (editInstruction) {
+      prompt += `\n\n=== USER EDIT INSTRUCTION (apply this change to the slide) ===\n${editInstruction}`;
+    }
+    try {
+      const backendPlatform = platform === 'linkedin' ? 'linkedin_carousel' : 'instagram';
+      const result = await generateImage(prompt, backendPlatform, null, null, {});
+      if (result?.image?.data) {
+        const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+        setArtifact((prev) => {
+          if (!prev) return prev;
+          const existing = Array.isArray(prev.images) ? prev.images : [];
+          // Replace image with matching idx, or append if none exists yet.
+          const withoutIdx = existing.filter((im) => im.idx !== slideIdx);
+          return {
+            ...prev,
+            images: [...withoutIdx, { src, idx: slideIdx }],
+          };
+        });
+        return true;
+      }
+      return false;
+    } catch (imgErr) {
+      console.error(`[AiCeo] slide ${slideIdx + 1} regen failed:`, imgErr);
+      return false;
+    }
+  }, [brandDna, user]);
+
+  const handleRegenerateCarouselSlide = useCallback(async (slideIdx) => {
+    if (typeof slideIdx !== 'number') return;
+    // Mark slide as being edited (show spinner overlay in LinkedInPreview)
+    setArtifact((prev) => prev ? { ...prev, editingSlideIdx: slideIdx } : prev);
+    await runSingleCarouselSlide(slideIdx, null);
+    setArtifact((prev) => prev ? { ...prev, editingSlideIdx: null } : prev);
+  }, [runSingleCarouselSlide]);
+
+  const handleEditCarouselSlide = useCallback(async (slideIdx, _src, instruction) => {
+    if (typeof slideIdx !== 'number' || !instruction?.trim()) return;
+    setArtifact((prev) => prev ? { ...prev, editingSlideIdx: slideIdx } : prev);
+    await runSingleCarouselSlide(slideIdx, instruction.trim());
+    setArtifact((prev) => prev ? { ...prev, editingSlideIdx: null } : prev);
+  }, [runSingleCarouselSlide]);
+
+  const handleDeleteCarouselSlide = useCallback((slideIdx) => {
+    if (typeof slideIdx !== 'number') return;
+    setArtifact((prev) => {
+      if (!prev?.carouselPlan?.slides) return prev;
+      const slides = prev.carouselPlan.slides;
+      // Hook (0) and last (CTA) can't be deleted — same rule as /Content.
+      if (slideIdx === 0 || slideIdx === slides.length - 1) return prev;
+      const nextSlides = slides.filter((_, i) => i !== slideIdx);
+      // Also drop the rendered image at that idx and re-index later ones
+      // so the visible carousel keeps counting 1..N without gaps.
+      const nextImages = (prev.images || [])
+        .filter((im) => im.idx !== slideIdx)
+        .map((im) => ({ ...im, idx: im.idx > slideIdx ? im.idx - 1 : im.idx }));
+      return {
+        ...prev,
+        carouselPlan: { ...prev.carouselPlan, slides: nextSlides },
+        images: nextImages,
+        totalSlides: nextSlides.length,
+      };
+    });
+  }, []);
+
   // Kick off the per-slide image gen loop after the user approves the
   // carousel plan. Reads from the current artifact (carouselPlan +
   // stashed _assistantMsgId), flips approved/streaming/pendingImages,
@@ -2787,6 +2876,9 @@ export default function AiCeo() {
                 }
               }}
               onApproveCarousel={handleApproveCarousel}
+              onEditCarouselSlide={handleEditCarouselSlide}
+              onRegenerateCarouselSlide={handleRegenerateCarouselSlide}
+              onDeleteCarouselSlide={handleDeleteCarouselSlide}
               sessionId={sessionId}
             />
           </div>

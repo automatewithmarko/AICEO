@@ -15,7 +15,7 @@ import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, onApproveCarousel = null, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, onApproveCarousel = null, onEditCarouselSlide = null, onRegenerateCarouselSlide = null, onDeleteCarouselSlide = null, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
@@ -752,6 +752,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                     platform={planPlatform}
                     generating={false}
                     onApprove={() => onApproveCarousel && onApproveCarousel()}
+                    onDeleteSlide={onDeleteCarouselSlide}
                   />
                 );
               }
@@ -809,7 +810,22 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                       onUploadImages={handleCanvasUploadImages}
                       onPostToLinkedIn={handleCanvasPostToLinkedIn}
                       onSchedule={handleCanvasSchedule}
+                      onEditSlide={onEditCarouselSlide}
+                      onRegenerateSlide={onRegenerateCarouselSlide}
+                      onRemoveSlide={onDeleteCarouselSlide}
                       isLinkedInConnected={isLinkedInConnected}
+                      actionsSlot={
+                        // LinkedInPreview renders Upload/Schedule/Post
+                        // inline; slot in just the Download button so
+                        // both canvases have the same "save the assets"
+                        // capability.
+                        <CanvasActionsBar
+                          text={content || ''}
+                          images={images || []}
+                          platform="linkedin"
+                          streaming={!!artifact.streaming}
+                        />
+                      }
                     />
                   </>
                 );
@@ -860,6 +876,8 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                     showHeader={false}
                     onUploadImages={handleCanvasUploadImages}
                     onSchedule={handleCanvasSchedule}
+                    onEdit={onEditCarouselSlide}
+                    onRegenerate={onRegenerateCarouselSlide}
                     actionsSlot={
                       <CanvasActionsBar
                         text={content || ''}
