@@ -1402,10 +1402,100 @@ export default function AiCeo() {
             }
           }
         },
-        // Direct tool calls (create_artifact, generate_image)
+        // Direct tool calls (create_artifact, generate_image, plan_carousel)
         onToolCall: async (name, args) => {
           firedTools.push(name);
           console.log(`[AiCeo] 🔧 tool_call: ${name}`, args);
+
+          // ── Format-question hard gate ──
+          // Sonnet has been skipping the "text post vs carousel" (LinkedIn)
+          // and "single vs carousel vs story" (Instagram) discovery
+          // question despite the system prompt telling it not to. Multiple
+          // prompt-level tightenings didn't hold; this is the client-side
+          // enforcement.
+          //
+          // Rule: for LinkedIn/Instagram content_post artifacts AND for
+          // any plan_carousel call, if the current session's recent user
+          // messages don't contain a literal format keyword, we intercept
+          // the tool call, drop it, and surface the format question
+          // ourselves. On the next user turn the answer lands in
+          // messages, Sonnet sees it, and the follow-up create_artifact /
+          // plan_carousel goes through.
+          const isSocialArtifact = (
+            (name === 'create_artifact' && args.type === 'content_post')
+            || name === 'plan_carousel'
+          );
+          if (isSocialArtifact) {
+            const recentUserText = messages
+              .filter((m) => m.role === 'user')
+              .slice(-4)
+              .map((m) => String(m.content || ''))
+              .join(' ')
+              .toLowerCase();
+            // Format keywords covering LinkedIn (text/carousel), Instagram
+            // (single/carousel/story), X (tweet/thread), Facebook (story/
+            // question/announcement). Users clicking a popup option get
+            // that option string appended as a user message, so answering
+            // via ask_user counts here too.
+            const FORMAT_KEYWORDS = [
+              'text post', 'carousel', 'single post', 'story', 'stories',
+              'tweet', 'thread', 'reply', 'quote',
+              'question post', 'announcement',
+              'surprise me',
+            ];
+            const formatConfirmed = FORMAT_KEYWORDS.some((kw) => recentUserText.includes(kw));
+            if (!formatConfirmed) {
+              // Derive platform for the question wording. plan_carousel
+              // itself doesn't carry it — infer from recent user text.
+              const isLinkedin = /\blinkedin\b/.test(recentUserText);
+              const isInstagram = /\binstagram\b/.test(recentUserText);
+              const isTwitter = /\b(twitter|x post|tweet)\b/.test(recentUserText);
+              const isFacebook = /\bfacebook\b/.test(recentUserText);
+              // Argment platform (from create_artifact) is a stronger
+              // signal when present.
+              const argsPlatform = String(args.platform || '').toLowerCase();
+              const platform = argsPlatform
+                || (isLinkedin ? 'linkedin'
+                  : isInstagram ? 'instagram'
+                  : isTwitter ? 'twitter'
+                  : isFacebook ? 'facebook'
+                  : 'linkedin');
+
+              const questionByPlatform = {
+                linkedin: {
+                  question: 'What type of LinkedIn post?',
+                  options: ['Text post', 'Carousel', 'Surprise me'],
+                },
+                instagram: {
+                  question: 'What kind of Instagram post?',
+                  options: ['Single post', 'Carousel', 'Story', 'Surprise me'],
+                },
+                twitter: {
+                  question: 'What kind of X post?',
+                  options: ['Single tweet', 'Thread', 'Reply/quote', 'Surprise me'],
+                },
+                facebook: {
+                  question: 'What kind of Facebook post?',
+                  options: ['Story post', 'Question/discussion', 'Announcement', 'Surprise me'],
+                },
+              };
+              const q = questionByPlatform[platform] || questionByPlatform.linkedin;
+
+              console.warn(`[AiCeo] ${name} intercepted — format never confirmed. Surfacing format question for ${platform}.`);
+              askUserFiredRef.current = true;
+              setCurrentQuestion({ question: q.question, options: q.options });
+              setCustomTyping(false);
+              setCustomText('');
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMsgId
+                  ? { ...m, content: q.question, status: null, wasAskUser: true, askUserOptions: q.options }
+                  : m
+              ));
+              // Swallow the tool call — do NOT continue below.
+              return;
+            }
+          }
+
           if (name === 'create_artifact') {
             // `platform` arrives for content_post artifacts so the
             // panel can route LinkedIn posts to the LinkedIn card
