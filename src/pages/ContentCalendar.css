@@ -320,8 +320,78 @@
   font-size: 11px;
   color: var(--text-muted);
   font-weight: 600;
-  padding: 2px 6px;
+  padding: 3px 8px;
   margin-top: 2px;
+  background: rgba(0,0,0,0.04);
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+.cc-cell-more:hover {
+  background: rgba(10,102,194,0.08);
+  color: #0a66c2;
+  border-color: rgba(10,102,194,0.2);
+}
+
+/* ─── Day list (opened via "+N more") ─────────────────────────────── */
+.cc-day-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding: 8px 4px 12px;
+}
+.cc-day-item {
+  display: grid;
+  grid-template-columns: 80px 40px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.05s;
+  font-family: inherit;
+}
+.cc-day-item:hover {
+  border-color: rgba(10,102,194,0.4);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+}
+.cc-day-item:active {
+  transform: translateY(1px);
+}
+.cc-day-item-time {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(0,0,0,0.72);
+}
+.cc-day-item-body {
+  min-width: 0;
+}
+.cc-day-item-caption {
+  font-size: 13px;
+  color: rgba(0,0,0,0.85);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.cc-day-item-meta {
+  font-size: 11px;
+  color: rgba(0,0,0,0.55);
+  margin-top: 2px;
+}
+.cc-day-item-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
 /* ─── Modal ─────────────────────────────────────────────────────────── */

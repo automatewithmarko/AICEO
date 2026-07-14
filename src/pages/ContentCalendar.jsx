@@ -159,8 +159,19 @@ export default function ContentCalendar() {
     setModal({ step: 'pick', date: toISODate(dateObj || today) });
   };
   const openEditPost = (post) => {
-    const step = post.status === 'scheduled' ? 'view' : 'compose';
+    // Posts scheduled from AICEO / Content chat carry finished content +
+    // media — the user wants to see the preview, not the multi-step
+    // Composer form. Only truly empty drafts (created inside the
+    // calendar and abandoned mid-flow) fall through to compose. Failed
+    // and published posts go to view so the user can see status + retry.
+    const isPureDraft = post.status === 'draft' && !post.content && (!post.media || post.media.length === 0);
+    const step = isPureDraft ? 'compose' : 'view';
     setModal({ step, date: post.date, platform: post.platform, igType: post.igType, editId: post.id });
+  };
+  const openDayList = (dateObj) => {
+    // Full list of every post on a day — used when the day cell has
+    // more posts than the two-row preview shows.
+    setModal({ step: 'day', date: toISODate(dateObj) });
   };
   const pickPlatform = (platformId) => {
     setModal((m) => ({ ...m, step: 'compose', platform: platformId, igType: undefined }));
@@ -293,7 +304,13 @@ export default function ContentCalendar() {
                     );
                   })}
                   {overflow > 0 && (
-                    <span className="cc-cell-more">+{overflow} more</span>
+                    <button
+                      type="button"
+                      className="cc-cell-more"
+                      onClick={(e) => { e.stopPropagation(); openDayList(day); }}
+                    >
+                      +{overflow} more
+                    </button>
                   )}
                 </div>
               </div>
@@ -332,12 +349,27 @@ export default function ContentCalendar() {
                 post={posts.find((p) => p.id === modal.editId)}
                 onClose={closeModal}
                 onDelete={deletePost}
+                onRetry={async (postId) => {
+                  // Flip status back to 'scheduled' and clear last_error;
+                  // the dispatcher's next tick will pick it up.
+                  const { post } = await updateCalendarPost(postId, { status: 'scheduled', last_error: null });
+                  setPosts((prev) => prev.map((p) => p.id === postId ? dbToLocal(post) : p));
+                }}
                 onPublish={async (postId) => {
                   const result = await publishCalendarPost(postId);
                   // Update local state to reflect published status
                   setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, status: 'published', url: result.postUrl } : p));
                   return result;
                 }}
+              />
+            )}
+            {modal.step === 'day' && (
+              <DayList
+                date={modal.date}
+                posts={postsByDate.get(modal.date) || []}
+                onOpenPost={(p) => openEditPost(p)}
+                onNewPost={() => setModal({ step: 'pick', date: modal.date })}
+                onClose={closeModal}
               />
             )}
           </div>
@@ -378,9 +410,10 @@ function PlatformPicker({ onPick }) {
 
 // ─── Scheduled post view (read-only) ───────────────────────────────────────
 
-function ScheduledView({ post, onClose, onDelete, onPublish }) {
+function ScheduledView({ post, onClose, onDelete, onPublish, onRetry }) {
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState(null); // { ok, error, url }
+  const [retrying, setRetrying] = useState(false);
   if (!post) return null;
   const platform = getPlatform(post.platform);
   const igConfig = post.igType ? getIgType(post.igType) : null;
@@ -392,7 +425,18 @@ function ScheduledView({ post, onClose, onDelete, onPublish }) {
   const period = h >= 12 ? 'PM' : 'AM';
   const h12 = ((h + 11) % 12) + 1;
   const timeLabel = `${h12}:${pad(m)} ${period}`;
-  const eyebrow = igConfig ? `Scheduled · ${platform.name} ${typeLabel(platform.id, igConfig.id)}` : `Scheduled · ${platform.name}`;
+  // Eyebrow reflects the row's actual lifecycle state so failed and
+  // published posts don't lie to the user by claiming "Scheduled".
+  const statusWord = post.status === 'failed'
+    ? 'Failed'
+    : post.status === 'published'
+      ? 'Published'
+      : post.status === 'publishing'
+        ? 'Publishing…'
+        : post.status === 'draft'
+          ? 'Draft'
+          : 'Scheduled';
+  const eyebrow = igConfig ? `${statusWord} · ${platform.name} ${typeLabel(platform.id, igConfig.id)}` : `${statusWord} · ${platform.name}`;
 
   return (
     <div className="cc-view">
@@ -437,10 +481,22 @@ function ScheduledView({ post, onClose, onDelete, onPublish }) {
         </div>
       </div>
 
-      <div className="cc-view-note">
-        <span>Scheduled posts can't be edited. Cancel the schedule to make changes.</span>
-      </div>
+      {post.status !== 'failed' && post.status !== 'published' && (
+        <div className="cc-view-note">
+          <span>Scheduled posts can't be edited. Cancel the schedule to make changes.</span>
+        </div>
+      )}
 
+      {post.status === 'failed' && post.lastError && (
+        <div className="cc-publish-error">
+          <strong>Publish failed:</strong> {post.lastError}
+        </div>
+      )}
+      {post.status === 'published' && post.url && (
+        <div className="cc-publish-success">
+          <Check size={14} /> Published — <a href={post.url} target="_blank" rel="noopener noreferrer">View post</a>
+        </div>
+      )}
       {publishResult?.ok && (
         <div className="cc-publish-success">
           <Check size={14} /> Published! {publishResult.url && <a href={publishResult.url} target="_blank" rel="noopener noreferrer">View post</a>}
@@ -452,10 +508,25 @@ function ScheduledView({ post, onClose, onDelete, onPublish }) {
 
       <div className="cc-actions">
         <button className="cc-ghost-btn cc-ghost-btn--danger" onClick={onDelete}>
-          Cancel schedule
+          {post.status === 'published' ? 'Delete from calendar' : 'Cancel schedule'}
         </button>
         <div className="cc-actions-right">
-          {(post.platform === 'linkedin' || post.platform === 'instagram') && post.status !== 'published' && (
+          {post.status === 'failed' && onRetry && (
+            <button
+              className="cc-primary-btn cc-primary-btn--lg"
+              style={{ background: '#b45309' }}
+              disabled={retrying}
+              onClick={async () => {
+                setRetrying(true);
+                try { await onRetry(post.id); onClose(); }
+                finally { setRetrying(false); }
+              }}
+              title="Reset to scheduled — the dispatcher will retry within a minute"
+            >
+              {retrying ? <><Loader size={14} className="cc-spin" /> Retrying…</> : <>Retry</>}
+            </button>
+          )}
+          {(post.platform === 'linkedin' || post.platform === 'instagram') && post.status !== 'published' && post.status !== 'publishing' && (
             <button
               className="cc-primary-btn cc-primary-btn--lg"
               style={{ background: post.platform === 'linkedin' ? '#0a66c2' : '#E4405F' }}
@@ -476,6 +547,80 @@ function ScheduledView({ post, onClose, onDelete, onPublish }) {
               {publishing ? <><Loader size={14} className="cc-spin" /> Publishing...</> : <><Send size={14} /> Publish Now</>}
             </button>
           )}
+          <button className="cc-primary-btn cc-primary-btn--lg" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Day list — every post for a given day, with a click to open ──────────
+function DayList({ date, posts, onOpenPost, onNewPost, onClose }) {
+  const dateObj = parseISODate(date);
+  const dateLabel = dateObj.toLocaleDateString(undefined, {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  });
+  const sorted = [...posts].sort((a, b) => a.time.localeCompare(b.time));
+  return (
+    <div className="cc-view">
+      <div className="cc-view-header">
+        <span className="cc-posting-badge" style={{ '--pc': '#111', color: '#111' }}>
+          <CalendarDays size={22} />
+        </span>
+        <div className="cc-view-header-text">
+          <span className="cc-view-eyebrow">{sorted.length} post{sorted.length === 1 ? '' : 's'} scheduled</span>
+          <h2 className="cc-view-title">{dateLabel}</h2>
+        </div>
+      </div>
+      <div className="cc-day-list">
+        {sorted.map((p) => {
+          const plat = getPlatform(p.platform);
+          const [h, m] = p.time.split(':').map(Number);
+          const period = h >= 12 ? 'PM' : 'AM';
+          const h12 = ((h + 11) % 12) + 1;
+          const timeLabel = `${h12}:${pad(m)} ${period}`;
+          const badge = p.status === 'failed'
+            ? { label: 'Failed', bg: '#fef3f2', color: '#b42318' }
+            : p.status === 'published'
+              ? { label: 'Published', bg: '#ecfdf5', color: '#047857' }
+              : p.status === 'publishing'
+                ? { label: 'Publishing…', bg: '#eff6ff', color: '#1d4ed8' }
+                : p.status === 'draft'
+                  ? { label: 'Draft', bg: '#f3f4f6', color: '#4b5563' }
+                  : { label: 'Scheduled', bg: '#f5f3ff', color: '#6d28d9' };
+          return (
+            <button
+              key={p.id}
+              type="button"
+              className="cc-day-item"
+              onClick={() => onOpenPost(p)}
+            >
+              <div className="cc-day-item-time">{timeLabel}</div>
+              <span className="cc-posting-badge cc-posting-badge--sm" style={{ '--pc': plat.color, color: plat.color }}>
+                {plat.icon}
+              </span>
+              <div className="cc-day-item-body">
+                <div className="cc-day-item-caption">{p.content || <em>No caption</em>}</div>
+                <div className="cc-day-item-meta">
+                  {plat.name}{p.igType ? ` · ${typeLabel(plat.id, p.igType)}` : ''}
+                  {p.media?.length ? ` · ${p.media.length} media` : ''}
+                </div>
+              </div>
+              <span
+                className="cc-day-item-badge"
+                style={{ background: badge.bg, color: badge.color }}
+              >
+                {badge.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="cc-actions">
+        <button className="cc-ghost-btn" onClick={onNewPost}>
+          <Plus size={14} /> Add another post
+        </button>
+        <div className="cc-actions-right">
           <button className="cc-primary-btn cc-primary-btn--lg" onClick={onClose}>Done</button>
         </div>
       </div>

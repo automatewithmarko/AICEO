@@ -112,7 +112,33 @@ async function fetchBoosendInstagramAccount(apiKey) {
   });
   if (!bsRes.ok) return null;
   const data = await bsRes.json().catch(() => ({}));
-  return (data?.accounts || [])[0] || null;
+  const acc = (data?.accounts || [])[0] || null;
+  if (acc) {
+    // BooSend has surfaced their own account UUID as `id`. Facebook's
+    // Graph error ("Object with ID '<uuid>' does not exist") means the
+    // publish endpoint has been forwarding that UUID directly to Meta.
+    // Log all fields so we can pick the Meta-facing one deterministically
+    // rather than guessing.
+    console.log('[boosend] IG account shape:', Object.keys(acc), acc);
+  }
+  return acc;
+}
+
+// Pick the Meta-side Instagram business account id from BooSend's
+// account object. BooSend has surfaced different field names over time
+// depending on tenant setup — try the well-known Meta-side names in
+// order and fall back to the BooSend UUID only if none exist.
+function pickMetaInstagramId(acc) {
+  if (!acc) return null;
+  return (
+    acc.instagram_business_account_id ||
+    acc.ig_business_id ||
+    acc.ig_user_id ||
+    acc.instagram_user_id ||
+    acc.meta_id ||
+    acc.instagram_id ||
+    null
+  );
 }
 
 // Publish an already-loaded social_posts row via the right provider.
@@ -178,19 +204,54 @@ export async function publishSocialPostRow(userId, post) {
       throw err;
     }
 
-    const publishBody = {
-      instagram_account_id: igAccount.id || igAccount.instagram_account_id || undefined,
-      media_items: post.media || [],
-      caption: post.caption || '',
-      post_type: post.content_type || 'single',
-    };
+    // Normalize IG post_type to what BooSend/Meta expect. `carousel` +
+    // 2+ images is a "carousel"; a `story` maps to "story"; anything
+    // else is a single-media post.
+    const inferredType = (post.content_type === 'carousel' || (post.media || []).length > 1)
+      ? 'carousel'
+      : post.content_type === 'story'
+        ? 'story'
+        : post.content_type === 'reel'
+          ? 'reel'
+          : 'single';
 
-    const bsRes = await fetch(`${BOOSEND_API}/api/publishing/instagram/publish`, {
-      method: 'POST',
-      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify(publishBody),
-    });
-    const bsData = await bsRes.json().catch(() => ({}));
+    // Try publish variants in order. The failing shape was
+    // { instagram_account_id: <BooSend-UUID> } → BooSend forwarded the
+    // UUID to Meta as an Instagram Business Account ID. Prefer the
+    // Meta-facing id if BooSend exposes one; then try omitting the
+    // account id entirely so BooSend resolves from the API key; only
+    // fall back to the UUID as a last resort.
+    const metaId = pickMetaInstagramId(igAccount);
+    const attempts = [];
+    if (metaId) attempts.push({ label: 'meta_id', body: { instagram_account_id: metaId } });
+    attempts.push({ label: 'omit', body: {} });
+    if (igAccount.id) attempts.push({ label: 'boosend_uuid', body: { instagram_account_id: igAccount.id } });
+
+    let bsData = {};
+    let bsRes;
+    let lastErrText = '';
+    for (const attempt of attempts) {
+      const publishBody = {
+        ...attempt.body,
+        media_items: post.media || [],
+        caption: post.caption || '',
+        post_type: inferredType,
+      };
+
+      bsRes = await fetch(`${BOOSEND_API}/api/publishing/instagram/publish`, {
+        method: 'POST',
+        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify(publishBody),
+      });
+      bsData = await bsRes.json().catch(() => ({}));
+      if (bsRes.ok) {
+        console.log(`[boosend] IG publish succeeded via ${attempt.label}`);
+        break;
+      }
+      lastErrText = bsData?.error || `HTTP ${bsRes.status}`;
+      console.warn(`[boosend] IG publish attempt "${attempt.label}" failed: ${lastErrText}`);
+    }
+
     if (!bsRes.ok) {
       const err = new Error(bsData?.error || `Instagram publish failed (${bsRes.status})`);
       err.status = bsRes.status;
