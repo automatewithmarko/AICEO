@@ -1590,13 +1590,22 @@ export default function AiCeo() {
               console.warn('[AiCeo] plan_carousel with zero slides — ignoring');
               return;
             }
-            const recentUserText = chatHistory
-              .filter((m) => m.role === 'user')
-              .slice(-3)
-              .map((m) => String(m.content || ''))
+            // Platform detection — scan the FULL chat history (both user
+            // and assistant turns). Previous slice(-3) missed cases like
+            //   user: "make me a LinkedIn carousel"
+            //   assistant: (discovery flow: 3 questions)
+            //   user: "Carousel" / "Educate" / "Some angle"
+            // The last 3 user messages are the discovery answers — the
+            // original "LinkedIn" mention is at position 1 and gets
+            // dropped. Scanning everything picks it up wherever it lands,
+            // and Sonnet's own questions ("What type of LinkedIn post?")
+            // also count.
+            const fullChatText = chatHistory
+              .map((m) => String(m.content || m.displayText || ''))
               .join(' ')
               .toLowerCase();
-            const platform = /\blinkedin\b/i.test(recentUserText) ? 'linkedin' : 'instagram';
+            const platform = /\blinkedin\b/i.test(fullChatText) ? 'linkedin' : 'instagram';
+            console.log(`[AiCeo] plan_carousel platform detection: ${platform}`);
             const initialArt = {
               id: Date.now(),
               type: 'content_post',
