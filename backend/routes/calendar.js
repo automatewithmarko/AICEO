@@ -89,23 +89,37 @@ router.delete('/api/calendar/posts/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-// ─── Publish a scheduled post NOW ───
-router.post('/api/calendar/posts/:id/publish', async (req, res) => {
-  const userId = req.user.id;
-  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
-
-  // Get the post
-  const { data: post, error: fetchErr } = await supabase
-    .from('social_posts')
-    .select('*')
-    .eq('id', req.params.id)
+// ─── Shared: resolve BooSend API key + a working IG account ───
+// BooSend owns the IG account list (there is no local `instagram_accounts`
+// table — the previous lookup 500'd against a nonexistent column and every
+// IG publish silently failed).
+async function resolveBoosendKey(userId) {
+  if (BOOSEND_API_KEY) return BOOSEND_API_KEY;
+  const { data } = await supabase
+    .from('integrations')
+    .select('api_key')
     .eq('user_id', userId)
+    .eq('provider', 'boosend')
+    .eq('is_active', true)
     .single();
+  return data?.api_key || null;
+}
 
-  if (fetchErr || !post) return res.status(404).json({ error: 'Post not found' });
+async function fetchBoosendInstagramAccount(apiKey) {
+  const url = new URL('/api/publishing/instagram/accounts', BOOSEND_API);
+  const bsRes = await fetch(url.toString(), {
+    headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+  });
+  if (!bsRes.ok) return null;
+  const data = await bsRes.json().catch(() => ({}));
+  return (data?.accounts || [])[0] || null;
+}
 
+// Publish an already-loaded social_posts row via the right provider.
+// Split out so the scheduled-post dispatcher can share the same publish
+// logic without going through the HTTP layer.
+export async function publishSocialPostRow(userId, post) {
   if (post.platform === 'linkedin') {
-    // Get LinkedIn credentials
     const { data: integration } = await supabase
       .from('integrations')
       .select('metadata')
@@ -115,89 +129,114 @@ router.post('/api/calendar/posts/:id/publish', async (req, res) => {
       .single();
 
     if (!integration?.metadata?.access_token) {
-      return res.status(400).json({ error: 'LinkedIn not connected. Go to Settings to connect.' });
+      const err = new Error('LinkedIn not connected. Go to Settings to connect.');
+      err.code = 'linkedin_not_connected';
+      throw err;
     }
 
-    const { access_token, linkedin_user_id } = integration.metadata;
-
-    try {
-      const result = await linkedinApi.postText(access_token, linkedin_user_id, post.caption);
-
-      // Update the post as published
-      await supabase
-        .from('social_posts')
-        .update({
-          status: 'published',
-          published_at: new Date().toISOString(),
-          external_post_id: result.postUrn || null,
-          url: result.postUrl || null,
-        })
-        .eq('id', post.id);
-
-      res.json({ ok: true, postUrl: result.postUrl, postUrn: result.postUrn });
-    } catch (err) {
-      res.status(500).json({ error: `LinkedIn posting failed: ${err.message}` });
+    const { access_token, linkedin_user_id, expires_at } = integration.metadata;
+    if (expires_at && new Date(expires_at) < new Date()) {
+      const err = new Error('LinkedIn token expired. Please reconnect.');
+      err.code = 'linkedin_token_expired';
+      throw err;
     }
-  } else if (post.platform === 'instagram') {
-    // Get BooSend API key
-    let apiKey = BOOSEND_API_KEY;
+
+    // Route to postWithImage when the row carries media so scheduled
+    // posts don't silently drop their images. Only the first slide is
+    // uploaded — LinkedIn multi-image via REST is a separate flow that
+    // isn't wired yet (tracked in the audit as a follow-up).
+    const firstImageUrl = Array.isArray(post.media) ? post.media[0]?.url : null;
+    const result = firstImageUrl
+      ? await linkedinApi.postWithImage(access_token, linkedin_user_id, post.caption || '', firstImageUrl)
+      : await linkedinApi.postText(access_token, linkedin_user_id, post.caption || '');
+
+    await supabase
+      .from('social_posts')
+      .update({
+        status: 'published',
+        published_at: new Date().toISOString(),
+        external_post_id: result.postUrn || null,
+        url: result.postUrl || null,
+      })
+      .eq('id', post.id);
+
+    return { ok: true, postUrl: result.postUrl, postUrn: result.postUrn };
+  }
+
+  if (post.platform === 'instagram') {
+    const apiKey = await resolveBoosendKey(userId);
     if (!apiKey) {
-      const { data: bsInt } = await supabase
-        .from('integrations')
-        .select('api_key')
-        .eq('user_id', userId)
-        .eq('provider', 'boosend')
-        .eq('is_active', true)
-        .single();
-      apiKey = bsInt?.api_key;
+      const err = new Error('BooSend not connected. Connect in Settings to post to Instagram.');
+      err.code = 'boosend_not_connected';
+      throw err;
     }
-    if (!apiKey) return res.status(400).json({ error: 'BooSend not connected. Connect in Settings to post to Instagram.' });
 
-    // Get Instagram account
-    const { data: igAccount } = await supabase
-      .from('instagram_accounts')
-      .select('id, access_token')
-      .eq('owner_id', userId)
-      .eq('is_active', true)
-      .limit(1)
-      .single();
-
-    if (!igAccount) return res.status(400).json({ error: 'No Instagram account connected via BooSend.' });
-
-    try {
-      const publishBody = {
-        action: 'publish',
-        instagram_account_id: igAccount.id,
-        access_token: igAccount.access_token,
-        media_items: post.media || [],
-        caption: post.caption || '',
-        post_type: post.content_type || 'single',
-      };
-
-      const bsRes = await fetch(`${BOOSEND_API}/api/publishing/instagram/publish`, {
-        method: 'POST',
-        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify(publishBody),
-      });
-
-      const bsData = await bsRes.json();
-      if (!bsRes.ok) return res.status(bsRes.status).json(bsData);
-
-      await supabase
-        .from('social_posts')
-        .update({
-          status: 'published',
-          published_at: new Date().toISOString(),
-          external_post_id: bsData.media_id || null,
-        })
-        .eq('id', post.id);
-
-      res.json({ ok: true, media_id: bsData.media_id });
-    } catch (err) {
-      res.status(500).json({ error: `Instagram posting failed: ${err.message}` });
+    const igAccount = await fetchBoosendInstagramAccount(apiKey);
+    if (!igAccount) {
+      const err = new Error('No Instagram account connected via BooSend.');
+      err.code = 'ig_account_missing';
+      throw err;
     }
-  } else {
-    return res.status(400).json({ error: `${post.platform} posting not yet supported. Coming soon.` });
+
+    const publishBody = {
+      instagram_account_id: igAccount.id || igAccount.instagram_account_id || undefined,
+      media_items: post.media || [],
+      caption: post.caption || '',
+      post_type: post.content_type || 'single',
+    };
+
+    const bsRes = await fetch(`${BOOSEND_API}/api/publishing/instagram/publish`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(publishBody),
+    });
+    const bsData = await bsRes.json().catch(() => ({}));
+    if (!bsRes.ok) {
+      const err = new Error(bsData?.error || `Instagram publish failed (${bsRes.status})`);
+      err.status = bsRes.status;
+      err.body = bsData;
+      throw err;
+    }
+
+    await supabase
+      .from('social_posts')
+      .update({
+        status: 'published',
+        published_at: new Date().toISOString(),
+        external_post_id: bsData.media_id || null,
+      })
+      .eq('id', post.id);
+
+    return { ok: true, media_id: bsData.media_id };
+  }
+
+  const err = new Error(`${post.platform} posting not yet supported.`);
+  err.code = 'unsupported_platform';
+  throw err;
+}
+
+// ─── Publish a scheduled post NOW ───
+router.post('/api/calendar/posts/:id/publish', async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const { data: post, error: fetchErr } = await supabase
+    .from('social_posts')
+    .select('*')
+    .eq('id', req.params.id)
+    .eq('user_id', userId)
+    .single();
+
+  if (fetchErr || !post) return res.status(404).json({ error: 'Post not found' });
+
+  try {
+    const result = await publishSocialPostRow(userId, post);
+    res.json(result);
+  } catch (err) {
+    // Preserve typed error codes so the UI can render "Reconnect
+    // LinkedIn" vs a generic failure banner.
+    const status = err.status || (err.code === 'linkedin_token_expired' ? 401 : err.code ? 400 : 500);
+    res.status(status).json({ error: err.message, code: err.code });
   }
 });
 

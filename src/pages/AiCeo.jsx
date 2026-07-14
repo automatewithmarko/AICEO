@@ -3,7 +3,7 @@ import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap, Paperclip, Loader2, AlertCircle, CalendarDays } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations } from '../lib/api';
 import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
@@ -152,6 +152,16 @@ export default function AiCeo() {
   // ad-hoc; lifting it to component state lets every consumer reuse
   // the result without re-querying.
   const [brandDna, setBrandDna] = useState(null);
+  // Track LinkedIn connection so the ArtifactPanel → LinkedInPreview shows
+  // "Post to LinkedIn" instead of the fallback "Connect LinkedIn" button
+  // (which was the AICEO canvas's silent failure — the post button was
+  // never rendered because the prop was undefined).
+  const [isLinkedInConnected, setIsLinkedInConnected] = useState(false);
+  useEffect(() => {
+    getIntegrations().then(({ integrations }) => {
+      setIsLinkedInConnected((integrations || []).some(i => i.provider === 'linkedin' && i.is_active));
+    }).catch(() => {});
+  }, []);
   // Files attached to the next outbound message. Same shape Marketing
   // uses so the two pages can converge on a shared helper later.
   // Images keep a data URL for preview; documents keep their text
@@ -2520,6 +2530,7 @@ export default function AiCeo() {
               emailAccounts={emailAccounts}
               user={user}
               brandDna={brandDna}
+              isLinkedInConnected={isLinkedInConnected}
               onClose={() => setPanelOpen(false)}
               onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
               onContentChange={(html) => {
@@ -2566,6 +2577,7 @@ export default function AiCeo() {
             emailAccounts={emailAccounts}
             user={user}
             brandDna={brandDna}
+            isLinkedInConnected={isLinkedInConnected}
             onClose={() => setMobileArtifactOpen(false)}
             onChatMessage={(text) => setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'assistant', content: text }])}
             onContentChange={(html) => {

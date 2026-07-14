@@ -108,6 +108,7 @@ function dbToLocal(row) {
     status: row.status || 'draft',
     url: row.url || null,
     externalPostId: row.external_post_id || null,
+    lastError: row.last_error || null,
   };
 }
 

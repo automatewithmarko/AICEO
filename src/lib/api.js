@@ -1333,24 +1333,40 @@ export async function postToLinkedIn(text, imageUrl) {
     body: JSON.stringify({ text, imageUrl }),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Failed to post to LinkedIn' }));
-    throw new Error(err.error);
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error || `Post to LinkedIn failed (${res.status})`);
   }
   return res.json();
 }
 
 // ─── Social Post Scheduling ───
+// Routes through the real calendar endpoint so scheduled rows land in
+// social_posts with status='scheduled' and the calendar dispatcher can
+// pick them up. The old /api/social-posts/schedule route never existed
+// and every schedule attempt silently 404'd.
 
-export async function schedulePost({ platform, caption, scheduledAt, thumbnailUrl, contentSessionId }) {
+export async function schedulePost({ platform, caption, scheduledAt, thumbnailUrl, images, contentType }) {
   const headers = await getAuthHeaders();
-  const res = await fetch(`${API_URL}/api/social-posts/schedule`, {
+  const media = Array.isArray(images) && images.length
+    ? images.map((im) => ({ type: 'image', url: im.src || im.url }))
+    : thumbnailUrl
+      ? [{ type: 'image', url: thumbnailUrl }]
+      : [];
+  const res = await fetch(`${API_URL}/api/calendar/posts`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ platform, caption, scheduled_at: scheduledAt, thumbnail_url: thumbnailUrl, content_session_id: contentSessionId }),
+    body: JSON.stringify({
+      platform,
+      caption,
+      content_type: contentType || (media.length > 1 ? 'carousel' : media.length === 1 ? 'image' : 'text'),
+      scheduled_at: scheduledAt,
+      media,
+      status: 'scheduled',
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Failed to schedule post' }));
-    throw new Error(err.error);
+    throw new Error(err?.error || `Schedule failed (${res.status})`);
   }
   return res.json();
 }

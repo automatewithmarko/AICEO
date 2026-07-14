@@ -13,7 +13,7 @@ import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, sessionId = null, brandDna = null, user = null }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
@@ -35,14 +35,20 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
     await postToLinkedIn(text, imageUrl);
   };
   const handleCanvasSchedule = async ({ text, images: imgs, date, time, platform }) => {
-    const scheduledAt = `${date}T${time}:00`;
-    const thumbnailUrl = imgs?.[0]?.src || null;
+    // Build the ISO string from a real Date so the user's local timezone
+    // is preserved. The previous `${date}T${time}:00` shape had no offset,
+    // which Supabase interpreted as UTC — scheduled posts were firing at
+    // the wrong hour (or, with the dispatcher missing, silently drifting
+    // when re-read).
+    const [y, m, d] = date.split('-').map(Number);
+    const [hh, mm] = time.split(':').map(Number);
+    const scheduledAt = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0).toISOString();
     await schedulePost({
       platform,
       caption: text,
       scheduledAt,
-      thumbnailUrl,
-      contentSessionId: sessionId || null,
+      images: imgs,
+      contentType: (imgs?.length || 0) > 1 ? 'carousel' : (imgs?.length ? 'image' : 'text'),
     });
   };
   const handleCanvasUploadImages = async (files) => {
@@ -695,6 +701,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                     onUploadImages={handleCanvasUploadImages}
                     onPostToLinkedIn={handleCanvasPostToLinkedIn}
                     onSchedule={handleCanvasSchedule}
+                    isLinkedInConnected={isLinkedInConnected}
                   />
                 );
               }
