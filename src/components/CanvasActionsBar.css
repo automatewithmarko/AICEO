@@ -1,65 +1,76 @@
 /* Canvas Actions Bar — Upload / Schedule / Post buttons for AICEO's
-   non-LinkedIn social previews. Mirrors LinkedInPreview's toolbar look. */
+   non-LinkedIn social previews. Styles match LinkedInPreview's toolbar
+   exactly so both canvases look and feel identical. Uses app theme
+   variables (--brand-red, --border-*, etc.) for focus rings and connect
+   fallback so the toolbar tracks the wider design system. */
 
-.cab-toolbar-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding: 6px 0;
-}
-
+/* Toolbar container — the outer .content-ig-toolbar from SocialPreview
+   already provides padding + border-top + white bg + horizontal scroll;
+   we just need each button to survive that container's flex layout. */
 .cab-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 8px 16px;
+  border-radius: 999px;
   font-size: 13px;
-  font-weight: 500;
-  color: #1a1a2e;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  font-weight: 600;
   cursor: pointer;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.7);
+  transition: background 0.15s, border-color 0.15s, color 0.15s, filter 0.15s;
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  flex-shrink: 0;
 }
 .cab-btn:hover:not(:disabled) {
-  background: #f9fafb;
-  border-color: #d1d5db;
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.6);
 }
 .cab-btn:active:not(:disabled) {
-  transform: translateY(1px);
+  background: rgba(0, 0, 0, 0.06);
 }
 .cab-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .cab-btn--outline {
-  background: transparent;
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.25);
+  color: rgba(0, 0, 0, 0.7);
+}
+.cab-btn--outline:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.5);
 }
 
 .cab-btn--primary {
-  background: #0a0a0a;
-  border-color: #0a0a0a;
+  background: var(--text-primary, #1a1a2e);
+  border-color: var(--text-primary, #1a1a2e);
   color: #ffffff;
 }
 .cab-btn--primary:hover:not(:disabled) {
-  background: #1f1f1f;
-  border-color: #1f1f1f;
+  background: #000000;
+  border-color: #000000;
 }
 
-/* Per-platform post button colors */
+/* ─── Platform accents ─── */
+
 .cab-btn--instagram {
-  background: linear-gradient(90deg, #F58529 0%, #DD2A7B 50%, #8134AF 100%);
-  border-color: transparent;
+  background: linear-gradient(90deg, #f09433, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888);
+  border-color: #dc2743;
   color: #ffffff;
 }
 .cab-btn--instagram:hover:not(:disabled) {
-  filter: brightness(1.05);
+  filter: brightness(0.95);
+  border-color: #dc2743;
 }
+.cab-btn--instagram:disabled {
+  opacity: 0.7;
+}
+
 .cab-btn--twitter {
   background: #000000;
   border-color: #000000;
@@ -67,97 +78,127 @@
 }
 .cab-btn--twitter:hover:not(:disabled) {
   background: #1a1a1a;
+  border-color: #1a1a1a;
 }
+
 .cab-btn--facebook {
-  background: #1877F2;
-  border-color: #1877F2;
+  background: #1877f2;
+  border-color: #1877f2;
   color: #ffffff;
 }
 .cab-btn--facebook:hover:not(:disabled) {
-  background: #166FE5;
+  background: #166fe5;
+  border-color: #166fe5;
 }
+
 .cab-btn--tiktok {
-  background: #000000;
-  border-color: #000000;
+  background: #010101;
+  border-color: #010101;
   color: #ffffff;
 }
 .cab-btn--tiktok:hover:not(:disabled) {
   background: #1a1a1a;
+  border-color: #1a1a1a;
 }
 
+/* Connect fallback — outlined pill using the app's brand accent so it
+   reads as "connect to unlock" rather than "publish now". Same shape as
+   LinkedInPreview's LinkedIn-Connect variant. */
 .cab-btn--connect {
   background: #ffffff;
-  border-color: #d1d5db;
-  color: #374151;
+  border: 1px solid var(--brand-red, #e91a44);
+  color: var(--brand-red, #e91a44);
+}
+.cab-btn--connect:hover:not(:disabled) {
+  background: var(--brand-red-light, rgba(233, 26, 68, 0.06));
+  border-color: var(--brand-red, #e91a44);
 }
 
+/* ─── Schedule popover ─── */
 .cab-schedule-wrap {
   position: relative;
   display: inline-flex;
+  flex-shrink: 0;
 }
 
 .cab-schedule-popover {
-  position: fixed;
-  width: 260px;
+  /* Position + coords set inline via JS from getBoundingClientRect so
+     the popover escapes the toolbar's overflow-x clip. Match
+     LinkedInPreview's shadow, radius, and slide-in animation. */
   background: #ffffff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 12px;
-  padding: 14px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
-  z-index: 10000;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 1px 4px rgba(0, 0, 0, 0.08);
+  padding: 16px;
+  min-width: 240px;
+  width: 260px;
+  z-index: 1000;
+  animation: cab-popover-in 0.15s ease-out;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+}
+@keyframes cab-popover-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .cab-schedule-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-primary, #191919);
+  margin: 0 0 12px;
 }
 
 .cab-schedule-label {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 11px;
-  color: #6b7280;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.6);
+  margin-bottom: 10px;
 }
 
 .cab-schedule-input {
-  padding: 6px 10px;
-  font-size: 13px;
-  color: #1a1a2e;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--text-primary, #191919);
+  background: #ffffff;
   outline: none;
-  text-transform: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 .cab-schedule-input:focus {
-  border-color: #0a0a0a;
-  background: #ffffff;
+  border-color: var(--brand-red, #e91a44);
+  box-shadow: 0 0 0 3px var(--brand-red-light, rgba(233, 26, 68, 0.12));
 }
 
 .cab-schedule-confirm {
+  width: 100%;
   justify-content: center;
   margin-top: 4px;
 }
 
 .cab-schedule-error {
-  font-size: 12px;
-  color: #dc2626;
+  margin-top: 8px;
   padding: 6px 8px;
-  background: #fef2f2;
-  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #b42318;
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+  border-radius: 8px;
+  word-break: break-word;
 }
 
+/* Spinner — reuse global animation name but keep our own selector so
+   we don't need to import LinkedInPreview.css for the animation. */
 @keyframes cab-spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
 .cab-spin {
-  animation: cab-spin 0.8s linear infinite;
+  animation: cab-spin 1s linear infinite;
 }

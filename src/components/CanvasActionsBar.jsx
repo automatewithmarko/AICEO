@@ -119,8 +119,12 @@ export default function CanvasActionsBar({
 
   const platformLabel = PLATFORM_LABEL[platform] || 'Platform';
 
+  // Rendered INSIDE SocialPreview's .content-ig-toolbar which is already
+  // a flex row with 8px gap + horizontal scroll. Using a Fragment (not a
+  // wrapper div) lets each of our buttons flow as a direct child of that
+  // toolbar, so gap + overflow work naturally and no double-flex nesting.
   return (
-    <div className="cab-toolbar-row">
+    <>
       <input
         ref={uploadRef}
         type="file"
@@ -234,6 +238,6 @@ export default function CanvasActionsBar({
           </button>
         )
       )}
-    </div>
+    </>
   );
 }
