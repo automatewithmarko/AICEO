@@ -303,6 +303,65 @@
   z-index: 1;
 }
 
+/* Carousel-generation progress banner — sits above SocialPreview /
+   LinkedInPreview while the per-slide image gen loop runs. Slides in
+   from the top, disappears when pendingImages hits 0. */
+.ap-carousel-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin: 8px 12px 4px;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  animation: ap-carousel-progress-in 0.2s ease-out;
+  position: relative;
+  z-index: 2;
+}
+@keyframes ap-carousel-progress-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ap-carousel-progress-spinner {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-medium, #d1d5db);
+  border-top-color: var(--brand-red, #e91a44);
+  border-radius: 50%;
+  animation: ap-carousel-spin 0.8s linear infinite;
+}
+@keyframes ap-carousel-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.ap-carousel-progress-text {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary, #1a1a2e);
+}
+
+.ap-carousel-progress-bar {
+  flex: 1;
+  min-width: 80px;
+  height: 4px;
+  background: var(--bg-light, #f3f4f6);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.ap-carousel-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--brand-red, #e91a44), #ff5c7c);
+  border-radius: 999px;
+  transition: width 0.3s ease-out;
+}
+
 .ap-loading-block {
   border-radius: 8px;
   background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary, #eef0f4) 50%, var(--bg-tertiary) 75%);

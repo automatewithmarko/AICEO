@@ -1426,7 +1426,13 @@ export default function AiCeo() {
             || name === 'plan_carousel'
           );
           if (isSocialArtifact) {
-            const recentUserText = messages
+            // IMPORTANT: use `chatHistory` (the fresh post-userMsg array
+            // sendToAI was called with), NOT the closure's `messages`
+            // which is stale by one setMessages tick. answerQuestion
+            // triggers sendToAI(updated) with the just-picked option
+            // as the latest user message; that message ONLY exists in
+            // chatHistory at gate-check time.
+            const recentUserText = chatHistory
               .filter((m) => m.role === 'user')
               .slice(-4)
               .map((m) => String(m.content || ''))
@@ -1585,12 +1591,11 @@ export default function AiCeo() {
               console.warn('[AiCeo] plan_carousel with zero slides — ignoring');
               return;
             }
-            // Platform detection: scan the recent user messages in this
-            // session for a literal platform mention. LinkedIn takes
-            // priority when both appear (rare). Fall back to instagram —
-            // Content's own default for plan_carousel — when neither
-            // side has spoken the platform yet (a Surprise-me path).
-            const recentUserText = messages
+            // Platform detection: scan the recent user messages for a
+            // literal platform mention. Uses chatHistory (fresh) rather
+            // than the closure's stale messages — same reason as the
+            // gate above.
+            const recentUserText = chatHistory
               .filter((m) => m.role === 'user')
               .slice(-3)
               .map((m) => String(m.content || ''))

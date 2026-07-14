@@ -727,6 +727,32 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
             {type === 'content_post' && (() => {
+              // Carousel generation banner — visible feedback while the
+              // per-slide image gen loop runs. Sits above whichever
+              // preview component renders below. Shows the CURRENT
+              // progress even after the first slide has landed (unlike
+              // SocialPreview's skeleton which vanishes as soon as
+              // images.length > 0). Hides itself once every slide is
+              // done or when the artifact isn't a carousel.
+              const totalPlanSlides = artifact.carouselPlan?.slides?.length || artifact.totalSlides || 0;
+              const pending = artifact.pendingImages || 0;
+              const rendered = Math.max(0, totalPlanSlides - pending);
+              const carouselGenerating = totalPlanSlides > 0 && pending > 0;
+              const carouselBanner = carouselGenerating ? (
+                <div className="ap-carousel-progress" role="status" aria-live="polite">
+                  <span className="ap-carousel-progress-spinner" aria-hidden="true" />
+                  <span className="ap-carousel-progress-text">
+                    Generating slide {rendered + 1} of {totalPlanSlides}…
+                  </span>
+                  <div className="ap-carousel-progress-bar">
+                    <div
+                      className="ap-carousel-progress-bar-fill"
+                      style={{ width: `${(rendered / Math.max(1, totalPlanSlides)) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null;
+
               // LinkedIn posts route to LinkedInPreview (proper LI chrome,
               // text-only support). SocialPreview is image-based and falls
               // into a "preparing post…" skeleton when images=[] — fine
@@ -736,24 +762,27 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
               const isLinkedin = /linkedin/i.test(String(agentSource || ''));
               if (isLinkedin) {
                 return (
-                  <LinkedInPreview
-                    content={content || ''}
-                    images={images || []}
-                    userName={user?.user_metadata?.full_name || user?.email || ''}
-                    userAvatar={user?.user_metadata?.avatar_url || null}
-                    userSubtitle={brandDna?.description?.split(/[.!?]/)[0]?.trim().slice(0, 80) || 'Author'}
-                    followerCount={brandDna?.linkedin_followers || '1,200'}
-                    postAge="1w"
-                    totalSlides={artifact.totalSlides || 0}
-                    plan={artifact.carouselPlan || null}
-                    streaming={!!artifact.streaming}
-                    isGenerating={(artifact.pendingImages || 0) > 0}
-                    onContentChange={onContentChange}
-                    onUploadImages={handleCanvasUploadImages}
-                    onPostToLinkedIn={handleCanvasPostToLinkedIn}
-                    onSchedule={handleCanvasSchedule}
-                    isLinkedInConnected={isLinkedInConnected}
-                  />
+                  <>
+                    {carouselBanner}
+                    <LinkedInPreview
+                      content={content || ''}
+                      images={images || []}
+                      userName={user?.user_metadata?.full_name || user?.email || ''}
+                      userAvatar={user?.user_metadata?.avatar_url || null}
+                      userSubtitle={brandDna?.description?.split(/[.!?]/)[0]?.trim().slice(0, 80) || 'Author'}
+                      followerCount={brandDna?.linkedin_followers || '1,200'}
+                      postAge="1w"
+                      totalSlides={artifact.totalSlides || 0}
+                      plan={artifact.carouselPlan || null}
+                      streaming={!!artifact.streaming}
+                      isGenerating={(artifact.pendingImages || 0) > 0}
+                      onContentChange={onContentChange}
+                      onUploadImages={handleCanvasUploadImages}
+                      onPostToLinkedIn={handleCanvasPostToLinkedIn}
+                      onSchedule={handleCanvasSchedule}
+                      isLinkedInConnected={isLinkedInConnected}
+                    />
+                  </>
                 );
               }
               // Derive platform from agentSource so the preview chrome +
@@ -781,33 +810,42 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                 ? !!(connectedSocials.instagram || connectedSocials.boosend)
                 : false;
               return (
-                <SocialPreview
-                  msg={{
-                    id: artifact.id || `content-${type}-${(content || '').length}`,
-                    platform: socialPlatform,
-                    images: images || [],
-                    content: content || '',
-                    pendingImages: artifact.pendingImages,
-                  }}
-                  brandDna={brandDna}
-                  user={user}
-                  showHeader={false}
-                  onUploadImages={handleCanvasUploadImages}
-                  onSchedule={handleCanvasSchedule}
-                  actionsSlot={
-                    <CanvasActionsBar
-                      text={content || ''}
-                      images={images || []}
-                      platform={socialPlatform}
-                      onUploadImages={handleCanvasUploadImages}
-                      onSchedule={handleCanvasSchedule}
-                      onPostToPlatform={onPost}
-                      onConnect={onConnect}
-                      isConnected={isPlatformConnected}
-                      streaming={!!artifact.streaming}
-                    />
-                  }
-                />
+                <>
+                  {carouselBanner}
+                  <SocialPreview
+                    msg={{
+                      id: artifact.id || `content-${type}-${(content || '').length}`,
+                      platform: socialPlatform,
+                      images: images || [],
+                      content: content || '',
+                      pendingImages: artifact.pendingImages,
+                      // carouselPlan trips SocialPreview into the
+                      // "Rendering N / M slides…" skeleton state while
+                      // the per-slide image gen loop runs (see AiCeo.jsx
+                      // plan_carousel handler). Without this, the panel
+                      // sat empty for 30+ seconds giving no feedback.
+                      carouselPlan: artifact.carouselPlan || null,
+                    }}
+                    brandDna={brandDna}
+                    user={user}
+                    showHeader={false}
+                    onUploadImages={handleCanvasUploadImages}
+                    onSchedule={handleCanvasSchedule}
+                    actionsSlot={
+                      <CanvasActionsBar
+                        text={content || ''}
+                        images={images || []}
+                        platform={socialPlatform}
+                        onUploadImages={handleCanvasUploadImages}
+                        onSchedule={handleCanvasSchedule}
+                        onPostToPlatform={onPost}
+                        onConnect={onConnect}
+                        isConnected={isPlatformConnected}
+                        streaming={!!artifact.streaming}
+                      />
+                    }
+                  />
+                </>
               );
             })()}
             {type === 'image' && <ImageRenderer images={images} pendingImages={artifact.pendingImages} title={title} />}
