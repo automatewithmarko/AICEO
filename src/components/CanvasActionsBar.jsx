@@ -24,6 +24,7 @@ import './CanvasActionsBar.css';
 
 const PLATFORM_LABEL = {
   instagram: 'Instagram',
+  linkedin: 'LinkedIn',
   twitter: 'X',
   tiktok: 'TikTok',
   facebook: 'Facebook',
@@ -105,15 +106,47 @@ export default function CanvasActionsBar({
     }
   };
 
+  // Load one image (data URL or CORS-safe remote URL) and return
+  // { dataUrl, width, height, format } ready to hand to jsPDF.
+  const loadImageForPdf = (src) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      // Normalize to a data URL so jsPDF can consume both data: and
+      // remote sources through the same path.
+      let dataUrl = src;
+      if (!src.startsWith('data:')) {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        } catch (canvasErr) {
+          // CORS taint — fall back to the raw URL string and let jsPDF
+          // try. If that fails, the caller marks the page failed and
+          // continues with the rest.
+          console.warn('[cab-download] canvas taint on', src?.slice(0, 60), canvasErr);
+        }
+      }
+      const format = /^data:image\/png/i.test(dataUrl) ? 'PNG' : 'JPEG';
+      resolve({ dataUrl, width: img.naturalWidth, height: img.naturalHeight, format });
+    };
+    img.onerror = () => reject(new Error('image load failed'));
+    img.src = src;
+  });
+
   const handleDownload = async () => {
     if (downloadState === 'downloading') return;
     setDownloadState('downloading');
     try {
-      // Single image: skip the zip and just download the image directly.
       if (!images?.length) {
         setDownloadState('idle');
         return;
       }
+      // Single image: direct download (no PDF wrapping — the user just
+      // wants the image file for a single post).
       if (images.length === 1) {
         const img = images[0];
         const a = document.createElement('a');
@@ -126,45 +159,43 @@ export default function CanvasActionsBar({
         setTimeout(() => setDownloadState('idle'), 1200);
         return;
       }
-      // Carousel: zip all slides + caption.
-      const { default: JSZip } = await import('jszip');
-      const zip = new JSZip();
-      let added = 0;
-      for (const img of images) {
-        if (!img?.src) continue;
-        const label = String((img.idx ?? added) + 1).padStart(2, '0');
+      // Multi-slide carousel: bundle as a PDF document, one slide per
+      // page, sized to the source image so LinkedIn's document-carousel
+      // upload accepts it natively.
+      //
+      // Slides are stored keyed by idx (not insertion order) — sort here
+      // so the PDF pages read left-to-right.
+      const ordered = [...images].sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
+      const loaded = [];
+      for (const im of ordered) {
+        if (!im?.src) continue;
         try {
-          if (img.src.startsWith('data:')) {
-            const commaIdx = img.src.indexOf(',');
-            if (commaIdx === -1) continue;
-            const b64 = img.src.slice(commaIdx + 1);
-            const mime = (img.src.match(/^data:([^;]+);/) || [])[1] || 'image/png';
-            const ext = (mime.split('/')[1] || 'png').split('+')[0];
-            zip.file(`slide-${label}.${ext}`, b64, { base64: true });
-            added++;
-          } else {
-            const res = await fetch(img.src, { mode: 'cors' });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const blob = await res.blob();
-            const ext = ((blob.type || 'image/png').split('/')[1] || 'png').split('+')[0];
-            zip.file(`slide-${label}.${ext}`, blob);
-            added++;
-          }
+          loaded.push(await loadImageForPdf(im.src));
         } catch (imgErr) {
-          console.warn(`[cab-download] slide ${label} failed:`, imgErr);
+          console.warn(`[cab-download] slide load failed:`, imgErr);
         }
       }
-      if (text?.trim()) zip.file('caption.txt', text.trim());
-      if (added === 0) throw new Error('No slides could be added.');
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${platform || 'carousel'}-${new Date().toISOString().slice(0, 10)}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      if (loaded.length === 0) throw new Error('No slides could be loaded.');
+      const { jsPDF } = await import('jspdf');
+      const first = loaded[0];
+      const isPortrait = first.height > first.width;
+      const pdf = new jsPDF({
+        orientation: isPortrait ? 'portrait' : (first.width === first.height ? 'portrait' : 'landscape'),
+        unit: 'px',
+        format: [first.width, first.height],
+        hotfixes: ['px_scaling'],
+      });
+      pdf.addImage(first.dataUrl, first.format, 0, 0, first.width, first.height);
+      for (let i = 1; i < loaded.length; i++) {
+        const im = loaded[i];
+        // Each page can carry its own size — supports mixed dimensions
+        // (unlikely but robust). LinkedIn document carousels are always
+        // portrait 1080x1440; Instagram carousels are 1080x1080.
+        pdf.addPage([im.width, im.height], im.width > im.height ? 'landscape' : 'portrait');
+        pdf.addImage(im.dataUrl, im.format, 0, 0, im.width, im.height);
+      }
+      const stamp = new Date().toISOString().slice(0, 10);
+      pdf.save(`${platform || 'carousel'}-${stamp}.pdf`);
       setDownloadState('done');
       setTimeout(() => setDownloadState('idle'), 1200);
     } catch (err) {
@@ -219,23 +250,25 @@ export default function CanvasActionsBar({
         </button>
       )}
 
-      {/* Download — zip when multi-image, single image otherwise. Only
-          renders when there's actual media to download. */}
+      {/* Download — PDF (one page per slide) for carousels, single
+          image otherwise. LinkedIn document carousels upload natively
+          from PDF; Instagram users can screenshot pages if they need
+          them back as images. */}
       {images?.length > 0 && !streaming && (
         <button
           className="cab-btn"
           onClick={handleDownload}
           disabled={downloadState === 'downloading'}
-          title={images.length > 1 ? 'Download all slides as .zip' : 'Download image'}
+          title={images.length > 1 ? 'Download carousel as PDF' : 'Download image'}
         >
           {downloadState === 'downloading' ? (
-            <><Loader size={14} className="cab-spin" /> Zipping…</>
+            <><Loader size={14} className="cab-spin" /> Building PDF…</>
           ) : downloadState === 'done' ? (
             <><Check size={14} /> Downloaded</>
           ) : downloadState === 'error' ? (
             <><X size={14} /> Failed</>
           ) : (
-            <><Download size={14} /> {images.length > 1 ? 'Download .zip' : 'Download'}</>
+            <><Download size={14} /> {images.length > 1 ? 'Download PDF' : 'Download'}</>
           )}
         </button>
       )}

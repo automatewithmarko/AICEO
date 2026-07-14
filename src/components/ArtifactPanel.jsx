@@ -57,8 +57,48 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
       navigate('/settings', { state: { scrollTo: 'integrations', highlight: 'boosend' } });
       return;
     }
-    const mediaItems = (imgs || []).map((im) => ({ url: im?.src })).filter((m) => m.url);
-    const postType = mediaItems.length > 1 ? 'carousel' : (mediaItems.length === 1 ? 'image' : 'text');
+    // Meta / BooSend can only fetch publicly-reachable URLs. Blob URLs
+    // (from URL.createObjectURL) and data: URLs live in the browser
+    // and produce the "image URL not attached / does not exist" error
+    // when forwarded verbatim. Upload every non-public slide to
+    // Supabase storage first, then publish.
+    const orderedImgs = Array.isArray(imgs)
+      ? [...imgs].sort((a, b) => (a?.idx || 0) - (b?.idx || 0))
+      : [];
+    const publicUrls = [];
+    for (const im of orderedImgs) {
+      const src = im?.src;
+      if (!src) continue;
+      if (src.startsWith('data:')) {
+        const commaIdx = src.indexOf(',');
+        const mime = (src.match(/^data:([^;]+);/) || [])[1] || 'image/png';
+        const base64 = src.slice(commaIdx + 1);
+        const uploaded = await uploadImageToStorage(base64, mime);
+        const url = uploaded?.url || uploaded?.publicUrl || null;
+        if (url) publicUrls.push(url);
+      } else if (src.startsWith('blob:')) {
+        // Fetch the blob → data URL → upload. Blob URLs are only valid
+        // in the current tab, so this is the only reliable path.
+        const blob = await (await fetch(src)).blob();
+        const base64 = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => {
+            const s = String(r.result || '');
+            resolve(s.slice(s.indexOf(',') + 1));
+          };
+          r.onerror = () => reject(new Error('read failed'));
+          r.readAsDataURL(blob);
+        });
+        const uploaded = await uploadImageToStorage(base64, blob.type || 'image/png');
+        const url = uploaded?.url || uploaded?.publicUrl || null;
+        if (url) publicUrls.push(url);
+      } else {
+        publicUrls.push(src);
+      }
+    }
+    if (publicUrls.length === 0) throw new Error('No images to publish. Attach at least one image before posting.');
+    const mediaItems = publicUrls.map((url) => ({ url }));
+    const postType = mediaItems.length > 1 ? 'carousel' : 'single';
     await postToInstagram({
       caption: text,
       media_items: mediaItems,
@@ -815,15 +855,20 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                       onRemoveSlide={onDeleteCarouselSlide}
                       isLinkedInConnected={isLinkedInConnected}
                       actionsSlot={
-                        // LinkedInPreview renders Upload/Schedule/Post
-                        // inline; slot in just the Download button so
-                        // both canvases have the same "save the assets"
-                        // capability.
+                        // LinkedInPreview renders Upload / Post-to-LI
+                        // inline for text posts, but its Schedule
+                        // button hides for carousels (assumes the
+                        // parent passes a schedule-capable actionsSlot).
+                        // We plug both Download AND Schedule in here so
+                        // the LinkedIn carousel canvas has parity with
+                        // /Content: schedule the carousel, download the
+                        // PDF for manual upload if wanted.
                         <CanvasActionsBar
                           text={content || ''}
                           images={images || []}
                           platform="linkedin"
                           streaming={!!artifact.streaming}
+                          onSchedule={handleCanvasSchedule}
                         />
                       }
                     />
