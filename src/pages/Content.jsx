@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import DOMPurify from 'dompurify';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
@@ -3275,11 +3275,15 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
     setScheduling(true);
     try {
       const media = await collectMedia();
-      if (!media.length) throw new Error('No images to schedule');
+      // Publishing to LinkedIn (image or carousel) or Instagram needs at
+      // least one media item; a text-only LinkedIn draft/schedule does
+      // not. Only reject the empty case when the platform requires media.
+      const needsMedia = platform !== 'linkedin' || (plan?.slides?.length || 0) > 0;
+      if (needsMedia && !media.length) throw new Error('No images to schedule');
       const { post } = await createCalendarPost({
         platform,
         caption: plan.caption || '',
-        content_type: 'carousel',
+        content_type: media.length > 1 ? 'carousel' : media.length === 1 ? 'image' : 'text',
         scheduled_at: mode === 'scheduled' ? new Date(scheduleWhen).toISOString() : null,
         media,
         status: mode === 'scheduled' ? 'scheduled' : 'draft',
@@ -7403,8 +7407,12 @@ export default function Content() {
                 }
               }}
               isLinkedInConnected={isLinkedInConnected}
-              onPostToLinkedIn={async ({ text, images, connect }) => {
-                if (connect) {
+              onPostToLinkedIn={async ({ text, images, connect, reconnect }) => {
+                if (connect || reconnect) {
+                  try {
+                    const { url } = await getLinkedInAuthUrl();
+                    if (url) { window.location.href = url; return; }
+                  } catch (err) { console.error('[linkedin] auth URL fetch failed:', err.message); }
                   navigate('/settings', { state: { scrollTo: 'integrations' } });
                   return;
                 }
@@ -7412,14 +7420,15 @@ export default function Content() {
                 await postToLinkedIn(text, imageUrl);
               }}
               onSchedule={async ({ text, images, date, time, platform }) => {
-                const scheduledAt = `${date}T${time}:00`;
-                const thumbnailUrl = images?.[0]?.src || null;
+                const [y, m, d] = date.split('-').map(Number);
+                const [hh, mm] = time.split(':').map(Number);
+                const scheduledAt = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0).toISOString();
                 await schedulePost({
                   platform,
                   caption: text,
                   scheduledAt,
-                  thumbnailUrl,
-                  contentSessionId: sessionId || null,
+                  images,
+                  contentType: (images?.length || 0) > 1 ? 'carousel' : (images?.length ? 'image' : 'text'),
                 });
               }}
             />
@@ -7465,20 +7474,28 @@ export default function Content() {
                   onRegenerateSlide={(idx) => handleCarouselSlideRegenerate(panelMsg.id, idx)}
                   onFullscreen={(idx) => setSlideViewer({ msgId: panelMsg.id, idx })}
                   isLinkedInConnected={isLinkedInConnected}
-                  onPostToLinkedIn={async ({ text, images: imgs, connect }) => {
-                    if (connect) { navigate('/settings', { state: { scrollTo: 'integrations' } }); return; }
+                  onPostToLinkedIn={async ({ text, images: imgs, connect, reconnect }) => {
+                    if (connect || reconnect) {
+                      try {
+                        const { url } = await getLinkedInAuthUrl();
+                        if (url) { window.location.href = url; return; }
+                      } catch (err) { console.error('[linkedin] auth URL fetch failed:', err.message); }
+                      navigate('/settings', { state: { scrollTo: 'integrations' } });
+                      return;
+                    }
                     const imageUrl = imgs?.[0]?.src || null;
                     await postToLinkedIn(text, imageUrl);
                   }}
                   onSchedule={async ({ text, images: imgs, date, time, platform }) => {
-                    const scheduledAt = `${date}T${time}:00`;
-                    const thumbnailUrl = imgs?.[0]?.src || null;
+                    const [y, m, d] = date.split('-').map(Number);
+                    const [hh, mm] = time.split(':').map(Number);
+                    const scheduledAt = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0).toISOString();
                     await schedulePost({
                       platform,
                       caption: text,
                       scheduledAt,
-                      thumbnailUrl,
-                      contentSessionId: sessionId || null,
+                      images: imgs,
+                      contentType: (imgs?.length || 0) > 1 ? 'carousel' : (imgs?.length ? 'image' : 'text'),
                     });
                   }}
                   actionsSlot={

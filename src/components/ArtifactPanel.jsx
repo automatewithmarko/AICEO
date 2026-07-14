@@ -6,14 +6,14 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
-import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, schedulePost, uploadImageToStorage } from '../lib/api';
+import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, schedulePost, uploadImageToStorage, getLinkedInAuthUrl } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, sessionId = null, brandDna = null, user = null }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
@@ -26,8 +26,18 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
   // Canvas Schedule / Upload / Post handlers — parity with Content.jsx so
   // the buttons inside LinkedInPreview + SocialPreview actually work when
   // the preview is rendered inside the AICEO chat's canvas panel.
-  const handleCanvasPostToLinkedIn = async ({ text, images: imgs, connect }) => {
-    if (connect) {
+  const handleCanvasPostToLinkedIn = async ({ text, images: imgs, connect, reconnect }) => {
+    if (connect || reconnect) {
+      // Kick straight into LinkedIn's OAuth consent so the user doesn't
+      // need to hunt through Settings after seeing a "token expired"
+      // banner. On failure fall back to the Settings deep-link so they
+      // can retry from a stable page.
+      try {
+        const { url } = await getLinkedInAuthUrl();
+        if (url) { window.location.href = url; return; }
+      } catch (err) {
+        console.error('[linkedin] auth URL fetch failed:', err.message);
+      }
       navigate('/settings', { state: { scrollTo: 'integrations' } });
       return;
     }
@@ -35,14 +45,20 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
     await postToLinkedIn(text, imageUrl);
   };
   const handleCanvasSchedule = async ({ text, images: imgs, date, time, platform }) => {
-    const scheduledAt = `${date}T${time}:00`;
-    const thumbnailUrl = imgs?.[0]?.src || null;
+    // Build the ISO string from a real Date so the user's local timezone
+    // is preserved. The previous `${date}T${time}:00` shape had no offset,
+    // which Supabase interpreted as UTC — scheduled posts were firing at
+    // the wrong hour (or, with the dispatcher missing, silently drifting
+    // when re-read).
+    const [y, m, d] = date.split('-').map(Number);
+    const [hh, mm] = time.split(':').map(Number);
+    const scheduledAt = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0).toISOString();
     await schedulePost({
       platform,
       caption: text,
       scheduledAt,
-      thumbnailUrl,
-      contentSessionId: sessionId || null,
+      images: imgs,
+      contentType: (imgs?.length || 0) > 1 ? 'carousel' : (imgs?.length ? 'image' : 'text'),
     });
   };
   const handleCanvasUploadImages = async (files) => {
@@ -695,6 +711,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                     onUploadImages={handleCanvasUploadImages}
                     onPostToLinkedIn={handleCanvasPostToLinkedIn}
                     onSchedule={handleCanvasSchedule}
+                    isLinkedInConnected={isLinkedInConnected}
                   />
                 );
               }

@@ -34,6 +34,7 @@ import workspaceRoutes from './routes/workspace.js';
 import stagedemoRoutes, { handleStagedemoUpgrade } from './routes/stagedemo.js';
 import authNotifyRoutes from './routes/auth-notify.js';
 import { startEmailSync } from './services/email-sync.js';
+import { startScheduledPostsDispatcher } from './services/scheduled-posts.js';
 import { resolveContext } from './services/workspace.js';
 
 const app = express();
@@ -1247,4 +1248,5 @@ server.on('upgrade', (req, socket, head) => {
 server.listen(PORT, () => {
   console.log(`AICEO backend running on port ${PORT}`);
   startEmailSync();
+  startScheduledPostsDispatcher();
 });

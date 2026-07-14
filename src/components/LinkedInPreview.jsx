@@ -13,7 +13,8 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
   const scheduleBtnRef = useRef(null);
   const [schedDate, setSchedDate] = useState('');
   const [schedTime, setSchedTime] = useState('09:00');
-  const [schedState, setSchedState] = useState('idle'); // idle | saving | saved
+  const [schedState, setSchedState] = useState('idle'); // idle | saving | saved | error
+  const [schedError, setSchedError] = useState('');
   // Edit overlay: which slide is being edited + the instruction draft
   const [editingSlideIdx, setEditingSlideIdx] = useState(null);
   const [editDraft, setEditDraft] = useState('');
@@ -103,19 +104,30 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
       setPostState('posted');
     } catch (err) {
       setPostState('error');
-      setPostError(err.message || 'Failed to post');
-      setTimeout(() => setPostState('idle'), 3000);
+      // err.message can legitimately be undefined when api.js's
+      // `throw new Error(err.error)` fires against a non-JSON response
+      // (proxy 502, HTML error page). Guard so the button never
+      // renders the string "undefined".
+      const msg = (err && (err.message || err.error)) || 'Failed to post';
+      setPostError(String(msg).slice(0, 80));
+      setTimeout(() => setPostState('idle'), 4000);
     }
   };
 
   const handleSchedule = async () => {
     if (!onSchedule || schedState === 'saving' || !schedDate || !schedTime) return;
     setSchedState('saving');
+    setSchedError('');
     try {
       await onSchedule({ text: getCurrentText(), images: sortedImages, date: schedDate, time: schedTime, platform: 'linkedin' });
       setSchedState('saved');
-    } catch {
-      setSchedState('idle');
+    } catch (err) {
+      // Was silently swallowed; users saw the popover reset with no
+      // explanation. Surface the actual error so they can act on it
+      // (reconnect LinkedIn, upgrade plan, retry, etc.).
+      const msg = (err && (err.message || err.error)) || 'Schedule failed';
+      setSchedError(String(msg).slice(0, 120));
+      setSchedState('error');
     }
   };
 
@@ -638,10 +650,26 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                         <><Loader size={14} className="li-spin" /> Saving...</>
                       ) : schedState === 'saved' ? (
                         <><Check size={14} /> Scheduled!</>
+                      ) : schedState === 'error' ? (
+                        <><X size={14} /> Retry</>
                       ) : (
                         <><CalendarClock size={14} /> Confirm Schedule</>
                       )}
                     </button>
+                    {schedState === 'error' && schedError && (
+                      <div className="li-schedule-error" role="alert">
+                        <span>{schedError}</span>
+                        {/expired|reconnect|linkedin_token_expired/i.test(schedError) && onPostToLinkedIn && (
+                          <button
+                            type="button"
+                            className="li-schedule-error-action"
+                            onClick={() => onPostToLinkedIn?.({ reconnect: true })}
+                          >
+                            <ExternalLink size={12} /> Reconnect LinkedIn
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -649,21 +677,33 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
 
             {/* Post to LinkedIn button */}
             {isLinkedInConnected ? (
-              <button
-                className="li-toolbar-btn li-toolbar-btn--linkedin"
-                onClick={handlePostToLinkedIn}
-                disabled={postState === 'posting' || postState === 'posted'}
-              >
-                {postState === 'posting' ? (
-                  <><Loader size={14} className="li-spin" /> Posting...</>
-                ) : postState === 'posted' ? (
-                  <><Check size={14} /> Posted!</>
-                ) : postState === 'error' ? (
-                  <><X size={14} /> {postError || 'Failed'}</>
-                ) : (
-                  <><Send size={14} /> Post to LinkedIn</>
+              <>
+                <button
+                  className="li-toolbar-btn li-toolbar-btn--linkedin"
+                  onClick={handlePostToLinkedIn}
+                  disabled={postState === 'posting' || postState === 'posted'}
+                >
+                  {postState === 'posting' ? (
+                    <><Loader size={14} className="li-spin" /> Posting...</>
+                  ) : postState === 'posted' ? (
+                    <><Check size={14} /> Posted!</>
+                  ) : postState === 'error' ? (
+                    <><X size={14} /> {postError || 'Failed'}</>
+                  ) : (
+                    <><Send size={14} /> Post to LinkedIn</>
+                  )}
+                </button>
+                {postState === 'error' && /expired|reconnect|linkedin_token_expired/i.test(postError) && (
+                  <button
+                    type="button"
+                    className="li-toolbar-btn li-toolbar-btn--linkedin-connect"
+                    onClick={() => onPostToLinkedIn?.({ reconnect: true })}
+                    title="Your LinkedIn access token expired — reconnect to resume posting"
+                  >
+                    <ExternalLink size={14} /> Reconnect LinkedIn
+                  </button>
                 )}
-              </button>
+              </>
             ) : (
               <button
                 className="li-toolbar-btn li-toolbar-btn--linkedin-connect"

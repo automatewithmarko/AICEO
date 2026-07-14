@@ -889,13 +889,26 @@ export default function Settings() {
                 <img src={nt.logo} alt={nt.name} className={`settings-integration-logo ${nt.large ? 'settings-integration-logo--lg' : ''} ${nt.small ? 'settings-integration-logo--sm' : ''}`} />
                 <div className="settings-integration-info">
                   <span className="settings-integration-name">{nt.name}</span>
-                  <span className={`settings-integration-status ${integrations[nt.id]?.is_active ? 'settings-integration-status--connected' : ''}`}>
-                    {nt.id === 'email' && emailAccounts.length > 0
-                      ? `${emailAccounts.length} account${emailAccounts.length > 1 ? 's' : ''} connected`
-                      : nt.id === 'linkedin' && integrations.linkedin?.is_active
-                        ? `Connected${integrations.linkedin.metadata?.profile_name ? ` — ${integrations.linkedin.metadata.profile_name}` : ''}`
-                        : integrations[nt.id]?.is_active ? 'Connected' : 'Not connected'}
-                  </span>
+                  {(() => {
+                    const isLinkedin = nt.id === 'linkedin';
+                    const liMeta = isLinkedin ? (integrations.linkedin?.metadata || {}) : null;
+                    const liExpiresAt = liMeta?.expires_at ? new Date(liMeta.expires_at) : null;
+                    const liExpired = isLinkedin && integrations.linkedin?.is_active && !!liExpiresAt && liExpiresAt < new Date();
+                    const cls = liExpired
+                      ? 'settings-integration-status settings-integration-status--expired'
+                      : `settings-integration-status ${integrations[nt.id]?.is_active ? 'settings-integration-status--connected' : ''}`;
+                    let label;
+                    if (nt.id === 'email' && emailAccounts.length > 0) {
+                      label = `${emailAccounts.length} account${emailAccounts.length > 1 ? 's' : ''} connected`;
+                    } else if (liExpired) {
+                      label = `Expired — reconnect to keep posting${liMeta.profile_name ? ` (${liMeta.profile_name})` : ''}`;
+                    } else if (isLinkedin && integrations.linkedin?.is_active) {
+                      label = `Connected${liMeta.profile_name ? ` — ${liMeta.profile_name}` : ''}`;
+                    } else {
+                      label = integrations[nt.id]?.is_active ? 'Connected' : 'Not connected';
+                    }
+                    return <span className={cls}>{label}</span>;
+                  })()}
                 </div>
                 {/* Connect / Disconnect controls are owner-only — third-party
                     credentials belong to the workspace owner, and disconnecting
@@ -908,22 +921,37 @@ export default function Settings() {
                     Owner only
                   </span>
                 ) : nt.id === 'linkedin' ? (
-                  integrations.linkedin?.is_active ? (
-                    <button
-                      className="settings-btn settings-btn--danger"
-                      onClick={handleLinkedInDisconnect}
-                    >
-                      Disconnect
-                    </button>
-                  ) : (
-                    <button
-                      className="settings-btn settings-btn--primary"
-                      onClick={handleLinkedInConnect}
-                      disabled={linkedinConnecting}
-                    >
-                      {linkedinConnecting ? <><Loader size={14} className="settings-spinner" /> Connecting...</> : 'Connect'}
-                    </button>
-                  )
+                  (() => {
+                    // LinkedIn access tokens expire (~60 days) but the row
+                    // stays is_active until the user disconnects, so a stale
+                    // integration silently blocks posting. Detect expiry
+                    // from metadata.expires_at and surface a Reconnect
+                    // button + "Expired" pill so the fix is one click.
+                    const meta = integrations.linkedin?.metadata || {};
+                    const expiresAt = meta.expires_at ? new Date(meta.expires_at) : null;
+                    const isExpired = !!expiresAt && expiresAt < new Date();
+                    if (integrations.linkedin?.is_active && !isExpired) {
+                      return (
+                        <button
+                          className="settings-btn settings-btn--danger"
+                          onClick={handleLinkedInDisconnect}
+                        >
+                          Disconnect
+                        </button>
+                      );
+                    }
+                    return (
+                      <button
+                        className="settings-btn settings-btn--primary"
+                        onClick={handleLinkedInConnect}
+                        disabled={linkedinConnecting}
+                      >
+                        {linkedinConnecting
+                          ? <><Loader size={14} className="settings-spinner" /> Connecting...</>
+                          : (isExpired ? 'Reconnect' : 'Connect')}
+                      </button>
+                    );
+                  })()
                 ) : nt.id === 'email' ? (
                   emailAccounts.length === 0 && (
                     <button
