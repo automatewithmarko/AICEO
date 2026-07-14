@@ -362,6 +362,77 @@
 }
 
 .content-ig-caption-body { white-space: pre-wrap; word-break: break-word; }
+
+/* ─── Inline caption editing ────────────────────────────────────── */
+.content-caption-editable {
+  display: block;
+  padding: 6px 8px;
+  margin-top: 4px;
+  min-height: 40px;
+  outline: none;
+  border: 1.5px solid transparent;
+  border-radius: 6px;
+  cursor: text;
+  transition: border-color 0.15s, background 0.15s;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.content-caption-editable:hover:not(:focus) {
+  border-color: rgba(0,0,0,0.12);
+}
+.content-caption-editable:focus {
+  border-color: rgba(10, 102, 194, 0.6);
+  background: rgba(10, 102, 194, 0.03);
+}
+.content-caption-save-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+  animation: cs-save-fade 0.15s ease;
+}
+@keyframes cs-save-fade {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.content-caption-save-status {
+  font-size: 11px;
+  font-weight: 600;
+  color: #b26a00;
+}
+.content-caption-save-status--ok {
+  color: #2e7d32;
+}
+.content-caption-save-btn {
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: #0a66c2;
+  border: 1px solid #0a66c2;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: inherit;
+  transition: opacity 0.15s;
+}
+.content-caption-save-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.content-caption-save-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: #d1d5db;
+  border-color: #d1d5db;
+  color: rgba(0,0,0,0.5);
+}
 .content-ig-more-link {
   margin-left: 4px;
   background: transparent;

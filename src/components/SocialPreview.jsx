@@ -38,8 +38,8 @@
 //   showHeader    — bool (default true). AICEO chat hides the header
 //                   because ArtifactPanel has its own.
 
-import { useState, useEffect, useMemo } from 'react';
-import { X, ChevronLeft, ChevronRight, Pencil, RefreshCw, Maximize2, Download, Heart, MessageCircle, Send, Bookmark, Loader } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { X, ChevronLeft, ChevronRight, Pencil, RefreshCw, Maximize2, Download, Heart, MessageCircle, Send, Bookmark, Loader, Check } from 'lucide-react';
 import './SocialPreview.css';
 
 // Stable hash + range so the dummy social counts (likes, comments,
@@ -56,12 +56,22 @@ export function stableRange(seed, min, max) {
   return min + (h % Math.max(1, (max - min + 1)));
 }
 
-export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, onRegenerate, onFullscreen, isGenerating, actionsSlot, showHeader = true }) {
+export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, onRegenerate, onFullscreen, isGenerating, actionsSlot, showHeader = true, onContentChange, onUploadImages, onSchedule }) {
   const images = useMemo(() => [...(msg?.images || [])].sort((a, b) => (a.idx || 0) - (b.idx || 0)), [msg]);
   const [idx, setIdx] = useState(0);
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const [editingSlideIdx, setEditingSlideIdx] = useState(null);
   const [editDraft, setEditDraft] = useState('');
+  // Inline caption editing state. Same pattern as LinkedInPreview: a
+  // contentEditable div seeded from the incoming caption prop, cursor
+  // stability guaranteed by only re-syncing before the user has typed.
+  // We only expose editing when the parent passed onContentChange —
+  // read-only callers (calendar preview, etc.) render the fold as
+  // before.
+  const captionRef = useRef(null);
+  const captionUserEdited = useRef(false);
+  const [captionDirty, setCaptionDirty] = useState(false);
+  const [captionSaved, setCaptionSaved] = useState(false);
 
   // Stable dummy counts for this post — derived from msg.id, so they
   // don't change as the user scrolls or re-renders.
@@ -79,6 +89,35 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
   useEffect(() => {
     if (idx > images.length - 1) setIdx(Math.max(0, images.length - 1));
   }, [images.length, idx]);
+
+  // Seed the contentEditable when the incoming caption prop changes,
+  // but only if the user hasn't started typing — otherwise the cursor
+  // would jump on every stream tick.
+  useEffect(() => {
+    if (!captionRef.current) return;
+    if (captionUserEdited.current) return;
+    const incoming = (msg?.carouselPlan?.caption) || (msg?.content) || '';
+    if (captionRef.current.innerText !== incoming) {
+      captionRef.current.innerText = incoming;
+    }
+  }, [msg?.content, msg?.carouselPlan?.caption]);
+
+  const handleCaptionInput = () => {
+    captionUserEdited.current = true;
+    setCaptionDirty(true);
+    setCaptionSaved(false);
+    // Expand automatically once the user starts typing so they see
+    // the whole caption they're editing.
+    if (!captionExpanded) setCaptionExpanded(true);
+  };
+  const saveCaption = () => {
+    if (!captionRef.current || !onContentChange) return;
+    const next = captionRef.current.innerText;
+    onContentChange(next);
+    setCaptionDirty(false);
+    setCaptionSaved(true);
+    setTimeout(() => setCaptionSaved(false), 1500);
+  };
 
   // Keyboard nav + ESC. Scoped to when the panel is open.
   useEffect(() => {
@@ -334,12 +373,41 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
           {isLinkedin ? (
             <>
               <div className="content-li-caption">
-                <span className="content-li-caption-body">
-                  {captionDisplay}
-                  {captionIsLong && !captionExpanded && (
-                    <button className="content-li-more-link" onClick={() => setCaptionExpanded(true)}>…see more</button>
-                  )}
-                </span>
+                {onContentChange ? (
+                  <>
+                    <div
+                      className="content-li-caption-body content-caption-editable"
+                      ref={captionRef}
+                      contentEditable
+                      suppressContentEditableWarning
+                      onInput={handleCaptionInput}
+                      onBlur={handleCaptionInput}
+                      spellCheck
+                    />
+                    {(captionDirty || captionSaved) && (
+                      <div className="content-caption-save-row">
+                        <span className={`content-caption-save-status${captionSaved ? ' content-caption-save-status--ok' : ''}`}>
+                          {captionSaved ? 'Saved' : 'Unsaved edits'}
+                        </span>
+                        <button
+                          type="button"
+                          className="content-caption-save-btn"
+                          onClick={saveCaption}
+                          disabled={!captionDirty}
+                        >
+                          {captionSaved ? <><Check size={12} /> Saved</> : 'Save'}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <span className="content-li-caption-body">
+                    {captionDisplay}
+                    {captionIsLong && !captionExpanded && (
+                      <button className="content-li-more-link" onClick={() => setCaptionExpanded(true)}>…see more</button>
+                    )}
+                  </span>
+                )}
               </div>
               {/* Branded LinkedIn reaction SVGs — same set used in LinkedInPreview component */}
               <div className="content-li-reactions">
@@ -413,12 +481,41 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
               {/* Caption with IG's 125-char fold */}
               <div className="content-ig-caption">
                 <span className="content-ig-caption-username">{username}</span>
-                <span className="content-ig-caption-body">
-                  {captionDisplay}
-                  {captionIsLong && !captionExpanded && (
-                    <button className="content-ig-more-link" onClick={() => setCaptionExpanded(true)}>more</button>
-                  )}
-                </span>
+                {onContentChange ? (
+                  <>
+                    <div
+                      className="content-ig-caption-body content-caption-editable"
+                      ref={captionRef}
+                      contentEditable
+                      suppressContentEditableWarning
+                      onInput={handleCaptionInput}
+                      onBlur={handleCaptionInput}
+                      spellCheck
+                    />
+                    {(captionDirty || captionSaved) && (
+                      <div className="content-caption-save-row">
+                        <span className={`content-caption-save-status${captionSaved ? ' content-caption-save-status--ok' : ''}`}>
+                          {captionSaved ? 'Saved' : 'Unsaved edits'}
+                        </span>
+                        <button
+                          type="button"
+                          className="content-caption-save-btn"
+                          onClick={saveCaption}
+                          disabled={!captionDirty}
+                        >
+                          {captionSaved ? <><Check size={12} /> Saved</> : 'Save'}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <span className="content-ig-caption-body">
+                    {captionDisplay}
+                    {captionIsLong && !captionExpanded && (
+                      <button className="content-ig-more-link" onClick={() => setCaptionExpanded(true)}>more</button>
+                    )}
+                  </span>
+                )}
               </div>
               <div className="content-ig-meta">
                 <span>View all {dummyCounts.comments} comments</span>
