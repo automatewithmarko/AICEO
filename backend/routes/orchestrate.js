@@ -3,6 +3,7 @@ import { getAgent, buildAgentTools } from '../agents/registry.js';
 import { executeAgent, executeCeoOrchestrator, executeAnthropicWithTools } from '../agents/base-agent.js';
 import { SONNET_MODEL } from '../config/models.js';
 import { loadUserContext, saveSoulNote, loadActiveBrief, upsertActiveBrief, formatBriefForPrompt } from '../services/context.js';
+import { SOCIAL_POST_DISCOVERY_PROMPT } from '../shared/social-post-discovery.js';
 import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
@@ -93,7 +94,7 @@ SOCIAL POST RULE (READ THIS BEFORE EVERY LinkedIn/IG/X/TikTok/Facebook REQUEST):
 - Platform mapping — pick from what the user said: "LinkedIn post" → platform:"linkedin". "Instagram post" → platform:"instagram". "Tweet / X post" → platform:"twitter". "TikTok caption" → platform:"tiktok". "Facebook post" → platform:"facebook".
 - Why this matters: the artifact panel renders content_post + platform="linkedin" as a LinkedIn feed card (the canvas the user expects). type:"html_template" renders as a full HTML page — a PDF-looking wall of styled HTML. Getting this wrong is a visible bug the user WILL complain about.
 - The content field for content_post is PLAIN TEXT — the exact post copy, with normal line breaks. Do NOT put HTML tags, style blocks, or html/body wrappers in it. Do NOT wrap it in markdown fences. Just the raw post text, ready to paste into LinkedIn / IG / etc.
-- ASK BEFORE YOU WRITE: before calling create_artifact for a social post, call ask_user at least once to confirm the format (LinkedIn: text vs carousel; Instagram: single vs carousel vs story; X: single tweet vs thread; Facebook: story vs question/discussion) and to lock down the topic angle. This is what the /Content tab already does — users expect the same clarifying step in AICEO chat. Skip only when the user's message already contains BOTH the format AND a specific topic/angle (e.g. "write a LinkedIn text post about SaaS pricing"). Pick your own question wording — no scripted flow — but one ask_user call per turn, wait for the answer, then continue.
+${SOCIAL_POST_DISCOVERY_PROMPT}
 
 send_email: Send an email from the user's connected account. Works for newsletters and plain text. NEVER use this to "check" emails  -  only for outbound sends.
 
