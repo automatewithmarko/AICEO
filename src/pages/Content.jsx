@@ -5,8 +5,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import DOMPurify from 'dompurify';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend, generateCarouselServerSide } from '../lib/api';
 import { supabase } from '../lib/supabase';
+import { isUnifiedContentBackend } from '../lib/unifiedContent';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
 import ChatDropOverlay from '../components/ChatDropOverlay';
@@ -2406,22 +2407,9 @@ async function readWithIdle(reader, idleMs = STREAM_IDLE_MS) {
 // copied verbatim into backend/agents/content/). Legacy client-side Grok
 // path stays the DEFAULT and fully intact until the unified path is
 // stress-tested (Phase 5 does the cleanup, on explicit approval only).
-// DEFAULT: ON (founder decision 2026-07-15). The unified backend is the
-// standing path on the dev branch — localhost and the dev site both use
-// it. localStorage.aiceo_unified_content = '0' is the per-browser kill
-// switch back to the legacy client-side Grok path.
-//
-// MERGE NOTE: this default ships with the code — promoting dev→main puts
-// the unified path live in production. That promotion is gated on the
-// founder's stress-test sign-off (Phase 5 in
-// docs/unified-content-backend-plan.md), so by the time this reaches
-// main it is the intended behavior.
-function isUnifiedContentBackend() {
-  try {
-    if (localStorage.getItem('aiceo_unified_content') === '0') return false;
-  } catch { /* no localStorage — stay on */ }
-  return true;
-}
+// Flag helper lives in src/lib/unifiedContent.js (shared with AiCeo.jsx
+// since Phase 2 moved carousel rendering server-side for both tabs).
+// DEFAULT: ON; localStorage.aiceo_unified_content = '0' is the kill switch.
 
 // Unified-transport twin of streamContentResponse: same contract
 // (cumulative onTextChunk, single end-of-stream onToolCall with
@@ -5308,6 +5296,24 @@ export default function Content() {
     };
 
     try {
+      if (isUnifiedContentBackend()) {
+        // Unified path (Phase 2): the backend renders the whole carousel —
+        // same slide-1-anchors-the-rest ordering, same per-slide 3-attempt
+        // retry policy, same locked design-system prompts — and streams
+        // per-slide progress. Slides arrive as storage URLs.
+        await generateCarouselServerSide({
+          platform: platformId,
+          plan: { hook: plan.hook, caption: plan.caption, slides, designSystem: plan.designSystem },
+          brand: brandForPrompt,
+          brandData: brandImageData,
+        }, {
+          onSlideDone: (idx, url) => appendImage(url, idx),
+          onSlideFailed: (idx, error) => {
+            console.error(`[carousel] slide ${idx + 1} failed (server): ${error}`);
+            markSlideFailed(idx);
+          },
+        });
+      } else {
       // Phase 3a: render slide 1 alone so its bytes can anchor the rest.
       const slide1Prompt = buildCarouselSlidePrompt({
         designSystem: plan.designSystem,
@@ -5351,6 +5357,7 @@ export default function Content() {
         }
       });
       await Promise.allSettled(rest);
+      }
 
       // Consistency sweep: guarantee every slide index 0..N-1 is either in
       // images OR in failedSlides. If a slide silently vanished (state race,
@@ -5439,6 +5446,54 @@ export default function Content() {
       } : m
     ));
 
+    // Shared per-slide state updaters for both retry paths.
+    const retrySlideDone = (idx, src) => {
+      setMessages(prev => prev.map(m => {
+        if (m.id !== msgId) return m;
+        // Replace any existing entry for this idx (defensive) and
+        // remove this idx from the failed list.
+        const images = (m.images || []).filter(img => img.idx !== idx).concat({ src, idx });
+        const failedLeft = (m.carouselPlan?.failedSlides || []).filter(x => x !== idx);
+        return {
+          ...m,
+          images,
+          pendingImages: Math.max(0, (m.pendingImages || 0) - 1),
+          carouselPlan: { ...m.carouselPlan, failedSlides: failedLeft },
+        };
+      }));
+    };
+    const retrySlideFailed = (idx, err) => {
+      console.error(`[carousel] retry for slide ${idx + 1} failed:`, err);
+      // Keep it in failedSlides, drop pending.
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? { ...m, pendingImages: Math.max(0, (m.pendingImages || 0) - 1) } : m
+      ));
+    };
+
+    if (isUnifiedContentBackend()) {
+      // Unified path (Phase 2): server re-renders only the failed indexes,
+      // anchored to an existing successful slide for visual cohesion.
+      // Anchor can be a storage URL (server slides) or extracted base64
+      // (legacy data-URL slides / single-slide edits).
+      const anchorUrl = existingImage?.src?.startsWith('http') ? existingImage.src : null;
+      try {
+        await generateCarouselServerSide({
+          platform: platformId,
+          plan: { hook: plan.hook, caption: plan.caption, slides, designSystem: plan.designSystem },
+          slideIndexes: failed,
+          brand: brandForPrompt,
+          brandData: brandImageData,
+          anchorImage: hookRef || null,
+          anchorUrl,
+        }, {
+          onSlideDone: (idx, url) => retrySlideDone(idx, url),
+          onSlideFailed: (idx, error) => retrySlideFailed(idx, error),
+        });
+      } catch (err) {
+        console.error('[carousel] server-side retry failed:', err);
+        failed.forEach((idx) => retrySlideFailed(idx, err));
+      }
+    } else {
     const retryPromises = failed.map(async (idx) => {
       const slide = slides[idx];
       if (!slide) return;
@@ -5453,29 +5508,14 @@ export default function Content() {
       try {
         const result = await generateSlideWithRetry(idx, slidePrompt, brandImageData, hookRef ? [hookRef] : null, { platform: platformId });
         const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-        setMessages(prev => prev.map(m => {
-          if (m.id !== msgId) return m;
-          // Replace any existing entry for this idx (defensive) and
-          // remove this idx from the failed list.
-          const images = (m.images || []).filter(img => img.idx !== idx).concat({ src, idx });
-          const failedLeft = (m.carouselPlan?.failedSlides || []).filter(x => x !== idx);
-          return {
-            ...m,
-            images,
-            pendingImages: Math.max(0, (m.pendingImages || 0) - 1),
-            carouselPlan: { ...m.carouselPlan, failedSlides: failedLeft },
-          };
-        }));
+        retrySlideDone(idx, src);
       } catch (err) {
-        console.error(`[carousel] retry for slide ${idx + 1} failed:`, err);
-        // Keep it in failedSlides, drop pending.
-        setMessages(prev => prev.map(m =>
-          m.id === msgId ? { ...m, pendingImages: Math.max(0, (m.pendingImages || 0) - 1) } : m
-        ));
+        retrySlideFailed(idx, err);
       }
     });
 
     await Promise.allSettled(retryPromises);
+    }
 
     setMessages(prev => prev.map(m =>
       m.id === msgId ? {

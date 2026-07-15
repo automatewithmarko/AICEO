@@ -3,6 +3,9 @@ import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
 import { requireCredits } from '../middleware/gate.js';
 import { generateImageWithOpenAI, isOpenAIImageConfigured } from '../services/openai-image.js';
+import { deductCredits } from '../services/credits.js';
+import { supabase as storageSupabase } from '../services/storage.js';
+import { buildCarouselSlidePrompt } from '../agents/content/carousel-slide-prompt.js';
 
 const router = Router();
 
@@ -366,16 +369,21 @@ async function getCachedBrandData(userId) {
 }
 
 // ─── Image generation ───
-router.post('/api/generate/image', requireCredits('image_generation'), async (req, res) => {
-  // editUserImage: when true, the referenceImages are an image the
-  // user attached IN THE CURRENT CHAT TURN (not a regeneration of a
-  // previous output). In that mode we skip brand-DNA reference photos
-  // so the model edits the user's image directly instead of
-  // substituting the brand DNA face/scene. Brand logo + colors + font
-  // are still applied — only the brand PHOTOS are suppressed.
-  const { prompt: rawPrompt, platform, brandData, referenceImages, editUserImage } = req.body;
+// Core pipeline, extracted verbatim from the POST /api/generate/image
+// handler (Phase 2, docs/unified-content-backend-plan.md) so the
+// server-side carousel renderer (POST /api/generate/carousel below) runs
+// the exact same generation path per slide. Returns { ok, status, body }
+// where body is byte-identical to what the route sends.
+//
+// editUserImage: when true, the referenceImages are an image the
+// user attached IN THE CURRENT CHAT TURN (not a regeneration of a
+// previous output). In that mode we skip brand-DNA reference photos
+// so the model edits the user's image directly instead of
+// substituting the brand DNA face/scene. Brand logo + colors + font
+// are still applied — only the brand PHOTOS are suppressed.
+export async function generateImageCore({ userId, rawPrompt, platform, brandData, referenceImages, editUserImage }) {
   if (!rawPrompt) {
-    return res.status(400).json({ error: 'prompt is required' });
+    return { ok: false, status: 400, body: { error: 'prompt is required' } };
   }
 
   // Strip personal identity from the prompt so Gemini's named-person policy
@@ -404,7 +412,6 @@ router.post('/api/generate/image', requireCredits('image_generation'), async (re
     // Resolve brand data — use provided data or fetch from cache/DB as fallback
     let brand = brandData;
     if (!brand || (!brand.logoUrl && !brand.photoUrls?.length)) {
-      const userId = req.user?.id;
       if (userId && userId !== 'anonymous') {
         console.log(`[generate/image] No brand data from frontend — checking cache/DB for user ${userId}`);
         brand = await getCachedBrandData(userId);
@@ -601,10 +608,14 @@ ${prompt}`;
         quality: 'high',
       });
       if (openaiResult.ok) {
-        return res.json({
-          text: null,
-          image: { data: openaiResult.data, mimeType: openaiResult.mimeType },
-        });
+        return {
+          ok: true,
+          status: 200,
+          body: {
+            text: null,
+            image: { data: openaiResult.data, mimeType: openaiResult.mimeType },
+          },
+        };
       }
       // Non-fatal — log and fall through to Gemini. We still surface
       // OpenAI's error via the log so ops can tell whether the fallback
@@ -647,7 +658,7 @@ ${prompt}`;
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
       console.log(`[generate/image] Gemini error: ${geminiRes.status} ${errText}`);
-      return res.status(geminiRes.status).json({ error: errText });
+      return { ok: false, status: geminiRes.status, body: { error: errText } };
     }
 
     const result = await geminiRes.json();
@@ -688,26 +699,43 @@ ${prompt}`;
       const errMsg = blockReason
         ? `Image blocked by Gemini (${blockReason}). Try a different prompt or remove brand reference photos.`
         : `Gemini returned no image (finishReason: ${finishReason || 'none'}). Model may have refused.`;
-      return res.status(422).json({ error: errMsg, finishReason, blockReason, text: text || null });
+      return { ok: false, status: 422, body: { error: errMsg, finishReason, blockReason, text: text || null } };
     }
 
-    res.json({
-      text: text || null,
-      image: { data: imageData, mimeType: imageMimeType },
-    });
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        text: text || null,
+        image: { data: imageData, mimeType: imageMimeType },
+      },
+    };
   } catch (err) {
     const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
     console.log(`[generate/image] ${isTimeout ? 'TIMEOUT' : 'Error'}: ${err.message}`);
-    res.status(isTimeout ? 504 : 500).json({
-      error: isTimeout ? 'Image generation timed out — try again or simplify the prompt' : err.message,
-    });
+    return {
+      ok: false,
+      status: isTimeout ? 504 : 500,
+      body: {
+        error: isTimeout ? 'Image generation timed out — try again or simplify the prompt' : err.message,
+      },
+    };
   }
+}
+
+// Thin route wrapper — behavior identical to the pre-extraction handler.
+router.post('/api/generate/image', requireCredits('image_generation'), async (req, res) => {
+  const { prompt: rawPrompt, platform, brandData, referenceImages, editUserImage } = req.body;
+  const result = await generateImageCore({ userId: req.user?.id, rawPrompt, platform, brandData, referenceImages, editUserImage });
+  res.status(result.status).json(result.body);
 });
 
 // ─── Upload base64 image to Supabase storage ───
-router.post('/api/generate/upload-image', async (req, res) => {
-  const { base64, mimeType, filename } = req.body;
-  if (!base64) return res.status(400).json({ error: 'base64 is required' });
+// Core extracted from the route (Phase 2) so the carousel renderer can
+// upload slides server-side. Returns { ok, status, body } identical to
+// the route's responses.
+export async function uploadImageCore({ base64, mimeType, filename }) {
+  if (!base64) return { ok: false, status: 400, body: { error: 'base64 is required' } };
 
   try {
     const rawBuffer = Buffer.from(base64, 'base64');
@@ -741,7 +769,7 @@ router.post('/api/generate/upload-image', async (req, res) => {
 
     if (error) {
       console.log(`[upload-image] Storage error: ${error.message}`);
-      return res.status(500).json({ error: error.message });
+      return { ok: false, status: 500, body: { error: error.message } };
     }
 
     const { data: urlData } = supabase.storage
@@ -749,10 +777,237 @@ router.post('/api/generate/upload-image', async (req, res) => {
       .getPublicUrl(name);
 
     console.log(`[upload-image] Uploaded ${name} → ${urlData.publicUrl}`);
-    res.json({ url: urlData.publicUrl });
+    return { ok: true, status: 200, body: { url: urlData.publicUrl } };
   } catch (err) {
     console.log(`[upload-image] Error: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    return { ok: false, status: 500, body: { error: err.message } };
+  }
+}
+
+// Thin route wrapper — behavior identical to the pre-extraction handler.
+router.post('/api/generate/upload-image', async (req, res) => {
+  const { base64, mimeType, filename } = req.body;
+  const result = await uploadImageCore({ base64, mimeType, filename });
+  res.status(result.status).json(result.body);
+});
+
+// ─── Server-side carousel rendering (Phase 2, docs/unified-content-backend-plan.md) ───
+// Stateless SSE endpoint: takes an approved carousel plan, builds each
+// slide's prompt with the locked design-system builder (server-side copy
+// of carouselGen.js), runs the exact same image pipeline as
+// /api/generate/image per slide, uploads each slide to storage, and
+// streams progress. Both the /Content tab and AI CEO call this when the
+// unified flag is on; the legacy frontend slide loops remain the flag-off
+// path.
+//
+// Retry = call again with slideIndexes of the failed slides (+ anchorUrl /
+//         anchorImage of an already-successful slide for visual cohesion).
+// Edit-a-slide = call again with slideIndexes:[i] + slideOverrides:{[i]: editedSlide}
+//                (+ referenceImagesBySlide for keep-the-design regeneration).
+//
+// Robustness parity with the legacy frontend loops (Content.jsx
+// generateSlideWithRetry + handleCarouselApprove):
+//   - per-slide automatic retry: 3 attempts, escalating backoff, and a
+//     validity check (base64 length > 200) so a 200-with-empty-image
+//     Gemini response retries instead of counting as done;
+//   - hook anchoring: slide 1 renders FIRST and its bytes are passed as a
+//     reference image for slides 2..N so the model visually locks onto
+//     the hook's palette/typography beyond what the text prompt encodes.
+//
+// Credits: one 'image_generation' debit PER ATTEMPT — parity with the
+// legacy flow where every attempt was its own /api/generate/image request
+// behind requireCredits('image_generation').
+router.post('/api/generate/carousel', async (req, res) => {
+  const userId = req.user?.id;
+  const {
+    platform = 'instagram',           // 'instagram' | 'linkedin'
+    plan,                             // { hook, slides[], designSystem, caption }
+    slideIndexes = null,              // 0-based subset; default = all slides
+    slideOverrides = null,            // { [idx]: slide } — edited slide specs
+    brand = null,                     // { name } for the prompt builder branding strip
+    brandData = null,                 // image-pipeline brand refs (same shape the legacy loops pass)
+    referenceImagesBySlide = null,    // { [idx]: [{data,mimeType}] } — regen/edit refs
+    anchorImage = null,               // {data,mimeType} — visual anchor for retry calls
+    anchorUrl = null,                 // storage URL of an existing slide — fetched as the anchor
+    editUserImage = false,
+  } = req.body || {};
+
+  if (!userId || userId === 'anonymous') {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  if (!plan || !Array.isArray(plan.slides) || plan.slides.length === 0 || !plan.designSystem) {
+    return res.status(400).json({ error: 'plan with slides[] and designSystem is required' });
+  }
+
+  // Disputed-account hold — mirrors requireCredits' upfront check.
+  try {
+    const { data: sub } = await storageSupabase
+      .from('subscriptions')
+      .select('disputed')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (sub?.disputed) {
+      return res.status(402).json({
+        error: 'Account is on hold pending a chargeback. Contact support@aiceo.com.',
+        disputed: true,
+      });
+    }
+  } catch { /* on read failure, fall through to normal flow */ }
+
+  const total = plan.slides.length;
+  const indexes = (Array.isArray(slideIndexes) && slideIndexes.length > 0
+    ? slideIndexes
+    : plan.slides.map((_, i) => i)
+  ).filter((i) => Number.isInteger(i) && i >= 0 && i < total);
+  if (indexes.length === 0) {
+    return res.status(400).json({ error: 'no valid slide indexes to generate' });
+  }
+  const imagePlatform = platform === 'linkedin' ? 'linkedin_carousel' : 'instagram';
+
+  // SSE setup (same shape as /api/orchestrate)
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (res.socket) { res.socket.setNoDelay(true); res.socket.setTimeout(0); }
+  res.flushHeaders();
+  const send = (event) => { try { res.write(`data: ${JSON.stringify(event)}\n\n`); } catch { /* client gone */ } };
+  const heartbeat = setInterval(() => { try { res.write(': heartbeat\n\n'); } catch {} }, 3000);
+
+  console.log(`[generate/carousel] userId=${userId} platform=${platform} slides=${indexes.join(',')}/${total}`);
+  send({ type: 'carousel_start', total, indexes });
+
+  const succeeded = [];
+  const failed = [];
+  let outOfCredits = false;
+
+  // hookRef: the visual anchor attached as a reference image to every
+  // slide after the first. Sources, in priority order: explicit
+  // anchorImage from the caller (retry flows) → anchorUrl fetched from
+  // storage → slide 1's freshly generated bytes (approve flow).
+  let hookRef = anchorImage?.data && anchorImage?.mimeType
+    ? { data: anchorImage.data, mimeType: anchorImage.mimeType }
+    : null;
+  if (!hookRef && anchorUrl) {
+    const fetched = await fetchImageAsBase64(anchorUrl);
+    if (fetched?.inlineData) {
+      hookRef = { data: fetched.inlineData.data, mimeType: fetched.inlineData.mimeType };
+    }
+  }
+
+  // Generate ONE slide with the legacy retry policy: 3 attempts,
+  // escalating backoff, validity check on the returned base64. Returns
+  // { image: {data, mimeType}, url } or throws the last error.
+  const MAX_ATTEMPTS = 3;
+  const renderSlide = async (idx) => {
+    const slide = slideOverrides?.[idx] || plan.slides[idx];
+    const prompt = buildCarouselSlidePrompt({
+      designSystem: plan.designSystem,
+      slide,
+      index: idx,
+      total,
+      brand,
+      platform,
+    });
+    const refs = referenceImagesBySlide?.[idx]
+      || (idx !== 0 && hookRef ? [hookRef] : null);
+
+    let lastErr;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      // Per-attempt credit debit (see route comment). Insufficient credits
+      // aborts the slide immediately — no point retrying a 402.
+      try {
+        await deductCredits(userId, 'image_generation');
+      } catch (err) {
+        if (err.code === 'INSUFFICIENT_CREDITS') {
+          outOfCredits = true;
+          const e = new Error('Insufficient credits');
+          e.code = 'INSUFFICIENT_CREDITS';
+          throw e;
+        }
+        throw err;
+      }
+      try {
+        const result = await generateImageCore({
+          userId,
+          rawPrompt: prompt,
+          platform: imagePlatform,
+          brandData,
+          referenceImages: refs,
+          editUserImage,
+        });
+        const d = result.body?.image?.data;
+        const m = result.body?.image?.mimeType;
+        if (!result.ok || !d || !m || typeof d !== 'string' || d.length <= 200) {
+          throw new Error(result.body?.error || `empty/invalid image response (dataLen=${d?.length || 0}, mime=${m || 'none'})`);
+        }
+        const up = await uploadImageCore({
+          base64: d,
+          mimeType: m,
+          filename: `carousel-${String(userId).slice(0, 8)}-${Date.now()}-s${idx + 1}.jpg`,
+        });
+        if (!up.ok) throw new Error(up.body?.error || 'Slide upload failed');
+        return { image: { data: d, mimeType: m }, url: up.body.url };
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[generate/carousel] slide ${idx + 1} attempt ${attempt}/${MAX_ATTEMPTS} failed: ${err.message}`);
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+        }
+      }
+    }
+    throw lastErr || new Error('generation failed');
+  };
+
+  try {
+    let queue = [...indexes];
+
+    // Phase a: if slide 1 (index 0) is requested and no anchor was
+    // supplied, render it alone first so its bytes anchor the rest —
+    // exact mirror of the legacy approve flow.
+    if (!hookRef && queue.includes(0)) {
+      queue = queue.filter((i) => i !== 0);
+      try {
+        const first = await renderSlide(0);
+        hookRef = first.image;
+        succeeded.push(0);
+        send({ type: 'slide_done', index: 0, url: first.url });
+      } catch (err) {
+        // Keep going — slides 2..N can still render without a hook anchor.
+        failed.push(0);
+        send({ type: 'slide_failed', index: 0, error: err.message });
+      }
+    }
+
+    // Phase b: remaining slides with capped concurrency.
+    const worker = async () => {
+      while (queue.length > 0) {
+        const idx = queue.shift();
+        if (outOfCredits) {
+          failed.push(idx);
+          send({ type: 'slide_failed', index: idx, error: 'Insufficient credits' });
+          continue;
+        }
+        try {
+          const done = await renderSlide(idx);
+          succeeded.push(idx);
+          send({ type: 'slide_done', index: idx, url: done.url });
+        } catch (err) {
+          failed.push(idx);
+          send({ type: 'slide_failed', index: idx, error: err.message });
+        }
+      }
+    };
+    const CONCURRENCY = 3;
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, Math.max(queue.length, 1)) }, worker));
+  } catch (err) {
+    console.error(`[generate/carousel] fatal: ${err.message}`);
+    send({ type: 'error', error: err.message });
+  } finally {
+    clearInterval(heartbeat);
+    send({ type: 'done', succeeded, failed });
+    res.write('data: [DONE]\n\n');
+    res.end();
   }
 });
 

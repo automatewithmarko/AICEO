@@ -3,8 +3,9 @@ import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap, Paperclip, Loader2, AlertCircle, CalendarDays } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide } from '../lib/api';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
+import { isUnifiedContentBackend } from '../lib/unifiedContent';
 import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
@@ -1977,6 +1978,34 @@ export default function AiCeo() {
     } : prev);
 
     (async () => {
+      if (isUnifiedContentBackend()) {
+        // Unified path (Phase 2, docs/unified-content-backend-plan.md):
+        // the backend renders the whole carousel with the same locked
+        // design-system prompts, PLUS robustness the legacy AiCeo loop
+        // never had — per-slide 3-attempt retries and slide-1 visual
+        // anchoring (matching /Content's stronger legacy loop). Slides
+        // stream back as storage URLs.
+        try {
+          await generateCarouselServerSide({
+            platform,
+            plan: { hook: plan.hook, caption: plan.caption, slides, designSystem: plan.designSystem },
+            brand: { name: brandName },
+          }, {
+            onSlideDone: (idx, url) => setArtifact((prev) => prev ? {
+              ...prev,
+              images: [...(prev.images || []).filter((im) => im.idx !== idx), { src: url, idx }],
+              pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
+            } : prev),
+            onSlideFailed: (idx, error) => {
+              console.error(`[AiCeo] carousel slide ${idx + 1} failed (server): ${error}`);
+              setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+            },
+          });
+        } catch (err) {
+          console.error('[AiCeo] server-side carousel generation failed:', err);
+          setArtifact((prev) => prev ? { ...prev, pendingImages: 0 } : prev);
+        }
+      } else {
       for (let i = 0; i < slides.length; i++) {
         const slide = slides[i];
         let prompt;
@@ -2011,6 +2040,7 @@ export default function AiCeo() {
           console.error(`[AiCeo] carousel slide ${i + 1} failed:`, imgErr);
           setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
         }
+      }
       }
       setArtifact((prev) => prev ? { ...prev, streaming: false } : prev);
       if (assistantMsgId) commitOwnedArtifact(assistantMsgId);

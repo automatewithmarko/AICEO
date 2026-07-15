@@ -546,6 +546,50 @@ shot (structured tool arg) instead of streaming progressively. Instagram
 story frames rely on Claude batching its 3-4 generate_image calls in one
 round (it normally does; the single-round exit matches legacy semantics).
 
+### Phase 2 — Server-side carousel rendering — SHIPPED 2026-07-15 (flag-gated)
+
+**Backend:**
+- `backend/agents/content/carousel-slide-prompt.js` — verbatim copy of
+  `src/lib/carouselGen.js` (the canonical slide-prompt builder).
+- `backend/routes/generate.js` — behavior-preserving extraction of the
+  image pipeline into `generateImageCore()` and `uploadImageCore()`
+  (routes are now thin wrappers, responses byte-identical), plus the new
+  **`POST /api/generate/carousel`** SSE route: takes an approved plan,
+  renders every slide server-side and streams `slide_done {index,url}` /
+  `slide_failed {index,error}` progress. Robustness parity with the
+  STRONGER of the two legacy loops (Content's): per-slide 3-attempt retry
+  with escalating backoff and a base64-validity check, slide-1 renders
+  first and anchors slides 2..N as a reference image (retry calls pass
+  `anchorUrl`/`anchorImage` of an existing slide instead), per-ATTEMPT
+  `image_generation` credit debits (parity with the legacy per-request
+  gate), disputed-account hold check, slides uploaded to storage
+  server-side (publish-ready URLs, small SSE payloads).
+- Auth: covered by the existing `/api/generate` requireAuth registration.
+
+**Frontend (flag-gated branches; legacy loops intact as flag-off path):**
+- `src/lib/api.js` — `generateCarouselServerSide()` SSE client.
+- `src/lib/unifiedContent.js` — the flag helper, now shared (Content +
+  AiCeo import it).
+- `Content.jsx` — `handleCarouselApprove` + `handleRetryFailedSlides` call
+  the server route when the flag is on (same state updates, slides arrive
+  as URLs instead of data URLs).
+- `AiCeo.jsx` — `handleApproveCarousel` calls the server route when the
+  flag is on. NOTE: this UPGRADES AiCeo — its legacy loop was sequential
+  with no retries and no anchoring; it now gets /Content-level robustness.
+
+**Deliberate scope notes:**
+- Single-slide edit/regenerate (`executeCarouselSlideEdit`,
+  `handleCarouselSlideRegenerate`, `runSingleCarouselSlide`) stay on the
+  existing single-image route — they are single `/api/generate/image`
+  calls (already server-executed) with client-side plan mutation logic
+  (blank-slide parsing etc.); moving them adds risk for zero robustness
+  gain. The `slideOverrides`/`referenceImagesBySlide` params exist on the
+  carousel route for when we do consolidate them.
+- The endpoint is STATELESS (no `carousel_jobs` table yet): if the browser
+  closes mid-generation the server finishes and uploads slides, but the
+  client has no resume UI to pick them up — same practical behavior as
+  legacy. A jobs table + resume UI is a future enhancement, not parity.
+
 ## 6. GOLDEN TEST FLOWS (manual verification checklist per phase)
 
 1. Content/LinkedIn: "make me a LinkedIn post" → asks Format Q first →

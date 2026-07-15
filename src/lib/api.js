@@ -1094,6 +1094,83 @@ export async function generateImage(prompt, platform, brandData, referenceImages
   return res.json();
 }
 
+// Server-side carousel rendering (Phase 2, docs/unified-content-backend-plan.md).
+// Streams the whole slide-generation job from the backend: the server
+// builds each slide's locked design-system prompt, runs the same image
+// pipeline as /api/generate/image, uploads each slide to storage, and
+// emits per-slide progress. Used by both /Content and AI CEO when the
+// unified flag is on; the legacy frontend loops are the flag-off path.
+//
+// body: { platform, plan, slideIndexes?, slideOverrides?, brand?,
+//         brandData?, referenceImagesBySlide?, editUserImage? }
+// callbacks: { onStart(total, indexes), onSlideDone(index, url),
+//              onSlideFailed(index, error), onError(error) }
+// Resolves with { succeeded: [idx...], failed: [idx...] }.
+export async function generateCarouselServerSide(body, callbacks = {}, signal) {
+  const { onStart, onSlideDone, onSlideFailed, onError } = callbacks;
+  const headers = await getAuthHeaders();
+
+  const res = await fetch(`${API_URL}/api/generate/carousel`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Carousel generation failed' }));
+    throw new Error(err.error || 'Carousel generation failed');
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error('No response body');
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let outcome = { succeeded: [], failed: [] };
+
+  // Generous idle watchdog — a single slide can take 30-90s, but the
+  // backend heartbeats every 3s, so 90s of true silence means dead stream.
+  const IDLE_MS = 90_000;
+  const readWithIdle = () => {
+    let t;
+    const idle = new Promise((_, reject) => {
+      t = setTimeout(() => {
+        try { reader.cancel(); } catch { /* noop */ }
+        reject(new Error('Carousel stream idle — aborted'));
+      }, IDLE_MS);
+    });
+    return Promise.race([reader.read(), idle]).finally(() => clearTimeout(t));
+  };
+
+  while (true) {
+    const { done, value } = await readWithIdle();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith(':') || !trimmed.startsWith('data: ')) continue;
+      const data = trimmed.slice(6);
+      if (data === '[DONE]') continue;
+      try {
+        const event = JSON.parse(data);
+        if (event.type === 'carousel_start') {
+          if (onStart) onStart(event.total, event.indexes);
+        } else if (event.type === 'slide_done') {
+          if (onSlideDone) onSlideDone(event.index, event.url);
+        } else if (event.type === 'slide_failed') {
+          if (onSlideFailed) onSlideFailed(event.index, event.error);
+        } else if (event.type === 'error') {
+          if (onError) onError(event.error);
+        } else if (event.type === 'done') {
+          outcome = { succeeded: event.succeeded || [], failed: event.failed || [] };
+        }
+      } catch { /* skip malformed events */ }
+    }
+  }
+  return outcome;
+}
+
 export async function uploadImageToStorage(base64, mimeType) {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/generate/upload-image`, {
