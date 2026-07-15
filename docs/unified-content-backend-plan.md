@@ -489,6 +489,13 @@ pre-publish helper), so both tabs get it. LinkedIn already shares
 `VITE_UNIFIED_CONTENT=true` for build-level default). Flag off = legacy
 Grok path, byte-identical behavior.
 
+**Default-on for dev (founder decision 2026-07-15):** the flag defaults to
+ON when `window.location.hostname === 'aiceo-dev.netlify.app'` — the
+unified backend is the standing path on the dev site. The default is keyed
+to the hostname (not the branch/build) so merging dev→main can never
+silently enable it on production. `localStorage.aiceo_unified_content='0'`
+remains the per-browser kill switch on dev.
+
 **Two consequences to be aware of (decided during implementation):**
 1. **Billing:** `/api/content-orchestrate` deliberately has NO
    `requireCredits` gate — legacy Content chat is free (client-side xAI
