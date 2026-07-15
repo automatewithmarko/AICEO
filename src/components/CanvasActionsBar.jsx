@@ -40,6 +40,9 @@ export default function CanvasActionsBar({
   streaming = false,
   isConnected = false,
   onConnect,
+  // Carousel hook headline — bundled as hook.txt in the ZIP download
+  // (parity with /Content's ZIP export). Optional.
+  hook = '',
 }) {
   const uploadRef = useRef(null);
   const scheduleBtnRef = useRef(null);
@@ -205,6 +208,51 @@ export default function CanvasActionsBar({
     }
   };
 
+  // ZIP download — every slide as an image file + caption.txt + hook.txt.
+  // Parity with /Content's ZIP export (Phase 3, unified canvas actions):
+  // users who post manually want the raw images, not a PDF.
+  const [zipState, setZipState] = useState('idle'); // idle|downloading|done|error
+  const handleDownloadZip = async () => {
+    if (zipState === 'downloading' || !images?.length) return;
+    setZipState('downloading');
+    try {
+      const { default: JSZip } = await import('jszip');
+      const zip = new JSZip();
+      const ordered = [...images].sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
+      let added = 0;
+      for (let i = 0; i < ordered.length; i++) {
+        const src = ordered[i]?.src;
+        if (!src) continue;
+        try {
+          const blob = await (await fetch(src)).blob();
+          const ext = /png/i.test(blob.type) ? 'png' : 'jpg';
+          zip.file(`slide-${String(i + 1).padStart(2, '0')}.${ext}`, blob);
+          added++;
+        } catch (imgErr) {
+          console.warn(`[cab-zip] slide ${i + 1} fetch failed:`, imgErr);
+        }
+      }
+      if (added === 0) throw new Error('No slides could be loaded.');
+      if (text) zip.file('caption.txt', text);
+      if (hook) zip.file('hook.txt', hook.replace(/\{\{\/?accent\}\}/g, ''));
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.download = `${platform || 'carousel'}-${stamp}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      setZipState('done');
+      setTimeout(() => setZipState('idle'), 1200);
+    } catch (err) {
+      console.error('[cab-zip] failed:', err);
+      setZipState('error');
+      setTimeout(() => setZipState('idle'), 1600);
+    }
+  };
+
   const handlePost = async () => {
     if (!onPostToPlatform || postState === 'posting' || postState === 'posted') return;
     setPostState('posting');
@@ -269,6 +317,27 @@ export default function CanvasActionsBar({
             <><X size={14} /> Failed</>
           ) : (
             <><Download size={14} /> {images.length > 1 ? 'Download PDF' : 'Download'}</>
+          )}
+        </button>
+      )}
+
+      {/* Download ZIP — multi-slide carousels only. Slides as image files
+          + caption.txt + hook.txt, matching /Content's ZIP export. */}
+      {images?.length > 1 && !streaming && (
+        <button
+          className="cab-btn"
+          onClick={handleDownloadZip}
+          disabled={zipState === 'downloading'}
+          title="Download all slides as images (ZIP with caption + hook)"
+        >
+          {zipState === 'downloading' ? (
+            <><Loader size={14} className="cab-spin" /> Zipping…</>
+          ) : zipState === 'done' ? (
+            <><Check size={14} /> Downloaded</>
+          ) : zipState === 'error' ? (
+            <><X size={14} /> Failed</>
+          ) : (
+            <><Download size={14} /> Download ZIP</>
           )}
         </button>
       )}

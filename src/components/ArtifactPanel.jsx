@@ -4,18 +4,20 @@ import SocialPreview from './SocialPreview';
 import LinkedInPreview from './LinkedInPreview';
 import CanvasActionsBar from './CanvasActionsBar';
 import CarouselPlanApproval from './CarouselPlanApproval';
+import CarouselPlanCard from './social-canvas/CarouselPlanCard';
+import { isUnifiedContentBackend } from '../lib/unifiedContent';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
-import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, postToInstagram, schedulePost, uploadImageToStorage, getLinkedInAuthUrl, getIntegrations } from '../lib/api';
+import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, postToInstagram, schedulePost, uploadImageToStorage, getLinkedInAuthUrl, getIntegrations, createCalendarPost, publishCalendarPost } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, onApproveCarousel = null, onEditCarouselSlide = null, onRegenerateCarouselSlide = null, onDeleteCarouselSlide = null, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, onApproveCarousel = null, onEditCarouselSlide = null, onRegenerateCarouselSlide = null, onDeleteCarouselSlide = null, onUpdateCarouselPlan = null, onRetryFailedSlides = null, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
@@ -97,6 +99,24 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
       }
     }
     if (publicUrls.length === 0) throw new Error('No images to publish. Attach at least one image before posting.');
+
+    // Unified path (Phase 3): publish through the calendar-row pipeline —
+    // the same publishSocialPostRow path /Content and the scheduler use —
+    // so publish-now / scheduled / draft are ONE code path and the post
+    // lands in the Content Calendar. Legacy path posts direct to BooSend.
+    if (isUnifiedContentBackend()) {
+      const { post } = await createCalendarPost({
+        platform: 'instagram',
+        caption: text,
+        content_type: publicUrls.length > 1 ? 'carousel' : 'image',
+        scheduled_at: null,
+        media: publicUrls.map((url) => ({ type: 'image', url })),
+        status: 'draft',
+      });
+      await publishCalendarPost(post.id);
+      return;
+    }
+
     const mediaItems = publicUrls.map((url) => ({ url }));
     const postType = mediaItems.length > 1 ? 'carousel' : 'single';
     await postToInstagram({
@@ -824,6 +844,21 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
               const awaitingApproval = !!(carouselPlan && carouselPlan.slides?.length > 0 && !carouselPlan.approved);
               if (awaitingApproval) {
                 const planPlatform = /linkedin/i.test(String(agentSource || '')) ? 'linkedin' : 'instagram';
+                // Unified path (Phase 3): render the SAME rich plan editor
+                // /Content users get — per-slide text editing, insert /
+                // delete / reorder, palette editing, caption editing, and
+                // the saved design-system template picker. Legacy path
+                // keeps the approve-only card.
+                if (isUnifiedContentBackend()) {
+                  return (
+                    <CarouselPlanCard
+                      plan={carouselPlan}
+                      onApprove={() => onApproveCarousel && onApproveCarousel()}
+                      onRetryFailed={() => onRetryFailedSlides && onRetryFailedSlides()}
+                      onUpdatePlan={onUpdateCarouselPlan}
+                    />
+                  );
+                }
                 return (
                   <CarouselPlanApproval
                     plan={carouselPlan}
@@ -834,6 +869,30 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                   />
                 );
               }
+
+              // Post-approval failed-slide retry row (unified path). The
+              // server marks failed indexes on carouselPlan.failedSlides;
+              // this surfaces the same retry affordance /Content's plan
+              // card has, without displacing the preview below.
+              const failedSlides = (isUnifiedContentBackend() && !artifact.pendingImages)
+                ? (carouselPlan?.failedSlides || [])
+                : [];
+              const retryBanner = (failedSlides.length > 0 && onRetryFailedSlides) ? (
+                <div className="ap-carousel-progress" role="alert" style={{ borderColor: '#e11d48' }}>
+                  <span className="ap-carousel-progress-text" style={{ color: '#e11d48' }}>
+                    {failedSlides.length === 1
+                      ? `Slide ${failedSlides[0] + 1} failed to render.`
+                      : `${failedSlides.length} slides failed: ${failedSlides.map((i) => i + 1).join(', ')}.`}
+                  </span>
+                  <button
+                    type="button"
+                    className="cab-btn cab-btn--outline"
+                    onClick={() => onRetryFailedSlides()}
+                  >
+                    Retry {failedSlides.length === 1 ? 'slide' : `${failedSlides.length} slides`}
+                  </button>
+                </div>
+              ) : null;
 
               // Carousel generation banner — visible feedback while the
               // per-slide image gen loop runs. Sits above whichever
@@ -872,6 +931,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                 return (
                   <>
                     {carouselBanner}
+                    {retryBanner}
                     <LinkedInPreview
                       content={content || ''}
                       images={images || []}
@@ -907,6 +967,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                           platform="linkedin"
                           streaming={!!artifact.streaming}
                           onSchedule={handleCanvasSchedule}
+                          hook={artifact.carouselPlan?.hook || ''}
                         />
                       }
                     />
@@ -940,6 +1001,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
               return (
                 <>
                   {carouselBanner}
+                  {retryBanner}
                   <SocialPreview
                     msg={{
                       id: artifact.id || `content-${type}-${(content || '').length}`,
@@ -973,6 +1035,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                         onConnect={onConnect}
                         isConnected={isPlatformConnected}
                         streaming={!!artifact.streaming}
+                        hook={artifact.carouselPlan?.hook || ''}
                       />
                     }
                   />

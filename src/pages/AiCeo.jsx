@@ -1974,7 +1974,7 @@ export default function AiCeo() {
       title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel: ${plan.hook.slice(0, 60)}`,
       pendingImages: slides.length,
       streaming: true,
-      carouselPlan: { ...prev.carouselPlan, approved: true },
+      carouselPlan: { ...prev.carouselPlan, approved: true, generating: true, failedSlides: [] },
     } : prev);
 
     (async () => {
@@ -1998,7 +1998,14 @@ export default function AiCeo() {
             } : prev),
             onSlideFailed: (idx, error) => {
               console.error(`[AiCeo] carousel slide ${idx + 1} failed (server): ${error}`);
-              setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+              setArtifact((prev) => prev ? {
+                ...prev,
+                pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
+                carouselPlan: {
+                  ...prev.carouselPlan,
+                  failedSlides: [...(prev.carouselPlan?.failedSlides || []).filter((x) => x !== idx), idx].sort((a, b) => a - b),
+                },
+              } : prev);
             },
           });
         } catch (err) {
@@ -2042,10 +2049,87 @@ export default function AiCeo() {
         }
       }
       }
-      setArtifact((prev) => prev ? { ...prev, streaming: false } : prev);
+      setArtifact((prev) => prev ? {
+        ...prev,
+        streaming: false,
+        carouselPlan: prev.carouselPlan ? { ...prev.carouselPlan, generating: false } : prev.carouselPlan,
+      } : prev);
       if (assistantMsgId) commitOwnedArtifact(assistantMsgId);
     })();
   }, [brandDna, user, commitOwnedArtifact]);
+
+  // Unified-path plan editing (Phase 3): the shared CarouselPlanCard lets
+  // the user edit slides/palette/caption BEFORE approval — mirror the
+  // updated plan straight onto the artifact.
+  const handleUpdateCarouselPlan = useCallback((nextPlan) => {
+    setArtifact((prev) => {
+      if (!prev?.carouselPlan || prev.carouselPlan.approved) return prev;
+      return { ...prev, carouselPlan: { ...prev.carouselPlan, ...nextPlan } };
+    });
+  }, []);
+
+  // Unified-path failed-slide retry (Phase 3): re-fire only the failed
+  // indexes through the server-side carousel renderer, anchored to an
+  // existing successful slide for visual cohesion — same semantics as
+  // /Content's handleRetryFailedSlides.
+  const handleRetryFailedCarouselSlides = useCallback(async () => {
+    const current = artifactRef.current;
+    const plan = current?.carouselPlan;
+    const failed = plan?.failedSlides || [];
+    if (!plan || failed.length === 0) return;
+    const platform = current.agentSource === 'linkedin' ? 'linkedin' : 'instagram';
+    const brandName = brandDna?.brand_name || user?.name || '';
+
+    const existing = (current.images || []).find((im) => im.idx === 0) || (current.images || [])[0];
+    const anchorUrl = existing?.src?.startsWith('http') ? existing.src : null;
+    let anchorImage = null;
+    if (!anchorUrl && existing?.src?.startsWith('data:')) {
+      const commaIdx = existing.src.indexOf(',');
+      const mimeMatch = existing.src.match(/^data:([^;]+);/);
+      if (commaIdx !== -1) anchorImage = { data: existing.src.slice(commaIdx + 1), mimeType: mimeMatch?.[1] || 'image/jpeg' };
+    }
+
+    setArtifact((prev) => prev ? {
+      ...prev,
+      pendingImages: (prev.pendingImages || 0) + failed.length,
+      streaming: true,
+      carouselPlan: { ...prev.carouselPlan, generating: true },
+    } : prev);
+
+    try {
+      await generateCarouselServerSide({
+        platform,
+        plan: { hook: plan.hook, caption: plan.caption, slides: plan.slides, designSystem: plan.designSystem },
+        slideIndexes: failed,
+        brand: { name: brandName },
+        anchorImage,
+        anchorUrl,
+      }, {
+        onSlideDone: (idx, url) => setArtifact((prev) => prev ? {
+          ...prev,
+          images: [...(prev.images || []).filter((im) => im.idx !== idx), { src: url, idx }],
+          pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
+          carouselPlan: {
+            ...prev.carouselPlan,
+            failedSlides: (prev.carouselPlan?.failedSlides || []).filter((x) => x !== idx),
+          },
+        } : prev),
+        onSlideFailed: (idx, error) => {
+          console.error(`[AiCeo] carousel retry slide ${idx + 1} failed (server): ${error}`);
+          setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+        },
+      });
+    } catch (err) {
+      console.error('[AiCeo] server-side carousel retry failed:', err);
+    } finally {
+      setArtifact((prev) => prev ? {
+        ...prev,
+        pendingImages: 0,
+        streaming: false,
+        carouselPlan: prev.carouselPlan ? { ...prev.carouselPlan, generating: false } : prev.carouselPlan,
+      } : prev);
+    }
+  }, [brandDna, user]);
 
   const answerQuestion = useCallback((answer) => {
     if (!answer.trim() || isGenerating) return;
@@ -2959,6 +3043,8 @@ export default function AiCeo() {
               onEditCarouselSlide={handleEditCarouselSlide}
               onRegenerateCarouselSlide={handleRegenerateCarouselSlide}
               onDeleteCarouselSlide={handleDeleteCarouselSlide}
+              onUpdateCarouselPlan={handleUpdateCarouselPlan}
+              onRetryFailedSlides={handleRetryFailedCarouselSlides}
               sessionId={sessionId}
             />
           </div>
@@ -2989,6 +3075,8 @@ export default function AiCeo() {
               }
             }}
             onApproveCarousel={handleApproveCarousel}
+            onUpdateCarouselPlan={handleUpdateCarouselPlan}
+            onRetryFailedSlides={handleRetryFailedCarouselSlides}
           />
         </div>
       )}

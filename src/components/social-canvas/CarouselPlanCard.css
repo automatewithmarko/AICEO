@@ -1,0 +1,614 @@
+/* Shared CarouselPlanCard styles (Phase 3, docs/unified-content-backend-plan.md).
+   VERBATIM extraction of the content-carousel-plan-* rules from
+   src/pages/Content.css (2026-07-15) so the shared plan card renders
+   identically inside the AI CEO canvas. Content.css keeps its own copy
+   for the legacy path until Phase 5 — edit both or ship behind the flag. */
+.content-carousel-plan {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  background: var(--surface-secondary, #fafafa);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--text-primary, #1a1a1a);
+}
+.content-carousel-plan-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.content-carousel-plan-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted, #666);
+  background: var(--surface-primary, #fff);
+  border: 1px solid var(--border-light);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.content-carousel-plan-slides-count {
+  font-size: 12px;
+  color: var(--text-muted, #666);
+}
+.content-carousel-plan-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted, #666);
+  margin-bottom: 6px;
+}
+.content-carousel-plan-hook-text {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary, #1a1a1a);
+}
+.content-carousel-plan-angle {
+  font-size: 13px;
+  color: var(--text-muted, #555);
+  line-height: 1.5;
+}
+.content-carousel-plan-section {
+  display: flex;
+  flex-direction: column;
+}
+.content-carousel-plan-slide-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.content-carousel-plan-slide-item {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary, #1a1a1a);
+}
+.content-carousel-plan-slide-type {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #666);
+  background: var(--surface-primary, #fff);
+  border: 1px solid var(--border-light);
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.content-carousel-plan-slide-desc {
+  font-size: 13px;
+  color: var(--text-primary, #1a1a1a);
+}
+.content-carousel-plan-palette {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.content-carousel-plan-swatch {
+  width: 64px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 2px;
+}
+.content-carousel-plan-swatch span {
+  font-size: 9px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  background: rgba(255, 255, 255, 0.85);
+  color: #000;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.content-carousel-plan-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--text-muted, #555);
+}
+.content-carousel-plan-meta strong {
+  color: var(--text-primary, #1a1a1a);
+  font-weight: 600;
+}
+.content-carousel-plan-mood {
+  margin-top: 6px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-muted, #666);
+  line-height: 1.5;
+}
+.content-carousel-plan-caption {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary, #1a1a1a);
+  white-space: pre-wrap;
+}
+.content-carousel-plan-approve {
+  margin-top: 4px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--brand-red, #e63946);
+  background: var(--brand-red, #e63946);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.content-carousel-plan-approve:hover:not(:disabled) { opacity: 0.9; }
+.content-carousel-plan-approve--disabled,
+.content-carousel-plan-approve--disabled,
+.content-carousel-plan-approve:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.content-carousel-plan-error {
+  font-size: 12px;
+  color: var(--brand-red, #e63946);
+}
+.content-carousel-plan-retry-row {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(230, 57, 70, 0.25);
+  background: rgba(230, 57, 70, 0.06);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.content-carousel-plan-retry-msg {
+  font-size: 12px;
+  color: var(--brand-red, #e63946);
+  flex: 1;
+  min-width: 160px;
+}
+.content-carousel-plan-retry-btn {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid var(--brand-red, #e63946);
+  background: var(--brand-red, #e63946);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.content-carousel-plan-retry-btn:hover { opacity: 0.9; }
+
+/* Editable hook input */
+.content-carousel-plan-hook-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--surface-primary, #fff);
+  color: var(--text-primary, #1a1a1a);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  font-family: inherit;
+}
+.content-carousel-plan-hook-input:focus {
+  outline: 2px solid rgba(230, 57, 70, 0.15);
+  border-color: var(--brand-red, #e63946);
+}
+.content-carousel-plan-hint {
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted, #888);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.content-carousel-plan-slide-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.content-carousel-plan-slide-header .content-carousel-plan-label {
+  margin-bottom: 0;
+}
+.content-carousel-plan-edit-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--brand-red, #e63946);
+  background: rgba(230, 57, 70, 0.08);
+  border: 1px solid rgba(230, 57, 70, 0.2);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+.content-carousel-plan-carousel {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 4px;
+}
+.content-carousel-plan-viewport {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.content-carousel-plan-carousel-nav {
+  flex-shrink: 0;
+  width: 36px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: var(--surface-primary, #fff);
+  color: var(--text-primary, #1a1a1a);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+.content-carousel-plan-carousel-nav:hover:not(:disabled) {
+  background: var(--surface-secondary, #f5f5f5);
+  border-color: var(--text-muted, #888);
+}
+.content-carousel-plan-carousel-nav:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.content-carousel-plan-slide-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  background: var(--surface-primary, #fff);
+  min-height: 320px;
+  width: 100%;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.content-carousel-plan-slide-card--focused {
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
+}
+.content-carousel-plan-slide-card--locked {
+  background: var(--surface-secondary, #fafafa);
+}
+.content-carousel-plan-dots {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  justify-content: center;
+}
+.content-carousel-plan-dot {
+  min-width: 26px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-light);
+  background: var(--surface-primary, #fff);
+  color: var(--text-muted, #666);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.content-carousel-plan-dot:hover {
+  color: var(--text-primary, #1a1a1a);
+  border-color: var(--text-muted, #888);
+}
+.content-carousel-plan-dot--active,
+.content-carousel-plan-dot--active:hover {
+  background: var(--brand-red, #e63946);
+  color: #fff;
+  border-color: var(--brand-red, #e63946);
+}
+.content-carousel-plan-slide-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.content-carousel-plan-slide-action {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--surface-primary, #fff);
+  color: var(--text-muted, #666);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.content-carousel-plan-slide-action:hover {
+  background: var(--surface-secondary, #f5f5f5);
+  color: var(--text-primary, #1a1a1a);
+  border-color: var(--text-muted, #888);
+}
+.content-carousel-plan-slide-action--danger:hover {
+  color: var(--brand-red, #e63946);
+  border-color: var(--brand-red, #e63946);
+  background: rgba(230, 57, 70, 0.06);
+}
+.content-carousel-plan-accent-hint {
+  font-size: 10.5px;
+  color: var(--text-muted, #888);
+  line-height: 1.5;
+  margin-top: -2px;
+}
+.content-carousel-plan-accent-hint code {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  background: var(--surface-secondary, #f5f5f5);
+  color: var(--text-primary, #1a1a1a);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border-light);
+}
+.content-carousel-plan-slide-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--border-light);
+}
+.content-carousel-plan-slide-num {
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-weight: 700;
+  color: var(--text-muted, #666);
+}
+.content-carousel-plan-slide-card .content-carousel-plan-slide-type {
+  margin-right: auto;
+}
+.content-carousel-plan-slide-delete {
+  border: none;
+  background: transparent;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.content-carousel-plan-slide-delete:hover {
+  opacity: 1;
+  color: var(--brand-red, #e63946);
+}
+.content-carousel-plan-slide-badge-input,
+.content-carousel-plan-slide-headline-input,
+.content-carousel-plan-slide-body-input,
+.content-carousel-plan-slide-cta-input,
+.content-carousel-plan-caption-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--surface-secondary, #f5f5f5);
+  color: var(--text-primary, #1a1a1a);
+  font-size: 13px;
+  line-height: 1.5;
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.content-carousel-plan-slide-badge-input {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted, #666);
+  padding: 6px 10px;
+}
+.content-carousel-plan-slide-headline-input {
+  font-size: 14px;
+  font-weight: 600;
+  min-height: 80px;
+}
+.content-carousel-plan-slide-body-input {
+  min-height: 150px;
+}
+.content-carousel-plan-slide-cta-input {
+  padding: 8px 12px;
+}
+.content-carousel-plan-slide-badge-input:focus,
+.content-carousel-plan-slide-headline-input:focus,
+.content-carousel-plan-slide-body-input:focus,
+.content-carousel-plan-slide-cta-input:focus,
+.content-carousel-plan-caption-input:focus,
+.content-carousel-plan-hook-input:focus {
+  outline: none;
+  background: var(--surface-primary, #fff);
+  border-color: var(--brand-red, #e63946);
+}
+.content-carousel-plan-slide-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #666);
+  text-transform: uppercase;
+}
+.content-carousel-plan-slide-headline {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #1a1a1a);
+  line-height: 1.35;
+}
+.content-carousel-plan-slide-body {
+  font-size: 12px;
+  color: var(--text-muted, #555);
+  line-height: 1.45;
+}
+.content-carousel-plan-slide-cta {
+  font-size: 11px;
+  color: var(--brand-red, #e63946);
+  font-weight: 600;
+}
+.content-carousel-plan-slide-insert {
+  margin-top: 4px;
+  padding: 4px 8px;
+  border: 1px dashed var(--border-light);
+  background: transparent;
+  color: var(--text-muted, #888);
+  border-radius: 6px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.content-carousel-plan-slide-insert:hover {
+  color: var(--text-primary, #1a1a1a);
+  border-color: var(--text-muted, #888);
+}
+.content-carousel-plan-caption-counter {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-muted, #888);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+.content-carousel-plan-caption-counter-fold {
+  color: var(--brand-red, #e63946);
+}
+.content-carousel-plan-templates-wrap {
+  position: relative;
+  margin-left: auto;
+}
+.content-carousel-plan-templates-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--brand-red, #e63946);
+  background: var(--brand-red, #e63946);
+  color: #fff;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.content-carousel-plan-templates-btn:hover {
+  opacity: 0.9;
+}
+.content-carousel-plan-templates-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  width: 320px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--surface-primary, #fff);
+  border: 1px solid var(--border-light);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.content-carousel-plan-templates-empty {
+  padding: 14px;
+  font-size: 12px;
+  color: var(--text-muted, #888);
+  line-height: 1.45;
+  text-align: center;
+}
+.content-carousel-plan-template-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.content-carousel-plan-template-apply {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.content-carousel-plan-template-apply:hover {
+  background: var(--surface-secondary, #f5f5f5);
+  border-color: var(--border-light);
+}
+.content-carousel-plan-template-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.content-carousel-plan-template-info { flex: 1; min-width: 0; }
+.content-carousel-plan-template-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #1a1a1a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.content-carousel-plan-template-swatches {
+  display: flex;
+  gap: 3px;
+  margin-top: 4px;
+}
+.content-carousel-plan-template-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+.content-carousel-plan-template-delete {
+  border: none;
+  background: transparent;
+  padding: 4px;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0.5;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.content-carousel-plan-template-delete:hover { opacity: 1; color: var(--brand-red, #e63946); }
+
+/* ── Editable palette swatches (native color input under the swatch) ── */
+.content-carousel-plan-swatch--editable {
+  cursor: pointer;
+  position: relative;
+}
+.content-carousel-plan-swatch-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  background: transparent;
+}

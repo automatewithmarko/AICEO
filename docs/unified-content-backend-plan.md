@@ -590,6 +590,37 @@ round (it normally does; the single-round exit matches legacy semantics).
   client has no resume UI to pick them up — same practical behavior as
   legacy. A jobs table + resume UI is a future enhancement, not parity.
 
+### Phase 3 — Canvas capability + publish-path unification — SHIPPED 2026-07-15 (flag-gated)
+
+Scope note: the PHYSICAL single-SocialCanvas component is deferred to
+Phase 5 — it inherently replaces the per-tab canvas code, which the
+no-deletion rule forbids until stress-test sign-off. Phase 3 ships the
+capability/path unification additively:
+
+- `src/components/social-canvas/CarouselPlanCard.jsx` (+ .css) — verbatim
+  extraction of Content's RICH plan editor (per-slide editing,
+  insert/delete/reorder with hook+CTA locked, palette color pickers,
+  caption editor with fold counter, saved design-system template picker,
+  retry-failed row). ArtifactPanel renders it (flag-on) instead of the
+  approve-only `CarouselPlanApproval`; AiCeo passes `onUpdateCarouselPlan`
+  + `onRetryFailedSlides`.
+- AiCeo gains failed-slide tracking (`carouselPlan.failedSlides` set from
+  Phase 2 `slide_failed` events) + `handleRetryFailedCarouselSlides`
+  (server retry with anchor) + a post-approval retry banner in
+  ArtifactPanel — AI CEO previously had NO retry affordance.
+- `CanvasActionsBar` gains **Download ZIP** (slides + caption.txt +
+  hook.txt via JSZip; new `hook` prop) next to Download PDF — parity with
+  Content's ZIP export.
+- AI CEO Instagram publish (flag-on) routes through the calendar-row
+  pipeline (`createCalendarPost` status:'draft' → `publishCalendarPost` →
+  `publishSocialPostRow`) instead of direct `postToInstagram` — one
+  publish path for both tabs + the scheduler, and CEO-published posts now
+  appear in the Content Calendar. Upload-first normalization (data:/blob:
+  → storage URLs) unchanged.
+
+Testing guide for the founder: `docs/unified-testing-guide.md` (covers all
+phases in UX language, updated per phase).
+
 ## 6. GOLDEN TEST FLOWS (manual verification checklist per phase)
 
 1. Content/LinkedIn: "make me a LinkedIn post" → asks Format Q first →
