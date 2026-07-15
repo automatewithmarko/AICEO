@@ -510,6 +510,42 @@ Phase 5.
    that routes to server-side Grok research (AI CEO pattern) in a later
    phase.
 
+### Phase 1b — Claude protocol adapter (robustness parity) — SHIPPED 2026-07-15
+
+**Why:** first live tests (see prompt.md) showed the unified path generating
+but not at legacy robustness. Root cause: the /Content prompts drive
+control flow through TEXT conventions tuned for Grok — inline JSON
+question blocks, `<<READY_A/B>>` markers, `<<EDIT_TEXT>>` markers, and
+"output ONLY the post text" Call-2 contracts. Claude complies unreliably:
+observed failures were (1) planning/"Constraint Checklist"/"Mental
+Sandbox" reasoning leaking into the LinkedIn post preview, (2) the post
+written directly in chat instead of triggering Call 2, (3) questions asked
+as plain text instead of the JSON block.
+
+**Fix (architectural, not prompt-tweaks):** encode the protocol as native
+tools — Claude follows tool schemas near-perfectly (the AI CEO tab is
+built on this) — and translate tool calls back into the legacy text
+conventions server-side, so the frontend parsers/safety nets/previews are
+byte-compatible and unchanged:
+- `backend/agents/content/claude-protocol.js` — tools `ask_user` (→
+  translated to the inline `{"type":"question",...}` block),
+  `generate_linkedin_post` (→ `<<READY_A>>`/`<<READY_B>>`),
+  `edit_linkedin_post` (→ `<<EDIT_TEXT>>\n<instruction>` /
+  `<<ADD_IMAGE_AI>>` / `<<USE_UPLOADED_IMAGE>>` / `<<ADD_IMAGE_ASK>>`),
+  `submit_post` (Call-2 forced output), plus a runtime protocol addendum
+  APPENDED to the verbatim prompts (mechanism-only override; strategy,
+  quality bars, and guardrails untouched).
+- `handler.js` — Call-2 intents (`linkedin_post`, `linkedin_edit`) now pin
+  `tool_choice` to `submit_post` and suppress free text entirely: the
+  preview can only ever receive the structured post_text, making the
+  reasoning-leak failure impossible. Chat intent translates protocol tool
+  calls into the legacy cumulative text stream.
+
+**Known minor trade-offs:** Call-2 posts now arrive in the preview in one
+shot (structured tool arg) instead of streaming progressively. Instagram
+story frames rely on Claude batching its 3-4 generate_image calls in one
+round (it normally does; the single-round exit matches legacy semantics).
+
 ## 6. GOLDEN TEST FLOWS (manual verification checklist per phase)
 
 1. Content/LinkedIn: "make me a LinkedIn post" → asks Format Q first →
