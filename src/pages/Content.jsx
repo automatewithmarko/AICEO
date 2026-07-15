@@ -2406,25 +2406,21 @@ async function readWithIdle(reader, idleMs = STREAM_IDLE_MS) {
 // copied verbatim into backend/agents/content/). Legacy client-side Grok
 // path stays the DEFAULT and fully intact until the unified path is
 // stress-tested (Phase 5 does the cleanup, on explicit approval only).
-//   - localStorage.aiceo_unified_content = '1' → unified on
-//   - localStorage.aiceo_unified_content = '0' → unified off (wins over all)
-//   - VITE_UNIFIED_CONTENT=true → unified on by default for the build
-//   - aiceo-dev.netlify.app → unified ON by default (founder decision
-//     2026-07-15: the unified backend is the standing path on the dev
-//     site). Production hostname stays legacy until the Phase 5 flip;
-//     this default is keyed to the hostname so a dev→main merge cannot
-//     silently enable it in production.
+// DEFAULT: ON (founder decision 2026-07-15). The unified backend is the
+// standing path on the dev branch — localhost and the dev site both use
+// it. localStorage.aiceo_unified_content = '0' is the per-browser kill
+// switch back to the legacy client-side Grok path.
+//
+// MERGE NOTE: this default ships with the code — promoting dev→main puts
+// the unified path live in production. That promotion is gated on the
+// founder's stress-test sign-off (Phase 5 in
+// docs/unified-content-backend-plan.md), so by the time this reaches
+// main it is the intended behavior.
 function isUnifiedContentBackend() {
   try {
-    const v = localStorage.getItem('aiceo_unified_content');
-    if (v === '1') return true;
-    if (v === '0') return false;
-  } catch { /* no localStorage — fall through */ }
-  if (import.meta.env.VITE_UNIFIED_CONTENT === 'true') return true;
-  try {
-    if (window.location.hostname === 'aiceo-dev.netlify.app') return true;
-  } catch { /* no window (SSR/tests) — stay off */ }
-  return false;
+    if (localStorage.getItem('aiceo_unified_content') === '0') return false;
+  } catch { /* no localStorage — stay on */ }
+  return true;
 }
 
 // Unified-transport twin of streamContentResponse: same contract

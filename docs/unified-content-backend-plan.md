@@ -485,16 +485,17 @@ pre-publish helper), so both tabs get it. LinkedIn already shares
   the top of streamContentResponse, and `unified:{intent,...}` metadata on
   all four call sites (main chat, EDIT_TEXT, READY_A/B, READY_CAROUSEL).
 
-**Flag:** `localStorage.aiceo_unified_content = '1'` (or '0' to force off;
-`VITE_UNIFIED_CONTENT=true` for build-level default). Flag off = legacy
-Grok path, byte-identical behavior.
+**Flag (founder decision 2026-07-15): default ON.** The unified backend is
+the standing path on the dev branch — localhost and the dev site both use
+it with no setup. `localStorage.aiceo_unified_content = '0'` is the
+per-browser kill switch back to the legacy Grok path (byte-identical
+legacy behavior).
 
-**Default-on for dev (founder decision 2026-07-15):** the flag defaults to
-ON when `window.location.hostname === 'aiceo-dev.netlify.app'` — the
-unified backend is the standing path on the dev site. The default is keyed
-to the hostname (not the branch/build) so merging dev→main can never
-silently enable it on production. `localStorage.aiceo_unified_content='0'`
-remains the per-browser kill switch on dev.
+**Merge note:** the default ships with the code, so promoting dev→main
+puts the unified path live in production. That promotion is already gated
+on the founder's stress-test sign-off, so by the time this reaches main it
+is the intended behavior. The legacy path itself is NOT deleted until
+Phase 5.
 
 **Two consequences to be aware of (decided during implementation):**
 1. **Billing:** `/api/content-orchestrate` deliberately has NO
