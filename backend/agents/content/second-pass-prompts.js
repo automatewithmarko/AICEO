@@ -8,9 +8,9 @@
 // docs/unified-content-backend-plan.md. Given the same inputs these
 // produce byte-identical prompts to the client originals.
 //
-// IMPORTANT: until Phase 5 cleanup, the Content.jsx originals remain the
-// runtime source for the legacy (flag-off) path. If you edit a prompt,
-// edit BOTH copies or ship the change behind the unified flag only.
+// SINGLE SOURCE OF TRUTH since Phase 5 cleanup (2026-07-15): the
+// Content.jsx originals were deleted; edit prompts HERE only.
+
 import {
   LINKEDIN_TEXT_VARIATION_A,
   LINKEDIN_TEXT_VARIATION_B,

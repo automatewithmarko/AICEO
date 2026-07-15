@@ -6,9 +6,9 @@
 // docs/unified-content-backend-plan.md. The linkedin entry interpolates
 // the LinkedIn prompt library exactly like the original.
 //
-// IMPORTANT: until Phase 5 cleanup, the Content.jsx original remains the
-// runtime source for the legacy (flag-off) path. If you edit guidance,
-// edit BOTH copies or ship the change behind the unified flag only.
+// SINGLE SOURCE OF TRUTH since Phase 5 cleanup (2026-07-15): the
+// Content.jsx original was deleted; edit guidance HERE only.
+
 import {
   LINKEDIN_TEXT_PROMPT,
   LINKEDIN_CAROUSEL_PROMPT,

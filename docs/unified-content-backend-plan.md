@@ -433,13 +433,40 @@ pre-publish helper), so both tabs get it. LinkedIn already shares
   flag-off behavior.
 - Social artifacts write `artifact_versions` from all unified paths.
 
-### Phase 5 — Cleanup (ONLY after founder-approved stress test)
-- Runs only when the founder explicitly says the unified path is stress-
-  tested and approved. Flip the flag default, then delete: Content's
-  inline prompt constants + local carousel helper copies, the client xAI
-  transport + `VITE_XAI_API_KEY`, frontend slide loops, duplicate approval
-  card + actions bar, CEO inline social rules, legacy `<<READY_CAROUSEL>>`
-  mentions. One model-config map (agent → model) in registry.
+### Phase 5 — Cleanup — SHIPPED 2026-07-15 (founder sign-off "go ahead")
+
+Everything is recoverable via git history (commits 1e34fb3/62abef0 + the
+Phase 5b commit). What was removed / made unconditional:
+- **Backend:** LinkedIn-writer addendum + generate_linkedin_post tool are
+  always active on ceo mode (per-request `unified` flag dropped;
+  `userName` still sent for the sign-off).
+- **AI CEO:** legacy frontend carousel loop deleted (server rendering is
+  the only path); `CarouselPlanApproval` component deleted (shared rich
+  `CarouselPlanCard` always renders); direct `postToInstagram` publish
+  path removed (calendar-row pipeline always).
+- **Content.jsx (−~2,900 lines):** all inline prompt constants
+  (LINKEDIN_* / PLATFORM_GUIDANCE / buildSystemPrompt / IMAGE_TOOL /
+  PLAN_CAROUSEL_TOOL), the local carousel helper copies (now imported
+  from `src/lib/carouselGen.js`), the local CarouselPlanCard (now the
+  shared component), the client-side Grok transport + readWithIdle, the
+  client-built Call-2 prompts (server assembles them), and the legacy
+  approve/retry slide loops. `streamContentResponse` survives as a thin
+  wrapper over the unified transport so call sites keep their shape.
+- **Infra:** `/api/xai` dev proxy (vite.config.js) and Netlify redirect
+  removed; `VITE_XAI_API_KEY` is no longer referenced anywhere (remove it
+  from Netlify env at leisure). `src/lib/unifiedContent.js` (the flag)
+  deleted — the kill switch is gone because there is no legacy path left;
+  rollback = git revert.
+- **Headers** updated across the prompt modules: backend/agents/content/*
+  are now the SINGLE SOURCE for all content prompts;
+  `src/lib/carouselGen.js` is the single frontend slide-prompt copy (kept
+  in sync with the backend copy for single-slide edit/regen flows).
+- **Deliberately kept:** Content's `CarouselActionsBar` (its chat/preview
+  two-mode toolbar is Content-layout-specific, not duplicated generation
+  logic); single-slide edit/regenerate on `/api/generate/image`; the
+  agent→model map already lives in `backend/config/models.js`.
+- **Merge note:** promoting dev→main now ships the unified system to
+  production with no fallback path. That is the intended end state.
 
 ### Rollout safety
 - Ship each phase behind a quick env/user flag on dev where cheap

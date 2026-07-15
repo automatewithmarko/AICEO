@@ -9,9 +9,9 @@
 // socialUrls, brandDna, integrationContext, carouselTemplates,
 // existingPost, opts) and this builds the identical prompt server-side.
 //
-// IMPORTANT: until Phase 5 cleanup, the Content.jsx original remains the
-// runtime source for the legacy (flag-off) path. If you edit the prompt,
-// edit BOTH copies or ship the change behind the unified flag only.
+// SINGLE SOURCE OF TRUTH since Phase 5 cleanup (2026-07-15): the
+// Content.jsx original was deleted; edit the prompt HERE only.
+
 import { LINKEDIN_CAROUSEL_PROMPT } from './linkedin-prompts.js';
 import { PLATFORM_GUIDANCE } from './platform-guidance.js';
 

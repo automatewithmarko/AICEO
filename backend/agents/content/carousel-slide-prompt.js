@@ -6,9 +6,9 @@
 // 2026-07-15. Consumed by POST /api/generate/carousel so slide rendering
 // happens server-side with the exact same locked design-system prompts.
 //
-// IMPORTANT: until Phase 5 cleanup, the frontend copies remain the runtime
-// source for the legacy (flag-off) slide loops. If you edit the builder,
-// edit ALL copies or ship the change behind the unified flag only.
+// NOTE: src/lib/carouselGen.js still holds the frontend copy used by the
+// single-slide edit/regenerate flows — keep it in sync with this file.
+
 
 // Shared carousel-generation helpers. Currently consumed by AICEO chat
 // (src/pages/AiCeo.jsx) — /Content still has its own local copies of

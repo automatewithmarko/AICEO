@@ -6,9 +6,9 @@
 // as of 2026-07-15). Extracted for the unified content backend
 // (mode:'content' on /api/orchestrate) per docs/unified-content-backend-plan.md.
 //
-// IMPORTANT: until Phase 5 cleanup, the Content.jsx originals remain the
-// runtime source for the legacy (flag-off) path. If you edit a prompt,
-// edit BOTH copies or ship the change behind the unified flag only.
+// SINGLE SOURCE OF TRUTH since Phase 5 cleanup (2026-07-15): the
+// Content.jsx originals were deleted; edit prompts HERE only.
+
 const LINKEDIN_TEXT_PROMPT = `LINKEDIN TEXT POST STRATEGIST (INTENT-DRIVEN)
 
 You're a LinkedIn copywriter creating authentic, expert-level posts that sound like real human conversation, not AI templates.

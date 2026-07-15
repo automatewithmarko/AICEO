@@ -1,11 +1,7 @@
-// plan_carousel tool schema — shared between:
-//   - AICEO CEO orchestrator (Sonnet), via backend/agents/registry.js
-//   - /Content tab (Grok/XAI), via src/pages/Content.jsx's local copy
-//
-// The Content.jsx copy is intentionally kept in-place until the /Content
-// tab is migrated to /api/orchestrate; when that happens, both consumers
-// import from this single source. Until then, keep the two literal
-// definitions byte-identical so Sonnet and Grok get the same schema.
+// plan_carousel tool schema — THE single source since the unified-backend
+// Phase 5 cleanup (2026-07-15): consumed by the AICEO CEO orchestrator
+// (via backend/agents/registry.js) AND the /Content chat brain (via
+// backend/agents/content/tools.js). Content.jsx's local copy was deleted.
 //
 // The schema drives the SAME per-slide prompt builder (buildCarouselSlidePrompt
 // in src/lib/carouselGen.js) so image cohesion is identical across both tabs.

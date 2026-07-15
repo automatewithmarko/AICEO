@@ -248,6 +248,41 @@ post: 150-450 words of real value, not 2 throwaway sentences).
 
 ---
 
+## Phase 5 — Cleanup: the old system is gone (dev branch)
+
+**What shipped, in plain words:** the legacy code paths were removed. The
+unified backend is now the ONLY way Content and AI CEO generate content on
+the dev branch. Practical consequences:
+
+- **The kill switch no longer exists.** `localStorage.aiceo_unified_content`
+  does nothing now — there's no old system to fall back to. If something
+  breaks, we fix forward (or `git revert` the cleanup commits).
+- Content.jsx shrank by ~2,900 lines; all prompts live on the backend as
+  the single source of truth.
+- The browser no longer talks to x.ai at all — you can remove
+  `VITE_XAI_API_KEY` from the Netlify env whenever convenient.
+- Merging dev→main from this point puts the unified system live in
+  production. Do that only when this guide is fully green.
+
+### Test checklist — full regression sweep (everything above, once more)
+
+Since the fallback is gone, this phase's "test" is simply: run the Phase
+1-4 checklists above one final time and confirm nothing regressed after
+the deletions. Pay extra attention to:
+1. Content: text post, carousel (plan → edit plan → approve → slides),
+   story, reel, plan mode, edit mode, outlier template — all still work.
+2. Content: single-slide pencil-edit and re-roll on a finished carousel
+   (these kept a separate path through the image endpoint — make sure
+   they still render slides that match the set).
+3. AI CEO: carousel plan card still fully editable; approve → slides;
+   retry banner on failures; ZIP/PDF downloads; IG publish lands in the
+   Content Calendar; LinkedIn post via the shared writer.
+4. Anything that FEELS slower/different than during your Phase 1-4
+   testing — report it; the cleanup should have changed nothing
+   behaviorally.
+
+---
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you

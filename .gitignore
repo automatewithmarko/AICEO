@@ -29,3 +29,9 @@ dist-ssr
 .env.*.local
 *.env.backup
 *.env.railway*
+
+# Env backups with live secrets — never commit (caught by push protection 2026-07-15)
+*.env.bak*
+.env.bak*
+supabase/.temp/
+.claude/scheduled_tasks.lock

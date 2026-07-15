@@ -1,9 +1,9 @@
-// Shared carousel-generation helpers. Currently consumed by AICEO chat
-// (src/pages/AiCeo.jsx) — /Content still has its own local copies of
-// these functions in src/pages/Content.jsx while its chat pipeline stays
-// intact. When /Content migrates to the shared pipeline, it can drop
-// those and import from here — the definitions below are byte-identical
-// to Content's originals so behavior matches exactly.
+// Shared carousel-generation helpers — the single frontend copy since the
+// unified-backend Phase 5 cleanup (2026-07-15): Content.jsx's local
+// duplicates were deleted; BOTH tabs import from here for their
+// single-slide edit/regenerate flows. Full-carousel rendering runs
+// server-side (backend/agents/content/carousel-slide-prompt.js is the
+// backend copy of this builder — keep the two in sync when editing).
 //
 // Exports:
 //   extractAccent(text)                                  — pull {{accent}}...{{/accent}} spans out of a headline
