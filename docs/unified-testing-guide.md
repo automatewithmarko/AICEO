@@ -206,6 +206,48 @@ closed, always in the direction of "both tabs get the best version":
 
 ---
 
+## Phase 4 — AI CEO writes LinkedIn posts with Content's writer
+
+**What shipped, in plain words:** until now, AI CEO wrote LinkedIn post
+copy "itself" in one pass — decent, but without the specialized writing
+system Content has (the two writing styles, the strict hook rules, the
+anti-fabrication guardrail that refuses to invent personal stories). Now,
+when AI CEO decides a LinkedIn text post is ready to generate, it hands
+off to the SAME dedicated writer Content uses. You should no longer be
+able to tell which tab wrote a LinkedIn post. AI CEO's LinkedIn CAROUSEL
+captions were also upgraded to Content's standard (the caption is the
+post: 150-450 words of real value, not 2 throwaway sentences).
+
+### Test checklist — AI CEO tab
+
+1. **LinkedIn text post.** Ask AI CEO for a LinkedIn post. It should ask
+   its discovery questions as usual (clickable options), then say ONE
+   short commitment sentence, show "Writing your LinkedIn post..." and the
+   finished post appears on the canvas as a normal post artifact.
+   - Quality bar (same as Content): scroll-stopping first line, no em
+     dashes, no hashtags, your real name in the sign-off, 1300-1500
+     chars-ish, framework-style OR story-style structure.
+   - The chat bubble must NOT contain the post text — only the short
+     wrap-up sentence. The post lives on the canvas.
+2. **Side-by-side quality check (the point of this phase):** generate a
+   post on the same topic in Content and in AI CEO — they should feel
+   like the same writer.
+3. **Story posts don't invent facts:** ask AI CEO for a story-style post
+   about something it has no documents for — it should NOT fabricate
+   specific personal anecdotes (numbers, client names, dramatic events
+   that never happened).
+4. **Edits unchanged:** with the post on canvas, "make it shorter" /
+   "change the CTA" should tweak the existing post in place (no full
+   regeneration, no discovery questions).
+5. **LinkedIn carousel caption upgrade:** ask AI CEO for a LinkedIn
+   carousel → in the plan card, the caption should now be a substantial
+   150-450-word post (before this phase it was often 2-5 thin sentences).
+6. **Everything else identical:** Instagram posts/stories/reels from AI
+   CEO, newsletters, landing pages, emails — no behavior change expected.
+   A reel request must still produce a script instantly with no questions.
+
+---
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you

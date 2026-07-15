@@ -969,6 +969,11 @@ export default function AiCeo() {
         planMode,
         sessionId: sessionIdRef.current || null,
         assistantMsgId,
+        // Unified pipeline (Phase 4): LinkedIn text posts run through the
+        // shared two-phase writer server-side. userName feeds the post
+        // sign-off. Flag-off = legacy CEO behavior, byte-identical.
+        unified: isUnifiedContentBackend(),
+        userName: user?.name || null,
         ...(hasHtmlArtifact ? {
           currentHtml: currentArtifact.content,
           currentAgent: currentArtifact.agentSource || 'newsletter',

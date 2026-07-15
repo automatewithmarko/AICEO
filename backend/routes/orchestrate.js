@@ -8,6 +8,7 @@ import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
 import { handleContentOrchestration } from '../agents/content/handler.js';
+import { buildCeoUnifiedSocialAddendum, runLinkedInTextPostPass, GENERATE_LINKEDIN_POST_TOOL } from '../agents/content/ceo-adapter.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
 import { extractFromUrl } from '../services/social.js';
 import { requireCredits } from '../middleware/gate.js';
@@ -801,7 +802,7 @@ function detectNewArtifactInFlow(messages, currentAgent) {
 // mode: "ceo" or "direct" (direct handles both generation and editing)
 router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, res) => {
   const userId = req.user?.id;
-  const { messages, mode = 'ceo', agent: agentName, searchMode = false, planMode = false, currentHtml, editInstruction, currentAgent, currentTitle = '', currentContentPost, sessionId = null, assistantMsgId = null } = req.body;
+  const { messages, mode = 'ceo', agent: agentName, searchMode = false, planMode = false, currentHtml, editInstruction, currentAgent, currentTitle = '', currentContentPost, sessionId = null, assistantMsgId = null, unified = false, userName = null } = req.body;
 
   // Detect Plan Mode artifacts on screen. These are html_template artifacts
   // whose HTML content wraps the plan in a <div class="plan-artifact">
@@ -839,7 +840,13 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
       loadActiveBrief(userId),
     ]);
     context.activeBrief = activeBrief;
-    console.log(`[orchestrate] Context loaded, brandDna=${!!context.brandDna} brief=${!!activeBrief}`);
+    // Unified-pipeline flag + display name from the client (Phase 4,
+    // docs/unified-content-backend-plan.md). Carried on context so the
+    // four handleCeoOrchestration call sites don't all need new params.
+    // Flag-off requests keep legacy CEO behavior byte-identical.
+    context.unifiedFlag = !!unified;
+    context.ceoUserName = userName || null;
+    console.log(`[orchestrate] Context loaded, brandDna=${!!context.brandDna} brief=${!!activeBrief} unified=${!!unified}`);
 
     if (mode === 'direct') {
       await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction, sessionId, assistantMsgId });
@@ -1283,6 +1290,15 @@ async function enrichMessagesWithVideoContext(messages, userId, res) {
 async function handleCeoOrchestration({ res, messages, context, searchMode, planMode = false, userId, currentHtml, currentAgent, currentContentPost, sessionId = null, assistantMsgId = null }) {
   let systemPrompt = buildCeoSystemPrompt(context);
 
+  // Unified pipeline (Phase 4): LinkedIn text posts route through the
+  // shared two-phase writer (generate_linkedin_post tool → variation
+  // prompt pass), and LinkedIn carousel plans get /Content's caption
+  // standards. Appended AFTER the full CEO prompt so it wins; plan mode
+  // strips generation tools anyway so it's skipped there.
+  if (context.unifiedFlag && !planMode) {
+    systemPrompt += buildCeoUnifiedSocialAddendum();
+  }
+
   // Plan Mode — the plan lands in the side canvas as an html_template
   // artifact (renders as an editable HTML iframe with click-to-edit text
   // spans — same UX as landing pages and newsletters). This directive is
@@ -1582,6 +1598,11 @@ RULES:
 `;
   }
   let tools = buildAgentTools();
+  // Unified pipeline (Phase 4): expose the shared LinkedIn text-post
+  // trigger. Plan Mode's allowed-set filter below strips it there.
+  if (context.unifiedFlag) {
+    tools = [...tools, GENERATE_LINKEDIN_POST_TOOL];
+  }
   // Plan Mode: physically restrict the CEO to ONLY ask_user (for scoping
   // questions) and create_artifact (for the plan itself). Combined with
   // tool_choice='required' below, this makes it impossible for the model to
@@ -1691,6 +1712,41 @@ RULES:
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });
+        } else if (call.name === 'generate_linkedin_post') {
+          // Unified pipeline (Phase 4): run the shared two-phase LinkedIn
+          // writer inline — the same variation prompts + forced
+          // submit_post channel /Content's Call 2 uses — then deliver the
+          // finished post to the canvas as a normal content_post artifact
+          // (the frontend's existing create_artifact handling renders it).
+          let args;
+          try { args = JSON.parse(call.arguments); } catch { args = {}; }
+          sendSSE(res, { type: 'status', text: 'Writing your LinkedIn post...' });
+          try {
+            const postText = await runLinkedInTextPostPass({
+              messages: enrichedMessages,
+              variation: args.variation === 'B' ? 'B' : 'A',
+              userName: context.ceoUserName,
+              brandDna: context.brandDna,
+            });
+            if (postText) {
+              sendSSE(res, {
+                type: 'tool_call',
+                name: 'create_artifact',
+                arguments: {
+                  type: 'content_post',
+                  platform: 'linkedin',
+                  title: `LinkedIn post: ${postText.split('\n')[0]?.slice(0, 60) || 'draft'}`,
+                  content: postText,
+                },
+              });
+              call.result = 'Done — the finished LinkedIn post is on the user\'s canvas. Wrap up with ONE short sentence; do not repeat the post text.';
+            } else {
+              call.result = 'The post writer failed to produce a post. Apologize in one sentence and offer to try again.';
+            }
+          } catch (err) {
+            console.error(`[orchestrate] generate_linkedin_post pass failed: ${err.message}`);
+            call.result = 'The post writer errored. Apologize in one sentence and offer to try again.';
+          }
         }
       }
     },

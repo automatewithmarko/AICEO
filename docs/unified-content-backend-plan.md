@@ -621,6 +621,35 @@ capability/path unification additively:
 Testing guide for the founder: `docs/unified-testing-guide.md` (covers all
 phases in UX language, updated per phase).
 
+### Phase 4 — AI CEO adopts the shared LinkedIn writer — SHIPPED 2026-07-15 (flag-gated)
+
+- `backend/agents/content/ceo-adapter.js` — the CEO-side adapter:
+  - `buildCeoUnifiedSocialAddendum()` appended to `buildCeoSystemPrompt`
+    on unified requests (non-plan-mode): NEW LinkedIn text posts must go
+    through the `generate_linkedin_post` tool (the CEO never writes post
+    copy itself anymore); edits to an on-screen post keep the legacy
+    create_artifact path; all other platforms/content types unchanged;
+    LinkedIn carousel plans must meet /Content's "CAPTION IS THE POST"
+    standard (the full `LINKEDIN_CAROUSEL_PROMPT` is embedded).
+  - `runLinkedInTextPostPass()` — the same writer pass /Content's Call 2
+    uses (`buildLinkedInPostSystemPrompt` variation A/B + forced
+    `submit_post` channel), run inline within the CEO request.
+- `orchestrate.js` — request carries `unified` + `userName` from the
+  client (stored on context: `context.unifiedFlag` / `context.ceoUserName`
+  so no call-site signature changes); `generate_linkedin_post` tool added
+  to the CEO toolset on unified requests; its handler runs the writer pass
+  and delivers the result as a standard `create_artifact`
+  `content_post`/linkedin `tool_call` SSE event — the AiCeo frontend
+  renders it with ZERO frontend changes; the tool result tells the CEO to
+  wrap up in one sentence without repeating the post.
+- `AiCeo.jsx` — sends `unified: isUnifiedContentBackend()` + `userName`
+  in the orchestrate request body (flag-off = legacy behavior,
+  byte-identical).
+- Deferred from the original Phase 4 list: `artifact_versions` rows for
+  social posts (low value vs risk right now; revisit at Phase 5), and
+  folding IG caption standards (CEO's IG captions already flow through
+  SOCIAL_POST_DISCOVERY rules; LinkedIn was the quality gap).
+
 ## 6. GOLDEN TEST FLOWS (manual verification checklist per phase)
 
 1. Content/LinkedIn: "make me a LinkedIn post" → asks Format Q first →
