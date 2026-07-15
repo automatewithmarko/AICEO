@@ -2051,12 +2051,20 @@ function extractAccent(text) {
   const accentWords = [];
   const capture = (_, w) => { const t = w.trim(); if (t) accentWords.push(t); return w; };
   let cleaned = String(text || '')
+    // Structured accent markers — capture the inner word.
     .replace(/\{\{accent\}\}([\s\S]*?)\{\{\/accent\}\}/gi, capture)
     .replace(/\[ACCENT\]([\s\S]*?)\[\/ACCENT\]/gi, capture);
-  // Defensive: strip any stray/malformed markers so they cannot be rendered.
   cleaned = cleaned
+    // Kill stray/malformed accent markers.
     .replace(/\{\{\/?accent\}\}/gi, '')
     .replace(/\[\/?ACCENT\]/gi, '')
+    // Universal cleanup of any other bracket wrappers Sonnet/Grok slipped
+    // in ({{sales team}}, <highlight>foo</highlight>, [SOMETHING]). Keep
+    // the inner text, drop the wrapper — image models were rendering the
+    // brackets as literal characters on the slide.
+    .replace(/\{\{([^{}]+?)\}\}/g, '$1')
+    .replace(/<\/?[a-zA-Z][^<>]*>/g, '')
+    .replace(/\[([A-Z][A-Z0-9_-]{1,30})\]/g, '$1')
     .replace(/\s{2,}/g, ' ')
     .trim();
   return { cleaned, accentWords };
@@ -2147,7 +2155,18 @@ function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand
   const isMiddle = !isHook && !isFinal;
 
   const { cleaned: headlineClean, accentWords } = extractAccent(slide.headline);
-  const bodyClean = String(slide.body || '').replace(/\{\{\/?accent\}\}/gi, '').replace(/\[\/?ACCENT\]/gi, '').trim();
+  // Same universal marker-stripper we apply to the headline via
+  // extractAccent — Sonnet/Grok's body copy also arrived with {{key term}},
+  // <em>foo</em>, [SOMETHING] and the image models were rendering the
+  // brackets as literal characters on the slide.
+  const bodyClean = String(slide.body || '')
+    .replace(/\{\{\/?accent\}\}/gi, '')
+    .replace(/\[\/?ACCENT\]/gi, '')
+    .replace(/\{\{([^{}]+?)\}\}/g, '$1')
+    .replace(/<\/?[a-zA-Z][^<>]*>/g, '')
+    .replace(/\[([A-Z][A-Z0-9_-]{1,30})\]/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
   const badgeText = String(slide.badge || '').toUpperCase().replace(/[{}<>]/g, '').trim();
   const brandName = String(brandStrip.brandName || brand?.name || '').trim();
   const chapterNum = `CH ${String(index).padStart(2, '0')}`;

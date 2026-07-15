@@ -71,6 +71,50 @@ function sanitizeIdentityFromPrompt(text) {
   return out;
 }
 
+// Universal marker scrub. Image models (Gemini + gpt-image-1) will render
+// any {{something}}, <highlight>, [ACCENT] tokens as literal text on the
+// output — we've shipped multiple slides where the reader sees
+// "What if your {{sales team}} never sleeps?" printed on the image because
+// Sonnet/Grok slipped a marker into the plan and it leaked into the image
+// prompt. The upstream builders (src/lib/carouselGen.js, Content.jsx)
+// strip these when they build a per-slide prompt, but ANY caller of this
+// endpoint — single posts, general "generate me a hero image", newsletter
+// covers, LI text-post hero images, etc. — can also leak markers. So we
+// do a final scrub here that catches everything, regardless of caller.
+//
+// Rules:
+//   1) Structured accent pairs → keep the inner word, drop the wrapper.
+//      {{accent}}word{{/accent}}  →  word
+//      [ACCENT]word[/ACCENT]      →  word
+//   2) Any other {{...}} wrapper → keep inner, drop braces.
+//      {{sales team}}             →  sales team
+//   3) Any XML/HTML-ish <tag>...</tag> pair or self-closing → drop tags,
+//      keep inner text.
+//      <highlight>foo</highlight> →  foo
+//   4) Loose [ALLCAPS] tokens that look like markers → keep inner, drop
+//      brackets. [SOMETHING]      →  SOMETHING
+//   5) Stray unmatched marker fragments → strip entirely.
+//      {{/accent}}, [/ACCENT], <em> without a close → ''
+function sanitizeMarkersFromPrompt(text) {
+  if (!text) return text;
+  return String(text)
+    // 1) Structured accent pairs first — keep the inner word.
+    .replace(/\{\{accent\}\}([\s\S]*?)\{\{\/accent\}\}/gi, '$1')
+    .replace(/\[ACCENT\]([\s\S]*?)\[\/ACCENT\]/gi, '$1')
+    // 5a) Kill any stray/malformed accent markers left over.
+    .replace(/\{\{\/?accent\}\}/gi, '')
+    .replace(/\[\/?ACCENT\]/gi, '')
+    // 2) Any remaining {{ ... }} wrapper — keep inner.
+    .replace(/\{\{([^{}]+?)\}\}/g, '$1')
+    // 3) Any XML/HTML-ish tag — drop the tag, keep content.
+    .replace(/<\/?[a-zA-Z][^<>]*>/g, '')
+    // 4) Loose [ALLCAPS] markers — keep inner. Only match short all-caps
+    //    tokens so we don't hit things like "[Optional: some sentence]".
+    .replace(/\[([A-Z][A-Z0-9_-]{1,30})\]/g, '$1')
+    // Collapse whitespace runs from all the deletions.
+    .replace(/[ \t]{2,}/g, ' ');
+}
+
 // ─── Caches ───
 // Brand asset base64 cache — keyed by URL, avoids re-downloading the same images
 const brandImageCache = new Map(); // url -> { data, expiry }
@@ -145,8 +189,9 @@ DESIGN SYSTEM TAKES PRIORITY:
 - If the incoming prompt contains a "=== DESIGN SYSTEM (LOCKED — identical on every slide) ===" block, FOLLOW THAT BLOCK VERBATIM. Every color, font, layout, badge, glow position, and accent treatment listed there is a hard requirement, not a suggestion.
 - The DESIGN SYSTEM block is byte-for-byte identical across every slide in the set — that is the ONLY way the carousel renders cohesively. Do NOT substitute your own color palette, do NOT change the background, do NOT invent a new layout, do NOT swap the card style.
 - The PER-SLIDE block that follows the DESIGN SYSTEM block is the only thing that changes between slides. Render exactly what it specifies for this slide's headline, body, badge, visual element, glow corner, slide counter, and CTA hint.
-- Render every piece of text EXACTLY as quoted in the prompt (correct spelling, exact punctuation, preserved line breaks). The [ACCENT]...[/ACCENT] span in the headline gets the gradient treatment described in the ACCENT WORD TREATMENT line — no other text gets it.
+- Render every piece of text EXACTLY as quoted in the prompt (correct spelling, exact punctuation, preserved line breaks). The prompt describes any highlighted word in plain English — apply the gradient treatment ONLY to that word, no other text.
 - Respect the DO NOT list at the bottom of each per-slide block.
+- NEVER render any curly braces, square brackets, or angle brackets as visible text. Any token that arrives wrapped in {{ }}, < >, or [ ] is an instruction to unwrap — render only the inner word without the wrapper.
 
 FALLBACK (only when NO DESIGN SYSTEM block is present — single post, not a planned carousel):
 - Clean modern graphic design. Bold sans-serif typography. Left-aligned body text. Readable at mobile size.
@@ -232,8 +277,9 @@ DESIGN SYSTEM TAKES PRIORITY:
 - If the incoming prompt contains a "=== DESIGN SYSTEM (LOCKED — identical on every slide) ===" block, FOLLOW THAT BLOCK VERBATIM. Every color, font, layout, badge, glow position, and accent treatment listed there is a hard requirement, not a suggestion.
 - The DESIGN SYSTEM block is byte-for-byte identical across every slide in the set — that is the ONLY way the carousel renders cohesively. Do NOT substitute your own color palette, do NOT change the background, do NOT invent a new layout, do NOT swap the card style.
 - The PER-SLIDE block that follows the DESIGN SYSTEM block is the only thing that changes between slides.
-- Render every piece of text EXACTLY as quoted in the prompt (correct spelling, exact punctuation, preserved line breaks). The [ACCENT]...[/ACCENT] span in the headline gets the gradient treatment described in the ACCENT WORD TREATMENT line — no other text gets it.
+- Render every piece of text EXACTLY as quoted in the prompt (correct spelling, exact punctuation, preserved line breaks). The prompt describes any highlighted word in plain English — apply the gradient treatment ONLY to that word, no other text.
 - Respect the DO NOT list at the bottom of each per-slide block.
+- NEVER render any curly braces, square brackets, or angle brackets as visible text. Any token that arrives wrapped in {{ }}, < >, or [ ] is an instruction to unwrap — render only the inner word without the wrapper.
 
 FALLBACK (only when NO DESIGN SYSTEM block is present — single text-post image, not a planned carousel):
 - Professional, clean design with authority. Bold headline text as the main element, minimal layout, corporate-friendly colors.
@@ -337,9 +383,18 @@ router.post('/api/generate/image', requireCredits('image_generation'), async (re
   // just shouldn't say "a realistic photo of Bazil Sajjad, a Pakistani man…"
   // because that combo (named real person + photorealistic + face photo)
   // is the exact pattern that trips the OTHER finishReason.
-  const prompt = sanitizeIdentityFromPrompt(rawPrompt);
-  if (prompt !== rawPrompt) {
-    console.log(`[generate/image] Prompt sanitized (name/ethnicity stripped). before: "${rawPrompt.slice(0, 120)}..." → after: "${prompt.slice(0, 120)}..."`);
+  const identityScrubbed = sanitizeIdentityFromPrompt(rawPrompt);
+  if (identityScrubbed !== rawPrompt) {
+    console.log(`[generate/image] Prompt sanitized (name/ethnicity stripped). before: "${rawPrompt.slice(0, 120)}..." → after: "${identityScrubbed.slice(0, 120)}..."`);
+  }
+  // Second scrub — universal marker cleanup so Gemini/gpt-image-1 doesn't
+  // render {{sales team}} / <highlight> / [ACCENT] as literal text on the
+  // generated image. Belt-and-suspenders behind the client-side builders
+  // — protects every caller (AICEO, /Content, single posts, general
+  // images) regardless of whether they run through carouselGen.js first.
+  const prompt = sanitizeMarkersFromPrompt(identityScrubbed);
+  if (prompt !== identityScrubbed) {
+    console.log(`[generate/image] Marker syntax stripped from prompt ({{...}} / <...> / [ACCENT] etc.)`);
   }
 
   try {
