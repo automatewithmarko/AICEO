@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import DOMPurify from 'dompurify';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
@@ -2400,7 +2400,90 @@ async function readWithIdle(reader, idleMs = STREAM_IDLE_MS) {
   }
 }
 
-async function streamContentResponse(messages, systemPrompt, onTextChunk, onToolCall, abortSignal, { searchMode = false, onSearchStatus, planMode = false } = {}) {
+// ─── Unified content backend (Phase 1, docs/unified-content-backend-plan.md) ───
+// Feature flag for routing /Content generation through the backend
+// (POST /api/content-orchestrate → Claude Sonnet with the same prompts,
+// copied verbatim into backend/agents/content/). Legacy client-side Grok
+// path stays the DEFAULT and fully intact until the unified path is
+// stress-tested (Phase 5 does the cleanup, on explicit approval only).
+//   - localStorage.aiceo_unified_content = '1' → unified on
+//   - localStorage.aiceo_unified_content = '0' → unified off (wins over env)
+//   - VITE_UNIFIED_CONTENT=true → unified on by default for the build
+function isUnifiedContentBackend() {
+  try {
+    const v = localStorage.getItem('aiceo_unified_content');
+    if (v === '1') return true;
+    if (v === '0') return false;
+  } catch { /* no localStorage — fall through */ }
+  return import.meta.env.VITE_UNIFIED_CONTENT === 'true';
+}
+
+// Unified-transport twin of streamContentResponse: same contract
+// (cumulative onTextChunk, single end-of-stream onToolCall with
+// [{kind:'image'|'plan', ...}], returns {content, hadToolCall}) but the
+// brain runs server-side. The `unified` payload carries the intent + the
+// same context ingredients the legacy path feeds buildSystemPrompt with,
+// so the backend assembles a byte-identical prompt.
+async function streamContentUnified(messages, onTextChunk, onToolCall, abortSignal, unified = {}) {
+  const { intent = 'chat', platform = null, contentContext = {}, planMode = false, variation = 'A', edit = null } = unified;
+  const toolCallsOut = [];
+  let fullContent = '';
+  let streamError = null;
+
+  await streamFromBackend('/api/content-orchestrate', {
+    messages,
+    intent,
+    platform: platform ? { id: platform.id, name: platform.name } : null,
+    contentContext,
+    planMode,
+    variation,
+    edit,
+  }, {
+    onTextDelta: (content) => {
+      fullContent = content;
+      onTextChunk(content);
+    },
+    onToolCall: (name, args = {}) => {
+      // Mirror the legacy parsers: only well-formed calls pass through.
+      if (name === 'generate_image' && args.prompt) {
+        toolCallsOut.push({ kind: 'image', id: `unified-${toolCallsOut.length}`, prompt: args.prompt });
+      } else if (name === 'plan_carousel' && Array.isArray(args.slides) && args.designSystem) {
+        toolCallsOut.push({ kind: 'plan', id: `unified-${toolCallsOut.length}`, plan: args });
+      }
+    },
+    onError: (err) => {
+      streamError = new Error(err || 'Generation failed');
+    },
+  }, abortSignal);
+
+  if (streamError) throw streamError;
+
+  // Same fallback + dispatch shape as the legacy path.
+  let hadToolCall = false;
+  if (toolCallsOut.length === 0 && fullContent) {
+    const extractedPrompt = extractImagePromptFromText(fullContent);
+    if (extractedPrompt) toolCallsOut.push({ kind: 'image', id: 'fallback', prompt: extractedPrompt });
+  }
+  if (toolCallsOut.length > 0) {
+    hadToolCall = true;
+    await onToolCall(toolCallsOut);
+  }
+  return { content: fullContent, hadToolCall };
+}
+
+async function streamContentResponse(messages, systemPrompt, onTextChunk, onToolCall, abortSignal, { searchMode = false, onSearchStatus, planMode = false, unified = null } = {}) {
+  // Unified content backend (flag-gated). Call sites that don't pass
+  // `unified` metadata stay legacy; with the flag off, this function is
+  // byte-for-byte the legacy behavior. NOTE: the legacy main-chat turn
+  // always has Grok web_search available (searchMode:true → Responses
+  // API); the unified path standardizes on Claude Sonnet (founder
+  // decision), which has no always-on web search — same model behavior
+  // as the AI CEO tab's normal turns. A search toggle → server-side Grok
+  // research (like AI CEO's) can be added in a later phase if needed.
+  if (unified && isUnifiedContentBackend()) {
+    return streamContentUnified(messages, onTextChunk, onToolCall, abortSignal, { ...unified, planMode });
+  }
+
   // Plan Mode routes through the Chat Completions fallback path with empty
   // tools + tool_choice='none' — the model is producing a written plan,
   // not searching the web or running generation. The Responses API path
@@ -4322,7 +4405,28 @@ export default function Content() {
           }
         },
         abort.signal,
-        { searchMode: true, onSearchStatus: setSearchStatus, planMode },
+        {
+          searchMode: true,
+          onSearchStatus: setSearchStatus,
+          planMode,
+          // Unified content backend (flag-gated): same ingredients the
+          // client-side buildSystemPrompt call above uses, so the backend
+          // assembles a byte-identical prompt server-side.
+          unified: {
+            intent: 'chat',
+            platform: activePlatform,
+            contentContext: {
+              photos,
+              documents,
+              socialUrls,
+              brandDna,
+              integrationContext: integrationCtx,
+              carouselTemplates: selectedTemplatesData,
+              existingPost,
+              userName: user?.name || null,
+            },
+          },
+        },
       );
       // Check if the response contains a JSON question (may be preceded by text)
       const finalContent = streamedContent || '';
@@ -4461,7 +4565,15 @@ export default function Content() {
             },
             async () => {},
             abort.signal,
-            { searchMode: false, onSearchStatus: null },
+            {
+              searchMode: false,
+              onSearchStatus: null,
+              unified: {
+                intent: 'linkedin_edit',
+                contentContext: { userName: user?.name || null, brandDna },
+                edit: { editInstruction, existingContent },
+              },
+            },
           );
         } catch (editErr) {
           if (editErr.name !== 'AbortError') console.error('LinkedIn edit_text failed:', editErr);
@@ -4597,7 +4709,15 @@ export default function Content() {
             },
             async () => {},
             abort.signal,
-            { searchMode: false, onSearchStatus: null },
+            {
+              searchMode: false,
+              onSearchStatus: null,
+              unified: {
+                intent: 'linkedin_post',
+                variation: readyA ? 'A' : 'B',
+                contentContext: { userName: user?.name || null, brandDna, socialUrls, documents },
+              },
+            },
           );
         } catch (postErr) {
           if (postErr.name !== 'AbortError') console.error('LinkedIn post generation failed:', postErr);
@@ -4732,7 +4852,14 @@ export default function Content() {
               if (failed.length > 0) console.warn(`${failed.length} carousel slide(s) failed`);
             },
             abort.signal,
-            { searchMode: false, onSearchStatus: null },
+            {
+              searchMode: false,
+              onSearchStatus: null,
+              unified: {
+                intent: 'legacy_carousel',
+                contentContext: { userName: user?.name || null, brandDna, socialUrls, documents },
+              },
+            },
           );
         } catch (postErr) {
           if (postErr.name !== 'AbortError') console.error('LinkedIn carousel generation failed:', postErr);

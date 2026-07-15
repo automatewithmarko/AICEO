@@ -7,6 +7,7 @@ import { SOCIAL_POST_DISCOVERY_PROMPT } from '../shared/social-post-discovery.js
 import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
+import { handleContentOrchestration } from '../agents/content/handler.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
 import { extractFromUrl } from '../services/social.js';
 import { requireCredits } from '../middleware/gate.js';
@@ -2160,5 +2161,51 @@ function tryParseJSON(str) {
   }
   return null;
 }
+
+// ─── Unified /Content orchestration (Phase 1, docs/unified-content-backend-plan.md) ───
+// Dedicated route rather than a mode on POST /api/orchestrate so it:
+//   - skips requireCredits('ai_ceo_message') — Content chat is not billed
+//     today (the legacy path calls xAI from the client); charging it is a
+//     separate product decision for later.
+//   - is gated on the 'content' tab permission in server.js, not 'ai-ceo'.
+// The legacy client-side Grok path remains the flag-off default; this
+// route only serves clients with the unified-content flag on.
+router.post('/api/content-orchestrate', async (req, res) => {
+  const userId = req.user?.id;
+  const { messages } = req.body || {};
+
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: 'messages array required' });
+  }
+
+  // Same SSE setup as POST /api/orchestrate above.
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (res.socket) { res.socket.setNoDelay(true); res.socket.setTimeout(0); }
+  res.flushHeaders();
+
+  const heartbeat = setInterval(() => {
+    try { res.write(': heartbeat\n\n'); } catch {}
+  }, 3000);
+
+  try {
+    await handleContentOrchestration({ res, sendSSE, body: req.body, userId });
+    console.log('[content-orchestrate] Handler completed successfully');
+  } catch (err) {
+    console.error('[content-orchestrate] Error:', err.message, err.stack);
+    const friendlyError =
+      err.code === 'CONTEXT_EXCEEDED'
+        ? 'This conversation has grown too large to continue. Please start a fresh chat — the AI can\'t fit everything in its working memory anymore.'
+        : err.message;
+    sendSSE(res, { type: 'error', error: friendlyError, code: err.code || null });
+  } finally {
+    clearInterval(heartbeat);
+    sendSSE(res, { type: 'done' });
+    res.write('data: [DONE]\n\n');
+    res.end();
+  }
+});
 
 export default router;

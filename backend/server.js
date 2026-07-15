@@ -1011,6 +1011,14 @@ app.use((req, res, next) => {
   next();
 });
 app.use(gateOnTab('/api/orchestrate', 'ai-ceo'));
+// Unified /Content orchestration (same router file) — auth required, but
+// gated on the 'content' tab, not 'ai-ceo': it serves the /Content page.
+// See docs/unified-content-backend-plan.md Phase 1.
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/content-orchestrate')) return requireAuth(req, res, next);
+  next();
+});
+app.use(gateOnTab('/api/content-orchestrate', 'content'));
 app.use(orchestrateRoutes);
 
 // ─── BooSend automation routes (auth required) ───
