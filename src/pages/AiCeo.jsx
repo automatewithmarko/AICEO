@@ -5,7 +5,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide } from '../lib/api';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
-import { isUnifiedContentBackend } from '../lib/unifiedContent';
 import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
 import { getMeetings } from '../lib/meetings-api';
 import { ARTIFACT_TYPES } from '../lib/artifacts';
@@ -969,10 +968,7 @@ export default function AiCeo() {
         planMode,
         sessionId: sessionIdRef.current || null,
         assistantMsgId,
-        // Unified pipeline (Phase 4): LinkedIn text posts run through the
-        // shared two-phase writer server-side. userName feeds the post
-        // sign-off. Flag-off = legacy CEO behavior, byte-identical.
-        unified: isUnifiedContentBackend(),
+        // userName feeds the shared LinkedIn writer's sign-off (Phase 4).
         userName: user?.name || null,
         ...(hasHtmlArtifact ? {
           currentHtml: currentArtifact.content,
@@ -1983,76 +1979,36 @@ export default function AiCeo() {
     } : prev);
 
     (async () => {
-      if (isUnifiedContentBackend()) {
-        // Unified path (Phase 2, docs/unified-content-backend-plan.md):
-        // the backend renders the whole carousel with the same locked
-        // design-system prompts, PLUS robustness the legacy AiCeo loop
-        // never had — per-slide 3-attempt retries and slide-1 visual
-        // anchoring (matching /Content's stronger legacy loop). Slides
-        // stream back as storage URLs.
-        try {
-          await generateCarouselServerSide({
-            platform,
-            plan: { hook: plan.hook, caption: plan.caption, slides, designSystem: plan.designSystem },
-            brand: { name: brandName },
-          }, {
-            onSlideDone: (idx, url) => setArtifact((prev) => prev ? {
-              ...prev,
-              images: [...(prev.images || []).filter((im) => im.idx !== idx), { src: url, idx }],
-              pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
-            } : prev),
-            onSlideFailed: (idx, error) => {
-              console.error(`[AiCeo] carousel slide ${idx + 1} failed (server): ${error}`);
-              setArtifact((prev) => prev ? {
-                ...prev,
-                pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
-                carouselPlan: {
-                  ...prev.carouselPlan,
-                  failedSlides: [...(prev.carouselPlan?.failedSlides || []).filter((x) => x !== idx), idx].sort((a, b) => a - b),
-                },
-              } : prev);
-            },
-          });
-        } catch (err) {
-          console.error('[AiCeo] server-side carousel generation failed:', err);
-          setArtifact((prev) => prev ? { ...prev, pendingImages: 0 } : prev);
-        }
-      } else {
-      for (let i = 0; i < slides.length; i++) {
-        const slide = slides[i];
-        let prompt;
-        try {
-          prompt = buildCarouselSlidePrompt({
-            designSystem: plan.designSystem,
-            slide,
-            index: i,
-            total: slides.length,
-            brand: { name: brandName },
-            platform,
-          });
-        } catch (buildErr) {
-          console.error(`[AiCeo] carousel prompt build failed for slide ${i + 1}:`, buildErr);
-          setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
-          continue;
-        }
-        try {
-          const backendPlatform = platform === 'linkedin' ? 'linkedin_carousel' : 'instagram';
-          const result = await generateImage(prompt, backendPlatform, null, null, {});
-          if (result?.image?.data) {
-            const src = `data:${result.image.mimeType};base64,${result.image.data}`;
+      // Server-side carousel rendering (Phase 2): the backend renders the
+      // whole carousel with the locked design-system prompts, per-slide
+      // 3-attempt retries and slide-1 visual anchoring. Slides stream
+      // back as storage URLs.
+      try {
+        await generateCarouselServerSide({
+          platform,
+          plan: { hook: plan.hook, caption: plan.caption, slides, designSystem: plan.designSystem },
+          brand: { name: brandName },
+        }, {
+          onSlideDone: (idx, url) => setArtifact((prev) => prev ? {
+            ...prev,
+            images: [...(prev.images || []).filter((im) => im.idx !== idx), { src: url, idx }],
+            pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
+          } : prev),
+          onSlideFailed: (idx, error) => {
+            console.error(`[AiCeo] carousel slide ${idx + 1} failed (server): ${error}`);
             setArtifact((prev) => prev ? {
               ...prev,
-              images: [...(prev.images || []), { src, idx: i }],
               pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
+              carouselPlan: {
+                ...prev.carouselPlan,
+                failedSlides: [...(prev.carouselPlan?.failedSlides || []).filter((x) => x !== idx), idx].sort((a, b) => a - b),
+              },
             } : prev);
-          } else {
-            setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
-          }
-        } catch (imgErr) {
-          console.error(`[AiCeo] carousel slide ${i + 1} failed:`, imgErr);
-          setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
-        }
-      }
+          },
+        });
+      } catch (err) {
+        console.error('[AiCeo] server-side carousel generation failed:', err);
+        setArtifact((prev) => prev ? { ...prev, pendingImages: 0 } : prev);
       }
       setArtifact((prev) => prev ? {
         ...prev,

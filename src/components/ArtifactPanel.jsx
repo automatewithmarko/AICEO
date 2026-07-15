@@ -3,14 +3,12 @@ import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocke
 import SocialPreview from './SocialPreview';
 import LinkedInPreview from './LinkedInPreview';
 import CanvasActionsBar from './CanvasActionsBar';
-import CarouselPlanApproval from './CarouselPlanApproval';
 import CarouselPlanCard from './social-canvas/CarouselPlanCard';
-import { isUnifiedContentBackend } from '../lib/unifiedContent';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { ARTIFACT_TYPES, parseEmailContent } from '../lib/artifacts';
-import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, postToInstagram, schedulePost, uploadImageToStorage, getLinkedInAuthUrl, getIntegrations, createCalendarPost, publishCalendarPost } from '../lib/api';
+import { sendEmailApi, deployToNetlify, getEmailAccounts, getContacts, getTemplates, getTemplate, saveTemplate, connectIntegration, checkNetlifyName, getNetlifyStatus, listArtifactVersions, getArtifactVersion, restoreArtifactVersion, postToLinkedIn, schedulePost, uploadImageToStorage, getLinkedInAuthUrl, getIntegrations, createCalendarPost, publishCalendarPost } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
 import { getIframeEditScript } from '../lib/iframeEditScript';
@@ -100,30 +98,19 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
     }
     if (publicUrls.length === 0) throw new Error('No images to publish. Attach at least one image before posting.');
 
-    // Unified path (Phase 3): publish through the calendar-row pipeline —
-    // the same publishSocialPostRow path /Content and the scheduler use —
-    // so publish-now / scheduled / draft are ONE code path and the post
-    // lands in the Content Calendar. Legacy path posts direct to BooSend.
-    if (isUnifiedContentBackend()) {
-      const { post } = await createCalendarPost({
-        platform: 'instagram',
-        caption: text,
-        content_type: publicUrls.length > 1 ? 'carousel' : 'image',
-        scheduled_at: null,
-        media: publicUrls.map((url) => ({ type: 'image', url })),
-        status: 'draft',
-      });
-      await publishCalendarPost(post.id);
-      return;
-    }
-
-    const mediaItems = publicUrls.map((url) => ({ url }));
-    const postType = mediaItems.length > 1 ? 'carousel' : 'single';
-    await postToInstagram({
+    // Publish through the calendar-row pipeline — the same
+    // publishSocialPostRow path /Content and the scheduler use — so
+    // publish-now / scheduled / draft are ONE code path and the post
+    // lands in the Content Calendar.
+    const { post } = await createCalendarPost({
+      platform: 'instagram',
       caption: text,
-      media_items: mediaItems,
-      post_type: postType,
+      content_type: publicUrls.length > 1 ? 'carousel' : 'image',
+      scheduled_at: null,
+      media: publicUrls.map((url) => ({ type: 'image', url })),
+      status: 'draft',
     });
+    await publishCalendarPost(post.id);
   };
 
   const handleCanvasConnectInstagram = () => {
@@ -843,38 +830,25 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
               const carouselPlan = artifact.carouselPlan;
               const awaitingApproval = !!(carouselPlan && carouselPlan.slides?.length > 0 && !carouselPlan.approved);
               if (awaitingApproval) {
-                const planPlatform = /linkedin/i.test(String(agentSource || '')) ? 'linkedin' : 'instagram';
-                // Unified path (Phase 3): render the SAME rich plan editor
-                // /Content users get — per-slide text editing, insert /
-                // delete / reorder, palette editing, caption editing, and
-                // the saved design-system template picker. Legacy path
-                // keeps the approve-only card.
-                if (isUnifiedContentBackend()) {
-                  return (
-                    <CarouselPlanCard
-                      plan={carouselPlan}
-                      onApprove={() => onApproveCarousel && onApproveCarousel()}
-                      onRetryFailed={() => onRetryFailedSlides && onRetryFailedSlides()}
-                      onUpdatePlan={onUpdateCarouselPlan}
-                    />
-                  );
-                }
+                // The shared rich plan editor (same component /Content
+                // uses): per-slide text editing, insert/delete/reorder,
+                // palette editing, caption editing, and the saved
+                // design-system template picker.
                 return (
-                  <CarouselPlanApproval
+                  <CarouselPlanCard
                     plan={carouselPlan}
-                    platform={planPlatform}
-                    generating={false}
                     onApprove={() => onApproveCarousel && onApproveCarousel()}
-                    onDeleteSlide={onDeleteCarouselSlide}
+                    onRetryFailed={() => onRetryFailedSlides && onRetryFailedSlides()}
+                    onUpdatePlan={onUpdateCarouselPlan}
                   />
                 );
               }
 
-              // Post-approval failed-slide retry row (unified path). The
-              // server marks failed indexes on carouselPlan.failedSlides;
-              // this surfaces the same retry affordance /Content's plan
-              // card has, without displacing the preview below.
-              const failedSlides = (isUnifiedContentBackend() && !artifact.pendingImages)
+              // Post-approval failed-slide retry row. The server marks
+              // failed indexes on carouselPlan.failedSlides; this surfaces
+              // the same retry affordance /Content's plan card has,
+              // without displacing the preview below.
+              const failedSlides = !artifact.pendingImages
                 ? (carouselPlan?.failedSlides || [])
                 : [];
               const retryBanner = (failedSlides.length > 0 && onRetryFailedSlides) ? (

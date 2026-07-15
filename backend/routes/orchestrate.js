@@ -802,7 +802,7 @@ function detectNewArtifactInFlow(messages, currentAgent) {
 // mode: "ceo" or "direct" (direct handles both generation and editing)
 router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, res) => {
   const userId = req.user?.id;
-  const { messages, mode = 'ceo', agent: agentName, searchMode = false, planMode = false, currentHtml, editInstruction, currentAgent, currentTitle = '', currentContentPost, sessionId = null, assistantMsgId = null, unified = false, userName = null } = req.body;
+  const { messages, mode = 'ceo', agent: agentName, searchMode = false, planMode = false, currentHtml, editInstruction, currentAgent, currentTitle = '', currentContentPost, sessionId = null, assistantMsgId = null, userName = null } = req.body;
 
   // Detect Plan Mode artifacts on screen. These are html_template artifacts
   // whose HTML content wraps the plan in a <div class="plan-artifact">
@@ -840,13 +840,12 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
       loadActiveBrief(userId),
     ]);
     context.activeBrief = activeBrief;
-    // Unified-pipeline flag + display name from the client (Phase 4,
-    // docs/unified-content-backend-plan.md). Carried on context so the
-    // four handleCeoOrchestration call sites don't all need new params.
-    // Flag-off requests keep legacy CEO behavior byte-identical.
-    context.unifiedFlag = !!unified;
+    // Display name from the client — feeds the LinkedIn writer's sign-off
+    // (Phase 4/5, docs/unified-content-backend-plan.md). Carried on
+    // context so the four handleCeoOrchestration call sites don't all
+    // need new params.
     context.ceoUserName = userName || null;
-    console.log(`[orchestrate] Context loaded, brandDna=${!!context.brandDna} brief=${!!activeBrief} unified=${!!unified}`);
+    console.log(`[orchestrate] Context loaded, brandDna=${!!context.brandDna} brief=${!!activeBrief}`);
 
     if (mode === 'direct') {
       await handleDirectAgent({ res, agentName, messages, context, searchMode, userId, currentHtml, editInstruction, sessionId, assistantMsgId });
@@ -1290,12 +1289,13 @@ async function enrichMessagesWithVideoContext(messages, userId, res) {
 async function handleCeoOrchestration({ res, messages, context, searchMode, planMode = false, userId, currentHtml, currentAgent, currentContentPost, sessionId = null, assistantMsgId = null }) {
   let systemPrompt = buildCeoSystemPrompt(context);
 
-  // Unified pipeline (Phase 4): LinkedIn text posts route through the
-  // shared two-phase writer (generate_linkedin_post tool → variation
-  // prompt pass), and LinkedIn carousel plans get /Content's caption
-  // standards. Appended AFTER the full CEO prompt so it wins; plan mode
-  // strips generation tools anyway so it's skipped there.
-  if (context.unifiedFlag && !planMode) {
+  // Unified pipeline (Phase 4, unconditional since Phase 5): LinkedIn
+  // text posts route through the shared two-phase writer
+  // (generate_linkedin_post tool → variation prompt pass), and LinkedIn
+  // carousel plans get /Content's caption standards. Appended AFTER the
+  // full CEO prompt so it wins; plan mode strips generation tools anyway
+  // so it's skipped there.
+  if (!planMode) {
     systemPrompt += buildCeoUnifiedSocialAddendum();
   }
 
@@ -1597,12 +1597,7 @@ RULES:
 - If the user explicitly asks for a brand-new post on a different topic: call create_artifact with the new post (this becomes a separate snapshot — previous post stays accessible via its chat card).
 `;
   }
-  let tools = buildAgentTools();
-  // Unified pipeline (Phase 4): expose the shared LinkedIn text-post
-  // trigger. Plan Mode's allowed-set filter below strips it there.
-  if (context.unifiedFlag) {
-    tools = [...tools, GENERATE_LINKEDIN_POST_TOOL];
-  }
+  let tools = [...buildAgentTools(), GENERATE_LINKEDIN_POST_TOOL];
   // Plan Mode: physically restrict the CEO to ONLY ask_user (for scoping
   // questions) and create_artifact (for the plan itself). Combined with
   // tool_choice='required' below, this makes it impossible for the model to
