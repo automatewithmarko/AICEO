@@ -893,7 +893,12 @@ async function executeCeoOrchestratorGrok({ systemPrompt, messages, tools, toolC
     if (toolCalls.length > 0) {
       if (onToolCalls) await onToolCalls(toolCalls);
       const hasAskUser = toolCalls.some(tc => tc.name === 'ask_user');
-      if (hasAskUser || planMode) {
+      // create_content_plan is terminal like ask_user: the client renders
+      // the plan + "Generate content" button and the user drives the next
+      // step. Iterating again after the tool_result would make the model
+      // re-type the plan as prose in chat.
+      const hasContentPlan = toolCalls.some(tc => tc.name === 'create_content_plan');
+      if (hasAskUser || hasContentPlan || planMode) {
         if (content) lastContent += content;
         return { content: lastContent, toolCalls: [] };
       }
@@ -1379,9 +1384,12 @@ async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, too
       if (onToolCalls) await onToolCalls(toolCalls);
 
       // Same early-exit behavior as the Grok version — ask_user always
-      // exits (wait for user's answer), planMode exits after any tool.
+      // exits (wait for user's answer), create_content_plan exits (the
+      // client renders the plan + Generate button), planMode exits after
+      // any tool.
       const hasAskUser = toolCalls.some(tc => tc.name === 'ask_user');
-      if (hasAskUser || planMode) {
+      const hasContentPlan = toolCalls.some(tc => tc.name === 'create_content_plan');
+      if (hasAskUser || hasContentPlan || planMode) {
         if (turnText) accumulatedText += turnText;
         return { content: accumulatedText, toolCalls: [] };
       }

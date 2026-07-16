@@ -2076,3 +2076,71 @@
 .ceo-question-custom-send:hover:not(:disabled) {
   background: var(--brand-red-hover);
 }
+
+/* ── Multi-select ask_user (checkbox chips + Confirm) ── */
+.ceo-question-option--multi {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ceo-question-option--selected {
+  border-color: var(--brand-red);
+  background: rgba(233, 26, 68, 0.05);
+}
+
+.ceo-question-option--selected:hover {
+  border-color: var(--brand-red);
+  background: rgba(233, 26, 68, 0.09);
+}
+
+.ceo-question-check {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1.5px solid #c8c8cc;
+  flex-shrink: 0;
+  display: inline-block;
+  position: relative;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ceo-question-check--on {
+  background: var(--brand-red);
+  border-color: var(--brand-red);
+}
+
+.ceo-question-check--on::after {
+  content: '';
+  position: absolute;
+  left: 4.5px;
+  top: 1.5px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.ceo-question-confirm {
+  margin-top: 12px;
+  width: 100%;
+  padding: 12px 18px;
+  border: none;
+  border-radius: 10px;
+  background: var(--brand-red);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.ceo-question-confirm:hover:not(:disabled) {
+  background: var(--brand-red-hover);
+}
+
+.ceo-question-confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

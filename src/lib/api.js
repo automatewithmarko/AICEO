@@ -173,8 +173,8 @@ export async function streamFromBackend(endpoint, body, callbacks = {}, signal) 
             if (onFileUpdate) onFileUpdate(event.html);
             break;
           case 'ask_user':
-            console.log('[SSE] ask_user event received:', { question: event.question, options: event.options, hasCallback: !!onAskUser });
-            if (onAskUser) onAskUser(event.question, event.options);
+            console.log('[SSE] ask_user event received:', { question: event.question, options: event.options, multiSelect: event.multiSelect, hasCallback: !!onAskUser });
+            if (onAskUser) onAskUser(event.question, event.options, event.multiSelect === true);
             break;
           case 'edit_summary':
             if (onEditSummary) onEditSummary(event.text, event.editCount);
@@ -1186,6 +1186,28 @@ export async function generateCarouselServerSide(body, callbacks = {}, signal) {
     }
   }
   return outcome;
+}
+
+// ─── Content Plan (AI CEO in-chat plans) ───
+
+// Generate ONE piece from an in-chat content plan. The AiCeo sequential
+// runner calls this per item; errors carry "HTTP <status>: ..." so the
+// runner can detect credit depletion (402) and pause instead of failing.
+export async function generatePlanItem(payload, signal) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/orchestrate/plan-item`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    // Carousel plans are the slowest single call (large forced tool
+    // output); give the model breathing room.
+    signal: signal ?? AbortSignal.timeout(180_000),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`HTTP ${res.status}: ${err.error || 'Plan item generation failed'}`);
+  }
+  return res.json();
 }
 
 export async function uploadImageToStorage(base64, mimeType) {
