@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Upload, Loader, Trash2 } from 'lucide-react';
 
 const FONTS = [
   { name: 'Inter', category: 'Sans-serif', weight: 400 },
@@ -118,7 +118,27 @@ function loadGoogleFonts(setReady) {
     .catch(() => {});
 }
 
-function FontDropdown({ label, value, onChange, fontsReady }) {
+// Custom uploaded fonts — registered straight from their storage URL
+// (no Google CSS parse needed). Tracked by URL so re-renders and multiple
+// FontSelector instances don't re-register the same file.
+const registeredCustomUrls = new Set();
+
+function loadCustomFonts(customFonts, onDone) {
+  const toLoad = (customFonts || []).filter((f) => f?.url && f?.name && !registeredCustomUrls.has(f.url));
+  if (toLoad.length === 0) {
+    onDone();
+    return;
+  }
+  Promise.all(toLoad.map((f) => {
+    registeredCustomUrls.add(f.url);
+    const face = new FontFace(bdName(f.name), `url(${f.url})`);
+    return face.load().then((loaded) => {
+      document.fonts.add(loaded);
+    }).catch(() => {});
+  })).then(() => onDone());
+}
+
+function FontDropdown({ label, value, onChange, fontsReady, customFonts = [] }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -144,6 +164,20 @@ function FontDropdown({ label, value, onChange, fontsReady }) {
       </button>
       {open && (
         <div className="settings-font-dropdown">
+          {customFonts.map((font) => (
+            <button
+              key={`custom-${font.url || font.name}`}
+              className={`settings-font-option ${value === font.name ? 'settings-font-option--active' : ''}`}
+              style={fontsReady ? { fontFamily: `"${bdName(font.name)}", sans-serif` } : undefined}
+              onClick={() => {
+                onChange(font.name);
+                setOpen(false);
+              }}
+            >
+              <span className="settings-font-option-name">{font.name}</span>
+              <span className="settings-font-option-cat">Your font</span>
+            </button>
+          ))}
           {FONTS.map((font) => (
             <button
               key={font.name}
@@ -164,17 +198,85 @@ function FontDropdown({ label, value, onChange, fontsReady }) {
   );
 }
 
-export default function FontSelector({ mainFont, secondaryFont, onMainChange, onSecondaryChange }) {
+export default function FontSelector({
+  mainFont,
+  secondaryFont,
+  onMainChange,
+  onSecondaryChange,
+  // Custom uploaded fonts: [{ name, url, path, format }]
+  customFonts = [],
+  onUploadFont,           // (files: File[]) => void
+  onDeleteFont,           // (font) => void
+  uploadingFont = false,  // true while an upload is in flight
+}) {
   const [fontsReady, setFontsReady] = useState(fontsLoaded);
+  // Bump to re-render once newly-uploaded custom fonts finish registering.
+  const [, setCustomTick] = useState(0);
+  const uploadRef = useRef(null);
 
   useEffect(() => {
     loadGoogleFonts(setFontsReady);
   }, []);
 
+  useEffect(() => {
+    loadCustomFonts(customFonts, () => setCustomTick((t) => t + 1));
+  }, [customFonts]);
+
   return (
     <div className="settings-font-selector">
-      <FontDropdown label="Main Font" value={mainFont} onChange={onMainChange} fontsReady={fontsReady} />
-      <FontDropdown label="Secondary Font" value={secondaryFont} onChange={onSecondaryChange} fontsReady={fontsReady} />
+      <FontDropdown label="Main Font" value={mainFont} onChange={onMainChange} fontsReady={fontsReady} customFonts={customFonts} />
+      <FontDropdown label="Secondary Font" value={secondaryFont} onChange={onSecondaryChange} fontsReady={fontsReady} customFonts={customFonts} />
+      {onUploadFont && (
+        <div className="settings-font-upload">
+          <input
+            ref={uploadRef}
+            type="file"
+            accept=".woff2,.woff,.ttf,.otf"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []);
+              if (files.length > 0) onUploadFont(files);
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            className="settings-font-upload-btn"
+            onClick={() => uploadRef.current?.click()}
+            disabled={uploadingFont}
+            title="Upload your own font file (.woff2, .woff, .ttf, .otf)"
+          >
+            {uploadingFont ? <Loader size={14} className="settings-font-upload-spin" /> : <Upload size={14} />}
+            {uploadingFont ? 'Uploading…' : 'Upload custom font'}
+          </button>
+          {customFonts.length > 0 && (
+            <div className="settings-font-custom-list">
+              {customFonts.map((font) => (
+                <div key={font.url || font.name} className="settings-font-custom-item">
+                  <span
+                    className="settings-font-custom-name"
+                    style={{ fontFamily: `"${bdName(font.name)}", sans-serif` }}
+                  >
+                    {font.name}
+                  </span>
+                  <span className="settings-font-custom-format">{(font.format || '').toUpperCase()}</span>
+                  {onDeleteFont && (
+                    <button
+                      type="button"
+                      className="settings-font-custom-delete"
+                      onClick={() => onDeleteFont(font)}
+                      title={`Remove ${font.name}`}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {(mainFont || secondaryFont) && (
         <div className="settings-font-preview">
           {mainFont && (

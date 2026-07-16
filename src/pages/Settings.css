@@ -1289,6 +1289,100 @@
   flex-shrink: 0;
 }
 
+/* Custom font upload */
+.settings-font-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-font-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4% 5%;
+  border: 1px dashed var(--border-medium);
+  border-radius: clamp(4px, 3cqi, 8px);
+  background: var(--bg-white);
+  font-size: clamp(9px, 4.2cqi, 12px);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.settings-font-upload-btn:hover:not(:disabled) {
+  border-color: var(--brand-red);
+  color: var(--brand-red);
+}
+
+.settings-font-upload-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.settings-font-upload-spin {
+  animation: settings-font-spin 0.9s linear infinite;
+}
+
+@keyframes settings-font-spin {
+  to { transform: rotate(360deg); }
+}
+
+.settings-font-custom-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.settings-font-custom-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--bg-light);
+}
+
+.settings-font-custom-name {
+  flex: 1;
+  font-size: clamp(9px, 4.2cqi, 12px);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-font-custom-format {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.settings-font-custom-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.settings-font-custom-delete:hover {
+  color: var(--brand-red);
+}
+
 .settings-font-preview {
   border-top: 1px solid var(--border-light);
   padding-top: 4%;

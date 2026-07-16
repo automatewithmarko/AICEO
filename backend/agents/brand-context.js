@@ -16,11 +16,24 @@ export function buildBrandContext(brandDna) {
     if (c.accent) parts.push(`- Accent: ${c.accent}`);
   }
 
-  // Fonts
+  // Fonts. custom_fonts holds user-uploaded font files
+  // ([{ name, url, format }]) — when the selected main/secondary font is
+  // one of them, emit the file URL so HTML agents (landing page,
+  // newsletter…) can load the REAL font via @font-face instead of
+  // hoping Google Fonts has something by that name.
   if (brandDna.main_font || brandDna.secondary_font) {
+    const customFonts = Array.isArray(brandDna.custom_fonts) ? brandDna.custom_fonts : [];
+    const customByName = new Map(customFonts.map(f => [f.name, f]));
+    const fontLine = (fontName, role) => {
+      const custom = customByName.get(fontName);
+      if (custom?.url) {
+        return `- ${role}: "${fontName}" — CUSTOM UPLOADED FONT. In HTML output, load it with @font-face { font-family: '${fontName}'; src: url('${custom.url}') format('${custom.format === 'ttf' ? 'truetype' : custom.format === 'otf' ? 'opentype' : custom.format || 'woff2'}'); font-display: swap; } instead of a Google Fonts import.`;
+      }
+      return `- ${role}: "${fontName}"`;
+    };
     parts.push('\n### Typography');
-    if (brandDna.main_font) parts.push(`- Main font: "${brandDna.main_font}" (headings and display text)`);
-    if (brandDna.secondary_font) parts.push(`- Secondary font: "${brandDna.secondary_font}" (body text)`);
+    if (brandDna.main_font) parts.push(fontLine(brandDna.main_font, 'Main font (headings and display text)'));
+    if (brandDna.secondary_font) parts.push(fontLine(brandDna.secondary_font, 'Secondary font (body text)'));
   }
 
   // Logo(s)

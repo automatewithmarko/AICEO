@@ -758,6 +758,7 @@ HTML REQUIREMENTS:
 - Complete standalone HTML: <!DOCTYPE html>, <html>, <head>, <body>
 - Single <style> block in <head>. NO external stylesheets. NO <script> tags.
 - Google Fonts via <link> imports allowed (pick 1-2 premium fonts like Inter, Plus Jakarta Sans, DM Sans, Space Grotesk, or Outfit).
+- EXCEPTION: if the Brand DNA Typography section marks a font as a CUSTOM UPLOADED FONT, embed the provided @font-face rule at the top of the <style> block and use that font-family — do NOT substitute a Google Font for it.
 - Mobile-first responsive with media queries. Breakpoints at 768px and 1024px.
 - Max-width container: 1200px centered with 24px side padding.
 

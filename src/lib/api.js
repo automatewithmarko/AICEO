@@ -225,7 +225,7 @@ export async function uploadContextFiles(files, sessionId = null) {
 }
 
 /**
- * Upload files for Brand DNA (photos and videos only).
+ * Upload files for Brand DNA (photos, videos, and font files).
  */
 export async function uploadBrandDnaFiles(files) {
   const headers = await getAuthHeaders();

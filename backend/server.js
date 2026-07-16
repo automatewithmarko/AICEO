@@ -420,9 +420,19 @@ app.post('/api/brand-dna/upload', requireAuth, (req, res) => {
           const buffer = Buffer.concat(chunks);
           const uniqueName = `${userId}/${crypto.randomUUID()}-${filename}`;
 
-          let bucket, type;
+          let bucket, type, contentType = mimeType;
 
-          if (mimeType.startsWith('image/')) {
+          // Font files — browsers send inconsistent MIME types for fonts
+          // (font/woff2, application/font-woff, application/octet-stream…),
+          // so match on the extension as the source of truth.
+          const fontExt = (filename.match(/\.(woff2?|ttf|otf)$/i) || [])[1]?.toLowerCase();
+          const FONT_MIME = { woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf' };
+
+          if (fontExt) {
+            bucket = 'brand-fonts';
+            type = 'font';
+            contentType = FONT_MIME[fontExt];
+          } else if (mimeType.startsWith('image/')) {
             bucket = 'brand-dna';
             type = 'photo';
           } else if (mimeType.startsWith('video/') || isMediaFile(filename)) {
@@ -434,8 +444,8 @@ app.post('/api/brand-dna/upload', requireAuth, (req, res) => {
             return;
           }
 
-          const stored = await uploadFile(bucket, uniqueName, buffer, mimeType);
-          results.push({ type, filename, url: stored.url, path: stored.path });
+          const stored = await uploadFile(bucket, uniqueName, buffer, contentType);
+          results.push({ type, filename, url: stored.url, path: stored.path, ...(fontExt ? { format: fontExt } : {}) });
         } catch (err) {
           results.push({ type: 'error', filename, error: err.message });
         }
