@@ -5,7 +5,7 @@ import { Mail, Lock, CreditCard, Zap, Check, X, Copy, Upload, Trash2, ChevronRig
 import ColorWheelPicker from '../components/ColorWheelPicker';
 import FontSelector from '../components/FontSelector';
 import TeamSettings from '../components/TeamSettings';
-import { uploadBrandDnaFiles, uploadContextFiles, getIntegrations, connectIntegration, disconnectIntegration, getLinkedInAuthUrl, disconnectLinkedIn, getEmailAccounts, addEmailAccount, deleteEmailAccount, syncEmailAccount, getOutlookAuthUrl, connectOutlookCallback } from '../lib/api';
+import { uploadBrandDnaFiles, uploadContextFiles, getIntegrations, connectIntegration, disconnectIntegration, repairStripeIntegration, getLinkedInAuthUrl, disconnectLinkedIn, getEmailAccounts, addEmailAccount, deleteEmailAccount, syncEmailAccount, getOutlookAuthUrl, connectOutlookCallback } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
 import './Settings.css';
@@ -445,11 +445,44 @@ export default function Settings() {
     try {
       const result = await connectIntegration('stripe', apiKey.trim());
       setIntegrations((prev) => ({ ...prev, stripe: result.integration }));
-      setStripeStep(2);
+      // Unified connect (docs/stripe-unified-connect-plan.md): the backend
+      // verifies permissions AND installs the webhook automatically. Only
+      // when auto-provisioning wasn't possible (restricted key without
+      // Webhook Endpoints write, endpoint limit) do we show the manual
+      // setup screen (step 2). Otherwise: success summary (step 3).
+      setStripeStep(result.integration?.metadata?.webhook?.provisioned ? 3 : 2);
     } catch (err) {
       setConnectError(err.message);
     } finally {
       setConnecting(false);
+    }
+  };
+
+  // One-click Repair — re-verifies permissions, reinstalls/updates the
+  // webhook with the stored key (no re-pasting), and re-syncs everything.
+  // THE upgrade path for existing users; also the fix-it button whenever
+  // products/payments look stale.
+  const [repairingStripe, setRepairingStripe] = useState(false);
+  const [stripeRepairResult, setStripeRepairResult] = useState(null);
+  const handleStripeRepair = async () => {
+    if (repairingStripe) return;
+    setRepairingStripe(true);
+    setStripeRepairResult(null);
+    try {
+      const result = await repairStripeIntegration();
+      setIntegrations((prev) => ({ ...prev, stripe: result.integration }));
+      setStripeRepairResult({
+        ok: true,
+        webhook: result.webhook,
+        text: result.webhook?.provisioned
+          ? 'Connection repaired — permissions verified, webhook installed, full re-sync started.'
+          : `Permissions verified and re-sync started, but the webhook could not be installed automatically (${result.webhook?.reason || 'unknown'}). Open "Webhook setup" for the 2-minute manual option.`,
+      });
+    } catch (err) {
+      setStripeRepairResult({ ok: false, text: err.message });
+    } finally {
+      setRepairingStripe(false);
+      setTimeout(() => setStripeRepairResult(null), 12000);
     }
   };
 
@@ -1009,12 +1042,27 @@ export default function Settings() {
                     </button>
                   )
                 ) : integrations[nt.id]?.is_active ? (
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {nt.id === 'stripe' && (
+                      <button
+                        className="settings-btn settings-btn--primary"
+                        onClick={handleStripeRepair}
+                        disabled={repairingStripe}
+                        title="Re-verify permissions, reinstall the webhook, and re-sync everything — one click, no re-pasting your key"
+                      >
+                        {repairingStripe ? 'Repairing…' : 'Repair connection'}
+                      </button>
+                    )}
+                    {nt.id === 'stripe' && stripeRepairResult && (
+                      <span style={{ fontSize: 12, color: stripeRepairResult.ok ? '#16a34a' : '#dc2626', maxWidth: 420 }}>
+                        {stripeRepairResult.text}
+                      </span>
+                    )}
                     {nt.id === 'stripe' && (
                       <button
                         className="settings-btn settings-btn--secondary"
                         onClick={() => openModal('stripe', { step: 2 })}
-                        title="View webhook setup instructions"
+                        title="Manual webhook setup instructions (only needed if automatic install isn't possible)"
                       >
                         Webhook setup
                       </button>
@@ -1416,10 +1464,33 @@ export default function Settings() {
 
             {/* Stripe: step 2 — webhook setup (also reachable for existing
                 users via the "Webhook setup" button on the connected card) */}
+            {modalOpen === 'stripe' && stripeStep === 3 && (
+              <>
+                <p className="modal-description" style={{ marginTop: 0 }}>
+                  <strong>You're all set — Stripe is fully connected.</strong> Everything was configured automatically:
+                </p>
+                <ul style={{ margin: '4px 0 16px', paddingLeft: 20, fontSize: 13, lineHeight: 1.9 }}>
+                  <li>✅ API key verified — all required permissions present</li>
+                  <li>✅ Webhook installed in your Stripe account (live two-way sync: products, prices, payments, customers, subscriptions)</li>
+                  <li>✅ Initial import started — your existing Stripe products will appear in the Products tab within a minute</li>
+                </ul>
+                <p className="modal-description" style={{ fontSize: 12, marginTop: 0 }}>
+                  Nothing else to do. If anything ever looks out of date, hit <strong>Repair connection</strong> on the Stripe card — it re-verifies and re-syncs everything in one click.
+                </p>
+                <button
+                  className="modal-btn modal-btn--primary"
+                  onClick={() => setModalOpen(null)}
+                >
+                  Done
+                </button>
+              </>
+            )}
+
             {modalOpen === 'stripe' && stripeStep === 2 && (
               <>
                 <p className="modal-description" style={{ marginTop: 0 }}>
-                  <strong>Final step: enable two-way product sync.</strong> Add a webhook in your Stripe Dashboard so changes you make in Stripe (new product, edited price, archived offer) flow into AICEO automatically.
+                  <strong>Manual webhook setup.</strong> We couldn't install the webhook in your Stripe account automatically
+                  {integrations.stripe?.metadata?.webhook?.reason ? ` (${integrations.stripe.metadata.webhook.reason})` : ''} — usually this means a Restricted key without "Webhook Endpoints: Write". Two options: reconnect with your standard Secret key (everything becomes automatic), or follow the 2-minute manual setup below.
                 </p>
                 <div className="modal-connect-instructions">
                   <details open>

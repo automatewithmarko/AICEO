@@ -697,6 +697,23 @@ export async function connectIntegration(provider, apiKey, metadata) {
   return res.json();
 }
 
+// One-click Stripe connection repair: re-verifies permissions, installs/
+// updates the webhook with the STORED key (no re-pasting), and starts a
+// full re-sync. The single upgrade path for existing users
+// (docs/stripe-unified-connect-plan.md).
+export async function repairStripeIntegration() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/integrations/stripe/repair`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Repair failed' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
 export async function disconnectIntegration(provider) {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/integrations/${provider}`, {

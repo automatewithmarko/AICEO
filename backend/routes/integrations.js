@@ -284,6 +284,38 @@ router.post('/api/integrations/:provider/connect', requireOwner, async (req, res
       record.webhook_secret = crypto.randomBytes(16).toString('hex');
     }
 
+    // Stripe: auto-provision the webhook endpoint IN the user's Stripe
+    // account via the API (docs/stripe-unified-connect-plan.md) — the user
+    // never opens Stripe's Developers section. Idempotent: reconnecting
+    // reuses/updates the endpoint. On failure (restricted key without
+    // Webhook Endpoints write, endpoint limit) the connect still succeeds
+    // and metadata.webhook.provisioned=false routes the UI to the manual
+    // fallback screen.
+    if (provider === 'stripe') {
+      const baseUrl = process.env.API_BASE_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'http://localhost:3001');
+      const webhookUrl = `${baseUrl}/api/webhooks/stripe/${userId}`;
+      // Reconnect path: reuse the stored signing secret when the endpoint
+      // already exists (secrets are only revealed on creation).
+      const { data: prior } = await supabase
+        .from('integrations')
+        .select('webhook_url, webhook_secret')
+        .eq('user_id', userId)
+        .eq('provider', 'stripe')
+        .maybeSingle();
+      const existingSecret = prior?.webhook_url === webhookUrl ? prior?.webhook_secret || null : null;
+      const wh = await stripeInt.provisionWebhook(api_key, webhookUrl, { existingSecret });
+      if (wh.provisioned) {
+        record.webhook_url = webhookUrl;
+        record.webhook_secret = wh.secret || null;
+      }
+      record.metadata = {
+        ...record.metadata,
+        webhook: wh.provisioned
+          ? { provisioned: true, mode: wh.mode, endpointId: wh.endpointId }
+          : { provisioned: false, reason: wh.reason },
+      };
+    }
+
     // Upsert to DB
     const { data, error } = await supabase
       .from('integrations')
@@ -312,6 +344,71 @@ router.post('/api/integrations/:provider/connect', requireOwner, async (req, res
   }
 });
 
+// ─── Repair a Stripe connection (one-click, no re-pasting the key) ───
+// Runs the SAME pipeline as connect using the stored key: permission
+// probe → webhook provisioning (create/update/recreate) → full re-sync.
+// This is the single upgrade path for existing users — no more "go edit
+// your webhook in the Stripe dashboard" manual procedure.
+router.post('/api/integrations/stripe/repair', requireOwner, async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+
+  const { data: integration, error: fetchErr } = await supabase
+    .from('integrations')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('provider', 'stripe')
+    .single();
+  if (fetchErr || !integration) return res.status(404).json({ error: 'Stripe is not connected yet.' });
+
+  try {
+    // 1. Re-validate + probe permissions (plain-English error on failure).
+    const validationResult = await stripeInt.validate(integration.api_key);
+
+    // 2. Provision/refresh the webhook endpoint.
+    const baseUrl = process.env.API_BASE_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'http://localhost:3001');
+    const webhookUrl = `${baseUrl}/api/webhooks/stripe/${userId}`;
+    const existingSecret = integration.webhook_url === webhookUrl ? integration.webhook_secret || null : null;
+    const wh = await stripeInt.provisionWebhook(integration.api_key, webhookUrl, { existingSecret });
+
+    const metadata = {
+      ...(integration.metadata || {}),
+      ...validationResult,
+      webhook: wh.provisioned
+        ? { provisioned: true, mode: wh.mode, endpointId: wh.endpointId }
+        : { provisioned: false, reason: wh.reason },
+    };
+    const { data: updated, error: updErr } = await supabase
+      .from('integrations')
+      .update({
+        is_active: true,
+        metadata,
+        ...(wh.provisioned ? { webhook_url: webhookUrl, webhook_secret: wh.secret || null } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', integration.id)
+      .select('id, provider, is_active, metadata, last_synced_at, webhook_url, webhook_secret, created_at, updated_at')
+      .single();
+    if (updErr) return res.status(500).json({ error: updErr.message });
+
+    // 3. Full re-sync in the background.
+    stripeInt.sync({ ...updated, api_key: integration.api_key, user_id: userId })
+      .then((r) => console.log(`[integrations] stripe repair sync: ${r.synced}/${r.total}`))
+      .catch((err) => console.log(`[integrations] stripe repair sync failed: ${err.message}`));
+
+    console.log(`[integrations] stripe repaired for user ${userId} (webhook: ${wh.provisioned ? wh.mode : 'manual-fallback'})`);
+    res.json({
+      integration: sanitizeIntegrationRow(updated),
+      permissions: validationResult.permissions,
+      webhook: metadata.webhook,
+      syncStarted: true,
+    });
+  } catch (err) {
+    console.log(`[integrations] stripe repair failed: ${err.message}`);
+    res.status(400).json({ error: err.message, code: err.code || null });
+  }
+});
+
 // ─── Disconnect an integration ───
 router.delete('/api/integrations/:provider', requireOwner, async (req, res) => {
   const userId = req.user.id;
@@ -320,6 +417,25 @@ router.delete('/api/integrations/:provider', requireOwner, async (req, res) => {
   const { provider } = req.params;
   if (!VALID_PROVIDERS.includes(provider)) {
     return res.status(400).json({ error: `Invalid provider: ${provider}` });
+  }
+
+  // Stripe: clean uninstall — best-effort delete of the AICEO-managed
+  // webhook endpoint in the user's Stripe account so no orphaned endpoint
+  // keeps posting events. Imported products are deliberately KEPT (user
+  // data; reconnecting merges/reconciles them rather than duplicating).
+  if (provider === 'stripe') {
+    const { data: integration } = await supabase
+      .from('integrations')
+      .select('api_key, webhook_url, metadata')
+      .eq('user_id', userId)
+      .eq('provider', 'stripe')
+      .maybeSingle();
+    if (integration?.api_key) {
+      await stripeInt.removeWebhook(integration.api_key, {
+        endpointId: integration.metadata?.webhook?.endpointId || null,
+        webhookUrl: integration.webhook_url || null,
+      });
+    }
   }
 
   // Delete integration (integration_data cascade-deletes)

@@ -757,7 +757,12 @@ router.post('/api/webhooks/stripe/:userId', async (req, res) => {
       return res.status(400).json({ error: `Webhook signature verification failed: ${err.message}` });
     }
   } else {
-    // If no webhook secret configured, parse body directly
+    // Legacy grace path: integrations connected before webhook
+    // auto-provisioning have no stored signing secret, so their events
+    // are processed unsigned (the per-user URL is the only auth surface).
+    // One "Repair connection" click in Settings — or a reconnect —
+    // provisions a signed endpoint and closes this gap.
+    console.warn(`[webhooks] stripe/${userId}: processing UNSIGNED event (legacy endpoint — user should run Repair connection)`);
     event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
   }
 

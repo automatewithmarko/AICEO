@@ -398,6 +398,39 @@ arrive square (IG), not 3:4.
 | 10 | Cross-platform content reuse: after switching platforms, the new platform should see the TEXT of previously generated posts (so IG can repurpose the LinkedIn post's wording) — but without mixing in the artifacts/functionality | **SHIPPED** — every chat turn now carries the text of the last 4 generated items (LinkedIn posts, carousel hooks+captions, IG captions), each tagged with its platform, injected as a clearly-fenced "previously generated content" reference block. Rules baked in: text reference only, never treated as an on-screen artifact, never triggers edit mode, and new output still follows the current platform's rules. **Test:** generate a LinkedIn post → switch to Instagram → "make an Instagram version of that post" → the IG caption should reuse the actual wording/ideas, and the LinkedIn preview/edit behavior should be untouched. |
 | 11 | Brand Brain download (Settings → Brand DNA) produces .txt — should be PDF | **SHIPPED** — the download button now produces a paginated PDF (title header + date, wrapped text, A4). If PDF generation ever fails it falls back to .txt rather than downloading nothing. **Test:** Settings → Brand DNA → Brand Brain → download button → expect `brand-brain-YYYY-MM-DD.pdf`. |
 
+### Round 5 — Stripe unified connect (2026-07-16)
+
+**What shipped, in plain words:** Stripe now has ONE connection process
+for everyone. You paste your Secret key and AICEO does the rest: verifies
+every permission it needs (and tells you in plain English if your key is
+missing any), installs the webhook in your Stripe account automatically
+(you never open Stripe's Developers section), and imports your products.
+Existing users don't have a separate procedure anymore — the new **Repair
+connection** button on the Stripe card re-verifies, reinstalls the
+webhook, and re-syncs everything in one click using your already-saved
+key. Disconnect → reconnect does the same thing. Bonus fixes: products
+deleted in Stripe now disappear from AICEO on every sync; webhook events
+are now signature-verified; disconnect cleans up the webhook it created.
+
+**Test checklist (use a Stripe TEST key `sk_test_...` if you have one):**
+1. **Fresh connect:** Settings → Stripe → Connect → paste key → you
+   should land on the SUCCESS screen ("webhook installed automatically"),
+   with NO manual webhook step. Verify in Stripe Dashboard → Developers →
+   Webhooks that an AICEO endpoint now exists with ~21 events.
+2. **Products imported:** your Stripe products appear in the Products tab
+   within a minute.
+3. **Repair:** click "Repair connection" on the connected card → green
+   confirmation → check the webhook in Stripe still exists (it should be
+   updated/recreated, not duplicated).
+4. **Reconnect:** Disconnect (check the AICEO webhook DISAPPEARS from
+   your Stripe dashboard) → Connect again with the same key → success
+   screen, webhook back, products still there (no duplicates).
+5. **Bad key:** paste a made-up key → clear "Stripe rejected this API
+   key" error. If you have a restricted key missing permissions → the
+   error should LIST what's missing in plain English.
+6. **Live sync:** create a product in Stripe → appears in AICEO within
+   seconds; archive it in Stripe → disappears.
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you
