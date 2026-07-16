@@ -418,63 +418,24 @@ export default function Settings() {
     'invoice.payment_failed',
   ];
 
-  // Brand Brain — download the saved workbook as a PDF. Uses the
+  // Brand Brain — download the saved workbook as a .txt file. Uses the
   // extractedText that the in-iframe Save flow already produces; falls
   // back to a JSON dump of rawData if extractedText is missing.
-  // jsPDF is loaded lazily (same pattern as the carousel PDF download)
-  // so Settings doesn't pay the bundle cost up front.
-  const handleBrandBrainDownload = async () => {
+  const handleBrandBrainDownload = () => {
     const bb = documents.brandBrain;
     if (!bb) return;
     const content = bb.extractedText
       || (bb.rawData ? JSON.stringify(bb.rawData, null, 2) : '');
     if (!content) return;
-    try {
-      const { jsPDF } = await import('jspdf');
-      const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 48;
-      const maxWidth = pageWidth - margin * 2;
-      const lineHeight = 14;
-
-      // Title header on the first page.
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(16);
-      pdf.text('Brand Brain', margin, margin);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(9);
-      pdf.setTextColor(120);
-      pdf.text(new Date().toLocaleDateString(), margin, margin + 16);
-      pdf.setTextColor(0);
-      pdf.setFontSize(10);
-
-      let y = margin + 40;
-      // splitTextToSize wraps to the printable width; blank lines are
-      // preserved so the workbook's section spacing survives.
-      const lines = pdf.splitTextToSize(content.replace(/\r\n/g, '\n'), maxWidth);
-      for (const line of lines) {
-        if (y > pageHeight - margin) {
-          pdf.addPage();
-          y = margin;
-        }
-        pdf.text(line, margin, y);
-        y += lineHeight;
-      }
-      pdf.save(`brand-brain-${new Date().toISOString().slice(0, 10)}.pdf`);
-    } catch (err) {
-      console.error('[brand-brain] PDF download failed, falling back to .txt:', err);
-      // Fallback: never leave the user with nothing — ship the .txt.
-      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `brand-brain-${new Date().toISOString().slice(0, 10)}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `brand-brain-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleStripeConnect = async () => {
@@ -1312,7 +1273,7 @@ export default function Settings() {
                     <button
                       className="settings-btn settings-btn--secondary"
                       onClick={handleBrandBrainDownload}
-                      title="Download as PDF"
+                      title="Download as .txt"
                     >
                       <Download size={14} />
                       Download

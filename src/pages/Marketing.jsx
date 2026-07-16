@@ -2749,18 +2749,8 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
         const latestHtml = await readLatestCanvas();
         await snapshotForMessage(stableMsgId, { html: latestHtml, type: parsed.type || 'html', summary: parsed.summary || null });
       } else {
-        // Fallback — the response didn't parse as any known protocol.
-        // Never dump raw JSON into the chat (gateway protocol violations
-        // stream {"type":"newsletter",...} as text — prompt.md 2026-07-16):
-        // strip any embedded {...} blob and show the surrounding prose, or
-        // a friendly failure line if nothing readable remains.
-        let displayText = fullContent;
-        const blobMatch = displayText.match(/\{[\s\S]*\}/);
-        if (blobMatch && /"(type|html|tool_code)"\s*:/.test(blobMatch[0])) {
-          displayText = (displayText.slice(0, displayText.indexOf(blobMatch[0])) + displayText.slice(displayText.indexOf(blobMatch[0]) + blobMatch[0].length)).trim();
-        }
-        if (!displayText) displayText = "The AI returned something I couldn't render. Please try again.";
-        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: displayText.slice(0, 500) }]);
+        // Fallback  -  show raw text
+        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: fullContent.slice(0, 500) }]);
       }
       } // end !editHandled
     } catch (err) {

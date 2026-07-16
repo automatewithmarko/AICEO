@@ -6,6 +6,7 @@
 > `docs/unified-content-backend-plan.md` — this file is only about WHAT
 > shipped and HOW to test it by hand.
 
+ Note: Any Point below starting with "- *" is my/user comments or observations.  
 ---
 
 ## Before you start (2 minutes)
@@ -142,11 +143,18 @@ preview).
      part of the pain here was the stale-preview bug above — with that
      fixed, re-evaluate how much is still missing.
 
+     - * Instagram image Posts generated are not dispalyed in CANVAS, SO FIX it and above now. 
+
 8. **Story:** ask for a story → 3-4 vertical frames generate.
-   - FOUNDER FINDING (round 1): (not recorded — re-test)
+   - *  Didn't generate and Previewd proper story sequence. FIX it, take reference from Marketing-ai/Story-sequence. 
+
 9. **Reel:** ask for a reel → a SCRIPT as text (spoken words, "Direction:"
    note at the end). NO images must generate. No [HOOK]/[SCENE] labels.
+   - * Gives"Direction:" at the end. 
+
 10. **Carousel:** plan card → approve → slides (5-9, square).
+   - * After "Here's the plan — approve to generate.", there's no Loading/Planning/Generating UI, FIX it.
+   - * Didn't write caption with carousal, fix it.  
 
 ### Also check
 
