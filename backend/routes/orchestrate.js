@@ -7,6 +7,8 @@ import { SOCIAL_POST_DISCOVERY_PROMPT } from '../shared/social-post-discovery.js
 import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
+import { PLAN_CAROUSEL_TOOL } from '../agents/plan-carousel-tool.js';
+import { COMPOSE_SINGLE_IMAGE_POST_TOOL, PLAN_PLATFORM_FORMATS } from '../agents/content-plan-tool.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
 import { extractFromUrl } from '../services/social.js';
 import { requireCredits } from '../middleware/gate.js';
@@ -95,6 +97,15 @@ SOCIAL POST RULE (READ THIS BEFORE EVERY LinkedIn/IG/X/TikTok/Facebook REQUEST):
 - Why this matters: the artifact panel renders content_post + platform="linkedin" as a LinkedIn feed card (the canvas the user expects). type:"html_template" renders as a full HTML page — a PDF-looking wall of styled HTML. Getting this wrong is a visible bug the user WILL complain about.
 - The content field for content_post is PLAIN TEXT — the exact post copy, with normal line breaks. Do NOT put HTML tags, style blocks, or html/body wrappers in it. Do NOT wrap it in markdown fences. Just the raw post text, ready to paste into LinkedIn / IG / etc.
 ${SOCIAL_POST_DISCOVERY_PROMPT}
+
+=== MULTI-DAY CONTENT PLAN RULE (overrides the discovery questions above) ===
+Trigger: the user asks to plan MULTIPLE days or pieces of content ("plan my next 14 days of content", "content for next week", "a month of posts", "what should I post this month" — any topic or goal).
+1. Do NOT run the social-post discovery flow. No format question, no goal question, no angle question. You already know their brand.
+2. If the request does not name platform(s): ask ONE question via ask_user — question: "Which platforms should I plan for?", options: ["LinkedIn", "YouTube", "Instagram", "X", "All platforms"], multi_select: true. That is the ONLY question allowed. If platforms are named (or they say all platforms), ask NOTHING.
+3. Then IMMEDIATELY call create_content_plan. Formats per platform: linkedin → text_post | single_image | carousel; instagram → single_image | carousel | reel_script; x → text_post | single_image; youtube → youtube_script. Rotate formats (never more than 2 consecutive items with the same format on the same platform); one piece per day unless told otherwise; timeframe from the request (default 7 days, cap 31); hard-sell CTAs at most 1 in 3.
+4. NEVER produce a plan via create_artifact (no html_template plan pages, no markdown_doc plans) and NEVER type the plan out as chat prose. One short intro sentence max — the client renders the day-by-day list from the tool payload.
+5. After the plan lands the client shows a "Generate content" button — the user generates the pieces from there, one at a time. Do not generate them yourself, do not delegate.
+Single-piece requests ("write me a LinkedIn post") still use the discovery flow above.
 
 send_email: Send an email from the user's connected account. Works for newsletters and plain text. NEVER use this to "check" emails  -  only for outbound sends.
 
@@ -1282,250 +1293,41 @@ async function enrichMessagesWithVideoContext(messages, userId, res) {
 async function handleCeoOrchestration({ res, messages, context, searchMode, planMode = false, userId, currentHtml, currentAgent, currentContentPost, sessionId = null, assistantMsgId = null }) {
   let systemPrompt = buildCeoSystemPrompt(context);
 
-  // Plan Mode — the plan lands in the side canvas as an html_template
-  // artifact (renders as an editable HTML iframe with click-to-edit text
-  // spans — same UX as landing pages and newsletters). This directive is
-  // prepended so it dominates all downstream tool routing.
+  // Plan Mode — the user asked for a multi-day content plan. The plan is
+  // delivered IN CHAT via the create_content_plan tool: the client renders
+  // the day-by-day list inside the chat bubble with a "Generate content"
+  // button and drives per-piece generation itself afterwards (POST
+  // /api/orchestrate/plan-item per piece). No canvas artifact, no scoping
+  // interrogation — Brand DNA, products, sales and integration context are
+  // already in this prompt.
   //
-  // The tool list is filtered to [ask_user, create_artifact] with
-  // tool_choice='required' at the API layer just below this block, so the
-  // model physically cannot type free-text questions or produce inline
-  // plan prose. Every response must be one of those two tool calls.
+  // The tool list is filtered to [ask_user, create_content_plan] just
+  // below this block, so the model physically cannot emit the legacy
+  // html_template plan page or delegate anywhere.
   if (planMode) {
     systemPrompt = `=== PLAN MODE IS ACTIVE (OVERRIDES EVERY TOOL INSTRUCTION BELOW) ===
-The user has turned on Plan Mode. Their goal: plan a full week or month of content in one session so their next 4 weeks are already mapped out and written in enough detail that later generation is one-click.
+The user wants a multi-day content plan. You already know their brand — Brand DNA, products, sales, calls, and integrated data are all in this prompt. Do NOT interrogate them.
 
 ━━━━ HARD RULES (non-negotiable) ━━━━
-1. You may only call TWO tools: ask_user (for clarifying questions) or create_artifact (for the plan itself). Every other tool is stripped for this turn. Do NOT call delegate_to_agent, generate_image, or anything else.
-2. For questions: ALWAYS call ask_user. NEVER type a question in chat text. Free-text questions are a bug — the client cannot render clickable options for them.
-3. For the plan output: ALWAYS call create_artifact with type: "html_template" (NOT markdown_doc, NOT content_post). The artifact renders in the side canvas as an editable HTML page — same behavior as landing pages / newsletters. Users can click any text span to edit inline. This is the entire point of Plan Mode: give the user a beautiful editable calendar in the canvas, not a wall of chat text.
-4. If you have chat text alongside a create_artifact call, keep it to ONE short sentence ("Plan is in the canvas — click any cell to edit.") and nothing more.
+1. You have exactly TWO tools this turn: ask_user and create_content_plan. Every other tool is stripped. Do NOT call create_artifact, delegate_to_agent, generate_image, plan_carousel, or anything else.
+2. ONE question maximum, and only this one. If (and ONLY if) the user's request does not name the platform(s), call ask_user with EXACTLY:
+   question: "Which platforms should I plan for?"
+   options: ["LinkedIn", "YouTube", "Instagram", "X", "All platforms"]
+   multi_select: true
+   If the request already names platform(s) (including "all platforms" / "everywhere"), skip the question and go straight to the plan. NEVER ask a second question.
+3. NEVER ask about timeframe, cadence, goal, topic, tone, or format mix. Infer them:
+   - timeframe_days from the request ("next 14 days" → 14, "this week" → 7, "a month" → 30). Default 7 when unstated. Cap 31 — for longer requests plan the first 31 days and say so in your intro sentence.
+   - One piece per day unless the user asked for a different cadence.
+   - Topics and goals from Brand DNA, products, recent sales/calls, past content, soul notes. Specific to THIS user — never generic "productivity tips".
+   - Formats per platform: linkedin → text_post | single_image | carousel. instagram → single_image | carousel | reel_script. x → text_post | single_image. youtube → youtube_script. Rotate — never more than 2 consecutive items with the same format on the same platform. Hard-sell CTAs at most 1 in every 3 items.
+4. Once platforms are known, IMMEDIATELY call create_content_plan. No confirmation question, no "sound good?", no recap.
+5. Chat text alongside the tool call: ONE short sentence max ("Here's your 14-day plan."). NEVER retype the plan days as prose or markdown — the client renders the day-by-day list from the tool payload. Duplicating it in text is a bug.
+6. Every item's hook is a verbatim scroll-stopping first line written in the user's voice. Every topic is anchored to their actual business.
+7. After the plan lands, the client shows a "Generate content" button — the USER triggers generation from there. Do NOT generate pieces yourself, do NOT delegate, even if they said "and make them too". In that case say in your intro sentence they can hit "Generate content" under the plan.
 
-━━━━ SCOPING QUESTIONS (MANDATORY — do NOT skip) ━━━━
-Before you emit the plan artifact, you MUST ask ALL SIX of these questions via ask_user, ONE at a time, in this exact order. Only skip a question if the user's initial message explicitly and unambiguously answered it (e.g. "plan Instagram + LinkedIn for the next month, 3x a week to drive signups about our AICEO checkout fixes with a mix of carousels and reels" answers all six). "Plan next 3 weeks" only answers Timeframe — the other five are still required.
+If the message is unrelated to planning, respond briefly in chat like normal.
 
-QUESTION 1 — Platforms (ask FIRST):
-{"type":"question","text":"Which platforms should I plan for?","options":["Instagram","LinkedIn","Instagram + LinkedIn","All my connected platforms"]}
-
-QUESTION 2 — Timeframe:
-{"type":"question","text":"How much content should I plan?","options":["1 week","2 weeks","1 month","Custom"]}
-
-QUESTION 3 — Cadence:
-{"type":"question","text":"How often do you want to post?","options":["3x per week","5x per week","Daily","Custom"]}
-
-QUESTION 4 — Primary goal (drives topic + CTA selection):
-{"type":"question","text":"What's the primary goal for this stretch?","options":["Audience growth","Engagement","Drive sales / signups","Thought leadership / authority"]}
-
-QUESTION 5 — Topic focus (drives every post's angle — WITHOUT this the plan reads generic):
-Pull 3 concrete topic candidates from the user's Brand DNA, products, recent calls, past content, or integrated data. Offer them as options with a "Surprise me" fallback. Example ask_user call:
-{"type":"question","text":"What should the content focus on?","options":["<topic drawn from a specific product they sell>","<topic tied to a recent win / case study>","<topic tied to a core belief in their brand voice>","Surprise me — pick from my brand"]}
-The three custom options are NOT generic. They must be built from what you actually know about this user's business, not "productivity tips" or "mindset content".
-
-QUESTION 6 — Format mix (prevents "all carousels" or "all reels" plans):
-Tailor the options to the selected platforms. Examples:
-- Instagram: {"type":"question","text":"What format mix do you want?","options":["Balanced (carousels + reels + single posts + stories)","Carousel-heavy (educational focus)","Reel-heavy (reach + growth)","Let me decide per post"]}
-- LinkedIn: {"type":"question","text":"What format mix do you want?","options":["Balanced (text posts + carousels + single-image posts)","Text-post heavy (authority + engagement)","Carousel-heavy (educational)","Let me decide per post"]}
-- Instagram + LinkedIn: {"type":"question","text":"What format mix do you want?","options":["Balanced mix across both platforms","Educational focus (carousels + long text posts)","Reach focus (reels + short text posts)","Let me decide per post"]}
-"Let me decide per post" means: use a balanced default anchored to what performs on each platform.
-
-RULES:
-- One question per response. Wait for the user's answer before asking the next.
-- If the user says "surprise me" or "all of them" or "you decide" for any question, commit to a confident default based on their brand DNA + integrated data and MOVE ON to the next question. Never re-ask.
-- After all six are answered (or skipped because the initial message covered them), IMMEDIATELY call create_artifact with the Plan HTML — no further chat text, no confirmation ("Sounds good, here it is"), no additional questions.
-- Never bundle two questions into one ask_user call. Never type a question in chat text. Every question is a discrete ask_user call.
-- The hard cap is 6. Never exceed 6 questions in a Plan Mode session.
-
-━━━━ FORMAT VARIETY RULE (mandatory when building the plan) ━━━━
-The plan MUST mix formats. Even on a "carousel-heavy" or "text-post heavy" preference, no more than 2 posts in a row can share the same format. Rotate through the formats appropriate to each platform:
-- Instagram formats: Carousel, Reel, Single Post, Story sequence
-- LinkedIn formats: Text post, Single-image post, Carousel (PDF/document), Poll
-Do NOT ship a plan where every post on the same platform is the same format. That's a broken plan. If format variety fights against the user's stated preference (e.g. "carousel-heavy"), lean toward their preference but STILL include at least 2 non-preferred-format posts per week for variety.
-
-━━━━ STAGE 1: OVERVIEW PLAN (create_artifact) ━━━━
-Trigger: first Plan Mode message, or "plan the next month", "what should I post this week", etc.
-
-Call create_artifact with:
-  type: "html_template"
-  title: "Content Plan — <timeframe>" (e.g. "Content Plan — January 2026")
-  content: a complete self-contained HTML page. Follow this EXACT structure and inline-style system so it renders cleanly in the canvas iframe:
-
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: #f5f5f7; color: #1a1a1a; margin: 0; padding: 28px 32px 60px; line-height: 1.55; }
-  .plan-shell { max-width: 980px; margin: 0 auto; }
-  .plan-header { position: relative; padding: 28px 32px; margin-bottom: 28px; background: linear-gradient(135deg, #1a1a1a 0%, #2b2b2b 100%); border-radius: 16px; color: #fff; box-shadow: 0 8px 24px rgba(0,0,0,0.12); overflow: hidden; }
-  .plan-header::before { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 240px; background: radial-gradient(circle at top right, rgba(233,26,68,0.35), transparent 70%); pointer-events: none; }
-  .plan-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #e91a44; margin-bottom: 8px; display: inline-flex; align-items: center; gap: 6px; }
-  .plan-eyebrow::before { content: '●'; font-size: 8px; }
-  h1 { font-size: 30px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; }
-  .plan-sub { color: rgba(255,255,255,0.72); font-size: 14px; margin-bottom: 22px; }
-  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px 20px; }
-  .meta-cell { padding: 10px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; }
-  .meta-cell strong { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.55); font-weight: 600; margin-bottom: 4px; }
-  .meta-cell span { font-size: 14px; font-weight: 600; color: #fff; }
-  .arc-banner { background: linear-gradient(90deg, rgba(233,26,68,0.1), rgba(233,26,68,0.02)); border: 1px solid rgba(233,26,68,0.18); border-left: 4px solid #e91a44; padding: 14px 18px; margin: 0 0 24px; font-size: 13.5px; color: #333; border-radius: 8px; }
-  .arc-banner strong { color: #e91a44; font-weight: 700; }
-  .week-block { margin-bottom: 28px; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 1px solid #ececef; }
-  .week-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; background: #1a1a1a; color: #fff; }
-  .week-head h2 { font-size: 16px; font-weight: 700; margin: 0; }
-  .week-head .week-dates { font-size: 12px; color: rgba(255,255,255,0.6); }
-  .week-block table { width: 100%; border-collapse: collapse; }
-  .week-block th { text-align: left; padding: 12px 16px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #8a8a92; background: #fafafa; border-bottom: 1px solid #ececef; }
-  .week-block td { padding: 14px 16px; font-size: 13px; color: #1a1a1a; vertical-align: top; border-bottom: 1px solid #f2f2f4; }
-  .week-block tr:last-child td { border-bottom: none; }
-  .week-block tr:hover td { background: #fafafa; }
-  .day-cell { font-weight: 600; color: #444; white-space: nowrap; }
-  .platform-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-  .platform-instagram { background: #ffe8ed; color: #c2185b; }
-  .platform-linkedin { background: #e3f0ff; color: #0a66c2; }
-  .platform-facebook { background: #eaf3ff; color: #1877f2; }
-  .platform-tiktok { background: #eee; color: #111; }
-  .platform-youtube { background: #ffece9; color: #c00; }
-  .format-cell { font-weight: 600; }
-  .format-carousel { color: #7c3aed; }
-  .format-reel { color: #e91a44; }
-  .format-story { color: #f59e0b; }
-  .format-single { color: #2563eb; }
-  .format-text { color: #059669; }
-  .hook-cell { font-style: italic; color: #555; font-size: 12.5px; }
-  .cta-cell { font-size: 12.5px; color: #333; }
-  .footer-note { margin-top: 24px; padding: 18px 22px; background: #fff; border-radius: 12px; font-size: 13px; color: #555; border: 1px dashed #d5d5da; }
-  .footer-note strong { color: #1a1a1a; font-weight: 700; display: block; margin-bottom: 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #e91a44; }
-</style>
-</head>
-<body>
-  <div class="plan-shell">
-    <div class="plan-header">
-      <div class="plan-eyebrow">Content Plan</div>
-      <h1><Plan Title></h1>
-      <div class="plan-sub"><One-line summary describing the strategic focus of these weeks></div>
-      <div class="meta-grid">
-        <div class="meta-cell"><strong>Timeframe</strong><span>Jan 6 – Feb 2</span></div>
-        <div class="meta-cell"><strong>Cadence</strong><span>3x per week</span></div>
-        <div class="meta-cell"><strong>Platforms</strong><span>Instagram + LinkedIn</span></div>
-        <div class="meta-cell"><strong>Total posts</strong><span>12</span></div>
-      </div>
-    </div>
-
-    <div class="arc-banner">
-      <strong>Narrative arc:</strong> Week 1 attention → Week 2 education → Week 3 proof → Week 4 conversion.
-    </div>
-
-    <div class="week-block">
-      <div class="week-head">
-        <h2>Week 1 · Attention</h2>
-        <span class="week-dates">Jan 6 – Jan 12</span>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Day</th><th>Platform</th><th>Format</th><th>Topic</th><th>Hook</th><th>CTA</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td class="day-cell">Mon<br>Jan 6</td>
-            <td><span class="platform-pill platform-instagram">Instagram</span></td>
-            <td class="format-cell format-carousel">Carousel</td>
-            <td>Specific topic drawn from Brand DNA + integrated data.</td>
-            <td class="hook-cell">"Real first-line hook in the user's voice."</td>
-            <td class="cta-cell">Comment KEYWORD for the framework.</td>
-          </tr>
-          <!-- one row per planned post -->
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Repeat one week-block per week -->
-
-    <div class="footer-note">
-      <strong>Next step</strong>
-      Ask "expand week 1" (or any week) to get the detailed content brief for each post. When you're ready to actually generate an asset, turn Plan Mode off and say "generate Monday's carousel".
-    </div>
-  </div>
-</body>
-</html>
-
-━━━━ STAGE 2: WEEKLY DETAILED CONTENT BRIEF (create_artifact) ━━━━
-Trigger: user asks "expand week N", "flesh out week 2", "write the details for this week".
-
-Call create_artifact again (SECOND artifact, not an edit of the plan):
-  type: "html_template"
-  title: "Week <N> — Detailed Content Brief"
-  content: HTML page using the same style system, with ONE section per planned post in that week. Each post is a mini-brief the generation agent will consume directly.
-
-Template per post-section:
-
-<h2>Mon Jan 6 · Instagram Carousel</h2>
-<div style="background:#fff; border-radius:10px; padding:20px; margin-bottom:20px; box-shadow:0 1px 3px rgba(0,0,0,0.06);">
-  <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">Topic</div>
-  <div style="font-size:15px; color:#1a1a1a; margin-bottom:16px;">One-line topic statement.</div>
-
-  <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">Angle</div>
-  <div style="font-size:13px; color:#444; margin-bottom:16px;">One sentence — the strategic POV.</div>
-
-  <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">Hook (first line of the post)</div>
-  <div style="font-size:14px; font-style:italic; color:#1a1a1a; margin-bottom:20px; padding:10px 14px; background:#faf9fb; border-left:3px solid #e91a44;">"Verbatim hook in the user's voice."</div>
-
-  <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:6px;">Post content</div>
-  <div style="font-size:13px; color:#1a1a1a; line-height:1.6; margin-bottom:20px;">
-    <!-- For CAROUSEL: <ol> of slides, one <li> per slide. For EACH slide list: slide role + copy + visual concept. Every slide of a carousel is an image, so describe the visual for each. -->
-    <!-- For REEL: full spoken script line by line, then a "Direction:" line describing the on-camera visual (b-roll / face-to-camera / demo shot) + trending audio. -->
-    <!-- For SINGLE POST: verbatim caption + a rich 2-3 sentence visual description of the accompanying image. Do NOT skip the visual — a single post without an image is dead. -->
-    <!-- For STORY: 3-4 frames as <ol>, each frame with its on-screen text AND a one-line visual concept. -->
-    <!-- For LINKEDIN TEXT POST: full post text verbatim, structured per LI caption standard. Then a single "Image:" line — LinkedIn posts with a supporting graphic/photo outperform text-only by ~2x. Only skip the image if the post is a pure short story-style anecdote where a visual would dilute it. -->
-  </div>
-
-  <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:6px;">Visual / Image plan</div>
-  <div style="font-size:13px; color:#1a1a1a; line-height:1.55; margin-bottom:20px; padding:12px 14px; background:#f8faff; border-left:3px solid #2563eb; border-radius:4px;">
-    Concrete image description that a designer or an AI image generator can execute. Include: subject, composition, background style, text overlay if any, color palette hint anchored to Brand DNA. Example: "Founder facing camera, holding a laptop showing a Notion dashboard. Warm daylight through window behind. Bold text overlay top-third: 'I killed my $2k SaaS to build this.' Muted terracotta + off-white palette." Never write "add a nice image" — that's not a plan.
-  </div>
-
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-    <div>
-      <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">CTA</div>
-      <div style="font-size:13px;">What the reader should do.</div>
-    </div>
-    <div>
-      <div style="font-size:11px; text-transform:uppercase; color:#666; letter-spacing:0.05em; font-weight:700; margin-bottom:4px;">Success metric</div>
-      <div style="font-size:13px;">Saves / comments / shares / clicks — pick ONE.</div>
-    </div>
-  </div>
-</div>
-
-(Repeat one h2+card per post, in day order. Include every post from the corresponding week of the plan.)
-
-━━━━ IMAGE / VISUAL RULES (mandatory in Stage 2) ━━━━
-- Every post that CAN have a visual MUST have a "Visual / Image plan" section. That's carousels (every slide), reels (on-camera direction + b-roll), single posts (the main image), stories (each frame), and LinkedIn text posts (unless clearly text-only).
-- The only formats that skip visuals: pure LinkedIn text posts where the copy IS the whole story (e.g. a raw personal confession where an image would cheapen it) — and even then, prefer to include an image.
-- Anchor visual descriptions to the user's Brand DNA colors and photo library if any signals exist. Don't invent aesthetic decisions that clash with the brand.
-- When Plan Mode is turned OFF and the user says "generate Monday's carousel", the generation agent will read the Visual / Image plan verbatim as the image prompt. Write it accordingly — actionable, specific, executable.
-
-━━━━ QUALITY BAR ━━━━
-- Every topic REAL and specific to this user. Not "talk about mindset" — instead "The 20-min ritual I did every Sunday for 3 months that fixed my launch cadence."
-- Hooks are ACTUAL scroll-stopping first lines in quotes, written in the user's voice.
-- Vary format across the week. Don't stack 5 carousels back-to-back. Mix carousel / reel / single post / story / text post naturally.
-- Anchor topics in Brand DNA, integrated data (products, sales, recent calls, emails), past content. Never generic.
-- Space out asks: hard-sell CTAs no more than 1 in every 3 posts.
-- For 3+ week plans, weave a narrative arc — state it in the arc-banner.
-- In Stage 2 briefs, write ACTUAL post text (caption, script, slide list) verbatim. Ready for generation with zero extra guesses.
-
-━━━━ WHAT NOT TO DO ━━━━
-- Do NOT stream the plan as inline chat text. It MUST go through create_artifact.
-- Do NOT use type: "markdown_doc" or "content_post" — Plan Mode is ONLY html_template.
-- Do NOT ask more than 2 clarifying questions.
-- Do NOT delegate to a generation agent even if the user says "and go ahead and make them". Reply in chat: "I'll queue those. Turn Plan Mode off and tell me which day to start with."
-- Do NOT rewrite the plan artifact when the user asks for a week's detail — the brief is a NEW artifact.
-- Do NOT emit inline markdown headers like "Week 1:" in chat text. The plan is in the canvas.
-
-━━━━ IF THE USER TYPES SOMETHING UNRELATED ━━━━
-If they chat casually or ask a non-plan question, respond briefly in chat (no artifact). Plan Mode only enforces artifact-creation for planning intents.
-
-Everything below in this prompt describes non-plan-mode behavior. Ignore anything that would trigger content generation until Plan Mode is turned off.
+Everything below describes non-plan-mode behavior. Ignore anything that conflicts with the rules above until Plan Mode is turned off.
 
 ---
 
@@ -1540,16 +1342,18 @@ Everything below in this prompt describes non-plan-mode behavior. Ignore anythin
     systemPrompt += `
 
 === PRIOR PLAN AWARENESS ===
-Scan conversation history for any earlier assistant message that produced an html_template artifact titled "Content Plan — …" (or any create_artifact call with type: "html_template" and a plan-artifact class in the content). That is a Content Plan the user built with you in Plan Mode.
+Content plans can appear in conversation history two ways:
+- NEW format: an assistant message containing a serialized block that starts with "[CONTENT PLAN — …]" followed by "Day N — <platform> <format>: <topic> | hook: …" lines (the client injects it).
+- LEGACY format (old sessions): an html_template artifact titled "Content Plan — …" built with the old Plan Mode.
 
-If the user's current message references a specific piece from that plan (e.g. "generate Monday's post", "make the reel from week 1 Wednesday", "build the AICEO checkout carousel"):
-1. Locate the matching row in the plan HTML (by day + format + topic).
-2. Use its Topic, Hook, and CTA as the source-of-truth brief for this generation. Do NOT make up a generic version — the plan is authoritative.
-3. If a Stage 2 detailed brief for that week also exists in history, use its Visual / Image plan field as the image prompt.
-4. Route to the correct generation path — delegate_to_agent for newsletter/landing pages, create_artifact with type "content_post" for single social posts, etc. Do not re-ask the scoping questions.
-5. Do NOT retype the plan row as prose in chat before generating. Make the tool call directly.
+If the user's current message references a specific piece from a plan (e.g. "write day 3's post", "make the day 5 carousel", "generate Monday's post"):
+1. Locate the matching item (by day / platform / format / topic) and use its platform, format, topic, hook, and cta as the source-of-truth brief. Do NOT re-ask discovery questions. Do NOT invent a generic version — the plan is authoritative.
+2. Route by format: carousel → plan_carousel. text_post → create_artifact type "content_post" with the right platform. single_image → create_artifact type "content_post" plus ONE generate_image call built from the topic/hook. reel_script / youtube_script → create_artifact type "markdown_doc" with the script.
+3. Do NOT retype the plan item as prose in chat before generating. Make the tool call directly.
 
-If no prior plan artifact exists, ignore this section.
+If the user asks to generate ALL of the plan's content at once, tell them to press "Generate content" on the plan card in chat — it runs the whole batch one piece at a time.
+
+If no prior plan exists in history, ignore this section.
 `;
   }
 
@@ -1581,16 +1385,14 @@ RULES:
 `;
   }
   let tools = buildAgentTools();
-  // Plan Mode: physically restrict the CEO to ONLY ask_user (for scoping
-  // questions) and create_artifact (for the plan itself). Combined with
-  // tool_choice='required' below, this makes it impossible for the model to
-  // produce free-text questions or inline plan prose — every response must
-  // be a tool call. Was: the AI would type prose questions bypassing
-  // ask_user and dump the plan as inline chat instead of the canvas.
+  // Plan Mode: physically restrict the CEO to ONLY ask_user (for the single
+  // multi-select platform question) and create_content_plan (the plan
+  // itself). The model cannot reach the legacy html_template plan path,
+  // delegate, or fire any generation tool while planning.
   let ceoToolChoice; // undefined → streamXai defaults to 'auto'
   let effectiveSearchMode = searchMode;
   if (planMode) {
-    const allowed = new Set(['ask_user', 'create_artifact']);
+    const allowed = new Set(['ask_user', 'create_content_plan']);
     tools = tools.filter((t) => allowed.has(t.function?.name));
     // Use 'auto', not 'required'. With 'required' the CEO tool-loop was
     // firing multiple iterations back-to-back (Grok MUST call a tool
@@ -1674,7 +1476,7 @@ RULES:
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
           if (args.question && args.options) {
-            sendSSE(res, { type: 'ask_user', question: args.question, options: args.options });
+            sendSSE(res, { type: 'ask_user', question: args.question, options: args.options, multiSelect: args.multi_select === true });
           }
         } else if (call.name === 'save_to_soul') {
           await handleSaveSoul({ res, call, userId });
@@ -1686,7 +1488,7 @@ RULES:
           await handleCheckEmails({ res, call, userId });
         } else if (call.name === 'create_form') {
           await handleCreateForm({ res, call, userId });
-        } else if (call.name === 'create_artifact' || call.name === 'generate_image' || call.name === 'plan_carousel') {
+        } else if (call.name === 'create_artifact' || call.name === 'generate_image' || call.name === 'plan_carousel' || call.name === 'create_content_plan') {
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });
@@ -2160,5 +1962,189 @@ function tryParseJSON(str) {
   }
   return null;
 }
+
+// ── POST /api/orchestrate/plan-item ──
+// Generates ONE piece from an in-chat content plan (create_content_plan).
+// The client's sequential batch runner calls this once per item, then
+// drives any image generation itself (single_image → one /api/generate/
+// image call, carousel → the existing per-slide loop), mirroring how the
+// interactive flows already work. Plain JSON response, no SSE.
+//
+// Inherits requireAuth + the ai-ceo tab gate from the /api/orchestrate
+// path prefix (server.js); each piece meters like one CEO message.
+
+const PLAN_ITEM_TEXT_FORMATS = new Set(['text_post', 'reel_script', 'youtube_script']);
+
+function buildPlanItemSystemPrompt({ context, platform, format }) {
+  let prompt = 'You are the user\'s ghostwriter. You write finished, ready-to-post content in their exact brand voice. You know their business inside out. Output ONLY the deliverable itself — no preamble, no "Here\'s your post", no meta commentary, and no markdown fences around plain-text posts.';
+  prompt += GLOBAL_OUTPUT_RULES;
+
+  if (format === 'text_post' && platform === 'x') {
+    prompt += `\n\n=== DELIVERABLE: X POST ===\nPlain text. If the idea lands in one punchy tweet (under 280 chars), write a single tweet. If it needs depth, write a thread: each tweet numbered "1/", "2/", … on its own block separated by a blank line, 4-8 tweets max, first tweet is the hook. End with the CTA.`;
+  } else if (format === 'text_post') {
+    prompt += `\n\n=== DELIVERABLE: LINKEDIN TEXT POST ===\nPlain text, ready to paste into LinkedIn. The hook is the FIRST line, verbatim from the brief. Framework-heavy (numbered points, tight single-sentence lines) for educate/sell/engage angles; story-flow (personal narrative, single-line paragraphs, emotional pivot) for nurture angles. 150-300 words. End with the CTA from the brief. No HTML, no markdown headers.`;
+  } else if (format === 'reel_script') {
+    prompt += `\n\n=== DELIVERABLE: REEL SCRIPT ===\nA clean SPOKEN script — the actual words said on camera, line by line, natural flow. Do NOT use labels like [HOOK], [SCENE], [VISUAL], [VOICEOVER], or timestamps. Start with the hook line (the scroll-stopper), flow into the body, end with the CTA. Keep it under 60 seconds of speech. Add a brief "Direction:" note at the very end (1-2 lines) with suggested visuals and trending audio.`;
+  } else if (format === 'youtube_script') {
+    prompt += `\n\n=== DELIVERABLE: YOUTUBE SCRIPT ===\nMarkdown. Structure: "# <video title>" (one strong title), "## Hook" (the first 15 seconds, verbatim spoken words), "## Intro", 3-5 "## <chapter>" body sections with the actual spoken content, "## Outro" with the CTA. Conversational spoken language throughout — this gets read aloud, not published as an article.`;
+  } else if (format === 'single_image') {
+    prompt += `\n\n=== DELIVERABLE: SINGLE-IMAGE POST ===\nCall compose_single_image_post with the finished post copy (plain text, hook as the first line, CTA at the end, platform-appropriate length) AND an actionable image_prompt (subject, composition, mood, style, brand-color hints, text overlay if any). The image_prompt must NEVER include a real person's name, ethnicity, or identity.`;
+  } else if (format === 'carousel') {
+    prompt += `\n\n=== DELIVERABLE: CAROUSEL PLAN ===\nCall plan_carousel with EVERY required field filled. Platform-appropriate slide count (Instagram 5-9, LinkedIn 7-12). Slide 1 headline = the hook from the brief. Final slide = the CTA slide. designSystem anchored to the Brand DNA colors provided below.`;
+  }
+
+  if (context.brandDna) prompt += '\n\n' + buildBrandContext(context.brandDna);
+  if (context.products?.length) prompt += '\n\n' + buildProductsContext(context.products);
+  const briefBlock = context.activeBrief ? formatBriefForPrompt(context.activeBrief) : '';
+  if (briefBlock) prompt += briefBlock;
+
+  return prompt;
+}
+
+function buildPlanItemUserMessage({ item, planTitle, planContext }) {
+  const lines = [
+    `PLAN: ${planTitle || 'Content plan'}`,
+    `PIECE: Day ${item.day || '?'} — ${item.platform} ${item.format}`,
+    `TOPIC: ${item.topic}`,
+  ];
+  if (item.hook) lines.push(`HOOK (use verbatim as the first line): ${item.hook}`);
+  if (item.cta) lines.push(`CTA: ${item.cta}`);
+  if (item.details) lines.push(`DETAILS / ANGLE: ${item.details}`);
+  if (item.date) lines.push(`SCHEDULED FOR: ${item.date}`);
+  if (planContext) {
+    lines.push('', 'FULL PLAN (context only — keep this piece distinct, do NOT repeat the other items\' angles):', String(planContext).slice(0, 4000));
+  }
+  lines.push('', 'Write this piece now.');
+  return lines.join('\n');
+}
+
+// Run one forced tool call and return its parsed arguments. planMode:true
+// makes the orchestrator loop exit right after the first tool call, and
+// the object-form toolChoice forces the named tool on both providers.
+async function runForcedToolCall({ systemPrompt, messages, tool, toolName, abortSignal }) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    let captured = null;
+    await executeCeoOrchestrator({
+      systemPrompt,
+      messages,
+      tools: [tool],
+      toolChoice: { type: 'function', function: { name: toolName } },
+      planMode: true,
+      onChunk: () => {},
+      onToolCalls: (calls) => {
+        for (const c of calls) {
+          if (c.name === toolName) {
+            try { captured = JSON.parse(c.arguments); } catch { captured = null; }
+          }
+        }
+      },
+      abortSignal,
+    });
+    if (captured) return captured;
+    if (abortSignal?.aborted) return null;
+    console.warn(`[plan-item] forced ${toolName} returned no arguments (attempt ${attempt})`);
+  }
+  return null;
+}
+
+router.post('/api/orchestrate/plan-item', requireCredits('ai_ceo_message'), async (req, res) => {
+  const userId = req.user?.id;
+  const { item, planTitle = '', planContext = '' } = req.body || {};
+
+  if (!item || typeof item !== 'object') {
+    return res.status(400).json({ error: 'item object required' });
+  }
+  const platform = String(item.platform || '').toLowerCase();
+  const format = String(item.format || '').toLowerCase();
+  const allowedFormats = PLAN_PLATFORM_FORMATS[platform];
+  if (!allowedFormats) {
+    return res.status(400).json({ error: `Unknown platform "${platform}"` });
+  }
+  if (!allowedFormats.includes(format)) {
+    return res.status(400).json({ error: `Format "${format}" is not valid for ${platform}` });
+  }
+  if (!item.topic) {
+    return res.status(400).json({ error: 'item.topic required' });
+  }
+
+  // If the tab dies mid-generation, stop paying for upstream tokens.
+  const abortCtl = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) abortCtl.abort(); });
+
+  try {
+    console.log(`[plan-item] userId=${userId} day=${item.day} platform=${platform} format=${format}`);
+    const [context, activeBrief] = await Promise.all([
+      loadUserContext(userId),
+      loadActiveBrief(userId),
+    ]);
+    context.activeBrief = activeBrief;
+
+    const systemPrompt = buildPlanItemSystemPrompt({ context, platform, format });
+    const messages = [{ role: 'user', content: buildPlanItemUserMessage({ item, planTitle, planContext }) }];
+    const title = `Day ${item.day || '?'} — ${String(item.topic).slice(0, 60)}`;
+
+    if (PLAN_ITEM_TEXT_FORMATS.has(format)) {
+      const result = await executeAgent({
+        agent: { name: 'plan-item-writer', provider: 'anthropic', model: SONNET_MODEL, maxTokens: 4000, systemPrompt },
+        messages,
+        abortSignal: abortCtl.signal,
+      });
+      const content = String(result?.content || '').trim();
+      if (!content) throw new Error('Empty generation result');
+      return res.json({ kind: 'text', title, platform, format, content });
+    }
+
+    if (format === 'single_image') {
+      const args = await runForcedToolCall({
+        systemPrompt,
+        messages,
+        tool: COMPOSE_SINGLE_IMAGE_POST_TOOL,
+        toolName: 'compose_single_image_post',
+        abortSignal: abortCtl.signal,
+      });
+      if (!args?.content || !args?.image_prompt) throw new Error('Model did not return post copy + image prompt');
+      return res.json({
+        kind: 'single_image', title, platform, format,
+        content: String(args.content),
+        image_prompt: String(args.image_prompt),
+      });
+    }
+
+    // carousel (matrix guarantees platform ∈ linkedin | instagram here)
+    const args = await runForcedToolCall({
+      systemPrompt,
+      messages,
+      tool: PLAN_CAROUSEL_TOOL,
+      toolName: 'plan_carousel',
+      abortSignal: abortCtl.signal,
+    });
+    if (!args || !Array.isArray(args.slides) || args.slides.length === 0) {
+      throw new Error('Model did not return a valid carousel plan');
+    }
+    const carouselPlan = {
+      hook: args.hook || item.hook || '',
+      angle: args.angle || '',
+      caption: args.caption || '',
+      slides: args.slides,
+      designSystem: args.designSystem || {},
+      // Pre-approved: the user confirmed the whole batch up front, so the
+      // client renders this as a finished carousel (no approval card) and
+      // runs the slide loop immediately.
+      approved: true,
+    };
+    return res.json({
+      kind: 'carousel', title, platform, format,
+      content: carouselPlan.caption,
+      carouselPlan,
+    });
+  } catch (err) {
+    if (abortCtl.signal.aborted || err?.name === 'AbortError') {
+      try { if (!res.headersSent) res.status(499).end(); } catch { /* client gone */ }
+      return;
+    }
+    console.error('[plan-item] generation failed:', err?.message || err);
+    if (!res.headersSent) res.status(500).json({ error: err?.message || 'Plan item generation failed' });
+  }
+});
 
 export default router;

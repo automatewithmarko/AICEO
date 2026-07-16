@@ -3,7 +3,7 @@ import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap, Paperclip, Loader2, AlertCircle, CalendarDays } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generatePlanItem } from '../lib/api';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
 import { getMeetings } from '../lib/meetings-api';
@@ -14,6 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import Paywall from '../components/Paywall';
 import '../components/Paywall.css';
 import ArtifactPanel from '../components/ArtifactPanel';
+import ContentPlanMessage from '../components/ContentPlanMessage';
 import ChatDropOverlay from '../components/ChatDropOverlay';
 import { useChatFileDropZone } from '../hooks/useChatFileDropZone';
 import './AiCeo.css';
@@ -101,6 +102,44 @@ function stripCeoContextBlocks(content) {
     .trim();
 }
 
+// Compact text form of an in-chat content plan. Appended to the plan
+// message's AI-facing content when building apiMessages so the model can
+// reference plan items in later turns ("write day 3's post") — the
+// backend's PRIOR PLAN AWARENESS prompt section matches this exact shape.
+function serializeContentPlan(plan) {
+  if (!plan?.items?.length) return '';
+  const head = `[CONTENT PLAN — ${plan.title || 'Content plan'} | ${(plan.platforms || []).join(', ') || 'multi-platform'} | ${plan.items.length} pieces]`;
+  const rows = plan.items.map((it, i) => {
+    const status = plan.itemStates?.[i]?.status || 'pending';
+    const bits = [`Day ${it.day} — ${it.platform} ${it.format}: ${it.topic}`];
+    if (it.hook) bits.push(`hook: "${it.hook}"`);
+    if (it.cta) bits.push(`cta: ${it.cta}`);
+    bits.push(`status: ${status}`);
+    return bits.join(' | ');
+  });
+  return [head, ...rows].join('\n');
+}
+
+const PLAN_FORMAT_LABELS = {
+  text_post: 'text post',
+  single_image: 'image post',
+  carousel: 'carousel',
+  reel_script: 'reel script',
+  youtube_script: 'YouTube script',
+};
+const PLAN_PLATFORM_LABELS = { linkedin: 'LinkedIn', instagram: 'Instagram', x: 'X', youtube: 'YouTube' };
+
+// Chat-bubble label for one generated plan piece.
+function planPieceLabel(item, imageFailed) {
+  const plat = PLAN_PLATFORM_LABELS[item.platform] || item.platform;
+  const fmt = PLAN_FORMAT_LABELS[item.format] || item.format;
+  const what = item.format === 'youtube_script' ? 'YouTube script' : `${plat} ${fmt}`;
+  const base = `Day ${item.day} — ${what}: ${item.topic}`;
+  return imageFailed
+    ? `${base}\n\n(One or more images failed to generate — open the piece to regenerate them.)`
+    : base;
+}
+
 // ── Component ──
 export default function AiCeo() {
   const { hasFeature, user } = useAuth();
@@ -136,9 +175,17 @@ export default function AiCeo() {
   // schedule table.
   const [planMode, setPlanMode] = useState(false);
   const [searchStatus, setSearchStatus] = useState(null); // null | 'searching' | 'writing'
-  const [currentQuestion, setCurrentQuestion] = useState(null); // { question, options }
+  const [currentQuestion, setCurrentQuestion] = useState(null); // { question, options, multiSelect }
   const [customTyping, setCustomTyping] = useState(false);
   const [customText, setCustomText] = useState('');
+  // Staged answers for a multi-select ask_user question (before Confirm).
+  const [multiAnswers, setMultiAnswers] = useState(new Set());
+  // In-chat content plan batch run: id of the plan message currently
+  // generating. One run at a time; the composer locks while it works so
+  // a second orchestrate stream can't interleave with the sequential
+  // runner's message appends.
+  const [activePlanRunMsgId, setActivePlanRunMsgId] = useState(null);
+  const activePlanRunsRef = useRef(new Map()); // planMsgId -> { cancelled }
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [showSessions, setShowSessions] = useState(false);
@@ -621,6 +668,15 @@ export default function AiCeo() {
           })),
         } : {}),
         ...(m.hasArtifact ? { hasArtifact: true, artifactTitle: m.artifactTitle, artifactType: m.artifactType } : {}),
+        // ask_user metadata — persisted so the backend can rebuild the
+        // tool round-trip for reloaded sessions (was silently dropped
+        // before, breaking history reconstruction after a refresh).
+        ...(m.wasAskUser ? { wasAskUser: true, askUserOptions: m.askUserOptions || [], ...(m.askUserMultiSelect ? { askUserMultiSelect: true } : {}) } : {}),
+        // In-chat content plan (day list + per-item run state) and the
+        // back-reference stamped on each generated piece. Text-only and
+        // small (~15KB for a 31-item plan) — safe for the JSONB row.
+        ...(m.contentPlan ? { contentPlan: m.contentPlan } : {}),
+        ...(m.planItemRef ? { planItemRef: m.planItemRef } : {}),
         // Per-message artifact snapshot. Already base64-stripped at
         // commitOwnedArtifact time, so this is just URL-and-text payload.
         // Lets each chat card open its own frozen preview after reload.
@@ -948,6 +1004,14 @@ export default function AiCeo() {
           content: isLatest ? m.content : stripEmbeddedHtml(m.content),
         };
         if (m.wasAskUser) { msg.wasAskUser = true; msg.askUserOptions = m.askUserOptions; }
+        // Content plans live in structured msg.contentPlan (rendered by
+        // ContentPlanMessage, never in chat text) — serialize them into
+        // the AI-facing content so the model can reference plan items in
+        // later turns ("write day 3's post").
+        if (m.contentPlan) {
+          const serialized = serializeContentPlan(m.contentPlan);
+          if (serialized) msg.content = (msg.content ? msg.content + '\n\n' : '') + serialized;
+        }
         return msg;
       });
 
@@ -1425,7 +1489,11 @@ export default function AiCeo() {
             (name === 'create_artifact' && args.type === 'content_post')
             || name === 'plan_carousel'
           );
-          if (isSocialArtifact) {
+          // A confirmed content plan in this chat means formats are already
+          // decided per item — "write day 3's post" must not get intercepted
+          // by the format gate (plan formats never appear in user text).
+          const planExistsInChat = chatHistory.some((m) => m.contentPlan);
+          if (isSocialArtifact && !planExistsInChat) {
             // IMPORTANT: use `chatHistory` (the fresh post-userMsg array
             // sendToAI was called with), NOT the closure's `messages`
             // which is stale by one setMessages tick. answerQuestion
@@ -1572,6 +1640,39 @@ export default function AiCeo() {
               m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: effectiveType } : m
             ));
             commitOwnedArtifact(assistantMsgId, newArt);
+          }
+          if (name === 'create_content_plan') {
+            // Multi-day content plan — renders as a day-by-day list INSIDE
+            // the chat bubble (ContentPlanMessage) with a "Generate content"
+            // button. Deliberately NO setArtifact / setPanelOpen: the plan
+            // is chat content, not a canvas artifact.
+            const items = Array.isArray(args.items)
+              ? args.items.filter((it) => it && it.platform && it.format && it.topic)
+              : [];
+            if (items.length === 0) {
+              console.warn('[AiCeo] create_content_plan with no valid items — ignoring');
+              return;
+            }
+            console.log(`[AiCeo] 📅 create_content_plan: "${args.title}" — ${items.length} items across ${(args.platforms || []).join(', ')}`);
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    planWorking: false,
+                    status: null,
+                    contentPlan: {
+                      title: args.title || 'Content Plan',
+                      timeframeDays: args.timeframe_days || items.length,
+                      platforms: Array.isArray(args.platforms) ? args.platforms : [],
+                      summary: args.summary || '',
+                      items,
+                      itemStates: items.map(() => ({ status: 'pending' })),
+                      runState: 'idle',
+                      createdAt: Date.now(),
+                    },
+                  }
+                : m
+            ));
           }
           if (name === 'plan_carousel') {
             // Instagram / LinkedIn carousel — Sonnet has emitted the plan
@@ -1758,15 +1859,16 @@ export default function AiCeo() {
             commitOwnedArtifact(assistantMsgId);
           }
         },
-        onAskUser: (question, options) => {
-          console.log('[AiCeo] onAskUser fired:', { question, options, isGenerating });
+        onAskUser: (question, options, multiSelect = false) => {
+          console.log('[AiCeo] onAskUser fired:', { question, options, multiSelect, isGenerating });
           askUserFiredRef.current = true;
-          setCurrentQuestion({ question, options });
+          setCurrentQuestion({ question, options, multiSelect });
+          setMultiAnswers(new Set());
           setCustomTyping(false);
           setCustomText('');
           // Save the question with ask_user metadata so the backend can reconstruct tool call format
           setMessages(prev => prev.map(m =>
-            m.id === assistantMsgId ? { ...m, content: question, status: null, wasAskUser: true, askUserOptions: options } : m
+            m.id === assistantMsgId ? { ...m, content: question, status: null, wasAskUser: true, askUserOptions: options, ...(multiSelect ? { askUserMultiSelect: true } : {}) } : m
           ));
         },
         // In-stream error (orchestrate caught it after SSE was opened so
@@ -2017,11 +2119,209 @@ export default function AiCeo() {
     })();
   }, [brandDna, user, commitOwnedArtifact]);
 
+  // ── In-chat content plan: sequential batch runner ──
+  // Generates every pending plan item ONE AT A TIME (never parallel) via
+  // POST /api/orchestrate/plan-item, then runs any needed image generation
+  // client-side (single_image → one call, carousel → the same per-slide
+  // loop handleApproveCarousel uses). Each finished piece lands in chat as
+  // its own message with an openable artifact chip. A failed item is
+  // marked and the run continues; HTTP 402 pauses the run resumably.
+  const handleStopPlanRun = useCallback((planMsgId) => {
+    // Cooperative: checked between items and between carousel slides, so
+    // the in-flight piece finishes before the run halts.
+    const token = activePlanRunsRef.current.get(planMsgId);
+    if (token) token.cancelled = true;
+  }, []);
+
+  const handleGeneratePlanContent = useCallback(async (planMsgId, { retryFailedOnly = false } = {}) => {
+    if (isGenerating || activePlanRunsRef.current.size > 0) return;
+
+    // Read the freshest plan + messages via a setState pass-through (the
+    // closure's `messages` can lag one tick — same trick commitOwnedArtifact
+    // uses for the live artifact).
+    const snapshot = await new Promise((resolve) => {
+      setMessages((prev) => {
+        const m = prev.find((x) => x.id === planMsgId);
+        resolve(m?.contentPlan ? { plan: m.contentPlan, allMessages: prev } : null);
+        return prev;
+      });
+    });
+    if (!snapshot) return;
+    const { plan, allMessages } = snapshot;
+    const items = plan.items || [];
+    if (items.length === 0) return;
+
+    // Reconcile item states against the piece messages that actually
+    // exist — the 2s autosave debounce can lose the last tick across a
+    // reload, in either direction. A message with a matching planItemRef
+    // is ground truth that its item completed.
+    const itemStates = items.map((_, i) => {
+      const prevState = { ...(plan.itemStates?.[i] || { status: 'pending' }) };
+      const pieceMsg = allMessages.find((m) => m.planItemRef?.planMsgId === planMsgId && m.planItemRef?.index === i);
+      if (pieceMsg) return { ...prevState, status: 'done', msgId: pieceMsg.id };
+      if (retryFailedOnly && prevState.status === 'failed') return { status: 'pending' };
+      if (prevState.status === 'done' || prevState.status === 'running') return { status: 'pending' };
+      return prevState;
+    });
+
+    const updatePlan = (patch) => {
+      setMessages((prev) => prev.map((m) =>
+        m.id === planMsgId && m.contentPlan
+          ? { ...m, contentPlan: { ...m.contentPlan, ...patch, itemStates: [...itemStates] } }
+          : m
+      ));
+    };
+
+    const token = { cancelled: false };
+    activePlanRunsRef.current.set(planMsgId, token);
+    setActivePlanRunMsgId(planMsgId);
+    updatePlan({ runState: 'running' });
+
+    const runSessionId = sessionIdRef.current;
+    const brandName = brandDna?.brand_name || user?.name || '';
+
+    try {
+      for (let i = 0; i < items.length; i++) {
+        // Session switched mid-run (loadSession/newConversation replaced
+        // the messages array) — appending there would corrupt the other
+        // session. Bail; this plan resumes from persisted state later.
+        if (sessionIdRef.current !== runSessionId) token.cancelled = true;
+        if (token.cancelled) break;
+        if (itemStates[i].status !== 'pending') continue;
+        const item = items[i];
+
+        itemStates[i] = { status: 'running' };
+        updatePlan({});
+
+        try {
+          const resp = await generatePlanItem({
+            item,
+            planTitle: plan.title,
+            planContext: serializeContentPlan({ ...plan, itemStates }),
+          });
+
+          const agentSource = item.platform === 'x' ? 'twitter' : item.platform;
+          let art;
+          let imageFailed = false;
+
+          if (resp.kind === 'carousel' && resp.carouselPlan?.slides?.length) {
+            // Pre-approved carousel: same sequential per-slide loop the
+            // interactive approve flow runs, with sub-progress on the card.
+            const slides = resp.carouselPlan.slides;
+            const slidePlatform = item.platform === 'linkedin' ? 'linkedin' : 'instagram';
+            const backendPlatform = slidePlatform === 'linkedin' ? 'linkedin_carousel' : 'instagram';
+            const images = [];
+            for (let s = 0; s < slides.length; s++) {
+              if (token.cancelled || sessionIdRef.current !== runSessionId) break;
+              itemStates[i] = { status: 'running', progress: { done: s, total: slides.length } };
+              updatePlan({});
+              try {
+                const prompt = buildCarouselSlidePrompt({
+                  designSystem: resp.carouselPlan.designSystem,
+                  slide: slides[s],
+                  index: s,
+                  total: slides.length,
+                  brand: { name: brandName },
+                  platform: slidePlatform,
+                });
+                const r = await generateImageWithRetry(prompt, backendPlatform, null, null, {});
+                if (r?.image?.data) images.push({ src: `data:${r.image.mimeType};base64,${r.image.data}`, idx: s });
+                else imageFailed = true;
+              } catch (slideErr) {
+                console.error(`[AiCeo] plan carousel slide ${s + 1} failed:`, slideErr?.message);
+                imageFailed = true;
+              }
+            }
+            art = {
+              id: Date.now(),
+              type: 'content_post',
+              title: resp.title,
+              content: resp.carouselPlan.caption || resp.content || '',
+              images,
+              totalSlides: slides.length,
+              pendingImages: 0,
+              streaming: false,
+              carouselPlan: { ...resp.carouselPlan, approved: true },
+              agentSource: slidePlatform,
+            };
+          } else if (resp.kind === 'single_image' && resp.image_prompt) {
+            const images = [];
+            try {
+              const imgPlatform = item.platform === 'linkedin' ? 'linkedin' : item.platform === 'instagram' ? 'instagram' : 'general';
+              const r = await generateImageWithRetry(resp.image_prompt, imgPlatform, null, null, {});
+              if (r?.image?.data) images.push({ src: `data:${r.image.mimeType};base64,${r.image.data}` });
+              else imageFailed = true;
+            } catch (imgErr) {
+              // Keep the copy — the post still ships, image is retryable.
+              console.error('[AiCeo] plan single image failed:', imgErr?.message);
+              imageFailed = true;
+            }
+            art = { id: Date.now(), type: 'content_post', title: resp.title, content: resp.content, images, agentSource };
+          } else {
+            const isScript = item.format === 'reel_script' || item.format === 'youtube_script';
+            art = isScript
+              ? { id: Date.now(), type: 'markdown_doc', title: resp.title, content: resp.content, images: [] }
+              : { id: Date.now(), type: 'content_post', title: resp.title, content: resp.content, images: [], agentSource };
+          }
+
+          const pieceMsgId = `msg-${Date.now()}-plan-${i}`;
+          shouldScrollRef.current = true;
+          setMessages((prev) => [...prev, {
+            id: pieceMsgId,
+            role: 'assistant',
+            content: planPieceLabel(item, imageFailed),
+            hasArtifact: true,
+            artifactTitle: art.title,
+            artifactType: art.type,
+            planItemRef: { planMsgId, index: i },
+          }]);
+          await commitOwnedArtifact(pieceMsgId, art);
+          itemStates[i] = { status: 'done', msgId: pieceMsgId, ...(imageFailed ? { imageFailed: true } : {}) };
+          updatePlan({});
+        } catch (err) {
+          const msg = String(err?.message || err);
+          if (msg.startsWith('HTTP 402')) {
+            // Credits ran out — pause resumably instead of failing items.
+            console.warn('[AiCeo] plan run paused — credits depleted');
+            itemStates[i] = { status: 'pending' };
+            token.cancelled = true;
+            setCreditsDepleted(true);
+          } else {
+            console.error(`[AiCeo] plan item ${i + 1} failed:`, msg);
+            itemStates[i] = { status: 'failed', error: msg.slice(0, 200) };
+          }
+          updatePlan({});
+        }
+      }
+    } finally {
+      activePlanRunsRef.current.delete(planMsgId);
+      setActivePlanRunMsgId(null);
+    }
+
+    if (token.cancelled || sessionIdRef.current !== runSessionId) {
+      if (sessionIdRef.current === runSessionId) updatePlan({ runState: 'stopped' });
+      return;
+    }
+
+    updatePlan({ runState: 'done' });
+    const doneCount = itemStates.filter((s) => s.status === 'done').length;
+    const failedCount = itemStates.filter((s) => s.status === 'failed').length;
+    shouldScrollRef.current = true;
+    setMessages((prev) => [...prev, {
+      id: `msg-${Date.now()}-plan-complete`,
+      role: 'assistant',
+      content: failedCount === 0
+        ? `All of your content is generated. ${doneCount} pieces are ready above — open any card to review, tweak, or schedule it.`
+        : `Generated ${doneCount} of ${items.length} pieces. ${failedCount} failed — hit "Retry failed" on the plan card and I'll take another pass at them.`,
+    }]);
+  }, [isGenerating, brandDna, user, commitOwnedArtifact]);
+
   const answerQuestion = useCallback((answer) => {
     if (!answer.trim() || isGenerating) return;
     setCurrentQuestion(null);
     setCustomTyping(false);
     setCustomText('');
+    setMultiAnswers(new Set());
     shouldScrollRef.current = true;
     const contextStr = buildCeoContextString();
     const userContent = contextStr + answer.trim();
@@ -2068,7 +2368,9 @@ export default function AiCeo() {
 
   const sendMessage = useCallback(() => {
     const text = input.trim();
-    if (!text || isGenerating) return;
+    // Also blocked while a plan batch run is generating pieces — a second
+    // orchestrate stream would interleave with the runner's appends.
+    if (!text || isGenerating || activePlanRunMsgId) return;
     // Don't send while an attachment is mid-upload — the AI would see
     // the file as "in flight" / errored and miss the actual content.
     if (attachedFiles.some((f) => f.status === 'uploading')) return;
@@ -2113,7 +2415,7 @@ export default function AiCeo() {
     if (textarea) textarea.style.height = 'auto';
     sendToAI(updated);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, isGenerating, messages, sendToAI, selectedCtxItems, ceoContextCategories, attachedFiles]);
+  }, [input, isGenerating, activePlanRunMsgId, messages, sendToAI, selectedCtxItems, ceoContextCategories, attachedFiles]);
 
   const handleStarter = useCallback((text) => {
     if (isGenerating) return;
@@ -2479,7 +2781,7 @@ export default function AiCeo() {
                       <button
                         className="ceo-send-btn"
                         onClick={sendMessage}
-                        disabled={!input.trim() || isGenerating || hasPendingUploads}
+                        disabled={!input.trim() || isGenerating || hasPendingUploads || !!activePlanRunMsgId}
                         title={hasPendingUploads ? 'Wait for attachments to finish uploading' : 'Send'}
                       >
                         <Send size={18} />
@@ -2542,7 +2844,7 @@ export default function AiCeo() {
                       </div>
                     );
                   }
-                  if (!msg.content && !msg.hasArtifact) {
+                  if (!msg.content && !msg.hasArtifact && !msg.contentPlan) {
                     // Plan Mode gets a themed multi-step working card so
                     // the user sees a distinct signal that the plan is
                     // being built (rather than the plain "thinking..."
@@ -2655,6 +2957,21 @@ export default function AiCeo() {
                             <span className="ceo-artifact-card-open">Open</span>
                           </div>
                         )}
+                        {msg.contentPlan && (
+                          <ContentPlanMessage
+                            plan={msg.contentPlan}
+                            isRunActive={activePlanRunMsgId === msg.id}
+                            runLocked={!!activePlanRunMsgId || isGenerating}
+                            onGenerate={() => handleGeneratePlanContent(msg.id)}
+                            onRetryFailed={() => handleGeneratePlanContent(msg.id, { retryFailedOnly: true })}
+                            onStop={() => handleStopPlanRun(msg.id)}
+                            onOpenItem={(itemMsgId) => {
+                              setSelectedMsgId(itemMsgId);
+                              setPanelOpen(true);
+                              if (isMobile) setMobileArtifactOpen(true);
+                            }}
+                          />
+                        )}
                       </div>
                     </div>
                   );
@@ -2669,16 +2986,62 @@ export default function AiCeo() {
                   <>
                     <p className="ceo-question-text">{currentQuestion.question}</p>
                     {!customTyping ? (
-                      <div className="ceo-question-options">
-                        {currentQuestion.options.map((opt, i) => (
-                          <button key={i} className="ceo-question-option" onClick={() => answerQuestion(opt)}>
-                            {opt}
+                      currentQuestion.multiSelect ? (
+                        <>
+                          <div className="ceo-question-options">
+                            {currentQuestion.options.map((opt, i) => {
+                              const selected = multiAnswers.has(opt);
+                              const isExclusive = /^all platforms$/i.test(opt);
+                              return (
+                                <button
+                                  key={i}
+                                  className={`ceo-question-option ceo-question-option--multi ${selected ? 'ceo-question-option--selected' : ''}`}
+                                  onClick={() => {
+                                    setMultiAnswers((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(opt)) {
+                                        next.delete(opt);
+                                      } else {
+                                        // "All platforms" is exclusive both ways:
+                                        // picking it clears the rest; picking a
+                                        // specific platform clears it.
+                                        if (isExclusive) next.clear();
+                                        else for (const o of [...next]) { if (/^all platforms$/i.test(o)) next.delete(o); }
+                                        next.add(opt);
+                                      }
+                                      return next;
+                                    });
+                                  }}
+                                >
+                                  <span className={`ceo-question-check ${selected ? 'ceo-question-check--on' : ''}`} />
+                                  {opt}
+                                </button>
+                              );
+                            })}
+                            <button className="ceo-question-option ceo-question-option--custom" onClick={() => setCustomTyping(true)}>
+                              Type your own...
+                            </button>
+                          </div>
+                          <button
+                            className="ceo-question-confirm"
+                            disabled={multiAnswers.size === 0}
+                            onClick={() => answerQuestion([...multiAnswers].join(', '))}
+                          >
+                            Confirm{multiAnswers.size > 0 ? ` (${multiAnswers.size})` : ''}
                           </button>
-                        ))}
-                        <button className="ceo-question-option ceo-question-option--custom" onClick={() => setCustomTyping(true)}>
-                          Type your own...
-                        </button>
-                      </div>
+                        </>
+                      ) : (
+                        <div className="ceo-question-options">
+                          {currentQuestion.options.map((opt, i) => (
+                            <button key={i} className="ceo-question-option" onClick={() => answerQuestion(opt)}>
+                              {opt}
+                            </button>
+                          ))}
+                          <button className="ceo-question-option ceo-question-option--custom" onClick={() => setCustomTyping(true)}>
+                            Type your own...
+                          </button>
+                        </div>
+                      )
                     ) : (
                       <div className="ceo-question-custom-row">
                         <input

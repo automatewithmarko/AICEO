@@ -7,6 +7,7 @@ import storySequence from './story-sequence.js';
 import leadMagnet from './lead-magnet.js';
 import dmAutomation from './dm-automation.js';
 import { PLAN_CAROUSEL_TOOL } from './plan-carousel-tool.js';
+import { CREATE_CONTENT_PLAN_TOOL } from './content-plan-tool.js';
 
 const agents = {
   newsletter,
@@ -69,14 +70,14 @@ export function buildAgentTools() {
       type: 'function',
       function: {
         name: 'create_artifact',
-        description: 'Create a visual artifact directly in the split-screen panel. Use for emails, social posts, code, or documents  -  NOT for newsletters, landing pages, or other marketing assets (use delegate_to_agent for those). For emails, follow the Daniel Paul Email Framework: result before story, one sentence per paragraph, one CTA only, PS line mandatory, first name sign-off only, invite framing not sales framing. NEVER use "leverage/synergy/utilize/paradigm", passive voice, em dashes, or hashtags.\n\nTYPE MAPPING — choose based on what the user asked for (this is not optional, mis-choosing renders the wrong preview UI):\n- "content_post" — ANY social media post (LinkedIn, Instagram, X/Twitter, TikTok, Facebook). This is the ONLY correct type for a social post. NEVER use html_template for a social post. NEVER use markdown_doc for a social post. If the user said "post", "caption", "LinkedIn post", "IG post", "tweet", "TikTok caption", etc. -> content_post. You MUST also set platform="linkedin"|"instagram"|"twitter"|"tiktok"|"facebook" — the preview UI (LinkedIn card vs Instagram card vs Twitter card) is chosen from that field.\n- "email" — a single email body (subject + body, plain or minimal HTML).\n- "code_block" — code snippets in any language.\n- "markdown_doc" — long-form docs, reports, checklists, briefs, meeting notes, video scripts, reels, TikTok scripts. Plain markdown.\n- "html_template" — a full styled HTML page (Content Plan, plan-mode calendar, one-off HTML mockups). Do NOT use for social posts.\n\nCRITICAL LINKEDIN GOTCHA: LinkedIn posts are NOT html pages. When user says "LinkedIn post" you MUST call create_artifact with type="content_post" AND platform="linkedin". Using html_template makes the UI render a full-page HTML canvas instead of the LinkedIn feed card — the user will see their post styled like a PDF/webpage and complain.',
+        description: 'Create a visual artifact directly in the split-screen panel. Use for emails, social posts, code, or documents  -  NOT for newsletters, landing pages, or other marketing assets (use delegate_to_agent for those). For emails, follow the Daniel Paul Email Framework: result before story, one sentence per paragraph, one CTA only, PS line mandatory, first name sign-off only, invite framing not sales framing. NEVER use "leverage/synergy/utilize/paradigm", passive voice, em dashes, or hashtags.\n\nTYPE MAPPING — choose based on what the user asked for (this is not optional, mis-choosing renders the wrong preview UI):\n- "content_post" — ANY social media post (LinkedIn, Instagram, X/Twitter, TikTok, Facebook). This is the ONLY correct type for a social post. NEVER use html_template for a social post. NEVER use markdown_doc for a social post. If the user said "post", "caption", "LinkedIn post", "IG post", "tweet", "TikTok caption", etc. -> content_post. You MUST also set platform="linkedin"|"instagram"|"twitter"|"tiktok"|"facebook" — the preview UI (LinkedIn card vs Instagram card vs Twitter card) is chosen from that field.\n- "email" — a single email body (subject + body, plain or minimal HTML).\n- "code_block" — code snippets in any language.\n- "markdown_doc" — long-form docs, reports, checklists, briefs, meeting notes, video scripts, reels, TikTok scripts. Plain markdown.\n- "html_template" — a full styled HTML page (one-off HTML mockups). Do NOT use for social posts. Do NOT use for content plans — multi-day plans go through create_content_plan.\n\nCRITICAL LINKEDIN GOTCHA: LinkedIn posts are NOT html pages. When user says "LinkedIn post" you MUST call create_artifact with type="content_post" AND platform="linkedin". Using html_template makes the UI render a full-page HTML canvas instead of the LinkedIn feed card — the user will see their post styled like a PDF/webpage and complain.',
         parameters: {
           type: 'object',
           properties: {
             type: {
               type: 'string',
               enum: ['email', 'html_template', 'content_post', 'code_block', 'markdown_doc'],
-              description: 'Artifact type. SOCIAL MEDIA POSTS -> "content_post" (ALWAYS). LinkedIn / Instagram / Twitter / TikTok / Facebook posts are ALL "content_post" — never "html_template". "html_template" is reserved for full HTML pages (plans, mockups). See tool description for the full mapping.',
+              description: 'Artifact type. SOCIAL MEDIA POSTS -> "content_post" (ALWAYS). LinkedIn / Instagram / Twitter / TikTok / Facebook posts are ALL "content_post" — never "html_template". "html_template" is reserved for full HTML pages (one-off mockups — NOT content plans). See tool description for the full mapping.',
             },
             title: {
               type: 'string',
@@ -117,6 +118,10 @@ export function buildAgentTools() {
     // /Content uses today, so both tabs generate slides through the same
     // per-slide prompt builder for identical visual cohesion.
     PLAN_CAROUSEL_TOOL,
+    // create_content_plan: multi-day content plans rendered as an in-chat
+    // day-by-day list with a "Generate content" button. The client, not
+    // the model, drives the per-piece generation afterwards.
+    CREATE_CONTENT_PLAN_TOOL,
     {
       type: 'function',
       function: {
@@ -133,6 +138,10 @@ export function buildAgentTools() {
               type: 'array',
               items: { type: 'string' },
               description: '3-5 specific options for the user to choose from. Make them concrete and actionable.',
+            },
+            multi_select: {
+              type: 'boolean',
+              description: 'When true the options render as toggleable checkboxes and the user can pick several; their answer arrives as a comma-separated list (e.g. "LinkedIn, Instagram"). Use ONLY when several answers are simultaneously valid (e.g. platform selection). Omit for normal single-choice questions.',
             },
           },
           required: ['question', 'options'],
