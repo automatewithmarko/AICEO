@@ -1574,6 +1574,13 @@ export default function AiCeo() {
               m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: effectiveType } : m
             ));
             commitOwnedArtifact(assistantMsgId, newArt);
+            // Fill {{GENERATE:...}} image placeholders in HTML artifacts —
+            // normally the agent_result path does this, but create_artifact
+            // can also carry them (e.g. server-salvaged newsletter turns).
+            if ((effectiveType === 'newsletter' || effectiveType === 'html_template') && args.content?.includes('{{GENERATE:')) {
+              const imgResult = generateNewsletterImages(args.content, setArtifact, () => {}, 'newsletter');
+              if (imgResult?.promise) pendingImagesRef.current.push(imgResult.promise);
+            }
           }
           if (name === 'plan_carousel') {
             // Instagram / LinkedIn carousel — Sonnet has emitted the plan
@@ -1830,6 +1837,77 @@ export default function AiCeo() {
       });
       const elapsed = Date.now() - turnStart;
       console.log(`[AiCeo] ◀ turn end — ${elapsed}ms, tools=[${firedTools.join(', ') || 'none'}], textLen=${finalContent.length}`);
+
+      // Last-resort self-healing for gateway protocol violations that
+      // slipped past every backend guard (prompt.md, 2026-07-16): the CEO
+      // turn streamed an agent generation-JSON object
+      // ({"type":"newsletter","html":...}) as chat text instead of
+      // delegating. Salvage it — build the artifact from the embedded
+      // JSON and strip the raw blob from the visible message, keeping any
+      // conversational preamble.
+      if (/"type"\s*:\s*"(newsletter|html)"/.test(finalContent) && /"html"\s*:/.test(finalContent)) {
+        const protoMatch = finalContent.match(/\{[\s\S]*\}/);
+        if (protoMatch) {
+          let salvaged = null;
+          const fixNl = (s) => s.replace(/("(?:[^"\\]|\\.)*")|[\n\r\t]/g, (m, q) => q ? q : m === '\n' ? '\\n' : m === '\r' ? '\\r' : m === '\t' ? '\\t' : m);
+          try { salvaged = JSON.parse(protoMatch[0]); } catch {
+            try { salvaged = JSON.parse(fixNl(protoMatch[0])); } catch { /* unsalvageable — strip below */ }
+          }
+          if (salvaged?.html && typeof salvaged.html === 'string') {
+            console.warn('[AiCeo] ⚠️ PROTOCOL VIOLATION SALVAGE — generation JSON arrived as chat text; building the artifact client-side');
+            const isNewsletter = salvaged.type === 'newsletter';
+            const salvagedArt = {
+              id: artifactRef.current?.id || Date.now(),
+              type: isNewsletter ? 'newsletter' : 'html_template',
+              title: salvaged.summary || (isNewsletter ? 'Your newsletter' : 'Generated page'),
+              content: salvaged.html,
+              images: [],
+              agentSource: isNewsletter ? 'newsletter' : 'ceo',
+            };
+            setArtifact(salvagedArt);
+            setPanelOpen(true);
+            if (isMobileRef.current) setMobileArtifactOpen(true);
+            const preamble = finalContent.slice(0, finalContent.indexOf(protoMatch[0])).trim();
+            const cleanText = preamble || salvaged.summary || 'Done. Your draft is on the canvas.';
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsgId
+                ? { ...m, content: cleanText, hasArtifact: true, artifactTitle: salvagedArt.title, artifactType: salvagedArt.type }
+                : m
+            ));
+            finalContent = cleanText;
+            commitOwnedArtifact(assistantMsgId, salvagedArt);
+            // Fill any {{GENERATE:...}} placeholders the salvaged HTML carries.
+            if (salvaged.html.includes('{{GENERATE:')) {
+              generateNewsletterImages(salvaged.html, setArtifact, () => {}, 'newsletter');
+            }
+          }
+        }
+      }
+
+      // Generic residue strip: any remaining protocol-shaped tail in the
+      // visible message (raw HTML document, {"tool_code"...} blob, bare
+      // fn-call syntax) gets cut. Backend guards make this rare — this is
+      // purely the last line of defense before the user reads the bubble.
+      {
+        const residueIdx = (() => {
+          const t = finalContent;
+          const hits = [
+            t.search(/\{\s*"(tool_code|type)"/),
+            t.search(/\b(ask_user|plan_carousel|delegate_to_agent|generate_image|create_artifact)\s*\(/),
+            t.search(/<!DOCTYPE\s+html|<html[\s>]/i),
+          ].filter((i) => i !== -1);
+          return hits.length ? Math.min(...hits) : -1;
+        })();
+        if (residueIdx !== -1) {
+          const cleaned = finalContent.slice(0, residueIdx).trim() || 'Done — check the canvas.';
+          console.warn('[AiCeo] ⚠️ Protocol residue stripped from final message');
+          setMessages(prev => prev.map(m =>
+            m.id === assistantMsgId ? { ...m, content: cleaned } : m
+          ));
+          finalContent = cleaned;
+        }
+      }
+
       const imageWords = /(image panel|image is ready|generated (the |an? )?image|here'?s your image|made you (an? )?image|check the (image|panel|canvas)|image attached|image below)/i;
       const claimedImage = imageWords.test(finalContent);
       const actuallyMade = firedTools.includes('generate_image');

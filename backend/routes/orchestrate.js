@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getAgent, buildAgentTools } from '../agents/registry.js';
-import { executeAgent, executeCeoOrchestrator, executeAnthropicWithTools } from '../agents/base-agent.js';
+import { executeAgent, executeCeoOrchestrator, executeAnthropicWithTools, protocolTextStart, stripProtocolText } from '../agents/base-agent.js';
 import { SONNET_MODEL } from '../config/models.js';
 import { loadUserContext, saveSoulNote, loadActiveBrief, upsertActiveBrief, formatBriefForPrompt } from '../services/context.js';
 import { SOCIAL_POST_DISCOVERY_PROMPT } from '../shared/social-post-discovery.js';
@@ -19,14 +19,21 @@ const router = Router();
 const SOCIAL_URL_RE = /https?:\/\/(www\.)?(instagram\.com|facebook\.com|fb\.watch|linkedin\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|tiktok\.com)\/\S+/gi;
 
 // Global output rules injected into EVERY agent and CEO prompt
-const GLOBAL_OUTPUT_RULES = `
+const GLOBAL_STYLE_RULES = `
 
 === GLOBAL OUTPUT RULES (NON-NEGOTIABLE) ===
 1. NEVER use em dashes (the long dash character). Use commas, periods, or start a new sentence instead.
 2. NEVER use hashtags (#anything) in any output. No #Entrepreneurship, no #FounderLife, no #GrowthMindset. Hashtags are banned unless the user explicitly asks for them.
 3. NEVER use filler phrases like "Great question!", "Absolutely!", "I'd be happy to help!", or any generic AI slop.
 These rules override everything else. Every piece of content you produce must follow them.
+`;
 
+// Agents-ONLY addendum. The BRIEF CAPTURE block contains a literal JSON
+// protocol example — injecting it into the CEO prompt primed a
+// misbehaving gateway backend to emit that whole object as chat text
+// (prompt.md, 2026-07-16). The CEO never answers in the generation
+// protocol, so it never needs this block.
+const BRIEF_CAPTURE_RULES = `
 === BRIEF CAPTURE (REQUIRED on generation responses) ===
 When you respond with a GENERATION response (type=html, type=newsletter, type=story_sequence, type=automation, type=lead_magnet_plan, or anything that produces a final artifact — NOT a question), ALSO include a top-level "brief" field summarising the canonical campaign details you used. Example:
 
@@ -45,6 +52,8 @@ When you respond with a GENERATION response (type=html, type=newsletter, type=st
 
 The "brief" field is saved as the user's active campaign brief so other Marketing tools (newsletter, landing page, squeeze, lead magnet, story, DM) can reuse it without re-asking. NEVER include "brief" on question responses or edit responses — only on generation responses. Keep each value short and human-readable.
 `;
+
+const GLOBAL_OUTPUT_RULES = GLOBAL_STYLE_RULES + BRIEF_CAPTURE_RULES;
 
 // ── CEO System Prompt Builder ──
 function buildCeoSystemPrompt(context) {
@@ -655,7 +664,10 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
     }
   }
 
-  return prompt + GLOBAL_OUTPUT_RULES;
+  // Style rules only — the BRIEF CAPTURE JSON example is agents-only
+  // (its literal protocol example primes gateway backends to emit the
+  // whole object as chat text).
+  return prompt + GLOBAL_STYLE_RULES;
 }
 
 // ── SSE Helper ──
@@ -663,6 +675,67 @@ function sendSSE(res, event) {
   try {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   } catch {}
+}
+
+// Protocol-leak stream guard for the CEO's visible text stream. The
+// rolling cumulative text is truncated at the first protocol object
+// (JSON tool call, agent JSON, fn-call syntax, HTML doc) AND at any
+// forming tail that could become one — so raw protocol never even
+// flickers in the chat while streaming. The salvage layer finalizes the
+// bubble with clean text afterwards (cumulative-replace contract).
+function visibleStreamText(content) {
+  const t0 = content || '';
+  const cut = protocolTextStart(t0);
+  let t = cut === -1 ? t0 : t0.slice(0, cut);
+  // Hold back a forming JSON-object tail ({"tool_co…) that hasn't matched
+  // a known shape yet — the display catches up next chunk if it turns
+  // out to be harmless prose.
+  const braceTail = t.lastIndexOf('{');
+  if (braceTail !== -1 && /^\{\s*"?[\w-]*"?\s*:?\s*"?$/.test(t.slice(braceTail))) t = t.slice(0, braceTail);
+  // Same for a forming HTML-document tail.
+  const htmlTail = t.toLowerCase().lastIndexOf('<!doc');
+  if (htmlTail !== -1) t = t.slice(0, htmlTail);
+  return t.trimEnd();
+}
+
+// Text-mode question fallback: a misbehaving gateway backend sometimes
+// RECITES the ask_user question + options as plain chat text instead of
+// calling the tool ("What type of LinkedIn post?\nText post\nCarousel\n
+// Surprise me" — prompt.md, 2026-07-16). When a CEO turn ends with a
+// ?-line followed by 2-5 short option-like lines and NO ask_user fired,
+// convert it into the real card. Conservative on purpose: short lines
+// only, no sentence punctuation, must directly follow the question.
+function extractTextModeQuestion(text) {
+  const lines = (text || '').split('\n').map((l) => l.trim()).filter((l, i, arr) => l !== '' || i < arr.length - 1);
+  while (lines.length && lines[lines.length - 1] === '') lines.pop();
+  if (lines.length < 3) return null;
+
+  const isOptionLine = (l) => {
+    const stripped = l.replace(/^[-*•\d.)\s]+/, '').replace(/\*\*/g, '').trim();
+    if (!stripped || stripped.length > 40) return false;
+    if (/[.?!:;]$/.test(stripped)) return false;
+    if (stripped.split(/\s+/).length > 6) return false;
+    return /[a-zA-Z]/.test(stripped);
+  };
+
+  // Collect trailing option lines.
+  const options = [];
+  let i = lines.length - 1;
+  while (i >= 0 && isOptionLine(lines[i]) && options.length < 5) {
+    options.unshift(lines[i].replace(/^[-*•\d.)\s]+/, '').replace(/\*\*/g, '').trim());
+    i--;
+  }
+  if (options.length < 2) return null;
+
+  // The line above them must be a question.
+  const qLine = (lines[i] || '').replace(/\*\*/g, '').trim();
+  if (!qLine.endsWith('?') || qLine.length < 8) return null;
+
+  return {
+    question: qLine,
+    options,
+    preamble: lines.slice(0, i).join('\n').trim(),
+  };
 }
 
 // ── Edit tools for file-based editing (like Claude Code) ──
@@ -1183,7 +1256,14 @@ async function tryFileBasedEdit({ res, agent, agentName, editInstruction, userId
       return 'Unknown tool';
     },
     onText: (text) => {
-      sendSSE(res, { type: 'edit_summary', text, editCount });
+      // Protocol guard: a misbehaving gateway backend sometimes returns
+      // the ENTIRE edited HTML document (or a JSON blob) as the text
+      // block alongside the real replace_text call. The edit still
+      // applies via file_update — but this text lands in the chat
+      // bubble, so strip anything protocol-shaped and keep only the
+      // human summary.
+      const clean = stripProtocolText(text).trim();
+      sendSSE(res, { type: 'edit_summary', text: clean || 'Done. Updated it on the canvas.', editCount });
     },
   });
 
@@ -1670,6 +1750,10 @@ RULES:
 
   sendSSE(res, { type: 'status', text: 'Thinking...' });
 
+  // Tracks whether a real ask_user card was raised this turn — feeds the
+  // text-mode question fallback below.
+  let askUserFired = false;
+
   const result = await executeCeoOrchestrator({
     systemPrompt,
     messages: toolAwareMessages,
@@ -1678,7 +1762,7 @@ RULES:
     planMode,
     searchMode: effectiveSearchMode,
     onChunk: (content) => {
-      sendSSE(res, { type: 'text_delta', content });
+      sendSSE(res, { type: 'text_delta', content: visibleStreamText(content) });
     },
     onSearchStatus: (status) => {
       sendSSE(res, { type: 'search_status', status });
@@ -1691,6 +1775,7 @@ RULES:
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
           if (args.question && args.options) {
+            askUserFired = true;
             sendSSE(res, { type: 'ask_user', question: args.question, options: args.options });
           }
         } else if (call.name === 'save_to_soul') {
@@ -1746,6 +1831,20 @@ RULES:
       }
     },
   });
+
+  // Text-mode question fallback: no ask_user card was raised this turn,
+  // but the final text ends in "question? + short option lines" — the
+  // gateway recited the discovery script as prose. Convert it into the
+  // real card: the ask_user SSE makes the frontend replace the bubble
+  // with the question and raise the clickable options overlay.
+  if (!askUserFired && result?.content) {
+    const q = extractTextModeQuestion(result.content);
+    if (q) {
+      console.warn(`[ceo] Text-mode question detected — converting to ask_user card ("${q.question.slice(0, 60)}", ${q.options.length} options)`);
+      sendSSE(res, { type: 'text_delta', content: q.preamble });
+      sendSSE(res, { type: 'ask_user', question: q.question, options: q.options });
+    }
+  }
 }
 
 // ── Save to Soul (persistent business memory) ──

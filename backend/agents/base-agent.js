@@ -709,15 +709,19 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
     // won't fit in either provider's window. Let it bubble to the route
     // handler so the frontend can show the "start a fresh chat" message.
     if (err?.code === 'CONTEXT_EXCEEDED') throw err;
-    // Gateway protocol violation (pseudo tool-call emitted as text — see
-    // the guard in executeCeoOrchestratorClaude): the Mentor gateway
-    // answered 200 but its backing model ignored the native tool
-    // protocol. Retry ONCE against api.anthropic.com directly before
-    // falling through to the Grok orchestrator. The frontend's cumulative
+    // Protocol violation (tool call emitted as text — see the guard in
+    // executeCeoOrchestratorClaude): the turn answered 200 but the
+    // response ignored the native tool protocol. These are intermittent,
+    // so retry ONCE through the SAME route (Mentor stays the standing
+    // platform — no direct-Anthropic switching). The retry runs with
+    // salvageOnViolation: if the fresh sample ALSO emits protocol text,
+    // the orchestrator translates it into the equivalent native tool call
+    // server-side instead of failing — the user gets their card/artifact
+    // and clean chat text either way. The frontend's cumulative
     // text_delta contract means the fresh stream cleanly replaces
     // whatever partial text the bad attempt displayed.
-    if (err?.code === 'PROTOCOL_VIOLATION' && process.env.ANTHROPIC_API_KEY && process.env.MENTOR_API_KEY) {
-      console.warn('[ceo] Gateway protocol violation (pseudo tool-call as text) — retrying via direct Anthropic');
+    if (err?.code === 'PROTOCOL_VIOLATION') {
+      console.warn('[ceo] Protocol violation (tool call as text) — retrying once via same route, salvage armed');
       try {
         return await executeCeoOrchestratorClaude({
           systemPrompt,
@@ -731,12 +735,12 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
           abortSignal,
           planMode,
           streamIdleMs: ceoStreamIdleMs,
-          preferDirect: true,
+          salvageOnViolation: true,
         });
       } catch (retryErr) {
         if (retryErr?.name === 'AbortError' || abortSignal?.aborted) throw retryErr;
         if (retryErr?.code === 'CONTEXT_EXCEEDED') throw retryErr;
-        console.warn(`[ceo] Direct-Anthropic retry also failed (${retryErr?.message?.slice(0, 150) || retryErr}) — falling back to Grok`);
+        console.warn(`[ceo] Retry also failed (${retryErr?.message?.slice(0, 150) || retryErr}) — falling back to Grok`);
       }
     } else {
       console.warn(`[ceo] Claude failed (${err?.message?.slice(0, 200) || err}), falling back to Grok`);
@@ -929,6 +933,232 @@ function convertOpenAiHistoryToAnthropic(messages) {
   return out;
 }
 
+// ─── Gateway protocol-violation detection + salvage ───
+//
+// The Mentor gateway (mandatory route — no direct-Anthropic switching)
+// intermittently serves /v1/messages with a backing model that ignores
+// the native tool protocol and writes what SHOULD be tool_use blocks
+// into the text channel. Observed shapes (prompt.md, 2026-07-16):
+//   {"tool_code": "print(delegate_to_agent(...))"}       — Gemini-style pseudo call
+//   {"type":"newsletter","html":"...","brief":{...}}     — agent generation JSON
+//   ask_user(question="...", options=["a","b"])          — bare fn-call syntax
+//   plan_carousel(hook="...", slides=[...])              — bare fn-call syntax
+//   <!DOCTYPE html>...                                    — raw artifact HTML
+// Every one of these used to stream straight into the visible chat.
+//
+// Strategy: detect → retry ONCE through the same Mentor route (violations
+// are intermittent) → if the retry also violates, TRANSLATE the text into
+// the native tool call it was meant to be and dispatch it server-side.
+
+const PROTOCOL_FN_NAMES = ['ask_user', 'plan_carousel', 'delegate_to_agent', 'generate_image', 'create_artifact'];
+const PROTOCOL_FN_RE = new RegExp(`\\b(${PROTOCOL_FN_NAMES.join('|')})\\s*\\(`);
+const AGENT_JSON_TYPE_RE = /"type"\s*:\s*"(newsletter|html|story_sequence|automation|lead_magnet_plan)"/;
+const AGENT_JSON_PAYLOAD_RE = /"(html|frames|steps)"\s*:/;
+const HTML_DOC_RE = /<!DOCTYPE\s+html|<html[\s>]/i;
+
+// Classify protocol text in a CEO turn. Returns a shape label or null.
+export function detectProtocolText(text) {
+  const t = text || '';
+  if (/"tool_code"\s*:/.test(t)) return 'tool_code';
+  if (AGENT_JSON_TYPE_RE.test(t) && AGENT_JSON_PAYLOAD_RE.test(t)) return 'agent_json';
+  if (PROTOCOL_FN_RE.test(t)) return 'fn_call';
+  if (HTML_DOC_RE.test(t)) return 'html_doc';
+  return null;
+}
+
+// Index where protocol content begins in a text blob, or -1. Used to
+// keep the conversational preamble and drop everything from the blob on.
+export function protocolTextStart(text) {
+  const t = text || '';
+  const candidates = [];
+  const jsonBlob = t.search(/\{\s*"(tool_code|type)"/);
+  if (jsonBlob !== -1) candidates.push(jsonBlob);
+  const fnCall = t.search(PROTOCOL_FN_RE);
+  if (fnCall !== -1) candidates.push(fnCall);
+  const htmlDoc = t.search(HTML_DOC_RE);
+  if (htmlDoc !== -1) candidates.push(htmlDoc);
+  return candidates.length ? Math.min(...candidates) : -1;
+}
+
+// Strip protocol content from a turn's text, keeping the human preamble.
+export function stripProtocolText(text) {
+  const idx = protocolTextStart(text);
+  if (idx === -1) return text || '';
+  return (text || '').slice(0, idx).trim();
+}
+
+// Parse a python-ish pseudo call — name(key='value', list=[...]) — into
+// { name, args }. Tolerant of single/double quotes and flat lists;
+// nested structures fall back through a python→JSON literal conversion.
+// Returns null when nothing parseable is found.
+function parsePseudoCall(text) {
+  const m = (text || '').match(PROTOCOL_FN_RE);
+  if (!m) return null;
+  const name = m[1];
+  const openIdx = (text || '').indexOf('(', m.index);
+  if (openIdx === -1) return null;
+  // Balanced scan for the closing paren, respecting quotes.
+  let depth = 0, inStr = null, end = -1;
+  for (let i = openIdx; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (ch === '\\') { i++; continue; }
+      if (ch === inStr) inStr = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { inStr = ch; continue; }
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end === -1) return null;
+  const argsSrc = text.slice(openIdx + 1, end);
+
+  // Split top-level `key=value` pairs (commas inside strings/brackets
+  // don't split).
+  const pairs = [];
+  let key = '', buf = '', readingKey = true;
+  depth = 0; inStr = null;
+  const pushPair = () => {
+    if (key.trim()) pairs.push([key.trim(), buf.trim()]);
+    key = ''; buf = ''; readingKey = true;
+  };
+  for (let i = 0; i < argsSrc.length; i++) {
+    const ch = argsSrc[i];
+    if (inStr) {
+      buf += ch;
+      if (ch === '\\') { buf += argsSrc[++i] ?? ''; continue; }
+      if (ch === inStr) inStr = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { inStr = ch; buf += ch; continue; }
+    if (ch === '(' || ch === '[' || ch === '{') { depth++; buf += ch; continue; }
+    if (ch === ')' || ch === ']' || ch === '}') { depth--; buf += ch; continue; }
+    if (readingKey && ch === '=') { readingKey = false; continue; }
+    if (!readingKey && ch === ',' && depth === 0) { pushPair(); continue; }
+    if (readingKey) key += ch; else buf += ch;
+  }
+  pushPair();
+  if (pairs.length === 0) return null;
+
+  // Convert a python-ish literal to a JS value.
+  const toValue = (src) => {
+    const s = src.trim();
+    if (!s) return '';
+    if (s[0] === '"' || s[0] === "'") {
+      // Quoted string — unescape the matching quote style.
+      const q = s[0];
+      const inner = s.slice(1, s.endsWith(q) ? -1 : undefined);
+      return inner.replace(new RegExp(`\\\\${q}`, 'g'), q).replace(/\\n/g, '\n');
+    }
+    if (/^(true|false)$/i.test(s)) return /^true$/i.test(s);
+    if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+    // Lists / dicts: convert python conventions to JSON with a
+    // quote-aware pass (a naive regex corrupts strings containing
+    // apostrophes, e.g. "It's great"), then parse.
+    try {
+      let out = '', run = '', inQuote = null;
+      const flushRun = () => {
+        out += run.replace(/\bTrue\b/g, 'true').replace(/\bFalse\b/g, 'false').replace(/\bNone\b/g, 'null');
+        run = '';
+      };
+      for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (inQuote) {
+          if (ch === '\\') {
+            const next = s[++i] ?? '';
+            // \' inside a python string is just an apostrophe in JSON.
+            out += next === "'" ? "'" : '\\' + next;
+            continue;
+          }
+          if (ch === inQuote) { out += '"'; inQuote = null; continue; }
+          if (ch === '"') { out += '\\"'; continue; }
+          if (ch === '\n') { out += '\\n'; continue; }
+          out += ch;
+          continue;
+        }
+        if (ch === "'" || ch === '"') { flushRun(); inQuote = ch; out += '"'; continue; }
+        run += ch;
+      }
+      flushRun();
+      return JSON.parse(out);
+    } catch {
+      return s;
+    }
+  };
+
+  const args = {};
+  for (const [k, v] of pairs) args[k] = toValue(v);
+  return { name, args };
+}
+
+// Translate protocol text into the OpenAI-style tool calls orchestrate.js
+// already dispatches. Returns { cleanText, calls } or null.
+export function salvageProtocolTextToToolCalls(rawText) {
+  const text = rawText || '';
+  const preamble = stripProtocolText(text);
+
+  // Shape 1: {"tool_code": "print(delegate_to_agent(...))"} — the inner
+  // string is itself a pseudo call; recurse on it.
+  const tcMatch = text.match(/"tool_code"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (tcMatch) {
+    const inner = tcMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+    const call = parsePseudoCall(inner);
+    if (call && Object.keys(call.args).length) {
+      return {
+        cleanText: preamble,
+        calls: [{ id: `salvage-${Date.now()}`, name: call.name, arguments: JSON.stringify(call.args) }],
+      };
+    }
+    return null;
+  }
+
+  // Shape 2: agent generation JSON — {"type":"newsletter","html":...}.
+  // The CEO never legitimately answers in this protocol; translate to
+  // create_artifact so the user still gets their artifact.
+  if (AGENT_JSON_TYPE_RE.test(text) && AGENT_JSON_PAYLOAD_RE.test(text)) {
+    const objMatch = text.match(/\{[\s\S]*\}/);
+    if (objMatch) {
+      const fixNl = (s) => s.replace(/("(?:[^"\\]|\\.)*")|[\n\r\t]/g, (m, q) => q ? q : m === '\n' ? '\\n' : m === '\r' ? '\\r' : '\\t');
+      let parsed = null;
+      try { parsed = JSON.parse(objMatch[0]); } catch {
+        try { parsed = JSON.parse(fixNl(objMatch[0])); } catch { parsed = null; }
+      }
+      if (parsed && typeof parsed.html === 'string' && parsed.html.includes('<')) {
+        const isNewsletter = parsed.type === 'newsletter';
+        return {
+          cleanText: preamble || parsed.summary || '',
+          calls: [{
+            id: `salvage-${Date.now()}`,
+            name: 'create_artifact',
+            arguments: JSON.stringify({
+              type: isNewsletter ? 'newsletter' : 'html_template',
+              title: (parsed.summary || (isNewsletter ? 'Your newsletter' : 'Generated page')).slice(0, 120),
+              content: parsed.html,
+            }),
+          }],
+        };
+      }
+    }
+    return null;
+  }
+
+  // Shape 3: bare fn-call syntax — ask_user(...), plan_carousel(...), etc.
+  const call = parsePseudoCall(text);
+  if (call && Object.keys(call.args).length) {
+    // ask_user needs both fields to render the card; don't dispatch half.
+    if (call.name === 'ask_user' && !(call.args.question && Array.isArray(call.args.options))) return null;
+    return {
+      cleanText: preamble,
+      calls: [{ id: `salvage-${Date.now()}`, name: call.name, arguments: JSON.stringify(call.args) }],
+    };
+  }
+
+  return null;
+}
+
 // CEO orchestrator on Claude Sonnet. Uses Anthropic's native streaming
 // tool_use protocol. Loop follows the same shape as the Grok version:
 //   Iteration 1 — model streams text + optional tool_use blocks.
@@ -937,7 +1167,7 @@ function convertOpenAiHistoryToAnthropic(messages) {
 //   iteration (single tool call = the whole response).
 // Automatically opts into the 1M-context beta header when the estimated
 // input tokens exceed the safe 200K cap (Sonnet-only feature).
-async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, onToolStart, onToolInputDelta, abortSignal, planMode, streamIdleMs, preferDirect = false }) {
+async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, onToolStart, onToolInputDelta, abortSignal, planMode, streamIdleMs, preferDirect = false, salvageOnViolation = false }) {
   const anthropicTools = openAiToolsToAnthropic(tools);
   const anthropicToolChoice = openAiToolChoiceToAnthropic(toolChoice);
   const model = SONNET_MODEL;
@@ -979,15 +1209,49 @@ async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, too
 
     // Gateway protocol-violation guard. A non-Claude backend behind the
     // Mentor gateway can return 200 but ignore the native tool protocol —
-    // emitting the tool call as literal text ({"tool_code":
-    // "generate_image(prompt='...')"} — a Gemini convention) instead of a
-    // tool_use block. The user then sees raw JSON in chat and nothing
-    // executes (see prompt.md, 2026-07-16). Throw a typed error so
-    // executeCeoOrchestrator retries once against direct Anthropic.
-    if (toolUses.length === 0 && /"tool_code"\s*:/.test(text || '')) {
-      const e = new Error('Model emitted a pseudo tool call as text instead of a native tool_use block (gateway protocol violation)');
+    // emitting the tool call in the TEXT channel instead of a tool_use
+    // block. Detection covers every observed shape (tool_code JSON,
+    // agent-protocol JSON, bare fn-call syntax, raw HTML docs — see
+    // detectProtocolText above).
+    //
+    // First occurrence in a turn: throw so executeCeoOrchestrator retries
+    // once through the SAME Mentor route (violations are intermittent).
+    // Retry attempt (salvageOnViolation): don't fail — TRANSLATE. The
+    // model did the work; it just delivered it on the wrong channel.
+    if (toolUses.length === 0 && detectProtocolText(text)) {
+      if (salvageOnViolation) {
+        const salvaged = salvageProtocolTextToToolCalls(text);
+        if (salvaged) {
+          console.warn(`[ceo] Salvaging protocol-text turn → ${salvaged.calls.map(c => c.name).join(', ')}`);
+          // Finalize the visible bubble first: the cumulative text_delta
+          // contract means this replaces any protocol text that streamed.
+          const cleanContent = (accumulatedText + salvaged.cleanText).trim();
+          if (onChunk) onChunk(cleanContent);
+          if (onToolCalls) await onToolCalls(salvaged.calls);
+          return { content: cleanContent, toolCalls: [] };
+        }
+        // Unsalvageable: strip the protocol text so the user at least
+        // gets a clean bubble instead of raw JSON/HTML.
+        console.warn('[ceo] Protocol-text turn could not be salvaged — stripping blob from chat');
+        const stripped = (accumulatedText + stripProtocolText(text)).trim()
+          || 'I hit a glitch preparing that — please try again.';
+        if (onChunk) onChunk(stripped);
+        return { content: stripped, toolCalls: [] };
+      }
+      const e = new Error('Model emitted a tool call as text instead of a native tool_use block (gateway protocol violation)');
       e.code = 'PROTOCOL_VIOLATION';
       throw e;
+    }
+
+    // Mixed turn: native tool calls fired AND the text channel carries a
+    // protocol blob (e.g. the model narrated the artifact HTML alongside
+    // a real create_artifact call). Keep the tool calls, strip the blob
+    // from the visible text.
+    let turnText = text;
+    if (toolUses.length > 0 && detectProtocolText(text)) {
+      console.warn('[ceo] Mixed turn — stripping protocol blob from chat text alongside native tool calls');
+      turnText = stripProtocolText(text);
+      if (onChunk) onChunk((accumulatedText + turnText).trim());
     }
 
     // Convert Anthropic tool_use blocks to the OpenAI-style shape that
@@ -1006,7 +1270,7 @@ async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, too
       // exits (wait for user's answer), planMode exits after any tool.
       const hasAskUser = toolCalls.some(tc => tc.name === 'ask_user');
       if (hasAskUser || planMode) {
-        if (text) accumulatedText += text;
+        if (turnText) accumulatedText += turnText;
         return { content: accumulatedText, toolCalls: [] };
       }
 
@@ -1030,12 +1294,12 @@ async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, too
       }
       conversationMessages.push({ role: 'user', content: userToolResults });
 
-      if (text) accumulatedText += text;
+      if (turnText) accumulatedText += turnText;
       continue;
     }
 
     // No tool calls → this is the final text response.
-    if (text) accumulatedText += text;
+    if (turnText) accumulatedText += turnText;
     return { content: accumulatedText, toolCalls: [] };
   }
 
