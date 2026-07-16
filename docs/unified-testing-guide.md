@@ -62,6 +62,7 @@ preview).
    Carousel), max ~3 questions, always including a fallback option like
    "Surprise me". It must NEVER ask two questions in one message, and
    never as loose text without clickable options.
+
 2. **Text post generation.** After you answer, it writes a short one-line
    commitment ("I'll create a framework post about...") and the post
    appears in the RIGHT-SIDE preview panel — never in the chat bubble.
@@ -71,21 +72,50 @@ preview).
    - **The prompt.md bugs specifically:** no planning text, no
      "Constraint Checklist", no "Okay, proceeding.", no meta-sentence
      instead of a post. The preview should contain ONLY the post.
-   - Note: the post now appears in one go rather than word-by-word
-     (deliberate trade for reliability).
+   - FOUNDER FINDING (round 1): post quality good, but it does not stream
+     word-by-word — wanted back. → **FIXED**: the writer's output now
+     streams progressively into the preview again (the backend extracts
+     the post text from the tool's argument stream as it generates, so
+     you get word-by-word AND the no-reasoning-leak guarantee). Re-test.
+
 3. **Edits on the post.** With the post on screen, say "make it shorter".
    The existing post should be rewritten IN PLACE (images kept, preview
    updates). Say "add an image" → it should generate/attach without
    rewriting your text. Then try "actually scrap this, write a new post
    about X" → THAT should restart the generation flow.
+
+   - FOUNDER FINDING (round 1): edits didn't appear in the preview until
+     a page refresh; same pattern elsewhere — artifact cards not switching
+     between modified versions. → **FIXED** (root cause found): the
+     preview components (LinkedInPreview + SocialPreview) keep a local
+     draft for inline caption editing, and once you had ever clicked into
+     the text (even without typing), that draft permanently blocked every
+     later content update from the AI — refresh remounted the component,
+     which is why the edit "appeared after refresh". External content
+     changes (AI edits, switching message cards/versions) now override the
+     stale draft; your own unsaved typing is still protected. Re-test both
+     symptoms: (a) "make it shorter" updates the preview live, (b)
+     switching between artifact cards/versions shows each card's own
+     content.
+
 4. **Carousel.** Ask for a LinkedIn carousel. Expect: up to 3 discovery
    questions → a PLAN CARD (hook, slides, design palette, caption) →
    nothing generates until you click Approve. Check the caption is
    substantial (LinkedIn caption = the post itself, 150-450 words), 7-12
    slides, hook slide + CTA slide.
+
+   - FOUNDER FINDING (round 1): after "Here's the plan — approve to
+     generate" the chat went silent — no loading/planning UI while the
+     plan was actually being built. → **FIXED**: the moment the model
+     commits to building a plan, a "Building your carousel plan…" status
+     row now shows under the chat (and "Preparing your image…" for image
+     turns) until the plan card / image lands. Re-test.
+
 5. **"No questions" escape hatches.** Say "write a LinkedIn post about
    pricing mistakes, framework style, no questions" — it should skip
    discovery and go straight to generation.
+   - FOUNDER FINDING (round 1): ✅ worked.
+
 6. **Outlier template copy.** Attach an outlier post/creator link, ask for
    a post based on it — wording/structure should mirror the template
    closely (this mode may legitimately use em dashes/hashtags if the
@@ -95,7 +125,25 @@ preview).
 
 7. **Single post:** ask for an IG post → discovery (Single/Carousel/
    Story) → ONE square image + caption in the preview.
+   - FOUNDER FINDING (round 1): image generated but NO caption. →
+     **FIXED** (prompt-level): the model is now explicitly required to
+     write the ready-to-post caption in the same turn as every
+     generate_image call for single posts and stories — an image without
+     a caption is called out as an incomplete deliverable. Re-test; if it
+     still happens occasionally, report it and we'll add a server-side
+     enforcement pass.
+   - FOUNDER FINDING (round 1): Content/Instagram chat has no
+     message-level artifact versioning like AI CEO (open a previous
+     artifact from its message card). → **PLANNED, not yet built** — this
+     is a feature, not a regression (the legacy Content never had it
+     either). Design intent: each assistant message already owns its
+     images/carouselPlan; add an "open in preview" affordance on IG
+     message cards mirroring the LinkedIn "Open preview" button. Note:
+     part of the pain here was the stale-preview bug above — with that
+     fixed, re-evaluate how much is still missing.
+
 8. **Story:** ask for a story → 3-4 vertical frames generate.
+   - FOUNDER FINDING (round 1): (not recorded — re-test)
 9. **Reel:** ask for a reel → a SCRIPT as text (spoken words, "Direction:"
    note at the end). NO images must generate. No [HOOK]/[SCENE] labels.
 10. **Carousel:** plan card → approve → slides (5-9, square).
@@ -282,6 +330,23 @@ the deletions. Pay extra attention to:
    behaviorally.
 
 ---
+
+## FINDINGS LOG
+
+### Round 1 — founder testing (2026-07-16) → fix batch 1 (same day)
+
+| # | Finding | Status |
+|---|---|---|
+| 1 | LinkedIn post doesn't stream word-by-word | **FIXED** — post text streams progressively from the writer's tool-argument stream (backend/agents/content/handler.js `onToolInputDelta`; new streaming observers in base-agent.js) |
+| 2 | Post edits invisible until refresh; artifact cards not switching versions | **FIXED** — stale local caption-draft in LinkedInPreview/SocialPreview froze prop updates forever after any click-into-text; external content changes now override the draft |
+| 3 | No planning UI while carousel plan builds | **FIXED** — "Building your carousel plan…" / "Preparing your image…" status row during the tool-argument streaming window (`onToolStart` → SSE status → Content status row) |
+| 4 | "No questions" escape hatch | ✅ worked, no change |
+| 5 | IG single post: image without caption | **FIXED (prompt-level)** — caption required in the same turn as generate_image; escalate to server-side enforcement if it recurs |
+| 6 | Content/IG message-level artifact versioning (like AI CEO) | **PLANNED** — feature build; re-evaluate need after the stale-preview fix (#2) since that bug masked version switching |
+
+Notes for round 2: re-test items 1-3 and 5; finish the unrecorded checks
+(IG story, reel, IG carousel, outlier copy, Plan Mode, AI CEO checklist,
+Phase 5 regression sweep).
 
 ## If you find a problem
 

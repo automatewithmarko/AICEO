@@ -90,13 +90,22 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
     if (idx > images.length - 1) setIdx(Math.max(0, images.length - 1));
   }, [images.length, idx]);
 
-  // Seed the contentEditable when the incoming caption prop changes,
-  // but only if the user hasn't started typing — otherwise the cursor
-  // would jump on every stream tick.
+  // Seed the contentEditable when the incoming caption prop changes.
+  // If the user hasn't typed, always mirror the prop (streaming). If they
+  // HAVE typed, their draft normally wins — but an EXTERNAL caption
+  // change (the AI shipped an update, or the preview re-bound to another
+  // message/version) must override the stale draft; freezing forever was
+  // the "edits only appear after refresh" bug. A save round-trip comes
+  // back as an identical prop and is ignored (no cursor jump).
   useEffect(() => {
     if (!captionRef.current) return;
-    if (captionUserEdited.current) return;
     const incoming = (msg?.carouselPlan?.caption) || (msg?.content) || '';
+    if (captionUserEdited.current) {
+      const current = captionRef.current.innerText ?? '';
+      if (incoming === current) return;
+      captionUserEdited.current = false;
+      setCaptionDirty(false);
+    }
     if (captionRef.current.innerText !== incoming) {
       captionRef.current.innerText = incoming;
     }

@@ -226,7 +226,7 @@ function extractImagePromptFromText(text) {
 // brain runs server-side. The `unified` payload carries the intent + the
 // same context ingredients the legacy path feeds buildSystemPrompt with,
 // so the backend assembles a byte-identical prompt.
-async function streamContentUnified(messages, onTextChunk, onToolCall, abortSignal, unified = {}) {
+async function streamContentUnified(messages, onTextChunk, onToolCall, abortSignal, unified = {}, onStatus = null) {
   const { intent = 'chat', platform = null, contentContext = {}, planMode = false, variation = 'A', edit = null } = unified;
   const toolCallsOut = [];
   let fullContent = '';
@@ -243,7 +243,17 @@ async function streamContentUnified(messages, onTextChunk, onToolCall, abortSign
   }, {
     onTextDelta: (content) => {
       fullContent = content;
+      // Fresh text supersedes any tool-progress status line.
+      if (onStatus) onStatus(null);
       onTextChunk(content);
+    },
+    // Backend tool-progress events ("Building your carousel plan…") —
+    // shown while a tool's argument JSON streams after the chat text has
+    // finished. The generic per-turn "Thinking..." is filtered out; the
+    // default animated-dots indicator already covers that phase.
+    onStatus: (text) => {
+      if (!onStatus) return;
+      onStatus(text && text !== 'Thinking...' ? text : null);
     },
     onToolCall: (name, args = {}) => {
       // Mirror the legacy parsers: only well-formed calls pass through.
@@ -258,6 +268,7 @@ async function streamContentUnified(messages, onTextChunk, onToolCall, abortSign
     },
   }, abortSignal);
 
+  if (onStatus) onStatus(null);
   if (streamError) throw streamError;
 
   // Same fallback + dispatch shape as the legacy path.
@@ -279,8 +290,8 @@ async function streamContentUnified(messages, onTextChunk, onToolCall, abortSign
 // systemPrompt argument is ignored — prompts are assembled server-side
 // from the `unified` metadata (intent + context ingredients). The legacy
 // client-side Grok transport was removed here; see git history.
-async function streamContentResponse(messages, _systemPrompt, onTextChunk, onToolCall, abortSignal, { planMode = false, unified = null } = {}) {
-  return streamContentUnified(messages, onTextChunk, onToolCall, abortSignal, { ...(unified || {}), planMode });
+async function streamContentResponse(messages, _systemPrompt, onTextChunk, onToolCall, abortSignal, { planMode = false, unified = null, onSearchStatus = null } = {}) {
+  return streamContentUnified(messages, onTextChunk, onToolCall, abortSignal, { ...(unified || {}), planMode }, onSearchStatus);
 }
 
 
@@ -4361,6 +4372,23 @@ export default function Content() {
                       </button>
                     </div>
                   )}
+                </div>
+              )}
+              {/* Tool-progress status row — shows DURING generation even
+                  when the assistant bubble already has text (e.g. the
+                  15-30s silent window while a carousel plan's tool
+                  arguments stream after "Here's the plan…"). Backend
+                  emits these as SSE status events (handler.js
+                  onToolStart). The 'searching'/'writing' enums belong to
+                  the legacy thinking indicator above, not here. */}
+              {isGenerating && searchStatus && !['searching', 'writing'].includes(searchStatus) && (
+                <div className="content-assistant-row">
+                  <img src="/favicon.png" alt="" className="content-assistant-avatar" />
+                  <div className="content-thinking">
+                    <span className="content-thinking-text">
+                      <PenLine size={14} /> {searchStatus}<span className="content-dots"><span>.</span><span>.</span><span>.</span></span>
+                    </span>
+                  </div>
                 </div>
               )}
               <div ref={messagesEndRef} />

@@ -129,7 +129,7 @@ export function buildClaudeChatProtocolAddendum({ planMode = false, isLinkedin =
       a += `3. LINKEDIN EDIT MODE: never type <<EDIT_TEXT>>, <<ADD_IMAGE_AI>>, <<USE_UPLOADED_IMAGE>>, or <<ADD_IMAGE_ASK>>. Call edit_linkedin_post with the matching action (and the rewrite instruction for edit_text) exactly where the Edit Mode rules above say to emit a marker.\n`;
     }
   }
-  a += `${isLinkedin ? (editModeActive ? '4' : '3') : '2'}. CAROUSELS AND IMAGES: unchanged — call plan_carousel / generate_image exactly as described above.\n`;
+  a += `${isLinkedin ? (editModeActive ? '4' : '3') : '2'}. CAROUSELS AND IMAGES: unchanged — call plan_carousel / generate_image exactly as described above. For SINGLE POSTS and STORIES you MUST write the ready-to-post caption as normal chat text in the SAME turn as your generate_image call(s) — an image with no caption is an incomplete deliverable and a bug. (Carousels are the exception: their caption lives in the plan_carousel caption field, not chat text.)\n`;
   a += `${isLinkedin ? (editModeActive ? '5' : '4') : '3'}. ONE ACTION PER TURN (same turn-taking rule as above): either ONE ask_user call, OR one generation action (generate_linkedin_post, plan_carousel, or a set of generate_image calls), OR pure conversation. Never combine a question with a generation action in the same turn.\n`;
   a += `${isLinkedin ? (editModeActive ? '6' : '5') : '4'}. NO META-COMMENTARY: never output planning notes, checklists, "Constraint Checklist", "Mental Sandbox", option analysis, or internal reasoning as text. Your visible text is only what the user should read in chat.\n`;
   return a;

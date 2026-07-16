@@ -131,14 +131,29 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
     }
   };
 
-  // Sync the contentEditable's innerText only when the incoming stream
-  // updates the content prop AND the user hasn't started typing yet.
-  // After the first edit we stop overwriting, so the cursor never jumps.
+  // Sync the contentEditable's innerText when the incoming content prop
+  // changes. Two regimes:
+  //   - user hasn't touched the text → always mirror the prop (streaming).
+  //   - user HAS touched the text → their draft normally wins, BUT an
+  //     EXTERNAL content change (the AI shipped an edited post, or the
+  //     panel re-bound to a different message/version) must override the
+  //     stale draft. This was the "edits only appear after refresh" bug:
+  //     the draft flag permanently froze the preview against every later
+  //     AI update (even a click-in + click-out set it via blur). A save
+  //     round-trip (onContentChange → parent state → identical prop)
+  //     matches the current text and is ignored, so the cursor never
+  //     jumps on saves.
   const userHasEditedRef = useRef(false);
   useEffect(() => {
     if (!textRef.current) return;
-    if (userHasEditedRef.current) return;
     const incoming = content || '';
+    if (userHasEditedRef.current) {
+      const current = textRef.current.innerText ?? '';
+      if (incoming === current) return;
+      userHasEditedRef.current = false;
+      setEditedText(null);
+      setDirty(false);
+    }
     if (textRef.current.innerText !== incoming) {
       textRef.current.innerText = incoming;
     }

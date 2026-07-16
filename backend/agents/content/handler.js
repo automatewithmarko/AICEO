@@ -114,6 +114,20 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
       // Suppress free text: with a pinned tool there should be none, and
       // anything that does appear is reasoning that must not hit the preview.
       onChunk: () => {},
+      // Word-by-word streaming: extract the growing post_text string from
+      // the partial tool-argument JSON on every delta and forward it as a
+      // cumulative text_delta — the preview fills progressively like the
+      // legacy Grok flow did, while the forced-tool channel still keeps
+      // reasoning out of the post.
+      onToolInputDelta: (name, partialJson) => {
+        if (name !== 'submit_post') return;
+        const m = partialJson.match(/"post_text"\s*:\s*"((?:[^"\\]|\\.)*)/);
+        if (!m) return;
+        try {
+          const partial = JSON.parse(`"${m[1]}"`);
+          if (partial) sendSSE(res, { type: 'text_delta', content: partial });
+        } catch { /* mid-escape tick — next delta will parse */ }
+      },
       onToolCalls: async (toolCalls) => {
         for (const call of toolCalls) {
           if (call.name !== 'submit_post') continue;
@@ -220,6 +234,16 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
     onChunk: (content) => {
       lastContent = content;
       sendSSE(res, { type: 'text_delta', content });
+    },
+    // Progress during the silent tool-argument streaming window — a big
+    // carousel plan takes 15-30s to stream after the model's chat text has
+    // already finished, which used to look like a hang.
+    onToolStart: (name) => {
+      if (name === 'plan_carousel') {
+        sendSSE(res, { type: 'status', text: 'Building your carousel plan…' });
+      } else if (name === 'generate_image') {
+        sendSSE(res, { type: 'status', text: 'Preparing your image…' });
+      }
     },
     onToolCalls: async (toolCalls) => {
       for (const call of toolCalls) {

@@ -658,7 +658,7 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
 
 // Execute the CEO orchestrator with tool_use loop
 // After tool calls, sends results back to the model for a follow-up response
-export async function executeCeoOrchestrator({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, searchMode, onSearchStatus, abortSignal, planMode = false }) {
+export async function executeCeoOrchestrator({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, onToolStart, onToolInputDelta, searchMode, onSearchStatus, abortSignal, planMode = false }) {
   // The Mentor gateway adds cold-start latency on top of the upstream
   // provider's own time-to-first-token. Combined with a long system
   // prompt + tool-call setup, the first chunk on each turn of the
@@ -685,6 +685,10 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
       toolChoice,
       onChunk,
       onToolCalls,
+      // Streaming observers (Claude path only; the Grok fallback has no
+      // equivalent events and simply never fires them).
+      onToolStart,
+      onToolInputDelta,
       abortSignal,
       planMode,
       streamIdleMs: ceoStreamIdleMs,
@@ -893,7 +897,7 @@ function convertOpenAiHistoryToAnthropic(messages) {
 //   iteration (single tool call = the whole response).
 // Automatically opts into the 1M-context beta header when the estimated
 // input tokens exceed the safe 200K cap (Sonnet-only feature).
-async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, abortSignal, planMode, streamIdleMs }) {
+async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, onToolStart, onToolInputDelta, abortSignal, planMode, streamIdleMs }) {
   const anthropicTools = openAiToolsToAnthropic(tools);
   const anthropicToolChoice = openAiToolChoiceToAnthropic(toolChoice);
   const model = SONNET_MODEL;
@@ -924,6 +928,8 @@ async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, too
       onChunk: (rollingChunk) => {
         if (onChunk) onChunk(accumulatedText + rollingChunk);
       },
+      onToolStart,
+      onToolInputDelta,
       abortSignal,
       streamIdleMs,
     });
@@ -1005,7 +1011,7 @@ async function streamAnthropicWithTools(args) {
   }
 }
 
-async function streamAnthropicWithToolsCore({ systemPrompt, messages, model, tools, toolChoice, maxTokens, onChunk, abortSignal, streamIdleMs, forceMillionContext = false }) {
+async function streamAnthropicWithToolsCore({ systemPrompt, messages, model, tools, toolChoice, maxTokens, onChunk, onToolStart, onToolInputDelta, abortSignal, streamIdleMs, forceMillionContext = false }) {
   const target = anthropicTarget();
 
   // Estimate tokens the same way streamAnthropicCore does. Messages here
@@ -1104,12 +1110,25 @@ async function streamAnthropicWithToolsCore({ systemPrompt, messages, model, too
             name: parsed.content_block.name,
             inputJson: '',
           };
+          // Fires as soon as the model COMMITS to a tool, long before the
+          // (potentially large) argument JSON finishes streaming — lets
+          // callers show progress ("Building your carousel plan…") during
+          // the silent argument-streaming window.
+          if (onToolStart) {
+            try { onToolStart(parsed.content_block.name); } catch { /* observer-only */ }
+          }
         }
         // Tool input deltas: content_block_delta with delta.type === 'input_json_delta'
         if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'input_json_delta') {
           const idx = parsed.index ?? 0;
           if (toolBlocks[idx]) {
             toolBlocks[idx].inputJson += parsed.delta.partial_json || '';
+            // Cumulative partial JSON per tick — lets callers extract
+            // progressively-streaming argument fields (e.g. the LinkedIn
+            // writer's post_text) for word-by-word UI streaming.
+            if (onToolInputDelta) {
+              try { onToolInputDelta(toolBlocks[idx].name, toolBlocks[idx].inputJson); } catch { /* observer-only */ }
+            }
           }
         }
         // Errors surface as message_delta or explicit error events.
