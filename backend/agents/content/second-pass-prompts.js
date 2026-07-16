@@ -169,7 +169,7 @@ export function buildLegacyCarouselSystemPrompt({ userName, brandDna, socialUrls
   if (brandDna?.main_font) carouselSystemPrompt += `BRAND FONT: ${brandDna.main_font}\n`;
   carouselSystemPrompt += `\n=== CAROUSEL CONTENT GUIDELINES ===\n${LINKEDIN_CAROUSEL_PROMPT}\n\n`;
   carouselSystemPrompt += `=== IMAGE GENERATION SPECS ===\n`;
-  carouselSystemPrompt += `- 4:3 LANDSCAPE ratio for every slide (LinkedIn standard)\n`;
+  carouselSystemPrompt += `- 3:4 PORTRAIT ratio for every slide (LinkedIn document carousel standard)\n`;
   carouselSystemPrompt += `- Include ACTUAL TEXT to render on the image (title, body text, key points)\n`;
   carouselSystemPrompt += `- Specify: "bold sans-serif text, clean modern design"\n`;
   carouselSystemPrompt += `- Use brand colors consistently across all slides\n`;

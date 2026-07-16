@@ -358,7 +358,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   } else if (platform.id === 'tiktok') {
     prompt += `- TIKTOK: Image MUST be PORTRAIT (9:16). Bold centered text overlay, eye-catching at small size.\n`;
   } else if (platform.id === 'linkedin') {
-    prompt += `- LINKEDIN (single text-post image): Image MUST be 4:3 LANDSCAPE ratio. Professional, clean design with authority. Bold headline text, minimal layout. For carousels, do NOT call generate_image — use plan_carousel instead (the client builds the per-slide prompts from your locked design system).\n`;
+    prompt += `- LINKEDIN (single text-post image): Image MUST be 3:4 PORTRAIT ratio. Professional, clean design with authority. Bold headline text, minimal layout. For carousels, do NOT call generate_image — use plan_carousel instead (the client builds the per-slide prompts from your locked design system).\n`;
   }
   prompt += `- Always specify exact colors (e.g. "black background with white text and red accent")\n`;
   prompt += `- The text on the image should be the HOOK or KEY MESSAGE  -  not decorative\n\n`;

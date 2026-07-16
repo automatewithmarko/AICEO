@@ -140,116 +140,106 @@ export default function CanvasActionsBar({
     img.src = src;
   });
 
+  // Build a PDF — one slide per page, sized to the source image so
+  // LinkedIn's document-carousel upload accepts it natively.
+  const buildPdf = async (ordered) => {
+    const loaded = [];
+    for (const im of ordered) {
+      if (!im?.src) continue;
+      try {
+        loaded.push(await loadImageForPdf(im.src));
+      } catch (imgErr) {
+        console.warn(`[cab-download] slide load failed:`, imgErr);
+      }
+    }
+    if (loaded.length === 0) throw new Error('No slides could be loaded.');
+    const { jsPDF } = await import('jspdf');
+    const first = loaded[0];
+    const isPortrait = first.height > first.width;
+    const pdf = new jsPDF({
+      orientation: isPortrait ? 'portrait' : (first.width === first.height ? 'portrait' : 'landscape'),
+      unit: 'px',
+      format: [first.width, first.height],
+      hotfixes: ['px_scaling'],
+    });
+    pdf.addImage(first.dataUrl, first.format, 0, 0, first.width, first.height);
+    for (let i = 1; i < loaded.length; i++) {
+      const im = loaded[i];
+      // Each page can carry its own size — supports mixed dimensions
+      // (unlikely but robust). LinkedIn document carousels are always
+      // portrait 1080x1440; Instagram carousels are 1080x1080.
+      pdf.addPage([im.width, im.height], im.width > im.height ? 'landscape' : 'portrait');
+      pdf.addImage(im.dataUrl, im.format, 0, 0, im.width, im.height);
+    }
+    const stamp = new Date().toISOString().slice(0, 10);
+    pdf.save(`${platform || 'carousel'}-${stamp}.pdf`);
+  };
+
+  // Build a ZIP — every slide as an image file + caption.txt + hook.txt.
+  const buildZip = async (ordered) => {
+    const { default: JSZip } = await import('jszip');
+    const zip = new JSZip();
+    let added = 0;
+    for (let i = 0; i < ordered.length; i++) {
+      const src = ordered[i]?.src;
+      if (!src) continue;
+      try {
+        const blob = await (await fetch(src)).blob();
+        const ext = /png/i.test(blob.type) ? 'png' : 'jpg';
+        zip.file(`slide-${String(i + 1).padStart(2, '0')}.${ext}`, blob);
+        added++;
+      } catch (imgErr) {
+        console.warn(`[cab-zip] slide ${i + 1} fetch failed:`, imgErr);
+      }
+    }
+    if (added === 0) throw new Error('No slides could be loaded.');
+    if (text) zip.file('caption.txt', text);
+    if (hook) zip.file('hook.txt', hook.replace(/\{\{\/?accent\}\}/g, ''));
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.download = `${platform || 'carousel'}-${stamp}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+
+  // ONE download button, ONE format per platform:
+  //   LinkedIn  → always PDF (LinkedIn document-carousel native format)
+  //   others    → single image file for a single post, ZIP for carousels
+  const isLinkedIn = platform === 'linkedin';
+  const downloadLabel = isLinkedIn
+    ? 'Download PDF'
+    : (images?.length > 1 ? 'Download ZIP' : 'Download');
   const handleDownload = async () => {
-    if (downloadState === 'downloading') return;
+    if (downloadState === 'downloading' || !images?.length) return;
     setDownloadState('downloading');
     try {
-      if (!images?.length) {
-        setDownloadState('idle');
-        return;
-      }
-      // Single image: direct download (no PDF wrapping — the user just
-      // wants the image file for a single post).
-      if (images.length === 1) {
-        const img = images[0];
+      // Slides are stored keyed by idx (not insertion order) — sort so
+      // the export reads left-to-right.
+      const ordered = [...images].sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
+      if (isLinkedIn) {
+        await buildPdf(ordered);
+      } else if (ordered.length === 1) {
+        // Single image: direct download — the user just wants the file.
+        const img = ordered[0];
         const a = document.createElement('a');
         a.href = img.src;
         a.download = `${platform || 'post'}-image.${img.src.startsWith('data:image/png') ? 'png' : 'jpg'}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setDownloadState('done');
-        setTimeout(() => setDownloadState('idle'), 1200);
-        return;
+      } else {
+        await buildZip(ordered);
       }
-      // Multi-slide carousel: bundle as a PDF document, one slide per
-      // page, sized to the source image so LinkedIn's document-carousel
-      // upload accepts it natively.
-      //
-      // Slides are stored keyed by idx (not insertion order) — sort here
-      // so the PDF pages read left-to-right.
-      const ordered = [...images].sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
-      const loaded = [];
-      for (const im of ordered) {
-        if (!im?.src) continue;
-        try {
-          loaded.push(await loadImageForPdf(im.src));
-        } catch (imgErr) {
-          console.warn(`[cab-download] slide load failed:`, imgErr);
-        }
-      }
-      if (loaded.length === 0) throw new Error('No slides could be loaded.');
-      const { jsPDF } = await import('jspdf');
-      const first = loaded[0];
-      const isPortrait = first.height > first.width;
-      const pdf = new jsPDF({
-        orientation: isPortrait ? 'portrait' : (first.width === first.height ? 'portrait' : 'landscape'),
-        unit: 'px',
-        format: [first.width, first.height],
-        hotfixes: ['px_scaling'],
-      });
-      pdf.addImage(first.dataUrl, first.format, 0, 0, first.width, first.height);
-      for (let i = 1; i < loaded.length; i++) {
-        const im = loaded[i];
-        // Each page can carry its own size — supports mixed dimensions
-        // (unlikely but robust). LinkedIn document carousels are always
-        // portrait 1080x1440; Instagram carousels are 1080x1080.
-        pdf.addPage([im.width, im.height], im.width > im.height ? 'landscape' : 'portrait');
-        pdf.addImage(im.dataUrl, im.format, 0, 0, im.width, im.height);
-      }
-      const stamp = new Date().toISOString().slice(0, 10);
-      pdf.save(`${platform || 'carousel'}-${stamp}.pdf`);
       setDownloadState('done');
       setTimeout(() => setDownloadState('idle'), 1200);
     } catch (err) {
       console.error('[cab-download] failed:', err);
       setDownloadState('error');
       setTimeout(() => setDownloadState('idle'), 1600);
-    }
-  };
-
-  // ZIP download — every slide as an image file + caption.txt + hook.txt.
-  // Parity with /Content's ZIP export (Phase 3, unified canvas actions):
-  // users who post manually want the raw images, not a PDF.
-  const [zipState, setZipState] = useState('idle'); // idle|downloading|done|error
-  const handleDownloadZip = async () => {
-    if (zipState === 'downloading' || !images?.length) return;
-    setZipState('downloading');
-    try {
-      const { default: JSZip } = await import('jszip');
-      const zip = new JSZip();
-      const ordered = [...images].sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
-      let added = 0;
-      for (let i = 0; i < ordered.length; i++) {
-        const src = ordered[i]?.src;
-        if (!src) continue;
-        try {
-          const blob = await (await fetch(src)).blob();
-          const ext = /png/i.test(blob.type) ? 'png' : 'jpg';
-          zip.file(`slide-${String(i + 1).padStart(2, '0')}.${ext}`, blob);
-          added++;
-        } catch (imgErr) {
-          console.warn(`[cab-zip] slide ${i + 1} fetch failed:`, imgErr);
-        }
-      }
-      if (added === 0) throw new Error('No slides could be loaded.');
-      if (text) zip.file('caption.txt', text);
-      if (hook) zip.file('hook.txt', hook.replace(/\{\{\/?accent\}\}/g, ''));
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      const stamp = new Date().toISOString().slice(0, 10);
-      a.download = `${platform || 'carousel'}-${stamp}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-      setZipState('done');
-      setTimeout(() => setZipState('idle'), 1200);
-    } catch (err) {
-      console.error('[cab-zip] failed:', err);
-      setZipState('error');
-      setTimeout(() => setZipState('idle'), 1600);
     }
   };
 
@@ -298,46 +288,25 @@ export default function CanvasActionsBar({
         </button>
       )}
 
-      {/* Download — PDF (one page per slide) for carousels, single
-          image otherwise. LinkedIn document carousels upload natively
-          from PDF; Instagram users can screenshot pages if they need
-          them back as images. */}
+      {/* Download — ONE button, one format per platform. LinkedIn is
+          always PDF (its document-carousel native format); other
+          platforms get the raw image for a single post or a ZIP of
+          slides (+ caption.txt/hook.txt) for carousels. */}
       {images?.length > 0 && !streaming && (
         <button
           className="cab-btn"
           onClick={handleDownload}
           disabled={downloadState === 'downloading'}
-          title={images.length > 1 ? 'Download carousel as PDF' : 'Download image'}
+          title={isLinkedIn ? 'Download as PDF' : (images.length > 1 ? 'Download all slides as images (ZIP with caption + hook)' : 'Download image')}
         >
           {downloadState === 'downloading' ? (
-            <><Loader size={14} className="cab-spin" /> Building PDF…</>
+            <><Loader size={14} className="cab-spin" /> Preparing…</>
           ) : downloadState === 'done' ? (
             <><Check size={14} /> Downloaded</>
           ) : downloadState === 'error' ? (
             <><X size={14} /> Failed</>
           ) : (
-            <><Download size={14} /> {images.length > 1 ? 'Download PDF' : 'Download'}</>
-          )}
-        </button>
-      )}
-
-      {/* Download ZIP — multi-slide carousels only. Slides as image files
-          + caption.txt + hook.txt, matching /Content's ZIP export. */}
-      {images?.length > 1 && !streaming && (
-        <button
-          className="cab-btn"
-          onClick={handleDownloadZip}
-          disabled={zipState === 'downloading'}
-          title="Download all slides as images (ZIP with caption + hook)"
-        >
-          {zipState === 'downloading' ? (
-            <><Loader size={14} className="cab-spin" /> Zipping…</>
-          ) : zipState === 'done' ? (
-            <><Check size={14} /> Downloaded</>
-          ) : zipState === 'error' ? (
-            <><X size={14} /> Failed</>
-          ) : (
-            <><Download size={14} /> Download ZIP</>
+            <><Download size={14} /> {downloadLabel}</>
           )}
         </button>
       )}

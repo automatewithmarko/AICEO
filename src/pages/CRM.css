@@ -1240,6 +1240,8 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
 }
 
 .crm-modal-check-btn {
@@ -1431,6 +1433,8 @@
   top: calc(100% + 6px);
   left: 0;
   min-width: 240px;
+  max-height: min(420px, calc(100vh - 220px));
+  overflow-y: auto;
   background: var(--bg-white);
   border: 1px solid var(--border-light);
   border-radius: 12px;
@@ -2164,6 +2168,8 @@
   flex-direction: column;
   gap: 4px;
   margin-bottom: 10px;
+  max-height: 260px;
+  overflow-y: auto;
 }
 
 .crm-status-settings-item {

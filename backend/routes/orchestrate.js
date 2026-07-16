@@ -18,14 +18,23 @@ const router = Router();
 // Social URL pattern  -  same as frontend Content.jsx
 const SOCIAL_URL_RE = /https?:\/\/(www\.)?(instagram\.com|facebook\.com|fb\.watch|linkedin\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|tiktok\.com)\/\S+/gi;
 
-// Global output rules injected into EVERY agent and CEO prompt
-const GLOBAL_OUTPUT_RULES = `
+// Global style rules injected into EVERY agent and CEO prompt
+const GLOBAL_STYLE_RULES = `
 
 === GLOBAL OUTPUT RULES (NON-NEGOTIABLE) ===
 1. NEVER use em dashes (the long dash character). Use commas, periods, or start a new sentence instead.
 2. NEVER use hashtags (#anything) in any output. No #Entrepreneurship, no #FounderLife, no #GrowthMindset. Hashtags are banned unless the user explicitly asks for them.
 3. NEVER use filler phrases like "Great question!", "Absolutely!", "I'd be happy to help!", or any generic AI slop.
 These rules override everything else. Every piece of content you produce must follow them.
+`;
+
+// Brief-capture protocol — AGENT prompts only. This block contains a full
+// example of the JSON generation protocol ({"type":"newsletter","html":...}).
+// It must NEVER reach the CEO prompt: the CEO responds via native tool
+// calls, and showing it this JSON shape primed a misbehaving gateway
+// backend to emit the whole object as chat text instead of delegating
+// (prompt.md, 2026-07-16 — raw JSON streamed into the chat bubble).
+const BRIEF_CAPTURE_RULES = `
 
 === BRIEF CAPTURE (REQUIRED on generation responses) ===
 When you respond with a GENERATION response (type=html, type=newsletter, type=story_sequence, type=automation, type=lead_magnet_plan, or anything that produces a final artifact — NOT a question), ALSO include a top-level "brief" field summarising the canonical campaign details you used. Example:
@@ -45,6 +54,9 @@ When you respond with a GENERATION response (type=html, type=newsletter, type=st
 
 The "brief" field is saved as the user's active campaign brief so other Marketing tools (newsletter, landing page, squeeze, lead magnet, story, DM) can reuse it without re-asking. NEVER include "brief" on question responses or edit responses — only on generation responses. Keep each value short and human-readable.
 `;
+
+// Full rule set for agent prompts (style + brief-capture protocol).
+const GLOBAL_OUTPUT_RULES = GLOBAL_STYLE_RULES + BRIEF_CAPTURE_RULES;
 
 // ── CEO System Prompt Builder ──
 function buildCeoSystemPrompt(context) {
@@ -655,7 +667,11 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
     }
   }
 
-  return prompt + GLOBAL_OUTPUT_RULES;
+  // Style rules only — never the brief-capture block. That block embeds a
+  // {"type":"newsletter","html":...} example, and the CEO must never see
+  // the agents' JSON protocol (it responds via tools; a misbehaving
+  // gateway backend once echoed the example shape as raw chat text).
+  return prompt + GLOBAL_STYLE_RULES;
 }
 
 // ── SSE Helper ──
@@ -663,6 +679,20 @@ function sendSSE(res, event) {
   try {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   } catch {}
+}
+
+// Hold back protocol objects from the chat text stream. When a turn
+// misbehaves and writes a tool call into its TEXT channel (observed
+// shapes: {"tool_code": ...} and {"type":"newsletter","html":...} —
+// prompt.md 2026-07-16), the raw JSON would otherwise stream into the
+// chat bubble token by token. Cut the visible text at the start of any
+// forming protocol object; the salvage path (base-agent) dispatches the
+// real tool call and finalizes the bubble with clean text afterwards.
+const PROTOCOL_LEAK_RE = /\{\s*"(?:tool_code|type)"\s*:/;
+function stripProtocolLeak(content) {
+  const m = (content || '').match(PROTOCOL_LEAK_RE);
+  if (!m) return content;
+  return content.slice(0, m.index).trimEnd();
 }
 
 // ── Edit tools for file-based editing (like Claude Code) ──
@@ -1678,7 +1708,7 @@ RULES:
     planMode,
     searchMode: effectiveSearchMode,
     onChunk: (content) => {
-      sendSSE(res, { type: 'text_delta', content });
+      sendSSE(res, { type: 'text_delta', content: stripProtocolLeak(content) });
     },
     onSearchStatus: (status) => {
       sendSSE(res, { type: 'search_status', status });

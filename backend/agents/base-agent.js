@@ -709,15 +709,19 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
     // won't fit in either provider's window. Let it bubble to the route
     // handler so the frontend can show the "start a fresh chat" message.
     if (err?.code === 'CONTEXT_EXCEEDED') throw err;
-    // Gateway protocol violation (pseudo tool-call emitted as text — see
-    // the guard in executeCeoOrchestratorClaude): the Mentor gateway
-    // answered 200 but its backing model ignored the native tool
-    // protocol. Retry ONCE against api.anthropic.com directly before
-    // falling through to the Grok orchestrator. The frontend's cumulative
-    // text_delta contract means the fresh stream cleanly replaces
-    // whatever partial text the bad attempt displayed.
-    if (err?.code === 'PROTOCOL_VIOLATION' && process.env.ANTHROPIC_API_KEY && process.env.MENTOR_API_KEY) {
-      console.warn('[ceo] Gateway protocol violation (pseudo tool-call as text) — retrying via direct Anthropic');
+    // Protocol violation (tool call emitted as text — see the guard in
+    // executeCeoOrchestratorClaude): the turn answered 200 but the
+    // response ignored the native tool protocol. These are intermittent,
+    // so retry ONCE through the SAME route (Mentor stays the standing
+    // platform — no direct switching). The retry runs with
+    // salvageOnViolation: if the fresh sample ALSO emits protocol text,
+    // the orchestrator translates it into the equivalent native tool call
+    // server-side instead of failing — the user gets their artifact and
+    // clean chat text either way. The frontend's cumulative text_delta
+    // contract means the fresh stream cleanly replaces whatever partial
+    // text the bad attempt displayed.
+    if (err?.code === 'PROTOCOL_VIOLATION') {
+      console.warn('[ceo] Protocol violation (tool call as text) — retrying once, salvage armed');
       try {
         return await executeCeoOrchestratorClaude({
           systemPrompt,
@@ -731,12 +735,12 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
           abortSignal,
           planMode,
           streamIdleMs: ceoStreamIdleMs,
-          preferDirect: true,
+          salvageOnViolation: true,
         });
       } catch (retryErr) {
         if (retryErr?.name === 'AbortError' || abortSignal?.aborted) throw retryErr;
         if (retryErr?.code === 'CONTEXT_EXCEEDED') throw retryErr;
-        console.warn(`[ceo] Direct-Anthropic retry also failed (${retryErr?.message?.slice(0, 150) || retryErr}) — falling back to Grok`);
+        console.warn(`[ceo] Retry also failed (${retryErr?.message?.slice(0, 150) || retryErr}) — falling back to Grok`);
       }
     } else {
       console.warn(`[ceo] Claude failed (${err?.message?.slice(0, 200) || err}), falling back to Grok`);
@@ -935,9 +939,63 @@ function convertOpenAiHistoryToAnthropic(messages) {
 //   If tool_use fires, run handlers, feed results back, iterate.
 //   If ask_user was one of the tools OR planMode is on, exit after one
 //   iteration (single tool call = the whole response).
+// Translate protocol text (a tool call the model wrote into its TEXT
+// channel instead of a tool_use block) into the OpenAI-style tool calls
+// orchestrate.js already knows how to dispatch. Returns null when nothing
+// translatable is found (caller falls back to throw → Grok).
+//
+// Handled shapes (both observed in prompt.md, 2026-07-16):
+//   {"tool_code": "generate_image(prompt='...')"}   → generate_image call
+//   {"type":"newsletter"|"html","html":...,...}     → create_artifact call
+function salvageProtocolTextToToolCalls(rawText) {
+  const objMatch = (rawText || '').match(/\{[\s\S]*\}/);
+  if (!objMatch) return null;
+  const fixNl = (s) => s.replace(/("(?:[^"\\]|\\.)*")|[\n\r\t]/g, (m, q) => q ? q : m === '\n' ? '\\n' : m === '\r' ? '\\r' : m === '\t' ? '\\t' : m);
+  let parsed = null;
+  try { parsed = JSON.parse(objMatch[0]); } catch {
+    try { parsed = JSON.parse(fixNl(objMatch[0])); } catch { return null; }
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  // Conversational preamble written around the blob — keep it as the
+  // visible chat text. Strip anything after the blob (usually nothing).
+  const preamble = rawText.slice(0, rawText.indexOf(objMatch[0])).trim();
+
+  // Shape 1: pseudo tool call, e.g. {"tool_code": "generate_image(prompt='a red fox')"}
+  if (typeof parsed.tool_code === 'string') {
+    const imgMatch = parsed.tool_code.match(/generate_image\s*\(\s*prompt\s*=\s*(['"])([\s\S]+?)\1\s*\)/);
+    if (imgMatch) {
+      return {
+        cleanText: preamble,
+        calls: [{ id: `salvage-${Date.now()}`, name: 'generate_image', arguments: JSON.stringify({ prompt: imgMatch[2] }) }],
+      };
+    }
+    return null;
+  }
+
+  // Shape 2: agent generation protocol, e.g. {"type":"newsletter","html":...}
+  if (typeof parsed.html === 'string' && parsed.html.includes('<')) {
+    const isNewsletter = parsed.type === 'newsletter';
+    return {
+      cleanText: preamble || parsed.summary || '',
+      calls: [{
+        id: `salvage-${Date.now()}`,
+        name: 'create_artifact',
+        arguments: JSON.stringify({
+          type: isNewsletter ? 'newsletter' : 'html_template',
+          title: (parsed.summary || (isNewsletter ? 'Your newsletter' : 'Generated page')).slice(0, 120),
+          content: parsed.html,
+        }),
+      }],
+    };
+  }
+
+  return null;
+}
+
 // Automatically opts into the 1M-context beta header when the estimated
 // input tokens exceed the safe 200K cap (Sonnet-only feature).
-async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, onToolStart, onToolInputDelta, abortSignal, planMode, streamIdleMs, preferDirect = false }) {
+async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, onToolStart, onToolInputDelta, abortSignal, planMode, streamIdleMs, preferDirect = false, salvageOnViolation = false }) {
   const anthropicTools = openAiToolsToAnthropic(tools);
   const anthropicToolChoice = openAiToolChoiceToAnthropic(toolChoice);
   const model = SONNET_MODEL;
@@ -984,8 +1042,47 @@ async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, too
     // tool_use block. The user then sees raw JSON in chat and nothing
     // executes (see prompt.md, 2026-07-16). Throw a typed error so
     // executeCeoOrchestrator retries once against direct Anthropic.
-    if (toolUses.length === 0 && /"tool_code"\s*:/.test(text || '')) {
-      const e = new Error('Model emitted a pseudo tool call as text instead of a native tool_use block (gateway protocol violation)');
+    //
+    // Second observed shape (prompt.md, 2026-07-16 later the same day):
+    // instead of delegating, the backing model emitted a generation-agent
+    // JSON protocol object as chat text — {"type":"newsletter","html":...}
+    // with a "brief" — so the raw blob streamed into the chat bubble and
+    // no agent ever ran. The CEO never legitimately responds in that
+    // protocol (only delegated agents do), so any typed generation object
+    // with an html/frames payload in a zero-tool-call CEO turn is the
+    // same violation.
+    const ceoText = text || '';
+    const emittedPseudoToolCall = /"tool_code"\s*:/.test(ceoText);
+    const emittedAgentProtocolJson =
+      /"type"\s*:\s*"(newsletter|html|story_sequence|automation|lead_magnet_plan)"/.test(ceoText) &&
+      /"(html|frames|steps)"\s*:/.test(ceoText);
+    if (toolUses.length === 0 && (emittedPseudoToolCall || emittedAgentProtocolJson)) {
+      // First occurrence in a turn: throw so executeCeoOrchestrator retries
+      // once through the same route (violations are intermittent — a fresh
+      // sample usually honors the tool protocol).
+      //
+      // Retry attempt (salvageOnViolation): don't fail — TRANSLATE. The
+      // model did the work, it just delivered it on the wrong channel.
+      // Parse the protocol text and dispatch it as the native tool call it
+      // was meant to be, then finalize the chat bubble with only the
+      // conversational preamble. The user gets their artifact either way.
+      if (salvageOnViolation) {
+        const salvagedCalls = salvageProtocolTextToToolCalls(ceoText);
+        if (salvagedCalls) {
+          console.warn(`[ceo] Salvaging protocol-text turn → ${salvagedCalls.calls.map(c => c.name).join(', ')}`);
+          // Finalize the visible bubble: cumulative text_delta contract
+          // means this replaces any raw protocol text that streamed.
+          const cleanText = accumulatedText + salvagedCalls.cleanText;
+          if (onChunk) onChunk(cleanText);
+          if (onToolCalls) await onToolCalls(salvagedCalls.calls);
+          // Early-exit like ask_user: don't run a follow-up iteration
+          // (it would re-roll the same misbehaving route mid-salvage).
+          return { content: cleanText, toolCalls: [] };
+        }
+      }
+      const e = new Error(emittedPseudoToolCall
+        ? 'Model emitted a pseudo tool call as text instead of a native tool_use block (gateway protocol violation)'
+        : 'Model emitted an agent generation-JSON protocol object as chat text instead of delegating via tool_use (gateway protocol violation)');
       e.code = 'PROTOCOL_VIOLATION';
       throw e;
     }

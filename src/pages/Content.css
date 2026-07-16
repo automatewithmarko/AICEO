@@ -912,9 +912,15 @@
 }
 
 /* Previous Conversations pill */
-.content-prev-convos {
+.content-topbtns {
   position: absolute;
   left: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.content-prev-convos {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -940,6 +946,30 @@
 
 .content-prev-convos-icon {
   flex-shrink: 0;
+}
+
+/* New chat — visible toolbar button next to the history toggle */
+.content-new-chat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: var(--brand-red);
+  border: 1px solid var(--brand-red);
+  border-radius: 50px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(233, 26, 68, 0.18);
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+.content-new-chat:hover {
+  background: #d0163c;
+  box-shadow: 0 2px 12px rgba(233, 26, 68, 0.28);
 }
 
 /* Sessions backdrop + panel */
@@ -3895,6 +3925,11 @@
   }
 
   /* Previous conversations — icon-only circle on mobile, next to pills */
+  .content-topbtns {
+    position: static;
+    gap: 8px;
+  }
+
   .content-prev-convos {
     position: static;
     width: 36px;
@@ -3906,6 +3941,20 @@
   }
 
   .content-prev-convos-label {
+    display: none;
+  }
+
+  /* New chat — icon-only circle on mobile */
+  .content-new-chat {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    justify-content: center;
+    box-shadow: 0 2px 12px rgba(233, 26, 68, 0.2);
+  }
+
+  .content-new-chat-label {
     display: none;
   }
 

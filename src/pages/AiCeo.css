@@ -1616,11 +1616,17 @@
 }
 
 /* ── Previous Conversations ── */
-.ceo-prev-convos {
+.ceo-chat-topbtns {
   position: absolute;
   top: 16px;
   left: 24px;
   z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ceo-prev-convos {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1641,6 +1647,29 @@
   border-color: var(--brand-red);
   color: var(--brand-red);
   box-shadow: 0 2px 12px rgba(233, 26, 68, 0.1);
+}
+
+/* New chat — visible toolbar button next to the history toggle */
+.ceo-new-chat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: var(--brand-red);
+  border: 1px solid var(--brand-red);
+  border-radius: 50px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(233, 26, 68, 0.18);
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.ceo-new-chat:hover {
+  background: #d0163c;
+  box-shadow: 0 2px 12px rgba(233, 26, 68, 0.28);
 }
 
 .ceo-sessions-backdrop {
@@ -1867,6 +1896,8 @@
 @media (max-width: 768px) {
   .ceo-prev-convos { padding: 8px 12px; font-size: 0; gap: 0; }
   .ceo-prev-convos-label { display: none; }
+  .ceo-new-chat { padding: 8px 12px; font-size: 0; gap: 0; }
+  .ceo-new-chat-label { display: none; }
   .ceo-sessions-panel { width: 280px; }
 
   .ceo-page {

@@ -1574,6 +1574,13 @@ export default function AiCeo() {
               m.id === assistantMsgId ? { ...m, hasArtifact: true, artifactTitle: args.title, artifactType: effectiveType } : m
             ));
             commitOwnedArtifact(assistantMsgId, newArt);
+            // Fill {{GENERATE:...}} image placeholders in HTML artifacts —
+            // normally the agent_result path does this, but create_artifact
+            // can also carry them (e.g. server-salvaged newsletter turns).
+            if ((effectiveType === 'newsletter' || effectiveType === 'html_template') && args.content?.includes('{{GENERATE:')) {
+              const imgResult = generateNewsletterImages(args.content, setArtifact, () => {}, 'newsletter');
+              if (imgResult?.promise) pendingImagesRef.current.push(imgResult.promise);
+            }
           }
           if (name === 'plan_carousel') {
             // Instagram / LinkedIn carousel — Sonnet has emitted the plan
@@ -1680,9 +1687,20 @@ export default function AiCeo() {
               // attach brand-DNA photos as the dominant reference and
               // Gemini would edit one of those instead of the user's
               // attached image.
+              // Platform-aware sizing: when the canvas already holds a
+              // social post, the generated image lands on that post, so
+              // size it for that platform (LinkedIn → 3:4 portrait,
+              // Instagram → 1:1, ...). With no social artifact open the
+              // image is generic — keep the 'general' 1:1 config.
+              const artForImage = artifactRef.current;
+              const knownPlatforms = ['linkedin', 'instagram', 'tiktok', 'facebook', 'x', 'youtube'];
+              const artPlatform = artForImage?.type === 'content_post'
+                ? String(artForImage.agentSource || '').toLowerCase()
+                : null;
+              const imagePlatform = knownPlatforms.includes(artPlatform) ? artPlatform : 'general';
               const result = await generateImage(
                 args.prompt,
-                'general',
+                imagePlatform,
                 null,
                 refImages.length ? refImages : null,
                 refImages.length ? { editUserImage: true } : {},
@@ -1819,6 +1837,51 @@ export default function AiCeo() {
       });
       const elapsed = Date.now() - turnStart;
       console.log(`[AiCeo] ◀ turn end — ${elapsed}ms, tools=[${firedTools.join(', ') || 'none'}], textLen=${finalContent.length}`);
+
+      // Self-healing for gateway protocol violations that slipped past the
+      // backend guard (prompt.md, 2026-07-16): the CEO turn streamed an
+      // agent generation-JSON object ({"type":"newsletter","html":...}) as
+      // chat text instead of delegating. Salvage it — build the artifact
+      // from the embedded JSON and strip the raw blob from the visible
+      // message, keeping any conversational preamble.
+      if (/"type"\s*:\s*"(newsletter|html)"/.test(finalContent) && /"html"\s*:/.test(finalContent)) {
+        const protoMatch = finalContent.match(/\{[\s\S]*\}/);
+        if (protoMatch) {
+          let salvaged = null;
+          const fixNl = (s) => s.replace(/("(?:[^"\\]|\\.)*")|[\n\r\t]/g, (m, q) => q ? q : m === '\n' ? '\\n' : m === '\r' ? '\\r' : m === '\t' ? '\\t' : m);
+          try { salvaged = JSON.parse(protoMatch[0]); } catch {
+            try { salvaged = JSON.parse(fixNl(protoMatch[0])); } catch {}
+          }
+          if (salvaged?.html && typeof salvaged.html === 'string') {
+            console.warn('[AiCeo] ⚠️ PROTOCOL VIOLATION SALVAGE — generation JSON arrived as chat text; building the artifact client-side');
+            const isNewsletter = salvaged.type === 'newsletter';
+            const salvagedArt = {
+              id: artifactRef.current?.id || Date.now(),
+              type: isNewsletter ? 'newsletter' : 'html_template',
+              title: salvaged.summary || (isNewsletter ? 'Your newsletter' : 'Generated page'),
+              content: salvaged.html,
+              images: [],
+              agentSource: isNewsletter ? 'newsletter' : 'ceo',
+            };
+            setArtifact(salvagedArt);
+            setPanelOpen(true);
+            if (isMobileRef.current) setMobileArtifactOpen(true);
+            const preamble = finalContent.slice(0, finalContent.indexOf(protoMatch[0])).trim();
+            const cleanText = preamble || salvaged.summary || 'Done. Your draft is on the canvas.';
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsgId
+                ? { ...m, content: cleanText, hasArtifact: true, artifactTitle: salvagedArt.title, artifactType: salvagedArt.type }
+                : m
+            ));
+            finalContent = cleanText;
+            commitOwnedArtifact(assistantMsgId, salvagedArt);
+            // Fill any {{GENERATE:...}} placeholders the salvaged HTML carries.
+            if (salvaged.html.includes('{{GENERATE:')) {
+              generateNewsletterImages(salvaged.html, setArtifact, () => {}, 'newsletter');
+            }
+          }
+        }
+      }
       const imageWords = /(image panel|image is ready|generated (the |an? )?image|here'?s your image|made you (an? )?image|check the (image|panel|canvas)|image attached|image below)/i;
       const claimedImage = imageWords.test(finalContent);
       const actuallyMade = firedTools.includes('generate_image');
@@ -2302,11 +2365,17 @@ export default function AiCeo() {
           className={`ceo-chat ${showPanel ? 'ceo-chat--split' : ''}`}
           style={showPanel ? { width: `${splitPct}%` } : undefined}
         >
-          {/* Previous conversations button */}
-          <button className="ceo-prev-convos" onClick={() => setShowSessions((v) => !v)}>
-            <History size={18} />
-            <span className="ceo-prev-convos-label">Previous conversations</span>
-          </button>
+          {/* History toggle + New chat — always visible */}
+          <div className="ceo-chat-topbtns">
+            <button className="ceo-prev-convos" title="Chat history" onClick={() => setShowSessions((v) => !v)}>
+              <History size={18} />
+              <span className="ceo-prev-convos-label">Chat history</span>
+            </button>
+            <button className="ceo-new-chat" onClick={newConversation} title="New chat">
+              <Plus size={18} />
+              <span className="ceo-new-chat-label">New chat</span>
+            </button>
+          </div>
 
           {/* Sessions overlay + panel */}
           {showSessions && (
@@ -2314,10 +2383,7 @@ export default function AiCeo() {
               <div className="ceo-sessions-backdrop" onClick={() => setShowSessions(false)} />
               <div className="ceo-sessions-panel">
                 <div className="ceo-sessions-header">
-                  <span>Conversations</span>
-                  <button className="ceo-sessions-new" onClick={newConversation}>
-                    <Plus size={16} /> New
-                  </button>
+                  <span>Chat history</span>
                 </div>
                 <div className="ceo-sessions-list">
                   {sessions.length === 0 && (

@@ -2749,8 +2749,18 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
         const latestHtml = await readLatestCanvas();
         await snapshotForMessage(stableMsgId, { html: latestHtml, type: parsed.type || 'html', summary: parsed.summary || null });
       } else {
-        // Fallback  -  show raw text
-        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: fullContent.slice(0, 500) }]);
+        // Fallback — the response didn't parse as any known protocol.
+        // Never dump raw JSON into the chat (gateway protocol violations
+        // stream {"type":"newsletter",...} as text — prompt.md 2026-07-16):
+        // strip any embedded {...} blob and show the surrounding prose, or
+        // a friendly failure line if nothing readable remains.
+        let displayText = fullContent;
+        const blobMatch = displayText.match(/\{[\s\S]*\}/);
+        if (blobMatch && /"(type|html|tool_code)"\s*:/.test(blobMatch[0])) {
+          displayText = (displayText.slice(0, displayText.indexOf(blobMatch[0])) + displayText.slice(displayText.indexOf(blobMatch[0]) + blobMatch[0].length)).trim();
+        }
+        if (!displayText) displayText = "The AI returned something I couldn't render. Please try again.";
+        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: displayText.slice(0, 500) }]);
       }
       } // end !editHandled
     } catch (err) {
@@ -3304,21 +3314,19 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
         type="button"
         className="mkt-prev-convos"
         onClick={() => setShowSessions((v) => !v)}
-        title="Previous conversations"
+        title="Chat history"
       >
         <History size={16} />
-        <span>Previous conversations</span>
+        <span>Chat history</span>
       </button>
-      {chatStarted && (
-        <button
-          type="button"
-          className="mkt-new-convo"
-          onClick={newConversation}
-          title="Start a new conversation"
-        >
-          <Plus size={14} /> New
-        </button>
-      )}
+      <button
+        type="button"
+        className="mkt-new-convo"
+        onClick={newConversation}
+        title="Start a new conversation"
+      >
+        <Plus size={14} /> New chat
+      </button>
     </div>
 
     <div className="mkt-split" ref={splitRef}>
@@ -4038,10 +4046,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
         <div className="mkt-sessions-backdrop" onClick={() => setShowSessions(false)} />
         <div className="mkt-sessions-panel">
           <div className="mkt-sessions-header">
-            <span>Conversations</span>
-            <button className="mkt-sessions-new" onClick={newConversation} title="New conversation">
-              <Plus size={14} /> New
-            </button>
+            <span>Chat history</span>
           </div>
           <div className="mkt-sessions-list">
             {sessions.length === 0 && (

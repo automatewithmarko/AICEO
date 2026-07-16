@@ -25,9 +25,12 @@ const PLATFORM_CONFIG = {
   youtube:          { model: GEMINI_MODEL_FAST, aspectRatio: '16:9', imageSize: '1K' },
   tiktok:           { model: GEMINI_MODEL_PRO,  aspectRatio: '9:16', imageSize: '2K' },
   x:                { model: GEMINI_MODEL_FAST, aspectRatio: '16:9', imageSize: '1K' },
-  linkedin:         { model: GEMINI_MODEL_FAST, aspectRatio: '4:3',  imageSize: '1K' },
+  linkedin:         { model: GEMINI_MODEL_FAST, aspectRatio: '3:4',  imageSize: '1K' },
   linkedin_carousel:{ model: GEMINI_MODEL_FAST, aspectRatio: '3:4',  imageSize: '1K' },
   facebook:         { model: GEMINI_MODEL_FAST, aspectRatio: '1:1',  imageSize: '1K' },
+  // Platform-agnostic images (AI CEO's generic generate_image tool).
+  // Explicit entry so it doesn't silently inherit instagram's config.
+  general:          { model: GEMINI_MODEL_FAST, aspectRatio: '1:1',  imageSize: '1K' },
 };
 
 // Supabase client for fetching brand data as fallback
@@ -273,8 +276,8 @@ TEXT OVERLAY is handled separately by the system — focus ONLY on generating th
 
   linkedin: `LINKEDIN SLIDE/IMAGE RULES:
 - Aspect ratio depends on content:
-  • Carousel slide: 4:5 PORTRAIT (1080x1350) — LinkedIn document carousels use portrait format
-  • Single text-post image: 4:3 LANDSCAPE or 1.91:1 landscape
+  • Carousel slide: 3:4 PORTRAIT (1080x1440) — LinkedIn document carousels use portrait format
+  • Single text-post image: 3:4 PORTRAIT (1080x1440) — portrait images take more feed real estate and perform better
 
 DESIGN SYSTEM TAKES PRIORITY:
 - If the incoming prompt contains a "=== DESIGN SYSTEM (LOCKED — identical on every slide) ===" block, FOLLOW THAT BLOCK VERBATIM. Every color, font, layout, badge, glow position, and accent treatment listed there is a hard requirement, not a suggestion.
