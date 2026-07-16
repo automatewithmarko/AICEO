@@ -950,7 +950,13 @@ function convertOpenAiHistoryToAnthropic(messages) {
 // are intermittent) → if the retry also violates, TRANSLATE the text into
 // the native tool call it was meant to be and dispatch it server-side.
 
-const PROTOCOL_FN_NAMES = ['ask_user', 'plan_carousel', 'delegate_to_agent', 'generate_image', 'create_artifact'];
+// EVERY tool the CEO can call — a pseudo-call of any of them in the text
+// channel is a violation. Missing names here = raw tool calls in chat
+// (generate_linkedin_post was the gap on 2026-07-16).
+const PROTOCOL_FN_NAMES = [
+  'ask_user', 'plan_carousel', 'delegate_to_agent', 'generate_image', 'create_artifact',
+  'generate_linkedin_post', 'send_email', 'check_emails', 'create_form', 'push_notification', 'save_to_soul',
+];
 const PROTOCOL_FN_RE = new RegExp(`\\b(${PROTOCOL_FN_NAMES.join('|')})\\s*\\(`);
 const AGENT_JSON_TYPE_RE = /"type"\s*:\s*"(newsletter|html|story_sequence|automation|lead_magnet_plan)"/;
 const AGENT_JSON_PAYLOAD_RE = /"(html|frames|steps)"\s*:/;
@@ -959,7 +965,9 @@ const HTML_DOC_RE = /<!DOCTYPE\s+html|<html[\s>]/i;
 // Classify protocol text in a CEO turn. Returns a shape label or null.
 export function detectProtocolText(text) {
   const t = text || '';
-  if (/"tool_code"\s*:/.test(t)) return 'tool_code';
+  // Both variants: {"tool_code": "..."} JSON AND the bare unquoted
+  // `tool_code print(fn(...))` form observed 2026-07-16.
+  if (/["']?tool_code["']?\s*(:|print\s*\(|\()/.test(t)) return 'tool_code';
   if (AGENT_JSON_TYPE_RE.test(t) && AGENT_JSON_PAYLOAD_RE.test(t)) return 'agent_json';
   if (PROTOCOL_FN_RE.test(t)) return 'fn_call';
   if (HTML_DOC_RE.test(t)) return 'html_doc';
@@ -973,6 +981,8 @@ export function protocolTextStart(text) {
   const candidates = [];
   const jsonBlob = t.search(/\{\s*"(tool_code|type)"/);
   if (jsonBlob !== -1) candidates.push(jsonBlob);
+  const bareToolCode = t.search(/\btool_code\b\s*(:|print\s*\(|\()/);
+  if (bareToolCode !== -1) candidates.push(bareToolCode);
   const fnCall = t.search(PROTOCOL_FN_RE);
   if (fnCall !== -1) candidates.push(fnCall);
   const htmlDoc = t.search(HTML_DOC_RE);
