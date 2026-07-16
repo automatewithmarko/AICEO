@@ -348,6 +348,13 @@ Notes for round 2: re-test items 1-3 and 5; finish the unrecorded checks
 (IG story, reel, IG carousel, outlier copy, Plan Mode, AI CEO checklist,
 Phase 5 regression sweep).
 
+### Round 2 — founder testing (2026-07-16) → fix batch 2 (same day)
+
+| # | Finding | Status |
+|---|---|---|
+| 7 | **CRITICAL** (prompt.md): model printed `{"tool_code": "generate_image(...)"}` as literal chat text — no image generated, raw JSON visible, model then claimed it had generated the post | **FIXED, 4 layers.** Root cause: Claude requests route through the Mentor gateway first, and some gateway responses come from a non-Claude backend (the `tool_code` JSON shape and "Mental Sandbox" style are Gemini conventions) that ignores our native tools. (1) The backend now detects pseudo tool-call text and automatically retries the turn against api.anthropic.com directly; (2) if one still slips through, the frontend parses the prompt out of the pseudo call and fires the image generation anyway (self-healing); (3) raw `{"tool_code"...}` JSON is stripped from the chat display while keeping the caption around it; (4) prompt-level ban added. **Also new: set `ANTHROPIC_PREFER_DIRECT=true` on Railway to flip routing (direct Anthropic primary, Mentor only as fallback) with no code change — recommended if this recurs.** |
+| 8 | Word-by-word streaming not working on Instagram posts | **Believed same root cause as #7** — the misbehaving gateway backend streams coarsely (the whole caption arrived in one blob in the same broken turn). With the direct-Anthropic retry (and especially with `ANTHROPIC_PREFER_DIRECT=true`), genuine Claude streams finely. Re-test; if IG captions still arrive in one blob on turns that are otherwise healthy, report — that would point at something else. |
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you

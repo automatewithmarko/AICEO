@@ -22,14 +22,23 @@ function anthropicTarget() {
   const direct = process.env.ANTHROPIC_API_KEY
     ? { url: 'https://api.anthropic.com/v1/messages', key: process.env.ANTHROPIC_API_KEY, via: 'direct' }
     : null;
-  if (process.env.MENTOR_API_KEY) {
-    return {
-      url: `${MENTOR_BASE_URL}/api/v1/messages`,
-      key: process.env.MENTOR_API_KEY,
-      via: 'mentor',
-      fallback: direct,
-    };
+  const mentor = process.env.MENTOR_API_KEY
+    ? {
+        url: `${MENTOR_BASE_URL}/api/v1/messages`,
+        key: process.env.MENTOR_API_KEY,
+        via: 'mentor',
+      }
+    : null;
+  // ANTHROPIC_PREFER_DIRECT=true flips routing priority: direct Anthropic
+  // primary, Mentor as the 5xx fallback. Set this on Railway when the
+  // gateway misbehaves — observed 2026-07-16: Mentor returned 200s whose
+  // backing model ignored the native tool protocol (emitted
+  // {"tool_code": ...} pseudo tool calls as chat text, Gemini-style
+  // meta-commentary, coarse streaming). No code change needed to flip.
+  if (process.env.ANTHROPIC_PREFER_DIRECT === 'true' && direct) {
+    return { ...direct, fallback: mentor || undefined };
   }
+  if (mentor) return { ...mentor, fallback: direct };
   if (direct) return direct;
   throw new Error('No Anthropic credential — set MENTOR_API_KEY (preferred) or ANTHROPIC_API_KEY');
 }
@@ -700,7 +709,38 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
     // won't fit in either provider's window. Let it bubble to the route
     // handler so the frontend can show the "start a fresh chat" message.
     if (err?.code === 'CONTEXT_EXCEEDED') throw err;
-    console.warn(`[ceo] Claude failed (${err?.message?.slice(0, 200) || err}), falling back to Grok`);
+    // Gateway protocol violation (pseudo tool-call emitted as text — see
+    // the guard in executeCeoOrchestratorClaude): the Mentor gateway
+    // answered 200 but its backing model ignored the native tool
+    // protocol. Retry ONCE against api.anthropic.com directly before
+    // falling through to the Grok orchestrator. The frontend's cumulative
+    // text_delta contract means the fresh stream cleanly replaces
+    // whatever partial text the bad attempt displayed.
+    if (err?.code === 'PROTOCOL_VIOLATION' && process.env.ANTHROPIC_API_KEY && process.env.MENTOR_API_KEY) {
+      console.warn('[ceo] Gateway protocol violation (pseudo tool-call as text) — retrying via direct Anthropic');
+      try {
+        return await executeCeoOrchestratorClaude({
+          systemPrompt,
+          messages,
+          tools,
+          toolChoice,
+          onChunk,
+          onToolCalls,
+          onToolStart,
+          onToolInputDelta,
+          abortSignal,
+          planMode,
+          streamIdleMs: ceoStreamIdleMs,
+          preferDirect: true,
+        });
+      } catch (retryErr) {
+        if (retryErr?.name === 'AbortError' || abortSignal?.aborted) throw retryErr;
+        if (retryErr?.code === 'CONTEXT_EXCEEDED') throw retryErr;
+        console.warn(`[ceo] Direct-Anthropic retry also failed (${retryErr?.message?.slice(0, 150) || retryErr}) — falling back to Grok`);
+      }
+    } else {
+      console.warn(`[ceo] Claude failed (${err?.message?.slice(0, 200) || err}), falling back to Grok`);
+    }
     return executeCeoOrchestratorGrok({
       systemPrompt,
       messages,
@@ -897,7 +937,7 @@ function convertOpenAiHistoryToAnthropic(messages) {
 //   iteration (single tool call = the whole response).
 // Automatically opts into the 1M-context beta header when the estimated
 // input tokens exceed the safe 200K cap (Sonnet-only feature).
-async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, onToolStart, onToolInputDelta, abortSignal, planMode, streamIdleMs }) {
+async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, onToolStart, onToolInputDelta, abortSignal, planMode, streamIdleMs, preferDirect = false }) {
   const anthropicTools = openAiToolsToAnthropic(tools);
   const anthropicToolChoice = openAiToolChoiceToAnthropic(toolChoice);
   const model = SONNET_MODEL;
@@ -932,9 +972,23 @@ async function executeCeoOrchestratorClaude({ systemPrompt, messages, tools, too
       onToolInputDelta,
       abortSignal,
       streamIdleMs,
+      preferDirect,
     });
 
     const { text, toolUses } = streamResult;
+
+    // Gateway protocol-violation guard. A non-Claude backend behind the
+    // Mentor gateway can return 200 but ignore the native tool protocol —
+    // emitting the tool call as literal text ({"tool_code":
+    // "generate_image(prompt='...')"} — a Gemini convention) instead of a
+    // tool_use block. The user then sees raw JSON in chat and nothing
+    // executes (see prompt.md, 2026-07-16). Throw a typed error so
+    // executeCeoOrchestrator retries once against direct Anthropic.
+    if (toolUses.length === 0 && /"tool_code"\s*:/.test(text || '')) {
+      const e = new Error('Model emitted a pseudo tool call as text instead of a native tool_use block (gateway protocol violation)');
+      e.code = 'PROTOCOL_VIOLATION';
+      throw e;
+    }
 
     // Convert Anthropic tool_use blocks to the OpenAI-style shape that
     // orchestrate.js expects: { id, name, arguments (JSON string) }.
@@ -1011,8 +1065,14 @@ async function streamAnthropicWithTools(args) {
   }
 }
 
-async function streamAnthropicWithToolsCore({ systemPrompt, messages, model, tools, toolChoice, maxTokens, onChunk, onToolStart, onToolInputDelta, abortSignal, streamIdleMs, forceMillionContext = false }) {
-  const target = anthropicTarget();
+async function streamAnthropicWithToolsCore({ systemPrompt, messages, model, tools, toolChoice, maxTokens, onChunk, onToolStart, onToolInputDelta, abortSignal, streamIdleMs, forceMillionContext = false, preferDirect = false }) {
+  const baseTarget = anthropicTarget();
+  // preferDirect: skip the Mentor gateway for this attempt. Used by the
+  // protocol-violation retry — when the gateway returns 200 but its
+  // backing model ignores the native tool protocol (emits tool calls as
+  // literal text), the only fix is re-running against api.anthropic.com
+  // directly. Only meaningful when a direct key exists as the fallback.
+  const target = preferDirect && baseTarget.fallback ? baseTarget.fallback : baseTarget;
 
   // Estimate tokens the same way streamAnthropicCore does. Messages here
   // may contain structured tool_use / tool_result blocks — sum their

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, ChevronDown, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2, ExternalLink } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -196,6 +196,19 @@ function extractPlanArtifact(text) {
 }
 
 function extractImagePromptFromText(text) {
+  // Self-healing for gateway protocol violations: a non-Claude backend
+  // behind the LLM gateway can emit the tool call as literal text —
+  // {"tool_code": "generate_image(prompt='...')"} — instead of a native
+  // tool call (see prompt.md, 2026-07-16). Parse the prompt out so the
+  // zero-toolcall fallback below still fires the image generation. The
+  // backend also retries such turns against direct Anthropic; this is the
+  // last line of defense if a pseudo call slips through anyway.
+  const pseudo = text.match(/\{\s*"tool_code"\s*:\s*"generate_image\(prompt='([\s\S]+?)'\)"\s*\}/);
+  if (pseudo?.[1]) {
+    console.warn('[Content] Pseudo tool-call text detected — recovering the image prompt from it');
+    return pseudo[1].replace(/\\'/g, "'").replace(/\\"/g, '"').trim();
+  }
+
   // Look for common patterns: "Image Description:", "Image Concept:", "Thumbnail Concept:", markdown image blocks, etc.
   const patterns = [
     /(?:image\s*(?:description|concept|prompt|idea)[\s:]*(?:for\s*generation)?[\s:]*)\n*([\s\S]{30,500}?)(?:\n\n|\n(?:##|---|Feel free|Let me know|Caption|Script|Post|Here))/i,
@@ -310,53 +323,11 @@ async function streamContentResponse(messages, _systemPrompt, onTextChunk, onToo
 // render but still vary between posts.
 
 function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform = 'instagram' }) {
+  const navigate = useNavigate();
   const [downloading, setDownloading] = useState(false);
-  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
-  const [downloadMenuPos, setDownloadMenuPos] = useState({ left: 0, top: 0 });
-  const downloadBtnRef = useRef(null);
-  const downloadMenuRef = useRef(null);
   const [showTip, setShowTip] = useState(() => {
     try { return localStorage.getItem('aiceo.carouselEditTipDismissed') !== '1'; } catch { return true; }
   });
-
-  // Toolbar containers use overflow-x: auto (li-toolbar-row / content-ig-toolbar)
-  // which clips both axes, so an absolute-positioned dropdown gets hidden.
-  // Position fixed relative to the button's viewport rect instead, and flip
-  // upward when there's not enough room below.
-  const openDownloadMenu = () => {
-    const btn = downloadBtnRef.current;
-    if (!btn) { setDownloadMenuOpen(true); return; }
-    const rect = btn.getBoundingClientRect();
-    const MENU_H = 140; // approximate — two items with subtitles
-    const MENU_W = 260;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const top = spaceBelow > MENU_H + 16 ? rect.bottom + 6 : rect.top - MENU_H - 6;
-    // Keep the menu on-screen horizontally too.
-    const maxLeft = window.innerWidth - MENU_W - 8;
-    const left = Math.max(8, Math.min(rect.left, maxLeft));
-    setDownloadMenuPos({ left, top });
-    setDownloadMenuOpen(true);
-  };
-
-  // Close download menu when clicking outside, or when the toolbar scrolls /
-  // window resizes (position would go stale — cheaper to close than track).
-  useEffect(() => {
-    if (!downloadMenuOpen) return;
-    const onDoc = (e) => {
-      const inMenu = downloadMenuRef.current && downloadMenuRef.current.contains(e.target);
-      const inBtn = downloadBtnRef.current && downloadBtnRef.current.contains(e.target);
-      if (!inMenu && !inBtn) setDownloadMenuOpen(false);
-    };
-    const close = () => setDownloadMenuOpen(false);
-    document.addEventListener('mousedown', onDoc);
-    window.addEventListener('resize', close);
-    window.addEventListener('scroll', close, true); // capture so nested scrolls close it too
-    return () => {
-      document.removeEventListener('mousedown', onDoc);
-      window.removeEventListener('resize', close);
-      window.removeEventListener('scroll', close, true);
-    };
-  }, [downloadMenuOpen]);
   const dismissTip = () => {
     setShowTip(false);
     try { localStorage.setItem('aiceo.carouselEditTipDismissed', '1'); } catch {}
@@ -498,10 +469,34 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
       doc.save(`carousel-${ts}.pdf`);
     } catch (err) {
       console.error('PDF download failed:', err);
-      alert(err.message || 'PDF export failed. Try the ZIP option instead.');
+      alert(err.message || 'PDF export failed. Try again.');
     } finally {
       setDownloading(false);
     }
+  };
+
+  // ONE download format per platform:
+  //   LinkedIn  → always PDF (LinkedIn document-carousel native format)
+  //   Instagram → single image file for one slide, ZIP for carousels
+  const slidesWithSrc = images.filter(i => i?.src);
+  const downloadLabel = platform === 'linkedin'
+    ? 'Download PDF'
+    : (slidesWithSrc.length > 1 ? 'Download ZIP' : 'Download');
+  const handleDownload = () => {
+    if (downloading) return;
+    if (platform === 'linkedin') { downloadPdf(); return; }
+    if (slidesWithSrc.length === 1) {
+      // Single image: direct download — no archive wrapping needed.
+      const img = slidesWithSrc[0];
+      const a = document.createElement('a');
+      a.href = img.src;
+      a.download = `${platform}-image.${img.src.startsWith('data:image/png') ? 'png' : 'jpg'}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    }
+    downloadZip();
   };
 
   // ── Schedule to Content Calendar ──
@@ -675,43 +670,20 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
   // toolbar row (LinkedInPreview / IG panel). No wrapper div.
   return (
     <>
+      {/* Download — ONE button, one format per platform. LinkedIn is
+          always PDF (its document-carousel native format); Instagram
+          gets the raw image for a single slide or a ZIP for carousels. */}
       <button
-        ref={downloadBtnRef}
         type="button"
         className="li-toolbar-btn"
-        onClick={() => downloadMenuOpen ? setDownloadMenuOpen(false) : openDownloadMenu()}
+        onClick={handleDownload}
         disabled={downloading}
-        title={`Download all ${images.length} slides`}
+        title={platform === 'linkedin'
+          ? 'Download as PDF'
+          : (images.filter(i => i?.src).length > 1 ? `Download all ${images.length} slides as images (ZIP)` : 'Download image')}
       >
-        <Download size={14} /> {downloading ? 'Packing…' : 'Download'} <ChevronDown size={12} />
+        <Download size={14} /> {downloading ? 'Packing…' : downloadLabel}
       </button>
-      {downloadMenuOpen && (
-        <div
-          ref={downloadMenuRef}
-          className="content-carousel-download-menu"
-          role="menu"
-          style={{ position: 'fixed', left: downloadMenuPos.left, top: downloadMenuPos.top }}
-        >
-          <button
-            type="button"
-            className="content-carousel-download-menu-item"
-            onClick={() => { setDownloadMenuOpen(false); downloadZip(); }}
-            role="menuitem"
-          >
-            <div className="content-carousel-download-menu-item-title">Images (ZIP)</div>
-            <div className="content-carousel-download-menu-item-sub">All {images.length} slides as separate PNG / JPG files, plus caption.txt</div>
-          </button>
-          <button
-            type="button"
-            className="content-carousel-download-menu-item"
-            onClick={() => { setDownloadMenuOpen(false); downloadPdf(); }}
-            role="menuitem"
-          >
-            <div className="content-carousel-download-menu-item-title">PDF</div>
-            <div className="content-carousel-download-menu-item-sub">One multi-page PDF, one slide per page — good for sharing or printing</div>
-          </button>
-        </div>
-      )}
       <button type="button" className="li-toolbar-btn" onClick={() => setScheduleOpen(true)} disabled={scheduling} title="Send to content calendar — draft, schedule, or publish now">
         <CalendarDays size={14} />
         {scheduleStatus === 'published' ? 'Published' : scheduleStatus === 'saved' ? 'Saved' : (scheduling ? 'Saving…' : 'Schedule')}
@@ -1431,12 +1403,20 @@ export default function Content() {
           streamedContent = text;
           // Strip any JSON question block from display  -  show only the natural text before it
           let displayText = text;
-          const jsonStart = text.indexOf('{"type"');
-          const jsonStart2 = text.indexOf('{ "type"');
-          const fenceStart = text.indexOf('```json');
-          const fenceStart2 = text.indexOf('```\n{');
-          const cutIdx = [jsonStart, jsonStart2, fenceStart, fenceStart2].filter(i => i !== -1).sort((a, b) => a - b)[0];
-          if (cutIdx !== undefined) displayText = text.slice(0, cutIdx).trim();
+          // Pseudo tool-call hygiene (gateway protocol violation): never
+          // show raw {"tool_code": "generate_image(...)"} JSON in chat —
+          // remove the object but KEEP any caption text around it (the
+          // model often writes the caption after the pseudo call).
+          displayText = displayText.replace(/\{\s*"tool_code"\s*:\s*"[\s\S]*?"\s*\}\s*/g, '').trim();
+          // A pseudo call still mid-stream (no closing brace yet) — cut at
+          // its opening so the JSON never flashes while streaming.
+          const jsonStart = displayText.indexOf('{"type"');
+          const jsonStart2 = displayText.indexOf('{ "type"');
+          const fenceStart = displayText.indexOf('```json');
+          const fenceStart2 = displayText.indexOf('```\n{');
+          const pseudoStart = displayText.indexOf('{"tool_code"');
+          const cutIdx = [jsonStart, jsonStart2, fenceStart, fenceStart2, pseudoStart].filter(i => i !== -1).sort((a, b) => a - b)[0];
+          if (cutIdx !== undefined) displayText = displayText.slice(0, cutIdx).trim();
           // Strip <<READY_A>> / <<READY_B>> / <<READY_CAROUSEL>> markers from LinkedIn chat display
           displayText = displayText.replace(/<<READY_(?:[AB]|CAROUSEL)>>/g, '').trim();
           // Strip LinkedIn EDIT MODE markers AND any instruction line that
@@ -1965,7 +1945,7 @@ export default function Content() {
   // giving up. Returns the result on success, or throws the last error.
   const generateSlideWithRetry = useCallback(async (slideIndex, slidePrompt, brandImageData, refImages, { maxAttempts = 3, platform = 'instagram' } = {}) => {
     // Backend routes LinkedIn carousels to a separate config (3:4 portrait)
-    // without disturbing single LinkedIn text-post images (4:3 landscape).
+    // without disturbing single LinkedIn text-post images (3:4 portrait).
     const backendPlatform = platform === 'linkedin' ? 'linkedin_carousel' : platform;
     let lastErr;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -2698,7 +2678,7 @@ export default function Content() {
     if (!livePreview || liGeneratingImage) return;
     setLiGeneratingImage(true);
     try {
-      const imgPrompt = `Professional LinkedIn post image. Clean, minimal design with authority. 4:3 landscape ratio. The image should complement this LinkedIn post: "${(postText || '').slice(0, 200)}". Use brand colors if available. Bold headline text, professional photography or clean graphic design. No cartoons, no clip-art.`;
+      const imgPrompt = `Professional LinkedIn post image. Clean, minimal design with authority. 3:4 portrait ratio. The image should complement this LinkedIn post: "${(postText || '').slice(0, 200)}". Use brand colors if available. Bold headline text, professional photography or clean graphic design. No cartoons, no clip-art.`;
       const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
       const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
       const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
@@ -3753,10 +3733,16 @@ export default function Content() {
         <div className="content-main-chat">
         {/* Platform Pill Selector */}
         <div className="content-top-bar">
-          <button className="content-prev-convos" title="Previous conversations" onClick={() => setShowSessions((v) => { if (!v) setSidebarOpen(false); return !v; })}>
-            <History size={18} className="content-prev-convos-icon" />
-            <span className="content-prev-convos-label">Previous conversations</span>
-          </button>
+          <div className="content-topbtns">
+            <button className="content-prev-convos" title="Chat history" onClick={() => setShowSessions((v) => { if (!v) setSidebarOpen(false); return !v; })}>
+              <History size={18} className="content-prev-convos-icon" />
+              <span className="content-prev-convos-label">Chat history</span>
+            </button>
+            <button className="content-new-chat" onClick={newConversation} title="New chat">
+              <Plus size={18} />
+              <span className="content-new-chat-label">New chat</span>
+            </button>
+          </div>
           <div className="content-pill-bar">
             <div className="content-pill">
               <div
@@ -3783,10 +3769,7 @@ export default function Content() {
             <div className="content-sessions-backdrop" onClick={() => setShowSessions(false)} />
             <div className="content-sessions-panel">
               <div className="content-sessions-header">
-                <span>Conversations</span>
-                <button className="content-sessions-new" onClick={newConversation} title="New conversation">
-                  <Plus size={16} /> New
-                </button>
+                <span>Chat history</span>
               </div>
               <div className="content-sessions-list">
                 {sessions.length === 0 && (
