@@ -85,6 +85,8 @@ export default function Settings() {
   const [brandColors, setBrandColors] = useState({ primary: '', text: '', secondary: '' });
   const [mainFont, setMainFont] = useState('');
   const [secondaryFont, setSecondaryFont] = useState('');
+  const [customFonts, setCustomFonts] = useState([]);
+  const [uploadingFont, setUploadingFont] = useState(false);
   const [logos, setLogos] = useState([]);
   const [brandDnaPulse, setBrandDnaPulse] = useState(false);
   const [brandDnaList, setBrandDnaList] = useState([]);
@@ -175,6 +177,7 @@ export default function Settings() {
       : { primary: '', text: '', secondary: '' });
     setMainFont(data.main_font || '');
     setSecondaryFont(data.secondary_font || '');
+    setCustomFonts(Array.isArray(data.custom_fonts) ? data.custom_fonts : []);
     if (data.documents && Object.keys(data.documents).length) {
       const docs = {};
       for (const [key, val] of Object.entries(data.documents)) {
@@ -251,6 +254,7 @@ export default function Settings() {
         colors: brandColors,
         main_font: mainFont || null,
         secondary_font: secondaryFont || null,
+        custom_fonts: customFonts,
         documents: Object.fromEntries(
           Object.entries(documents)
             .filter(([, v]) => v && (v.url || v.extractedText))
@@ -263,7 +267,7 @@ export default function Settings() {
       setBrandDnaList(prev => prev.map(b => b.id === activeBrandDnaId ? { ...b, ...updatePayload } : b));
     }, 1000);
     return () => clearTimeout(saveTimer.current);
-  }, [brandDnaCreated, activeBrandDnaId, photos, logos, documents, brandColors, mainFont, secondaryFont]);
+  }, [brandDnaCreated, activeBrandDnaId, photos, logos, documents, brandColors, mainFont, secondaryFont, customFonts]);
 
   // Brand Brain iframe message handler
   useEffect(() => {
@@ -414,24 +418,63 @@ export default function Settings() {
     'invoice.payment_failed',
   ];
 
-  // Brand Brain — download the saved workbook as a .txt file. Uses the
+  // Brand Brain — download the saved workbook as a PDF. Uses the
   // extractedText that the in-iframe Save flow already produces; falls
   // back to a JSON dump of rawData if extractedText is missing.
-  const handleBrandBrainDownload = () => {
+  // jsPDF is loaded lazily (same pattern as the carousel PDF download)
+  // so Settings doesn't pay the bundle cost up front.
+  const handleBrandBrainDownload = async () => {
     const bb = documents.brandBrain;
     if (!bb) return;
     const content = bb.extractedText
       || (bb.rawData ? JSON.stringify(bb.rawData, null, 2) : '');
     if (!content) return;
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `brand-brain-${new Date().toISOString().slice(0, 10)}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 48;
+      const maxWidth = pageWidth - margin * 2;
+      const lineHeight = 14;
+
+      // Title header on the first page.
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(16);
+      pdf.text('Brand Brain', margin, margin);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.setTextColor(120);
+      pdf.text(new Date().toLocaleDateString(), margin, margin + 16);
+      pdf.setTextColor(0);
+      pdf.setFontSize(10);
+
+      let y = margin + 40;
+      // splitTextToSize wraps to the printable width; blank lines are
+      // preserved so the workbook's section spacing survives.
+      const lines = pdf.splitTextToSize(content.replace(/\r\n/g, '\n'), maxWidth);
+      for (const line of lines) {
+        if (y > pageHeight - margin) {
+          pdf.addPage();
+          y = margin;
+        }
+        pdf.text(line, margin, y);
+        y += lineHeight;
+      }
+      pdf.save(`brand-brain-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (err) {
+      console.error('[brand-brain] PDF download failed, falling back to .txt:', err);
+      // Fallback: never leave the user with nothing — ship the .txt.
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `brand-brain-${new Date().toISOString().slice(0, 10)}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   };
 
   const handleStripeConnect = async () => {
@@ -636,6 +679,42 @@ export default function Settings() {
 
   const setDefaultLogo = (index) => {
     setLogos(prev => prev.map((l, i) => ({ ...l, isDefault: i === index })));
+  };
+
+  // Custom font upload — reuses the Brand DNA upload endpoint, which
+  // routes .woff2/.woff/.ttf/.otf files to the brand-fonts bucket.
+  const handleFontUpload = async (files) => {
+    if (!files?.length || uploadingFont) return;
+    setUploadingFont(true);
+    try {
+      const result = await uploadBrandDnaFiles(files);
+      const uploaded = (result.files || []).filter(f => f.type === 'font');
+      if (uploaded.length === 0) throw new Error('Font upload failed');
+      setCustomFonts(prev => {
+        const next = [...prev];
+        for (const f of uploaded) {
+          // Display name from the filename: strip extension, prettify
+          // separators ("My-Brand_Font.woff2" → "My Brand Font").
+          const name = f.filename.replace(/\.(woff2?|ttf|otf)$/i, '').replace(/[-_]+/g, ' ').trim() || 'Custom font';
+          if (next.some(x => x.url === f.url || x.name === name)) continue;
+          next.push({ name, url: f.url, path: f.path, format: f.format });
+        }
+        return next;
+      });
+    } catch (err) {
+      console.error('Font upload failed:', err);
+      alert(err.message || 'Font upload failed. Use a .woff2, .woff, .ttf, or .otf file.');
+    } finally {
+      setUploadingFont(false);
+    }
+  };
+
+  const removeCustomFont = (font) => {
+    setCustomFonts(prev => prev.filter(f => f.url !== font.url));
+    // If the deleted font was selected, clear the selection so content
+    // generation doesn't reference a font that no longer exists.
+    if (mainFont === font.name) setMainFont('');
+    if (secondaryFont === font.name) setSecondaryFont('');
   };
 
   const renameLogo = (index, name) => {
@@ -1233,7 +1312,7 @@ export default function Settings() {
                     <button
                       className="settings-btn settings-btn--secondary"
                       onClick={handleBrandBrainDownload}
-                      title="Download as .txt"
+                      title="Download as PDF"
                     >
                       <Download size={14} />
                       Download
@@ -1315,6 +1394,10 @@ export default function Settings() {
                 secondaryFont={secondaryFont}
                 onMainChange={setMainFont}
                 onSecondaryChange={setSecondaryFont}
+                customFonts={customFonts}
+                onUploadFont={handleFontUpload}
+                onDeleteFont={removeCustomFont}
+                uploadingFont={uploadingFont}
               />
             </div>
           </div>

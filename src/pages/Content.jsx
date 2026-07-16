@@ -1383,6 +1383,32 @@ export default function Content() {
       // removed; the backend echoes it as a [prompt] console group).
       const existingPost = linkedinPreviewRef.current;
 
+      // Cross-platform content reuse (founder request 2026-07-16): ship
+      // the TEXT of recently generated posts — any platform — so e.g.
+      // Instagram can repurpose the LinkedIn post's actual wording after
+      // a pill switch. TEXT ONLY, by design: no artifact state travels
+      // with it, so it can never trigger the other platform's edit-mode
+      // or preview machinery. Most recent 4 items.
+      const recentContent = chatHistory
+        .filter((m) => m.role === 'assistant')
+        .flatMap((m) => {
+          if (m.carouselPlan?.slides?.length) {
+            const text = [
+              m.carouselPlan.hook ? `Hook: ${String(m.carouselPlan.hook).replace(/\{\{\/?accent\}\}/g, '')}` : '',
+              m.carouselPlan.caption ? `Caption: ${m.carouselPlan.caption}` : '',
+            ].filter(Boolean).join('\n');
+            return text ? [{ platform: m.platform || 'instagram', kind: 'carousel', text: text.slice(0, 2000) }] : [];
+          }
+          if (m.linkedinPost?.content) {
+            return [{ platform: 'linkedin', kind: m.linkedinPost.totalSlides > 0 ? 'carousel caption' : 'text post', text: m.linkedinPost.content.slice(0, 2000) }];
+          }
+          if ((m.images?.length || 0) > 0 && m.content) {
+            return [{ platform: m.platform || selectedPlatform, kind: 'image post caption', text: m.content.slice(0, 1200) }];
+          }
+          return [];
+        })
+        .slice(-4);
+
       console.group('📋 Content AI  -  Context being sent');
       console.log('Platform:', activePlatform.name);
       console.log('Photos:', photos.length, photos.map(p => ({ status: p.status, name: p.file?.name || p.result?.filename })));
@@ -1572,6 +1598,7 @@ export default function Content() {
               carouselTemplates: selectedTemplatesData,
               existingPost,
               userName: user?.name || null,
+              recentContent,
             },
           },
         },

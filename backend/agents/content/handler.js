@@ -73,6 +73,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
     carouselTemplates = [],
     existingPost = null,
     userName = null,
+    recentContent = [],
   } = contentContext;
 
   console.log(`[content-orchestrate] intent=${intent} platform=${platform?.id} planMode=${planMode} userId=${userId} msgCount=${messages?.length}`);
@@ -183,10 +184,29 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
   // the same condition).
   const editModeActive = !!(isLinkedin && existingPost?.content && (existingPost.totalSlides || 0) === 0);
 
+  // Cross-platform content reuse: the client ships the TEXT of recently
+  // generated posts (any platform) so the model can repurpose actual
+  // wording after a platform switch ("make an Instagram version of that
+  // LinkedIn post"). Text reference ONLY — hard-fenced from the artifact
+  // and edit-mode machinery, which key off `existingPost`/message state.
+  let recentContentBlock = '';
+  if (Array.isArray(recentContent) && recentContent.length > 0) {
+    recentContentBlock = `\n\n=== PREVIOUSLY GENERATED CONTENT IN THIS CONVERSATION (cross-platform reference) ===\n`
+      + `These posts were already generated in this conversation — possibly for OTHER platforms. When the user references earlier content ("make an Instagram version of that post", "same idea as the LinkedIn post"), reuse the actual wording and ideas below as your source material.\n`
+      + `RULES:\n`
+      + `- Reference text ONLY. These are NOT on-screen artifacts: never enter edit mode for them, never assume they are visible to the user right now.\n`
+      + `- Anything NEW you create still follows the CURRENT platform's format, tone, and tool rules exactly as specified above.\n\n`
+      + recentContent
+          .slice(-4)
+          .map((r, i) => `--- ${i + 1}. [${String(r.platform || 'unknown')}] ${String(r.kind || 'post')} ---\n${String(r.text || '').slice(0, 2000)}`)
+          .join('\n\n');
+  }
+
   const systemPrompt = buildSystemPrompt(
     platform, photos, documents, socialUrls, brandDna,
     integrationContext, carouselTemplates, existingPost, { planMode },
-  ) + buildClaudeChatProtocolAddendum({ planMode, isLinkedin, editModeActive });
+  ) + recentContentBlock
+    + buildClaudeChatProtocolAddendum({ planMode, isLinkedin, editModeActive });
 
   // Plan Mode is text-only in the legacy flow (the plan HTML is the
   // output) — the only tool Claude gets is ask_user for the scoping

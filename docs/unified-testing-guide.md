@@ -383,6 +383,13 @@ preview reappears and "make it shorter" EDITS it (doesn't regenerate);
 approve an IG plan, switch to LinkedIn mid-generation → slides still
 arrive square (IG), not 3:4.
 
+### Round 4 — founder requests (2026-07-16)
+
+| # | Request | Status |
+|---|---|---|
+| 10 | Cross-platform content reuse: after switching platforms, the new platform should see the TEXT of previously generated posts (so IG can repurpose the LinkedIn post's wording) — but without mixing in the artifacts/functionality | **SHIPPED** — every chat turn now carries the text of the last 4 generated items (LinkedIn posts, carousel hooks+captions, IG captions), each tagged with its platform, injected as a clearly-fenced "previously generated content" reference block. Rules baked in: text reference only, never treated as an on-screen artifact, never triggers edit mode, and new output still follows the current platform's rules. **Test:** generate a LinkedIn post → switch to Instagram → "make an Instagram version of that post" → the IG caption should reuse the actual wording/ideas, and the LinkedIn preview/edit behavior should be untouched. |
+| 11 | Brand Brain download (Settings → Brand DNA) produces .txt — should be PDF | **SHIPPED** — the download button now produces a paginated PDF (title header + date, wrapped text, A4). If PDF generation ever fails it falls back to .txt rather than downloading nothing. **Test:** Settings → Brand DNA → Brand Brain → download button → expect `brand-brain-YYYY-MM-DD.pdf`. |
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you
