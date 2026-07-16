@@ -143,16 +143,42 @@ function isPromptTooLongError(err) {
 // rejects the call, we automatically retry with the beta header
 // forced on. Belt-and-suspenders so a token-estimate miss can't
 // surface as "Something went wrong" to the user.
+// ─── Gateway model-substitution guard ───
+//
+// Measured 2026-07-16: the Mentor gateway silently serves Claude requests
+// with a NON-Claude backend when its Claude capacity degrades, and says so
+// in its own response metadata:
+//   message_start → model: "claude-sonnet-4-6 (via gemini-2.5-flash fallback)"
+// Substituted backends ignore the native tool protocol (tool calls as
+// text, prose questions, empty streams) — measured 0/6 tool-correct via a
+// substituted Mentor turn vs 6/6 via real Claude. message_start is the
+// FIRST stream event, so we can reject the response before a single token
+// reaches the user and retry — Mentor first, direct Anthropic only as the
+// per-turn rescue when Mentor twice declares it is not serving Claude.
+function isSubstitutedModel(served, requested) {
+  if (!served) return false;                    // no metadata — can't judge
+  if (served === requested) return false;
+  if (/\bfallback\b|\bvia\b/i.test(served)) return true;
+  return !served.startsWith(requested);         // date-suffixed ids are fine
+}
+
+function gatewaySubstitutionError(served, requested) {
+  const e = new Error(`Gateway substituted the model: requested ${requested}, served "${served}"`);
+  e.code = 'GATEWAY_SUBSTITUTED';
+  e.servedBy = served;
+  return e;
+}
+
 async function streamAnthropic(args) {
   try {
-    return await streamAnthropicCore(args);
+    return await streamAnthropicWithSubstitutionRetry(args);
   } catch (err) {
     if (!isPromptTooLongError(err)) throw err;
     const model = args.model || SONNET_MODEL;
     if (!/sonnet/i.test(model)) throw err; // 1M beta is Sonnet-only as of 2026-06
     console.log('[anthropic] prompt-too-long despite estimate — retrying with 1M context flag forced');
     try {
-      return await streamAnthropicCore({ ...args, forceMillionContext: true });
+      return await streamAnthropicWithSubstitutionRetry({ ...args, forceMillionContext: true });
     } catch (retryErr) {
       // If the retry also fails with prompt-too-long, the prompt
       // genuinely exceeds 1M. Tag the error so the orchestrator can
@@ -168,8 +194,29 @@ async function streamAnthropic(args) {
   }
 }
 
-async function streamAnthropicCore({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs, forceMillionContext = false }) {
-  const target = anthropicTarget();
+// Substitution retry policy shared by every agent stream (newsletter,
+// landing page, …): Mentor once more, then the direct-Anthropic rescue if
+// a direct key exists. Mentor stays the primary route always — direct
+// serves ONLY the turns Mentor itself marks as not-Claude.
+async function streamAnthropicWithSubstitutionRetry(args) {
+  try {
+    return await streamAnthropicCore(args);
+  } catch (err) {
+    if (err?.code !== 'GATEWAY_SUBSTITUTED') throw err;
+    console.warn(`[anthropic] ${err.message} — retrying via Mentor once`);
+    try {
+      return await streamAnthropicCore(args);
+    } catch (err2) {
+      if (err2?.code !== 'GATEWAY_SUBSTITUTED' || !anthropicTarget().fallback) throw err2;
+      console.warn(`[anthropic] Mentor still substituting (${err2.servedBy}) — rescuing this turn via direct Anthropic`);
+      return await streamAnthropicCore({ ...args, preferDirect: true });
+    }
+  }
+}
+
+async function streamAnthropicCore({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs, forceMillionContext = false, preferDirect = false }) {
+  const baseTarget = anthropicTarget();
+  const target = preferDirect && baseTarget.fallback ? baseTarget.fallback : baseTarget;
 
   // Convert to Anthropic format (separate system from user/assistant)
   const anthropicMessages = messages
@@ -261,6 +308,12 @@ async function streamAnthropicCore({ systemPrompt, messages, model, maxTokens, o
 
       try {
         const parsed = JSON.parse(data);
+        // Reject gateway-substituted responses before any content flows —
+        // message_start is the first event and carries the served model.
+        if (parsed.type === 'message_start' && isSubstitutedModel(parsed.message?.model, model || SONNET_MODEL)) {
+          try { controller.abort(); } catch { /* already closed */ }
+          throw gatewaySubstitutionError(parsed.message.model, model || SONNET_MODEL);
+        }
         if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
           fullContent += parsed.delta.text;
           if (onChunk) onChunk(fullContent);
@@ -268,7 +321,8 @@ async function streamAnthropicCore({ systemPrompt, messages, model, maxTokens, o
         if (parsed.type === 'error') {
           console.error('[base-agent] Anthropic stream error:', JSON.stringify(parsed));
         }
-      } catch {
+      } catch (e) {
+        if (e?.code === 'GATEWAY_SUBSTITUTED') throw e;
         // skip malformed chunks
       }
     }
@@ -566,7 +620,8 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
 // Used for file-based editing  -  Claude calls replace_text/replace_section tools
 // Routes via Mentor's /v1/messages passthrough when configured (tools preserved).
 export async function executeAnthropicWithTools({ systemPrompt, messages, tools, maxTokens, onToolCall, onText, abortSignal }) {
-  const target = anthropicTarget();
+  let target = anthropicTarget();
+  let substitutionRetries = 0;
 
   let conversationMessages = messages
     .filter(m => m.role === 'user' || m.role === 'assistant')
@@ -623,6 +678,25 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
     }
 
     const response = await res.json();
+
+    // Reject gateway-substituted responses (non-streaming: the top-level
+    // model field carries the served model). Substituted backends dump
+    // the whole edited HTML as a text block instead of calling
+    // replace_text. Retry Mentor once, then rescue via direct Anthropic.
+    if (isSubstitutedModel(response.model, SONNET_MODEL)) {
+      substitutionRetries++;
+      if (substitutionRetries === 1) {
+        console.warn(`[edit] Gateway substituted the model (${response.model}) — retrying via Mentor once`);
+        continue;
+      }
+      if (substitutionRetries === 2 && target.fallback) {
+        console.warn(`[edit] Mentor still substituting (${response.model}) — rescuing this edit via direct Anthropic`);
+        target = target.fallback;
+        continue;
+      }
+      throw gatewaySubstitutionError(response.model, SONNET_MODEL);
+    }
+
     const { content, stop_reason } = response;
 
     // Process content blocks
@@ -720,8 +794,8 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
     // and clean chat text either way. The frontend's cumulative
     // text_delta contract means the fresh stream cleanly replaces
     // whatever partial text the bad attempt displayed.
-    if (err?.code === 'PROTOCOL_VIOLATION') {
-      console.warn('[ceo] Protocol violation (tool call as text) — retrying once via same route, salvage armed');
+    if (err?.code === 'PROTOCOL_VIOLATION' || err?.code === 'GATEWAY_SUBSTITUTED') {
+      console.warn(`[ceo] ${err.code === 'GATEWAY_SUBSTITUTED' ? `Gateway substituted the model (${err.servedBy})` : 'Protocol violation (tool call as text)'} — retrying once via Mentor, salvage armed`);
       try {
         return await executeCeoOrchestratorClaude({
           systemPrompt,
@@ -740,7 +814,35 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
       } catch (retryErr) {
         if (retryErr?.name === 'AbortError' || abortSignal?.aborted) throw retryErr;
         if (retryErr?.code === 'CONTEXT_EXCEEDED') throw retryErr;
-        console.warn(`[ceo] Retry also failed (${retryErr?.message?.slice(0, 150) || retryErr}) — falling back to Grok`);
+        // Mentor twice declared it isn't serving Claude — rescue THIS
+        // turn via direct Anthropic (real Claude honors the native tool
+        // protocol; measured 6/6 vs Mentor-fallback 0/6). Mentor remains
+        // the primary route for every new turn.
+        if (retryErr?.code === 'GATEWAY_SUBSTITUTED' && process.env.ANTHROPIC_API_KEY) {
+          console.warn(`[ceo] Mentor still substituting (${retryErr.servedBy}) — rescuing this turn via direct Anthropic`);
+          try {
+            return await executeCeoOrchestratorClaude({
+              systemPrompt,
+              messages,
+              tools,
+              toolChoice,
+              onChunk,
+              onToolCalls,
+              onToolStart,
+              onToolInputDelta,
+              abortSignal,
+              planMode,
+              streamIdleMs: ceoStreamIdleMs,
+              preferDirect: true,
+            });
+          } catch (directErr) {
+            if (directErr?.name === 'AbortError' || abortSignal?.aborted) throw directErr;
+            if (directErr?.code === 'CONTEXT_EXCEEDED') throw directErr;
+            console.warn(`[ceo] Direct rescue also failed (${directErr?.message?.slice(0, 150) || directErr}) — falling back to Grok`);
+          }
+        } else {
+          console.warn(`[ceo] Retry also failed (${retryErr?.message?.slice(0, 150) || retryErr}) — falling back to Grok`);
+        }
       }
     } else {
       console.warn(`[ceo] Claude failed (${err?.message?.slice(0, 200) || err}), falling back to Grok`);
@@ -1431,6 +1533,14 @@ async function streamAnthropicWithToolsCore({ systemPrompt, messages, model, too
 
       try {
         const parsed = JSON.parse(data);
+        // Reject gateway-substituted responses before any content flows —
+        // message_start is the first event and carries the served model.
+        // A substituted backend is what emits tool calls as text (the
+        // protocol violations this file guards against downstream).
+        if (parsed.type === 'message_start' && isSubstitutedModel(parsed.message?.model, model || SONNET_MODEL)) {
+          try { controller.abort(); } catch { /* already closed */ }
+          throw gatewaySubstitutionError(parsed.message.model, model || SONNET_MODEL);
+        }
         // Text chunks: content_block_delta with delta.type === 'text_delta'
         if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
           fullText += parsed.delta.text || '';
@@ -1471,6 +1581,7 @@ async function streamAnthropicWithToolsCore({ systemPrompt, messages, model, too
           throw new Error(parsed.error?.message || 'Anthropic stream error');
         }
       } catch (e) {
+        if (e?.code === 'GATEWAY_SUBSTITUTED') throw e;
         if (e?.message?.startsWith('Anthropic')) throw e;
         // Skip malformed SSE lines.
       }
