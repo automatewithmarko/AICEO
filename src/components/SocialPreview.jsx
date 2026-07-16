@@ -42,6 +42,16 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { X, ChevronLeft, ChevronRight, Pencil, RefreshCw, Maximize2, Download, Heart, MessageCircle, Send, Bookmark, Loader, Check } from 'lucide-react';
 import './SocialPreview.css';
 
+// True when a keydown originated inside a text-entry element — global
+// keyboard-nav listeners must ignore those so arrow keys keep moving the
+// cursor in the chat input / caption editor instead of flipping slides.
+function isTypingTarget(e) {
+  const t = e.target;
+  if (!t) return false;
+  const tag = (t.tagName || '').toLowerCase();
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || !!t.isContentEditable;
+}
+
 // Stable hash + range so the dummy social counts (likes, comments,
 // reposts) stay put for the lifetime of a given message rather than
 // re-rolling on every render.
@@ -128,9 +138,14 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
     setTimeout(() => setCaptionSaved(false), 1500);
   };
 
-  // Keyboard nav + ESC. Scoped to when the panel is open.
+  // Keyboard nav + ESC. Scoped to when the panel is open — and ONLY when
+  // the user isn't typing: this is a global window listener, so without
+  // the guard, arrow keys pressed inside the chat input (or any
+  // input/textarea/contentEditable, e.g. the caption editor) were
+  // hijacked to flip slides instead of moving the cursor.
   useEffect(() => {
     const onKey = (e) => {
+      if (isTypingTarget(e)) return;
       if (e.key === 'Escape' && onClose) { e.preventDefault(); onClose(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); setIdx(i => Math.max(0, i - 1)); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); setIdx(i => Math.min(images.length - 1, i + 1)); }
@@ -560,6 +575,9 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
 export function SlideViewerModal({ image, position, total, onClose, onPrev, onNext, onEdit, onRegenerate, isGenerating }) {
   useEffect(() => {
     const onKey = (e) => {
+      // Don't hijack keys while the user is typing (edit-instruction
+      // inputs inside the viewer, or anything else that took focus).
+      if (isTypingTarget(e)) return;
       if (e.key === 'Escape') { e.preventDefault(); onClose(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); onPrev(); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); onNext(); }

@@ -355,6 +355,34 @@ Phase 5 regression sweep).
 | 7 | **CRITICAL** (prompt.md): model printed `{"tool_code": "generate_image(...)"}` as literal chat text — no image generated, raw JSON visible, model then claimed it had generated the post | **FIXED, 4 layers.** Root cause: Claude requests route through the Mentor gateway first, and some gateway responses come from a non-Claude backend (the `tool_code` JSON shape and "Mental Sandbox" style are Gemini conventions) that ignores our native tools. (1) The backend now detects pseudo tool-call text and automatically retries the turn against api.anthropic.com directly; (2) if one still slips through, the frontend parses the prompt out of the pseudo call and fires the image generation anyway (self-healing); (3) raw `{"tool_code"...}` JSON is stripped from the chat display while keeping the caption around it; (4) prompt-level ban added. **Also new: set `ANTHROPIC_PREFER_DIRECT=true` on Railway to flip routing (direct Anthropic primary, Mentor only as fallback) with no code change — recommended if this recurs.** |
 | 8 | Word-by-word streaming not working on Instagram posts | **Believed same root cause as #7** — the misbehaving gateway backend streams coarsely (the whole caption arrived in one blob in the same broken turn). With the direct-Anthropic retry (and especially with `ANTHROPIC_PREFER_DIRECT=true`), genuine Claude streams finely. Re-test; if IG captions still arrive in one blob on turns that are otherwise healthy, report — that would point at something else. |
 
+### Round 3 — founder report + platform-switching audit (2026-07-16)
+
+| # | Finding | Status |
+|---|---|---|
+| 9 | Arrow keys flip carousel slides even while typing in the chat input | **FIXED** — the slide-nav key listeners are global; they now ignore any keypress that originates in an input/textarea/contentEditable (chat box, caption editor, edit-instruction fields). Applies to the side preview AND the fullscreen slide viewer, in both tabs (shared component). |
+
+**Platform-switching audit (Instagram ↔ LinkedIn in /Content)** — every
+case examined, what was broken, and what was done:
+
+| Case | Verdict | Action |
+|---|---|---|
+| Pending discovery question survives a switch (e.g. IG asks "Single/Carousel/Story?", you switch to LinkedIn, click an option → confusing out-of-context answer sent into the LinkedIn flow) | **WAS BROKEN** | **FIXED** — switching platforms now dismisses the pending question + custom-answer input |
+| Carousel side panel / fullscreen slide viewer stay open showing the old platform's content under the new pill | **WAS BROKEN (cosmetic/confusing)** | **FIXED** — both close on switch |
+| Edit mode dies after a pill round-trip (LinkedIn post on screen → switch to IG → back to LinkedIn → "make it shorter" would REGENERATE instead of editing, because the preview was cleared and edit mode requires an on-screen post) | **WAS BROKEN** | **FIXED** — switching back to LinkedIn auto-restores the most recent LinkedIn post into the preview, so edit mode keeps working |
+| Mid-generation switch (switch pills while a generation is running) | OK by design — the in-flight turn keeps the platform it was sent with (closures), plan cards are stamped with their own platform, and Approve uses the message's platform, not the current pill | No change; keep an eye on it |
+| Approving an IG plan card while the pill is on LinkedIn (or vice versa) | OK — slide generation uses the plan message's own platform stamp | No change |
+| One chat session mixing both platforms' history (the model sees IG discovery/plans in history while generating for LinkedIn) | Acceptable — the system prompt hard-scopes to the active platform ("ONLY creating content for X"), and the question-leak fix above removes the main confusion vector. Sessions save the LAST platform used, so reopening a mixed session lands on the most recent platform | Documented as known behavior; if the model ever gets visibly confused by other-platform history, report it and we'll add a history-filtering pass |
+| Switching to FB / X / TikTok / YouTube | Same code path as IG (image-based flow + platform guidance) — inherits all the fixes above | Covered |
+
+**Re-test recipe for switching:** (1) start an IG carousel until it asks a
+question → switch to LinkedIn → confirm the question disappears and
+LinkedIn chat works normally; (2) generate a LinkedIn post → switch to IG
+→ generate an IG image post → switch back to LinkedIn → confirm the post
+preview reappears and "make it shorter" EDITS it (doesn't regenerate);
+(3) with a carousel open in side view, switch pills → panel closes; (4)
+approve an IG plan, switch to LinkedIn mid-generation → slides still
+arrive square (IG), not 3:4.
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you

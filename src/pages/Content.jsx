@@ -2502,6 +2502,41 @@ export default function Content() {
   }, [photos, documents, socialUrls]);
   const hasPendingAttachments = pendingAttachments.total > 0;
 
+  // Platform pill switch — reset every piece of cross-platform UI state
+  // so nothing from the previous platform's flow leaks into the next one
+  // (platform-switch audit, 2026-07-16):
+  //   - a pending discovery question (clickable options) belonged to the
+  //     OLD platform's flow; answering it after switching sent a
+  //     confusing out-of-context reply into the new platform's chat;
+  //   - the carousel side panel / fullscreen slide viewer showed the old
+  //     platform's content under the new platform's pill;
+  //   - switching BACK to LinkedIn now restores the most recent LinkedIn
+  //     post into the preview, so edit mode ("make it shorter") keeps
+  //     working across pill round-trips instead of silently regenerating
+  //     from scratch (edit mode needs an on-screen post to exist).
+  const switchPlatform = useCallback((pid) => {
+    if (pid === selectedPlatform) return;
+    setSelectedPlatform(pid);
+    setCurrentQuestion(null);
+    setCustomTyping(false);
+    setCustomText('');
+    setCarouselSideView(null);
+    setSlideViewer(null);
+    if (pid === 'linkedin') {
+      const lastLi = [...messages].reverse().find((m) => m.role === 'assistant' && m.linkedinPost?.content);
+      if (lastLi) {
+        setLinkedinPreview({
+          content: lastLi.linkedinPost.content,
+          images: lastLi.images || [],
+          totalSlides: lastLi.linkedinPost.totalSlides || 0,
+          msgId: lastLi.id,
+        });
+        return;
+      }
+    }
+    setLinkedinPreview(null);
+  }, [selectedPlatform, messages]);
+
   const selectOption = useCallback((option) => {
     if (isGenerating || hasPendingAttachments) return;
     setCurrentQuestion(null);
@@ -3753,7 +3788,7 @@ export default function Content() {
                 <button
                   key={p.id}
                   className={`content-pill-btn ${selectedPlatform === p.id ? 'content-pill-btn--active' : ''}`}
-                  onClick={() => { setSelectedPlatform(p.id); setLinkedinPreview(null); }}
+                  onClick={() => switchPlatform(p.id)}
                   title={p.name}
                 >
                   {p.icon}
