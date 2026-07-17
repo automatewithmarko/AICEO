@@ -53,7 +53,7 @@ import {
   SUBMIT_POST_ADDENDUM,
 } from './claude-protocol.js';
 
-export async function handleContentOrchestration({ res, sendSSE, body, userId }) {
+export async function handleContentOrchestration({ res, sendSSE, body, userId, abortSignal = null }) {
   const {
     messages,
     intent = 'chat',
@@ -112,6 +112,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
       // switch — one forced submit_post call and we're done.
       planMode: true,
       searchMode: false,
+      abortSignal,
       // Suppress free text: with a pinned tool there should be none, and
       // anything that does appear is reasoning that must not hit the preview.
       onChunk: () => {},
@@ -164,6 +165,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
       tools: [IMAGE_TOOL],
       planMode: true,
       searchMode: false,
+      abortSignal,
       onChunk: (content) => sendSSE(res, { type: 'text_delta', content }),
       onToolCalls: async (toolCalls) => {
         for (const call of toolCalls) {
@@ -235,6 +237,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
   // the frontend's existing marker/JSON parsers operate on this cumulative
   // text and stay byte-compatible.
   let lastContent = '';
+  let questionEmitted = false;
   const appendToStream = (chunk) => {
     lastContent = lastContent ? `${lastContent}\n\n${chunk}` : chunk;
     sendSSE(res, { type: 'text_delta', content: lastContent });
@@ -251,6 +254,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
     // reproduces that exactly (ask_user also always exits the loop).
     planMode: true,
     searchMode: false,
+    abortSignal,
     onChunk: (content) => {
       lastContent = content;
       sendSSE(res, { type: 'text_delta', content });
@@ -276,7 +280,13 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
         } else if (call.name === 'ask_user') {
           // Translate to the legacy inline-JSON question block that
           // Content.jsx's questionParsed logic renders as clickable options.
-          if (args.question) {
+          // ONLY the first ask_user of the turn: two JSON blocks in one
+          // stream break the frontend's greedy question extractor and the
+          // user would see an empty bubble (robustness audit A6). The
+          // model is instructed one-question-per-turn anyway — dropping a
+          // second violates nothing the user was promised.
+          if (args.question && !questionEmitted) {
+            questionEmitted = true;
             appendToStream(JSON.stringify({
               type: 'question',
               text: args.question,

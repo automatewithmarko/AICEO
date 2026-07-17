@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
 import { requireCredits } from '../middleware/gate.js';
 import { generateImageWithOpenAI, isOpenAIImageConfigured } from '../services/openai-image.js';
-import { deductCredits } from '../services/credits.js';
+import { deductCredits, hasCredits } from '../services/credits.js';
 import { supabase as storageSupabase } from '../services/storage.js';
 import { buildCarouselSlidePrompt } from '../agents/content/carousel-slide-prompt.js';
 
@@ -858,10 +858,12 @@ router.post('/api/generate/carousel', async (req, res) => {
   } catch { /* on read failure, fall through to normal flow */ }
 
   const total = plan.slides.length;
-  const indexes = (Array.isArray(slideIndexes) && slideIndexes.length > 0
+  // Dedupe: duplicate indexes would render (and bill) the same slide
+  // twice (robustness audit B3).
+  const indexes = [...new Set((Array.isArray(slideIndexes) && slideIndexes.length > 0
     ? slideIndexes
     : plan.slides.map((_, i) => i)
-  ).filter((i) => Number.isInteger(i) && i >= 0 && i < total);
+  ).filter((i) => Number.isInteger(i) && i >= 0 && i < total))];
   if (indexes.length === 0) {
     return res.status(400).json({ error: 'no valid slide indexes to generate' });
   }
@@ -876,6 +878,12 @@ router.post('/api/generate/carousel', async (req, res) => {
   res.flushHeaders();
   const send = (event) => { try { res.write(`data: ${JSON.stringify(event)}\n\n`); } catch { /* client gone */ } };
   const heartbeat = setInterval(() => { try { res.write(': heartbeat\n\n'); } catch {} }, 3000);
+
+  // Stop scheduling slides (and stop billing) when the tab closes
+  // mid-generation (robustness audit B2). The in-flight slide finishes;
+  // everything still queued is skipped.
+  let clientGone = false;
+  res.on('close', () => { if (!res.writableEnded) clientGone = true; });
 
   console.log(`[generate/carousel] userId=${userId} platform=${platform} slides=${indexes.join(',')}/${total}`);
   send({ type: 'carousel_start', total, indexes });
@@ -917,17 +925,27 @@ router.post('/api/generate/carousel', async (req, res) => {
 
     let lastErr;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      // Per-attempt credit debit (see route comment). Insufficient credits
-      // aborts the slide immediately — no point retrying a 402.
+      if (clientGone) {
+        const e = new Error('Client disconnected');
+        e.code = 'CLIENT_GONE';
+        throw e;
+      }
+      // Credits policy (docs/credits-policy.md): the user pays for what
+      // they GET — 1 image_generation credit per successfully generated
+      // slide, debited AFTER success. Failed attempts/retries are free.
+      // The pre-attempt check only stops the run once the balance is
+      // empty, so a job can't burn provider spend it can never bill.
       try {
-        await deductCredits(userId, 'image_generation');
-      } catch (err) {
-        if (err.code === 'INSUFFICIENT_CREDITS') {
+        const ok = await hasCredits(userId, 'image_generation');
+        if (!ok) {
           outOfCredits = true;
           const e = new Error('Insufficient credits');
           e.code = 'INSUFFICIENT_CREDITS';
           throw e;
         }
+      } catch (err) {
+        if (err.code === 'INSUFFICIENT_CREDITS') throw err;
+        // Credit-check infrastructure error — don't render unbillable work.
         throw err;
       }
       try {
@@ -950,6 +968,15 @@ router.post('/api/generate/carousel', async (req, res) => {
           filename: `carousel-${String(userId).slice(0, 8)}-${Date.now()}-s${idx + 1}.jpg`,
         });
         if (!up.ok) throw new Error(up.body?.error || 'Slide upload failed');
+        // Debit on success only.
+        try {
+          await deductCredits(userId, 'image_generation');
+        } catch (err) {
+          // Balance raced to zero between check and debit — still deliver
+          // this slide (it's generated), but stop the rest of the run.
+          if (err.code === 'INSUFFICIENT_CREDITS') outOfCredits = true;
+          else console.warn(`[generate/carousel] post-success debit failed: ${err.message}`);
+        }
         return { image: { data: d, mimeType: m }, url: up.body.url };
       } catch (err) {
         lastErr = err;
@@ -985,6 +1012,7 @@ router.post('/api/generate/carousel', async (req, res) => {
     // Phase b: remaining slides with capped concurrency.
     const worker = async () => {
       while (queue.length > 0) {
+        if (clientGone) break; // tab closed — stop scheduling (audit B2)
         const idx = queue.shift();
         if (outOfCredits) {
           failed.push(idx);

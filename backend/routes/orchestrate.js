@@ -13,7 +13,7 @@ import { PLAN_CAROUSEL_TOOL } from '../agents/plan-carousel-tool.js';
 import { COMPOSE_SINGLE_IMAGE_POST_TOOL, PLAN_PLATFORM_FORMATS } from '../agents/content-plan-tool.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
 import { extractFromUrl } from '../services/social.js';
-import { requireCredits } from '../middleware/gate.js';
+import { requireActiveAccount } from '../middleware/gate.js';
 
 const router = Router();
 
@@ -884,7 +884,9 @@ function detectNewArtifactInFlow(messages, currentAgent) {
 
 // ── POST /api/orchestrate ──
 // mode: "ceo" or "direct" (direct handles both generation and editing)
-router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, res) => {
+// Chat messages are FREE (docs/credits-policy.md) — only the disputed-
+// account hold applies. Generation (images/slides) bills separately.
+router.post('/api/orchestrate', requireActiveAccount(), async (req, res) => {
   const userId = req.user?.id;
   const { messages, mode = 'ceo', agent: agentName, searchMode = false, planMode = false, currentHtml, editInstruction, currentAgent, currentTitle = '', currentContentPost, sessionId = null, assistantMsgId = null, userName = null } = req.body;
 
@@ -917,6 +919,13 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
     try { res.write(': heartbeat\n\n'); } catch {}
   }, 3000);
 
+  // If the tab closes mid-stream, abort the upstream LLM call instead of
+  // burning tokens for a client that is gone (robustness audit A1). Same
+  // pattern the plan-item route uses. Carried on context so the four
+  // handleCeoOrchestration call sites don't all need new params.
+  const abortCtl = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) abortCtl.abort(); });
+
   try {
     console.log(`[orchestrate] mode=${mode} agent=${agentName} userId=${userId} hasEdit=${!!editInstruction} hasHtml=${!!currentHtml} msgCount=${messages?.length}`);
     const [context, activeBrief] = await Promise.all([
@@ -929,6 +938,7 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
     // context so the four handleCeoOrchestration call sites don't all
     // need new params.
     context.ceoUserName = userName || null;
+    context.clientAbortSignal = abortCtl.signal;
     console.log(`[orchestrate] Context loaded, brandDna=${!!context.brandDna} brief=${!!activeBrief}`);
 
     if (mode === 'direct') {
@@ -1010,7 +1020,7 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
   } finally {
     clearInterval(heartbeat);
     sendSSE(res, { type: 'done' });
-    res.write('data: [DONE]\n\n');
+    try { res.write('data: [DONE]\n\n'); } catch { /* client gone */ }
     res.end();
   }
 });
@@ -1565,6 +1575,9 @@ RULES:
     toolChoice: ceoToolChoice,
     planMode,
     searchMode: effectiveSearchMode,
+    // Stop paying for upstream tokens when the client tab is gone
+    // (robustness audit A1).
+    abortSignal: context.clientAbortSignal,
     onChunk: (content) => {
       sendSSE(res, { type: 'text_delta', content: visibleStreamText(content) });
     },
@@ -2144,10 +2157,21 @@ router.post('/api/content-orchestrate', async (req, res) => {
     try { res.write(': heartbeat\n\n'); } catch {}
   }, 3000);
 
+  // Abort the upstream LLM call when the tab closes mid-stream
+  // (robustness audit A1) — same pattern as plan-item.
+  const abortCtl = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) abortCtl.abort(); });
+
   try {
-    await handleContentOrchestration({ res, sendSSE, body: req.body, userId });
+    await handleContentOrchestration({ res, sendSSE, body: req.body, userId, abortSignal: abortCtl.signal });
     console.log('[content-orchestrate] Handler completed successfully');
   } catch (err) {
+    if (abortCtl.signal.aborted || err?.name === 'AbortError') {
+      console.log('[content-orchestrate] Client disconnected — upstream call aborted');
+      clearInterval(heartbeat);
+      try { res.end(); } catch { /* already gone */ }
+      return;
+    }
     console.error('[content-orchestrate] Error:', err.message, err.stack);
     const friendlyError =
       err.code === 'CONTEXT_EXCEEDED'
@@ -2157,7 +2181,7 @@ router.post('/api/content-orchestrate', async (req, res) => {
   } finally {
     clearInterval(heartbeat);
     sendSSE(res, { type: 'done' });
-    res.write('data: [DONE]\n\n');
+    try { res.write('data: [DONE]\n\n'); } catch { /* client gone */ }
     res.end();
   }
 });
@@ -2246,9 +2270,11 @@ async function runForcedToolCall({ systemPrompt, messages, tool, toolName, abort
   return null;
 }
 
-router.post('/api/orchestrate/plan-item', requireCredits('ai_ceo_message'), async (req, res) => {
+// Planning is FREE like chat (docs/credits-policy.md) — the billed part
+// is the image/slide generation each piece triggers.
+router.post('/api/orchestrate/plan-item', requireActiveAccount(), async (req, res) => {
   const userId = req.user?.id;
-  const { item, planTitle = '', planContext = '' } = req.body || {};
+  const { item, planTitle = '', planContext = '', userName = null } = req.body || {};
 
   if (!item || typeof item !== 'object') {
     return res.status(400).json({ error: 'item object required' });
@@ -2281,6 +2307,27 @@ router.post('/api/orchestrate/plan-item', requireCredits('ai_ceo_message'), asyn
     const systemPrompt = buildPlanItemSystemPrompt({ context, platform, format });
     const messages = [{ role: 'user', content: buildPlanItemUserMessage({ item, planTitle, planContext }) }];
     const title = `Day ${item.day || '?'} — ${String(item.topic).slice(0, 60)}`;
+
+    // LinkedIn text posts go through the SAME two-phase writer every other
+    // surface uses (unified architecture: fix the writer once, every tab
+    // gets it) — full variation prompts + forced submit_post channel,
+    // instead of the one-line ghostwriter summary this route shipped with.
+    // Variation: story-flavored briefs → B (story-flow), else A
+    // (framework-heavy) — mirrors the interactive CEO's routing criteria.
+    if (format === 'text_post' && platform === 'linkedin') {
+      const briefText = `${item.topic || ''} ${item.hook || ''} ${item.details || ''}`;
+      const variation = /\b(story|journey|personal|nurture|lesson|experience|struggle|transformation)\b/i.test(briefText) ? 'B' : 'A';
+      const postText = await runLinkedInTextPostPass({
+        messages,
+        variation,
+        userName: userName || null,
+        brandDna: context.brandDna,
+        abortSignal: abortCtl.signal,
+      });
+      const content = String(postText || '').trim();
+      if (!content) throw new Error('Empty generation result');
+      return res.json({ kind: 'text', title, platform, format, content });
+    }
 
     if (PLAN_ITEM_TEXT_FORMATS.has(format)) {
       const result = await executeAgent({

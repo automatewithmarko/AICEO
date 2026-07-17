@@ -38,7 +38,7 @@ export function buildCeoUnifiedSocialAddendum() {
 // The writer pass: same prompt builder + forced submit_post channel the
 // /Content Call-2 uses (handler.js), run inline within the CEO's request.
 // Returns the finished post text, or null on failure.
-export async function runLinkedInTextPostPass({ messages, variation = 'A', userName = null, brandDna = null }) {
+export async function runLinkedInTextPostPass({ messages, variation = 'A', userName = null, brandDna = null, abortSignal = null }) {
   const systemPrompt = buildLinkedInPostSystemPrompt({
     variation: variation === 'B' ? 'B' : 'A',
     userName,
@@ -59,6 +59,7 @@ export async function runLinkedInTextPostPass({ messages, variation = 'A', userN
     toolChoice: { function: { name: 'submit_post' } },
     planMode: true,      // exit after the one forced tool round
     searchMode: false,
+    abortSignal,
     onChunk: () => {},   // suppress any free text — reasoning must not leak
     onToolCalls: async (toolCalls) => {
       for (const call of toolCalls) {

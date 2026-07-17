@@ -60,6 +60,7 @@ export async function probePermissions(apiKey) {
   const stripe = makeClient(apiKey);
   const granted = [];
   const missing = [];
+  const unverified = [];
   for (const check of PERMISSION_CHECKS) {
     try {
       await check.run(stripe);
@@ -74,17 +75,20 @@ export async function probePermissions(apiKey) {
         missing.push(check.label);
       } else {
         // Transient/other error — don't block the connect on it, but don't
-        // claim the scope is granted either. Log and continue.
+        // claim the scope is granted either (robustness audit D4: counting
+        // unknown failures as granted resurrects the silent-breakage mode
+        // the probe exists to prevent). Recorded as 'unverified' in the
+        // integration metadata so support can see it.
         console.warn(`[stripe] permission probe "${check.label}" errored (non-permission): ${err.message}`);
-        granted.push(check.label);
+        unverified.push(check.label);
       }
     }
   }
-  return { granted, missing, requiredMissing: missing.filter((m) => PERMISSION_CHECKS.find((c) => c.label === m)?.required) };
+  return { granted, missing, unverified, requiredMissing: missing.filter((m) => PERMISSION_CHECKS.find((c) => c.label === m)?.required) };
 }
 
 export async function validate(apiKey) {
-  const { granted, missing, requiredMissing } = await probePermissions(apiKey);
+  const { granted, missing, unverified, requiredMissing } = await probePermissions(apiKey);
 
   if (requiredMissing.length > 0) {
     const e = new Error(
@@ -106,7 +110,7 @@ export async function validate(apiKey) {
     currency = balance.available?.[0]?.currency || 'usd';
   } catch { /* optional */ }
 
-  return { currency, permissions: { granted, missing } };
+  return { currency, permissions: { granted, missing, unverified } };
 }
 
 // ─── Webhook auto-provisioning ───
@@ -129,9 +133,32 @@ export async function provisionWebhook(apiKey, webhookUrl, { existingSecret = nu
     description: 'AICEO — managed automatically. To change it, use "Repair connection" in AICEO Settings.',
   };
   try {
+    // The per-user path suffix identifies EVERY AICEO endpoint for this
+    // user, regardless of host — used to clean up stale endpoints from
+    // other environments (robustness audit D1: dev + prod share one DB
+    // row, so connecting on a second environment used to leave the first
+    // environment's endpoint orphaned and failing signature checks
+    // forever).
+    let pathSuffix = null;
+    try { pathSuffix = new URL(webhookUrl).pathname; } catch { /* keep null */ }
+
     let existing = null;
+    const staleEndpoints = [];
     for await (const ep of stripe.webhookEndpoints.list({ limit: 100 })) {
-      if (ep.url === webhookUrl) { existing = ep; break; }
+      if (ep.url === webhookUrl) { existing = ep; continue; }
+      if (pathSuffix) {
+        try {
+          if (new URL(ep.url).pathname === pathSuffix) staleEndpoints.push(ep);
+        } catch { /* unparseable URL — not ours */ }
+      }
+    }
+    for (const stale of staleEndpoints) {
+      try {
+        await stripe.webhookEndpoints.del(stale.id);
+        console.log(`[stripe] removed stale AICEO endpoint from another environment: ${stale.url}`);
+      } catch (err) {
+        console.warn(`[stripe] stale endpoint cleanup failed (non-fatal): ${err.message}`);
+      }
     }
     if (existing && existingSecret) {
       await stripe.webhookEndpoints.update(existing.id, {
