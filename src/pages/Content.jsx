@@ -1899,6 +1899,13 @@ export default function Content() {
         } else if (err.message?.includes('402') || err.message?.toLowerCase().includes('credits') || err.message?.toLowerCase().includes('insufficient')) {
           setCreditsDepleted(true);
           setMessages(prev => prev.filter(m => m.id !== assistantMsgId));
+        } else if (/too large to continue|fresh chat|working memory/i.test(err.message || '')) {
+          // CONTEXT_EXCEEDED: the backend already tailored an actionable
+          // message ("start a fresh chat") — show it verbatim instead of
+          // the generic fallback (robustness audit A4).
+          setMessages((prev) => prev.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: err.message } : m
+          ));
         } else {
           setMessages((prev) => prev.map((m) =>
             m.id === assistantMsgId ? { ...m, content: 'Something went wrong. Please try again.' } : m
@@ -2340,6 +2347,8 @@ export default function Content() {
           onSlideDone: (idx, url) => appendImage(url, idx),
           onSlideFailed: (idx, error) => {
             console.error(`[carousel] slide ${idx + 1} failed (server): ${error}`);
+            // Credit exhaustion → paywall, not a dead retry loop (audit B1).
+            if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
             markSlideFailed(idx);
           },
         });
@@ -2473,7 +2482,10 @@ export default function Content() {
           anchorUrl,
         }, {
           onSlideDone: (idx, url) => retrySlideDone(idx, url),
-          onSlideFailed: (idx, error) => retrySlideFailed(idx, error),
+          onSlideFailed: (idx, error) => {
+            if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
+            retrySlideFailed(idx, error);
+          },
         });
       } catch (err) {
         console.error('[carousel] server-side retry failed:', err);

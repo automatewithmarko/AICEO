@@ -2187,6 +2187,9 @@ export default function AiCeo() {
           } : prev),
           onSlideFailed: (idx, error) => {
             console.error(`[AiCeo] carousel slide ${idx + 1} failed (server): ${error}`);
+            // Credit exhaustion is not an ordinary slide failure — surface
+            // the paywall instead of a dead retry loop (audit B1).
+            if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
             setArtifact((prev) => prev ? {
               ...prev,
               pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
@@ -2268,6 +2271,7 @@ export default function AiCeo() {
         } : prev),
         onSlideFailed: (idx, error) => {
           console.error(`[AiCeo] carousel retry slide ${idx + 1} failed (server): ${error}`);
+          if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
           setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
         },
       });
@@ -2361,6 +2365,8 @@ export default function AiCeo() {
             item,
             planTitle: plan.title,
             planContext: serializeContentPlan({ ...plan, itemStates }),
+            // Feeds the shared LinkedIn writer's sign-off server-side.
+            userName: user?.name || null,
           });
 
           const agentSource = item.platform === 'x' ? 'twitter' : item.platform;
@@ -2368,33 +2374,44 @@ export default function AiCeo() {
           let imageFailed = false;
 
           if (resp.kind === 'carousel' && resp.carouselPlan?.slides?.length) {
-            // Pre-approved carousel: same sequential per-slide loop the
-            // interactive approve flow runs, with sub-progress on the card.
+            // Pre-approved carousel: rendered by the UNIFIED server-side
+            // carousel renderer — the exact same POST /api/generate/carousel
+            // the interactive approve flows in BOTH tabs use (per-slide
+            // retries, slide-1 visual anchoring, storage URLs). One
+            // implementation everywhere; fixes ship to every entry point
+            // (robustness audit M2).
             const slides = resp.carouselPlan.slides;
             const slidePlatform = item.platform === 'linkedin' ? 'linkedin' : 'instagram';
-            const backendPlatform = slidePlatform === 'linkedin' ? 'linkedin_carousel' : 'instagram';
             const images = [];
-            for (let s = 0; s < slides.length; s++) {
-              if (token.cancelled || sessionIdRef.current !== runSessionId) break;
-              itemStates[i] = { status: 'running', progress: { done: s, total: slides.length } };
-              updatePlan({});
-              try {
-                const prompt = buildCarouselSlidePrompt({
+            itemStates[i] = { status: 'running', progress: { done: 0, total: slides.length } };
+            updatePlan({});
+            try {
+              await generateCarouselServerSide({
+                platform: slidePlatform,
+                plan: {
+                  hook: resp.carouselPlan.hook,
+                  caption: resp.carouselPlan.caption,
+                  slides,
                   designSystem: resp.carouselPlan.designSystem,
-                  slide: slides[s],
-                  index: s,
-                  total: slides.length,
-                  brand: { name: brandName },
-                  platform: slidePlatform,
-                });
-                const r = await generateImageWithRetry(prompt, backendPlatform, null, null, {});
-                if (r?.image?.data) images.push({ src: `data:${r.image.mimeType};base64,${r.image.data}`, idx: s });
-                else imageFailed = true;
-              } catch (slideErr) {
-                console.error(`[AiCeo] plan carousel slide ${s + 1} failed:`, slideErr?.message);
-                imageFailed = true;
-              }
+                },
+                brand: { name: brandName },
+              }, {
+                onSlideDone: (idx, url) => {
+                  images.push({ src: url, idx });
+                  itemStates[i] = { status: 'running', progress: { done: images.length, total: slides.length } };
+                  updatePlan({});
+                },
+                onSlideFailed: (idx, error) => {
+                  console.error(`[AiCeo] plan carousel slide ${idx + 1} failed (server): ${error}`);
+                  imageFailed = true;
+                  if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
+                },
+              });
+            } catch (carErr) {
+              console.error('[AiCeo] plan carousel generation failed:', carErr?.message);
+              imageFailed = true;
             }
+            images.sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
             art = {
               id: Date.now(),
               type: 'content_post',
