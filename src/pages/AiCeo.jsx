@@ -4,7 +4,7 @@ import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide, generatePlanItem } from '../lib/api';
-import { serializeContentPlan, planPieceLabel, runPlanItems } from '../lib/planRunner';
+import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from '../lib/planRunner';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
 import { getMeetings } from '../lib/meetings-api';
@@ -2264,10 +2264,18 @@ export default function AiCeo() {
   // its own message with an openable artifact chip. A failed item is
   // marked and the run continues; HTTP 402 pauses the run resumably.
   const handleStopPlanRun = useCallback((planMsgId) => {
-    // Cooperative: checked between items and between carousel slides, so
-    // the in-flight piece finishes before the run halts.
     const token = activePlanRunsRef.current.get(planMsgId);
-    if (token) token.cancelled = true;
+    if (!token) return;
+    token.cancelled = true;
+    // Hard-abort the in-flight request so Stop is immediate (founder
+    // finding: cooperative-only cancel felt broken), and reflect
+    // "Stopping…" on the card right away.
+    try { token.abort?.abort(); } catch { /* already aborted */ }
+    setMessages((prev) => prev.map((m) =>
+      m.id === planMsgId && m.contentPlan
+        ? { ...m, contentPlan: { ...m.contentPlan, runState: 'stopping' } }
+        : m
+    ));
   }, []);
 
   const handleGeneratePlanContent = useCallback(async (planMsgId, { retryFailedOnly = false } = {}) => {
@@ -2309,7 +2317,7 @@ export default function AiCeo() {
       ));
     };
 
-    const token = { cancelled: false };
+    const token = makeRunToken();
     activePlanRunsRef.current.set(planMsgId, token);
     setActivePlanRunMsgId(planMsgId);
     updatePlan({ runState: 'running' });
@@ -2339,7 +2347,7 @@ export default function AiCeo() {
           planContext: serializeContentPlan({ ...plan, itemStates }),
           // Feeds the shared LinkedIn writer's sign-off server-side.
           userName: user?.name || null,
-        }),
+        }, token.abort.signal),
         materializePiece: async ({ item, index: i, resp }) => {
           const agentSource = item.platform === 'x' ? 'twitter' : item.platform;
           let art;
@@ -2378,8 +2386,9 @@ export default function AiCeo() {
                   imageFailed = true;
                   if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
                 },
-              });
+              }, token.abort.signal);
             } catch (carErr) {
+              if (carErr?.name === 'AbortError' || token.cancelled) throw carErr;
               console.error('[AiCeo] plan carousel generation failed:', carErr?.message);
               imageFailed = true;
             }

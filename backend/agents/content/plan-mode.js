@@ -10,7 +10,7 @@
 // Edit the planning behavior HERE and both tabs pick it up.
 import { PLAN_PLATFORM_FORMATS } from '../content-plan-tool.js';
 
-const PLATFORM_LABELS = { linkedin: 'LinkedIn', instagram: 'Instagram', x: 'X', youtube: 'YouTube' };
+const PLATFORM_LABELS = { linkedin: 'LinkedIn', instagram: 'Instagram', x: 'X', youtube: 'YouTube', facebook: 'Facebook', tiktok: 'TikTok' };
 
 export function isPlanSupportedPlatform(platformId) {
   return !!PLAN_PLATFORM_FORMATS[String(platformId || '').toLowerCase()];
@@ -30,7 +30,7 @@ export function buildPlanModeDirective({ lockedPlatform = null } = {}) {
 
   const formatsLine = lockedId
     ? `Formats for ${lockedLabel}: ${PLAN_PLATFORM_FORMATS[lockedId].join(' | ')}. Rotate — never more than 2 consecutive items with the same format. Hard-sell CTAs at most 1 in every 3 items.`
-    : `Formats per platform: linkedin → text_post | single_image | carousel. instagram → single_image | carousel | reel_script. x → text_post | single_image. youtube → youtube_script. Rotate — never more than 2 consecutive items with the same format on the same platform. Hard-sell CTAs at most 1 in every 3 items.`;
+    : `Formats per platform: linkedin → text_post | single_image | carousel. instagram → single_image | carousel | reel_script. x → text_post | single_image. youtube → youtube_script. facebook → text_post | single_image. tiktok → reel_script | single_image. Rotate — never more than 2 consecutive items with the same format on the same platform. Hard-sell CTAs at most 1 in every 3 items.`;
 
   return `=== PLAN MODE IS ACTIVE (OVERRIDES EVERY TOOL INSTRUCTION BELOW) ===
 The user wants a multi-day content plan. You already know their brand — Brand DNA, products, sales, calls, and integrated data are all in this prompt. Do NOT interrogate them.

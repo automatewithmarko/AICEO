@@ -1555,6 +1555,15 @@ RULES:
     // Stop paying for upstream tokens when the client tab is gone
     // (robustness audit A1).
     abortSignal: context.clientAbortSignal,
+    // Progress during the silent tool-argument streaming window — big
+    // payloads (content plans, carousel plans) take 15-30s to stream
+    // after the chat text finished, which used to read as "thinking..."
+    // forever (founder finding, prompt.md 2026-07-17).
+    onToolStart: (name) => {
+      if (name === 'create_content_plan') sendSSE(res, { type: 'status', text: 'Building your content plan…' });
+      else if (name === 'plan_carousel') sendSSE(res, { type: 'status', text: 'Building your carousel plan…' });
+      else if (name === 'generate_image') sendSSE(res, { type: 'status', text: 'Preparing your image…' });
+    },
     onChunk: (content) => {
       sendSSE(res, { type: 'text_delta', content: visibleStreamText(content) });
     },
@@ -2181,6 +2190,8 @@ function buildPlanItemSystemPrompt({ context, platform, format }) {
 
   if (format === 'text_post' && platform === 'x') {
     prompt += `\n\n=== DELIVERABLE: X POST ===\nPlain text. If the idea lands in one punchy tweet (under 280 chars), write a single tweet. If it needs depth, write a thread: each tweet numbered "1/", "2/", … on its own block separated by a blank line, 4-8 tweets max, first tweet is the hook. End with the CTA.`;
+  } else if (format === 'text_post' && platform === 'facebook') {
+    prompt += `\n\n=== DELIVERABLE: FACEBOOK POST ===\nPlain text, ready to paste into Facebook. Conversational and story-friendly — Facebook rewards discussion. Hook as the FIRST line (verbatim from the brief), short scannable paragraphs, 80-250 words, end with the CTA (question-style CTAs perform best). No hashtag walls.`;
   } else if (format === 'text_post') {
     prompt += `\n\n=== DELIVERABLE: LINKEDIN TEXT POST ===\nPlain text, ready to paste into LinkedIn. The hook is the FIRST line, verbatim from the brief. Framework-heavy (numbered points, tight single-sentence lines) for educate/sell/engage angles; story-flow (personal narrative, single-line paragraphs, emotional pivot) for nurture angles. 150-300 words. End with the CTA from the brief. No HTML, no markdown headers.`;
   } else if (format === 'reel_script') {

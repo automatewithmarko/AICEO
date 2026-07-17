@@ -10,7 +10,7 @@ import { supabase } from '../lib/supabase';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import CarouselPlanCard from '../components/social-canvas/CarouselPlanCard';
 import ContentPlanMessage from '../components/ContentPlanMessage';
-import { serializeContentPlan, planPieceLabel, runPlanItems } from '../lib/planRunner';
+import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from '../lib/planRunner';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
 import ChatDropOverlay from '../components/ChatDropOverlay';
@@ -876,6 +876,34 @@ export default function Content() {
   const [editingImage, setEditingImage] = useState(null); // { msgId, imgIdx, src }
   const [slideViewer, setSlideViewer] = useState(null); // { msgId, idx } — full-screen slide viewer
   const [carouselSideView, setCarouselSideView] = useState(null); // { msgId } — IG-feed-style side panel preview
+  // Chat/preview split — draggable divider, same pattern as AiCeo's
+  // chat/canvas slider. splitPct = chat column width in %.
+  const [splitPct, setSplitPct] = useState(50);
+  const [splitDragging, setSplitDragging] = useState(false);
+  const splitRef = useRef(null);
+
+  useEffect(() => {
+    if (!splitDragging) return;
+    const handleMove = (e) => {
+      const container = splitRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const x = (e.clientX ?? e.touches?.[0]?.clientX) - rect.left;
+      const pct = (x / rect.width) * 100;
+      setSplitPct(Math.max(25, Math.min(75, pct)));
+    };
+    const handleUp = () => setSplitDragging(false);
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+    document.addEventListener('touchmove', handleMove);
+    document.addEventListener('touchend', handleUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+      document.removeEventListener('touchmove', handleMove);
+      document.removeEventListener('touchend', handleUp);
+    };
+  }, [splitDragging]);
   const [creditsDepleted, setCreditsDepleted] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -2555,7 +2583,16 @@ export default function Content() {
 
   const handleStopPlanRun = useCallback((planMsgId) => {
     const token = activePlanRunsRef.current.get(planMsgId);
-    if (token) token.cancelled = true;
+    if (!token) return;
+    token.cancelled = true;
+    // Hard-abort the in-flight request so Stop is immediate, and show
+    // "Stopping…" on the card right away.
+    try { token.abort?.abort(); } catch { /* already aborted */ }
+    setMessages((prev) => prev.map((m) =>
+      m.id === planMsgId && m.contentPlan
+        ? { ...m, contentPlan: { ...m.contentPlan, runState: 'stopping' } }
+        : m
+    ));
   }, []);
 
   // Open a finished plan piece: carousels/images → side preview panel,
@@ -2614,7 +2651,7 @@ export default function Content() {
       ));
     };
 
-    const token = { cancelled: false };
+    const token = makeRunToken();
     activePlanRunsRef.current.set(planMsgId, token);
     setActivePlanRunMsgId(planMsgId);
     setIsGenerating(true);
@@ -2636,7 +2673,7 @@ export default function Content() {
           planTitle: plan.title,
           planContext: serializeContentPlan({ ...plan, itemStates }),
           userName: user?.name || null,
-        }),
+        }, token.abort.signal),
         materializePiece: async ({ item, index: i, resp }) => {
           const pieceMsgId = `msg-${Date.now()}-plan-${i}`;
           let imageFailed = false;
@@ -2675,8 +2712,9 @@ export default function Content() {
                   imageFailed = true;
                   if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
                 },
-              });
+              }, token.abort.signal);
             } catch (carErr) {
+              if (carErr?.name === 'AbortError' || token.cancelled) throw carErr;
               console.error('[Content] plan carousel failed:', carErr?.message);
               imageFailed = true;
             }
@@ -4003,8 +4041,13 @@ export default function Content() {
         </div>
       </div>
 
-      {/* Main content area */}
-      <div className={`content-main${linkedinPreview || carouselSideView ? ' content-main--split' : ''}`}>
+      {/* Main content area. When split, the chat/preview widths come from
+          the draggable divider via the --content-split CSS variable. */}
+      <div
+        className={`content-main${linkedinPreview || carouselSideView ? ' content-main--split' : ''}${splitDragging ? ' content-main--dragging' : ''}`}
+        ref={splitRef}
+        style={linkedinPreview || carouselSideView ? { '--content-split': `${splitPct}%` } : undefined}
+      >
         <div className="content-main-chat">
         {/* Platform Pill Selector */}
         <div className="content-top-bar">
@@ -4793,6 +4836,17 @@ export default function Content() {
           </div>
         </div>
         </div>
+        {/* Draggable divider between chat and preview — same interaction
+            as the AI CEO chat/canvas slider. */}
+        {(linkedinPreview || carouselSideView) && (
+          <div
+            className="content-divider"
+            onMouseDown={(e) => { e.preventDefault(); setSplitDragging(true); }}
+            onTouchStart={(e) => { e.preventDefault(); setSplitDragging(true); }}
+          >
+            <div className="content-divider-handle" />
+          </div>
+        )}
         {linkedinPreview && (
           <div className="content-main-preview">
             <LinkedInPreview

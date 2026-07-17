@@ -53,7 +53,7 @@ import {
   SUBMIT_POST_ADDENDUM,
 } from './claude-protocol.js';
 import { CREATE_CONTENT_PLAN_TOOL } from '../content-plan-tool.js';
-import { buildPlanModeDirective, isPlanSupportedPlatform } from './plan-mode.js';
+import { buildPlanModeDirective } from './plan-mode.js';
 
 export async function handleContentOrchestration({ res, sendSSE, body, userId, abortSignal = null }) {
   const {
@@ -210,14 +210,11 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
   // (shared directive in plan-mode.js, create_content_plan tool,
   // ContentPlanMessage card, plan-item generation): one implementation,
   // fixes ship to every tab. The /Content platform pill pre-answers the
-  // platform question. Platforms without a plan-format matrix entry
-  // (facebook, tiktok) fall back to the legacy inline-HTML plan flow so
-  // nothing regresses there.
-  const planPlatformSupported = isPlanSupportedPlatform(platform?.id);
-  const unifiedPlanMode = planMode && planPlatformSupported;
-
+  // platform question. The legacy inline-HTML plan flow is RETIRED
+  // (founder direction 2026-07-17) — every platform pill has a
+  // plan-format matrix entry now.
   let systemPrompt;
-  if (unifiedPlanMode) {
+  if (planMode) {
     systemPrompt = buildPlanModeDirective({ lockedPlatform: platform })
       + buildSystemPrompt(
           platform, photos, documents, socialUrls, brandDna,
@@ -227,18 +224,17 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
   } else {
     systemPrompt = buildSystemPrompt(
       platform, photos, documents, socialUrls, brandDna,
-      integrationContext, carouselTemplates, existingPost, { planMode },
+      integrationContext, carouselTemplates, existingPost, { planMode: false },
     ) + recentContentBlock
-      + buildClaudeChatProtocolAddendum({ planMode, isLinkedin, editModeActive });
+      + buildClaudeChatProtocolAddendum({ isLinkedin, editModeActive, planPlatformId: platform?.id });
   }
 
-  // Toolsets: unified plan mode = [ask_user, create_content_plan] (same
-  // restriction as the CEO's plan mode); legacy plan mode = ask_user only
-  // (HTML plan is text output); normal turns = the full protocol toolset.
-  const tools = [CONTENT_ASK_USER_TOOL];
-  if (unifiedPlanMode) {
-    tools.push(CREATE_CONTENT_PLAN_TOOL);
-  } else if (!planMode) {
+  // Toolsets: plan mode = [ask_user, create_content_plan] (same
+  // restriction as the CEO's plan mode). Normal turns get the full
+  // protocol toolset PLUS create_content_plan — a typed "plan my next
+  // 2 weeks" works without the Plan Mode toggle, exactly like AI CEO.
+  const tools = [CONTENT_ASK_USER_TOOL, CREATE_CONTENT_PLAN_TOOL];
+  if (!planMode) {
     tools.push(IMAGE_TOOL, PLAN_CAROUSEL_TOOL);
     if (isLinkedin) {
       tools.push(GENERATE_LINKEDIN_POST_TOOL);
@@ -289,6 +285,8 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
     onToolStart: (name) => {
       if (name === 'plan_carousel') {
         sendSSE(res, { type: 'status', text: 'Building your carousel plan…' });
+      } else if (name === 'create_content_plan') {
+        sendSSE(res, { type: 'status', text: 'Building your content plan…' });
       } else if (name === 'generate_image') {
         sendSSE(res, { type: 'status', text: 'Preparing your image…' });
       }

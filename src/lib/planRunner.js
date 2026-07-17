@@ -13,8 +13,16 @@
 //
 // itemStates entries: { status: 'pending'|'running'|'done'|'failed',
 //                       msgId?, imageFailed?, error?, progress? }
-// token: { cancelled: bool, creditsDepleted?: bool } — cooperative;
-//        checked between items (and by materializePiece between slides).
+// token: { cancelled: bool, abort?: AbortController, creditsDepleted?: bool }
+//   - cancelled: cooperative flag checked between items.
+//   - abort: HARD-cancels the in-flight piece — Stop aborts the running
+//     plan-item / carousel request immediately instead of letting the
+//     current piece finish (founder finding: Stop must FEEL like stop).
+//     An aborted item goes back to 'pending' so Resume picks it up.
+
+export function makeRunToken() {
+  return { cancelled: false, abort: new AbortController() };
+}
 
 export function serializeContentPlan(plan) {
   if (!plan?.items?.length) return '';
@@ -79,7 +87,12 @@ export async function runPlanItems({
       updatePlan({});
     } catch (err) {
       const msg = String(err?.message || err);
-      if (msg.startsWith('HTTP 402')) {
+      if (token.cancelled || err?.name === 'AbortError' || /\baborted?\b/i.test(msg)) {
+        // Hard stop — the in-flight request was aborted. The item goes
+        // back to pending so Resume regenerates it; not a failure.
+        itemStates[i] = { status: 'pending' };
+        token.cancelled = true;
+      } else if (msg.startsWith('HTTP 402')) {
         // Credits ran out — pause resumably instead of failing items.
         console.warn('[planRunner] run paused — credits depleted');
         itemStates[i] = { status: 'pending' };
