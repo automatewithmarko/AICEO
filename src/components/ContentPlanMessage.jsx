@@ -39,7 +39,7 @@ export default function ContentPlanMessage({
 
   // A persisted 'running' state with no live runner means the page was
   // reloaded (or the session switched) mid-run — offer Resume.
-  const effective = plan.runState === 'running' && !isRunActive ? 'interrupted' : (plan.runState || 'idle');
+  const effective = (plan.runState === 'running' || plan.runState === 'stopping') && !isRunActive ? 'interrupted' : (plan.runState || 'idle');
 
   const platformsLabel = (plan.platforms || []).map((p) => PLATFORM_LABELS[p] || p).join(' · ');
 
@@ -128,7 +128,14 @@ export default function ContentPlanMessage({
           </div>
         )}
 
-        {isRunActive && (
+        {isRunActive && plan.runState === 'stopping' && (
+          <div className="cpm-running">
+            <Loader2 size={14} className="cpm-spin" />
+            <span className="cpm-running-text">Stopping&hellip;</span>
+          </div>
+        )}
+
+        {isRunActive && plan.runState !== 'stopping' && (
           <div className="cpm-running">
             <Loader2 size={14} className="cpm-spin" />
             <span className="cpm-running-text">

@@ -431,6 +431,92 @@ are now signature-verified; disconnect cleans up the webhook it created.
 6. **Live sync:** create a product in Stripe → appears in AICEO within
    seconds; archive it in Stripe → disappears.
 
+### Round 6 — unified content planning + robustness fixes (2026-07-17)
+
+**What shipped, in plain words:** Content planning is now ONE system used
+by both tabs. Plan Mode in the Content tab produces the same in-chat plan
+card (day-by-day list + "Generate content" button) the AI CEO has — no
+more old HTML plan page on supported platforms. Under the hood, plan
+pieces generate through the exact same engines as everything else: plan
+LinkedIn posts use the full shared writer now (they'll read like your
+interactive posts), and plan carousels render server-side with retries
+and visual anchoring. Also: chat and planning are now FREE everywhere
+(see docs/credits-policy.md — credits only pay for images/slides), and a
+batch of robustness fixes landed (closing the tab now stops generation
+and billing; running out of credits mid-carousel shows the paywall
+instead of a dead retry loop).
+
+**Test checklist:**
+1. **Content tab Plan Mode (LinkedIn or Instagram pill):** toggle Plan
+   Mode → "plan my next 7 days" → an in-chat plan card appears (day-by-
+   day list, no HTML page, and it must NOT ask which platform — the pill
+   decides). Items only for the pill's platform, formats rotating.
+2. **Generate content from the plan (Content tab):** hit "Generate
+   content" → pieces appear one at a time as normal chat messages —
+   LinkedIn text posts get the summary card + Open Preview, carousels
+   arrive with slides (server-rendered), image posts with caption +
+   image. Stop mid-run → Resume works. Reload mid-run → Resume works.
+3. **Same in AI CEO:** plan → generate → identical behavior (artifact
+   chips there). Plan LinkedIn posts should now read like interactive
+   ones (full writer quality, your sign-off).
+4. **Quality check:** compare a plan-generated LinkedIn post vs an
+   interactive one — same writer, should be indistinguishable.
+5. **Free chat:** verify chat messages and planning no longer deduct
+   credits (balance unchanged after chatting/planning; drops only when
+   images/slides generate).
+6. **Tab-close stop:** start a carousel, close the tab, reopen — the
+   run should NOT have kept billing to completion in the background.
+7. **Credit exhaustion:** (if testable) run credits to zero mid-carousel
+   → paywall appears instead of silent slide failures.
+8. **Facebook/TikTok pills:** Plan Mode there still uses the old HTML
+   plan (intentional fallback — these platforms have no plan formats yet).
+   *(Superseded in Round 7 — Facebook/TikTok now use the unified plan
+   card too; the old HTML plan is fully retired.)*
+
+### Round 7 — your 6 findings from 2026-07-17, fixed
+
+**What shipped, in plain words:** all six things you wrote in prompt.md.
+
+1. **"Thinking..." during plan creation → real status.** While the AI
+   builds a plan you now see "Building your content plan…" instead of
+   the generic thinking dots. Test: ask for a plan in either tab and
+   watch the status line while it works.
+2. **Old HTML content planning removed.** The legacy "styled HTML plan
+   page" (Open in canvas / Download HTML / Copy HTML) is gone from the
+   backend entirely — every platform pill, including Facebook and
+   TikTok, produces the unified in-chat plan card. Old chats that
+   already contain an HTML plan still display it (read-only), and the
+   AI can still generate pieces FROM an old HTML plan if you reference
+   it. Test: Plan Mode on every pill → always the plan card, never the
+   HTML page, never "Which formats do you want" style questions.
+3. **Stop button stops immediately.** Stop now aborts the in-flight
+   request (not just "finish this piece first") and shows a "Stopping…"
+   state the moment you click. The piece being generated goes back to
+   pending so Resume regenerates it cleanly. Test: start a plan run,
+   hit Stop mid-piece → footer flips to "Stopping…" then "Stopped — N
+   of M done", and the interrupted piece is NOT marked done.
+4. **Carousel slides no longer stuck on slide 1.** While a carousel is
+   still rendering, the preview's next/prev arrows now move through ALL
+   planned slides — slides that haven't arrived yet show a "Generating
+   slide N…" placeholder (and if a slide failed after the run, it says
+   so and offers "Retry slide" right there). Test: generate an
+   Instagram carousel, open the preview while it renders, click next
+   repeatedly → you should advance through placeholders, and arrived
+   slides fill in live. Arrow keys still type in chat normally.
+5. **Content tab planning = AI CEO planning, no platform question.**
+   Typed requests like "create a biweekly plan" in the Content tab now
+   go through the same unified system without Plan Mode toggled, and
+   the pill answers the platform question — it must never ask "Which
+   platforms should I plan for?" in the Content tab. Test: type a plan
+   request on the LinkedIn pill without toggling Plan Mode → plan card
+   for LinkedIn only, zero discovery questions.
+6. **Resize slider in Content tab.** The chat/preview split in the
+   Content tab now has the same draggable divider as the AI CEO
+   chat/canvas split. Test: open any post preview (LinkedIn or
+   Instagram) → drag the handle between chat and preview → both panes
+   resize (25%–75% range), on desktop only (mobile preview stays
+   fullscreen).
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you

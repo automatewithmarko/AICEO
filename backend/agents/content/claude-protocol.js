@@ -114,15 +114,10 @@ export const SUBMIT_POST_TOOL = {
 
 // Runtime addendum appended AFTER the verbatim /Content system prompt for
 // the 'chat' intent. Only overrides the delivery MECHANISM.
-export function buildClaudeChatProtocolAddendum({ planMode = false, isLinkedin = false, editModeActive = false } = {}) {
+export function buildClaudeChatProtocolAddendum({ isLinkedin = false, editModeActive = false, planPlatformId = null } = {}) {
   let a = `\n\n=== TOOL PROTOCOL (READ LAST — OVERRIDES THE TEXT-MARKER MECHANICS ABOVE) ===\n`;
   a += `You are running with native tools. Everything above about WHAT to ask, WHEN to ask, question limits, content strategy, quality bars, guardrails, and output rules still applies EXACTLY. Only the delivery MECHANISM changes:\n`;
   a += `1. QUESTIONS: never type a question as plain text and never type the {"type":"question",...} JSON block. Call the ask_user tool instead. The question content, option style, and hard caps follow the rules above.\n`;
-  if (planMode) {
-    a += `2. PLAN OUTPUT: your plan HTML output stays exactly as instructed above — emit it as normal text. Never call any tool other than ask_user.\n`;
-    a += `3. NO META-COMMENTARY: never output planning notes, checklists, "Constraint Checklist", "Mental Sandbox", option analysis, or internal reasoning as text. Your visible text is only what the user should read.\n`;
-    return a;
-  }
   if (isLinkedin) {
     a += `2. LINKEDIN TEXT POSTS: never type <<READY_A>> or <<READY_B>>, and never write the post text yourself. When the flow above says to emit a READY marker, call generate_linkedin_post with variation "A" or "B" instead (same one-sentence commitment text first, then the tool call).\n`;
     if (editModeActive) {
@@ -133,6 +128,7 @@ export function buildClaudeChatProtocolAddendum({ planMode = false, isLinkedin =
   a += `${isLinkedin ? (editModeActive ? '5' : '4') : '3'}. ONE ACTION PER TURN (same turn-taking rule as above): either ONE ask_user call, OR one generation action (generate_linkedin_post, plan_carousel, or a set of generate_image calls), OR pure conversation. Never combine a question with a generation action in the same turn.\n`;
   a += `${isLinkedin ? (editModeActive ? '6' : '5') : '4'}. NO META-COMMENTARY: never output planning notes, checklists, "Constraint Checklist", "Mental Sandbox", option analysis, or internal reasoning as text. Your visible text is only what the user should read in chat.\n`;
   a += `${isLinkedin ? (editModeActive ? '7' : '6') : '5'}. NEVER WRITE A TOOL CALL AS TEXT: no {"tool_code": ...}, no JSON function syntax, no pseudo-code invocations in your reply. If you intend to generate an image or plan a carousel you MUST invoke the actual tool. A tool call typed as text reaches the user as raw JSON and executes nothing — it is the worst possible failure.\n`;
+  a += `${isLinkedin ? (editModeActive ? '8' : '7') : '6'}. MULTI-DAY CONTENT PLANS: when the user asks to plan multiple days/pieces of content ("plan my next 2 weeks", "content calendar for July", "a week of posts"), call the create_content_plan tool — the client renders it as a day-by-day plan card with a "Generate content" button. NEVER write a plan as prose, markdown tables, or HTML. The platform is ALREADY DECIDED by the current tab${planPlatformId ? ` (platforms = ["${planPlatformId}"], every item's platform = "${planPlatformId}")` : ''} — never ask which platform. Ask NO discovery questions for plans: infer timeframe (default 7 days, cap 31), one piece per day, topics from the brand context, formats platform-appropriate and rotating. Do NOT generate the pieces yourself — the user triggers that from the plan card.\n`;
   return a;
 }
 

@@ -18,6 +18,8 @@ export const PLAN_PLATFORM_FORMATS = {
   linkedin: ['text_post', 'single_image', 'carousel'],
   instagram: ['single_image', 'carousel', 'reel_script'],
   x: ['text_post', 'single_image'],
+  facebook: ['text_post', 'single_image'],
+  tiktok: ['reel_script', 'single_image'],
   youtube: ['youtube_script'],
 };
 
@@ -25,7 +27,7 @@ export const CREATE_CONTENT_PLAN_TOOL = {
   type: 'function',
   function: {
     name: 'create_content_plan',
-    description: 'Create a multi-day content plan. The client renders it in the chat as a day-by-day list with a "Generate content" button — NOT in the canvas. Call this for ANY multi-day / multi-piece planning request ("plan my next 14 days of content", "a week of posts", "content calendar for July"). Do NOT call create_artifact for plans. Do NOT run the social-post discovery questions first — the ONLY question allowed before this tool is the single multi-select platform question via ask_user, and ONLY when the user has not named platforms. Formats MUST be platform-appropriate: linkedin -> text_post | single_image | carousel; instagram -> single_image | carousel | reel_script; x -> text_post | single_image; youtube -> youtube_script. Rotate formats — never more than 2 consecutive items with the same format on the same platform. Cap plans at 31 items; for longer requests plan the first month and say so.',
+    description: 'Create a multi-day content plan. The client renders it in the chat as a day-by-day list with a "Generate content" button — NOT in the canvas. Call this for ANY multi-day / multi-piece planning request ("plan my next 14 days of content", "a week of posts", "content calendar for July"). Do NOT call create_artifact for plans. Do NOT run the social-post discovery questions first — the ONLY question allowed before this tool is the single multi-select platform question via ask_user, and ONLY when the user has not named platforms. Formats MUST be platform-appropriate: linkedin -> text_post | single_image | carousel; instagram -> single_image | carousel | reel_script; x -> text_post | single_image; youtube -> youtube_script; facebook -> text_post | single_image; tiktok -> reel_script | single_image. Rotate formats — never more than 2 consecutive items with the same format on the same platform. Cap plans at 31 items; for longer requests plan the first month and say so.',
     parameters: {
       type: 'object',
       properties: {
@@ -39,7 +41,7 @@ export const CREATE_CONTENT_PLAN_TOOL = {
         },
         platforms: {
           type: 'array',
-          items: { type: 'string', enum: ['linkedin', 'youtube', 'instagram', 'x'] },
+          items: { type: 'string', enum: ['linkedin', 'youtube', 'instagram', 'x', 'facebook', 'tiktok'] },
           description: 'The platforms this plan covers, from the user request or their platform-question answer. "All platforms" -> all four.',
         },
         summary: {
@@ -54,7 +56,7 @@ export const CREATE_CONTENT_PLAN_TOOL = {
             properties: {
               day: { type: 'integer', description: '1-based day number within the plan.' },
               date: { type: 'string', description: 'Optional human label, e.g. "Mon Jul 20".' },
-              platform: { type: 'string', enum: ['linkedin', 'youtube', 'instagram', 'x'] },
+              platform: { type: 'string', enum: ['linkedin', 'youtube', 'instagram', 'x', 'facebook', 'tiktok'] },
               format: {
                 type: 'string',
                 enum: ['text_post', 'single_image', 'carousel', 'reel_script', 'youtube_script'],

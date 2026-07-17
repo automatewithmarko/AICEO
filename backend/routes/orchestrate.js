@@ -9,11 +9,12 @@ import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
 import { handleContentOrchestration } from '../agents/content/handler.js';
 import { buildCeoUnifiedSocialAddendum, runLinkedInTextPostPass, GENERATE_LINKEDIN_POST_TOOL } from '../agents/content/ceo-adapter.js';
+import { buildPlanModeDirective } from '../agents/content/plan-mode.js';
 import { PLAN_CAROUSEL_TOOL } from '../agents/plan-carousel-tool.js';
 import { COMPOSE_SINGLE_IMAGE_POST_TOOL, PLAN_PLATFORM_FORMATS } from '../agents/content-plan-tool.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
 import { extractFromUrl } from '../services/social.js';
-import { requireCredits } from '../middleware/gate.js';
+import { requireActiveAccount } from '../middleware/gate.js';
 
 const router = Router();
 
@@ -884,7 +885,9 @@ function detectNewArtifactInFlow(messages, currentAgent) {
 
 // ── POST /api/orchestrate ──
 // mode: "ceo" or "direct" (direct handles both generation and editing)
-router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, res) => {
+// Chat messages are FREE (docs/credits-policy.md) — only the disputed-
+// account hold applies. Generation (images/slides) bills separately.
+router.post('/api/orchestrate', requireActiveAccount(), async (req, res) => {
   const userId = req.user?.id;
   const { messages, mode = 'ceo', agent: agentName, searchMode = false, planMode = false, currentHtml, editInstruction, currentAgent, currentTitle = '', currentContentPost, sessionId = null, assistantMsgId = null, userName = null } = req.body;
 
@@ -917,6 +920,13 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
     try { res.write(': heartbeat\n\n'); } catch {}
   }, 3000);
 
+  // If the tab closes mid-stream, abort the upstream LLM call instead of
+  // burning tokens for a client that is gone (robustness audit A1). Same
+  // pattern the plan-item route uses. Carried on context so the four
+  // handleCeoOrchestration call sites don't all need new params.
+  const abortCtl = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) abortCtl.abort(); });
+
   try {
     console.log(`[orchestrate] mode=${mode} agent=${agentName} userId=${userId} hasEdit=${!!editInstruction} hasHtml=${!!currentHtml} msgCount=${messages?.length}`);
     const [context, activeBrief] = await Promise.all([
@@ -929,6 +939,7 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
     // context so the four handleCeoOrchestration call sites don't all
     // need new params.
     context.ceoUserName = userName || null;
+    context.clientAbortSignal = abortCtl.signal;
     console.log(`[orchestrate] Context loaded, brandDna=${!!context.brandDna} brief=${!!activeBrief}`);
 
     if (mode === 'direct') {
@@ -1010,7 +1021,7 @@ router.post('/api/orchestrate', requireCredits('ai_ceo_message'), async (req, re
   } finally {
     clearInterval(heartbeat);
     sendSSE(res, { type: 'done' });
-    res.write('data: [DONE]\n\n');
+    try { res.write('data: [DONE]\n\n'); } catch { /* client gone */ }
     res.end();
   }
 });
@@ -1402,33 +1413,9 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, plan
   // below this block, so the model physically cannot emit the legacy
   // html_template plan page or delegate anywhere.
   if (planMode) {
-    systemPrompt = `=== PLAN MODE IS ACTIVE (OVERRIDES EVERY TOOL INSTRUCTION BELOW) ===
-The user wants a multi-day content plan. You already know their brand — Brand DNA, products, sales, calls, and integrated data are all in this prompt. Do NOT interrogate them.
-
-━━━━ HARD RULES (non-negotiable) ━━━━
-1. You have exactly TWO tools this turn: ask_user and create_content_plan. Every other tool is stripped. Do NOT call create_artifact, delegate_to_agent, generate_image, plan_carousel, or anything else.
-2. ONE question maximum, and only this one. If (and ONLY if) the user's request does not name the platform(s), call ask_user with EXACTLY:
-   question: "Which platforms should I plan for?"
-   options: ["LinkedIn", "YouTube", "Instagram", "X", "All platforms"]
-   multi_select: true
-   If the request already names platform(s) (including "all platforms" / "everywhere"), skip the question and go straight to the plan. NEVER ask a second question.
-3. NEVER ask about timeframe, cadence, goal, topic, tone, or format mix. Infer them:
-   - timeframe_days from the request ("next 14 days" → 14, "this week" → 7, "a month" → 30). Default 7 when unstated. Cap 31 — for longer requests plan the first 31 days and say so in your intro sentence.
-   - One piece per day unless the user asked for a different cadence.
-   - Topics and goals from Brand DNA, products, recent sales/calls, past content, soul notes. Specific to THIS user — never generic "productivity tips".
-   - Formats per platform: linkedin → text_post | single_image | carousel. instagram → single_image | carousel | reel_script. x → text_post | single_image. youtube → youtube_script. Rotate — never more than 2 consecutive items with the same format on the same platform. Hard-sell CTAs at most 1 in every 3 items.
-4. Once platforms are known, IMMEDIATELY call create_content_plan. No confirmation question, no "sound good?", no recap.
-5. Chat text alongside the tool call: ONE short sentence max ("Here's your 14-day plan."). NEVER retype the plan days as prose or markdown — the client renders the day-by-day list from the tool payload. Duplicating it in text is a bug.
-6. Every item's hook is a verbatim scroll-stopping first line written in the user's voice. Every topic is anchored to their actual business.
-7. After the plan lands, the client shows a "Generate content" button — the USER triggers generation from there. Do NOT generate pieces yourself, do NOT delegate, even if they said "and make them too". In that case say in your intro sentence they can hit "Generate content" under the plan.
-
-If the message is unrelated to planning, respond briefly in chat like normal.
-
-Everything below describes non-plan-mode behavior. Ignore anything that conflicts with the rules above until Plan Mode is turned off.
-
----
-
-` + systemPrompt;
+    // Directive shared with /Content's plan mode — edit it in
+    // backend/agents/content/plan-mode.js and both tabs pick it up.
+    systemPrompt = buildPlanModeDirective({}) + systemPrompt;
   }
   // Prior plan awareness — for non-Plan-Mode messages, if the user has
   // an earlier plan artifact in this conversation and references a
@@ -1565,6 +1552,18 @@ RULES:
     toolChoice: ceoToolChoice,
     planMode,
     searchMode: effectiveSearchMode,
+    // Stop paying for upstream tokens when the client tab is gone
+    // (robustness audit A1).
+    abortSignal: context.clientAbortSignal,
+    // Progress during the silent tool-argument streaming window — big
+    // payloads (content plans, carousel plans) take 15-30s to stream
+    // after the chat text finished, which used to read as "thinking..."
+    // forever (founder finding, prompt.md 2026-07-17).
+    onToolStart: (name) => {
+      if (name === 'create_content_plan') sendSSE(res, { type: 'status', text: 'Building your content plan…' });
+      else if (name === 'plan_carousel') sendSSE(res, { type: 'status', text: 'Building your carousel plan…' });
+      else if (name === 'generate_image') sendSSE(res, { type: 'status', text: 'Preparing your image…' });
+    },
     onChunk: (content) => {
       sendSSE(res, { type: 'text_delta', content: visibleStreamText(content) });
     },
@@ -2144,10 +2143,21 @@ router.post('/api/content-orchestrate', async (req, res) => {
     try { res.write(': heartbeat\n\n'); } catch {}
   }, 3000);
 
+  // Abort the upstream LLM call when the tab closes mid-stream
+  // (robustness audit A1) — same pattern as plan-item.
+  const abortCtl = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) abortCtl.abort(); });
+
   try {
-    await handleContentOrchestration({ res, sendSSE, body: req.body, userId });
+    await handleContentOrchestration({ res, sendSSE, body: req.body, userId, abortSignal: abortCtl.signal });
     console.log('[content-orchestrate] Handler completed successfully');
   } catch (err) {
+    if (abortCtl.signal.aborted || err?.name === 'AbortError') {
+      console.log('[content-orchestrate] Client disconnected — upstream call aborted');
+      clearInterval(heartbeat);
+      try { res.end(); } catch { /* already gone */ }
+      return;
+    }
     console.error('[content-orchestrate] Error:', err.message, err.stack);
     const friendlyError =
       err.code === 'CONTEXT_EXCEEDED'
@@ -2157,7 +2167,7 @@ router.post('/api/content-orchestrate', async (req, res) => {
   } finally {
     clearInterval(heartbeat);
     sendSSE(res, { type: 'done' });
-    res.write('data: [DONE]\n\n');
+    try { res.write('data: [DONE]\n\n'); } catch { /* client gone */ }
     res.end();
   }
 });
@@ -2180,6 +2190,8 @@ function buildPlanItemSystemPrompt({ context, platform, format }) {
 
   if (format === 'text_post' && platform === 'x') {
     prompt += `\n\n=== DELIVERABLE: X POST ===\nPlain text. If the idea lands in one punchy tweet (under 280 chars), write a single tweet. If it needs depth, write a thread: each tweet numbered "1/", "2/", … on its own block separated by a blank line, 4-8 tweets max, first tweet is the hook. End with the CTA.`;
+  } else if (format === 'text_post' && platform === 'facebook') {
+    prompt += `\n\n=== DELIVERABLE: FACEBOOK POST ===\nPlain text, ready to paste into Facebook. Conversational and story-friendly — Facebook rewards discussion. Hook as the FIRST line (verbatim from the brief), short scannable paragraphs, 80-250 words, end with the CTA (question-style CTAs perform best). No hashtag walls.`;
   } else if (format === 'text_post') {
     prompt += `\n\n=== DELIVERABLE: LINKEDIN TEXT POST ===\nPlain text, ready to paste into LinkedIn. The hook is the FIRST line, verbatim from the brief. Framework-heavy (numbered points, tight single-sentence lines) for educate/sell/engage angles; story-flow (personal narrative, single-line paragraphs, emotional pivot) for nurture angles. 150-300 words. End with the CTA from the brief. No HTML, no markdown headers.`;
   } else if (format === 'reel_script') {
@@ -2246,9 +2258,11 @@ async function runForcedToolCall({ systemPrompt, messages, tool, toolName, abort
   return null;
 }
 
-router.post('/api/orchestrate/plan-item', requireCredits('ai_ceo_message'), async (req, res) => {
+// Planning is FREE like chat (docs/credits-policy.md) — the billed part
+// is the image/slide generation each piece triggers.
+router.post('/api/orchestrate/plan-item', requireActiveAccount(), async (req, res) => {
   const userId = req.user?.id;
-  const { item, planTitle = '', planContext = '' } = req.body || {};
+  const { item, planTitle = '', planContext = '', userName = null } = req.body || {};
 
   if (!item || typeof item !== 'object') {
     return res.status(400).json({ error: 'item object required' });
@@ -2281,6 +2295,27 @@ router.post('/api/orchestrate/plan-item', requireCredits('ai_ceo_message'), asyn
     const systemPrompt = buildPlanItemSystemPrompt({ context, platform, format });
     const messages = [{ role: 'user', content: buildPlanItemUserMessage({ item, planTitle, planContext }) }];
     const title = `Day ${item.day || '?'} — ${String(item.topic).slice(0, 60)}`;
+
+    // LinkedIn text posts go through the SAME two-phase writer every other
+    // surface uses (unified architecture: fix the writer once, every tab
+    // gets it) — full variation prompts + forced submit_post channel,
+    // instead of the one-line ghostwriter summary this route shipped with.
+    // Variation: story-flavored briefs → B (story-flow), else A
+    // (framework-heavy) — mirrors the interactive CEO's routing criteria.
+    if (format === 'text_post' && platform === 'linkedin') {
+      const briefText = `${item.topic || ''} ${item.hook || ''} ${item.details || ''}`;
+      const variation = /\b(story|journey|personal|nurture|lesson|experience|struggle|transformation)\b/i.test(briefText) ? 'B' : 'A';
+      const postText = await runLinkedInTextPostPass({
+        messages,
+        variation,
+        userName: userName || null,
+        brandDna: context.brandDna,
+        abortSignal: abortCtl.signal,
+      });
+      const content = String(postText || '').trim();
+      if (!content) throw new Error('Empty generation result');
+      return res.json({ kind: 'text', title, platform, format, content });
+    }
 
     if (PLAN_ITEM_TEXT_FORMATS.has(format)) {
       const result = await executeAgent({

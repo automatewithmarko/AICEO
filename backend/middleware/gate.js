@@ -45,6 +45,35 @@ export function requireFeature(featureName) {
  * @param {string} action - must match a row in credit_costs table
  * @returns {Function} Express middleware
  */
+/**
+ * Account-status gate WITHOUT billing. Auth + disputed-chargeback hold
+ * only — no credit deduction. Used for endpoints that are deliberately
+ * free (docs/credits-policy.md): chat messages and content planning.
+ * Actual content GENERATION (images, slides) stays credit-gated.
+ */
+export function requireActiveAccount() {
+  return async (req, res, next) => {
+    const userId = req.user?.id;
+    if (!userId || userId === 'anonymous') {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    try {
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('disputed')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (sub?.disputed) {
+        return res.status(402).json({
+          error: 'Account is on hold pending a chargeback. Contact support@aiceo.com.',
+          disputed: true,
+        });
+      }
+    } catch { /* on read failure, fall through to normal flow */ }
+    next();
+  };
+}
+
 export function requireCredits(action) {
   return async (req, res, next) => {
     const userId = req.user?.id;

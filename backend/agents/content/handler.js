@@ -52,8 +52,10 @@ import {
   buildClaudeChatProtocolAddendum,
   SUBMIT_POST_ADDENDUM,
 } from './claude-protocol.js';
+import { CREATE_CONTENT_PLAN_TOOL } from '../content-plan-tool.js';
+import { buildPlanModeDirective } from './plan-mode.js';
 
-export async function handleContentOrchestration({ res, sendSSE, body, userId }) {
+export async function handleContentOrchestration({ res, sendSSE, body, userId, abortSignal = null }) {
   const {
     messages,
     intent = 'chat',
@@ -112,6 +114,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
       // switch — one forced submit_post call and we're done.
       planMode: true,
       searchMode: false,
+      abortSignal,
       // Suppress free text: with a pinned tool there should be none, and
       // anything that does appear is reasoning that must not hit the preview.
       onChunk: () => {},
@@ -164,6 +167,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
       tools: [IMAGE_TOOL],
       planMode: true,
       searchMode: false,
+      abortSignal,
       onChunk: (content) => sendSSE(res, { type: 'text_delta', content }),
       onToolCalls: async (toolCalls) => {
         for (const call of toolCalls) {
@@ -202,16 +206,34 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
           .join('\n\n');
   }
 
-  const systemPrompt = buildSystemPrompt(
-    platform, photos, documents, socialUrls, brandDna,
-    integrationContext, carouselTemplates, existingPost, { planMode },
-  ) + recentContentBlock
-    + buildClaudeChatProtocolAddendum({ planMode, isLinkedin, editModeActive });
+  // Plan Mode — the SAME in-chat content-plan system the AI CEO uses
+  // (shared directive in plan-mode.js, create_content_plan tool,
+  // ContentPlanMessage card, plan-item generation): one implementation,
+  // fixes ship to every tab. The /Content platform pill pre-answers the
+  // platform question. The legacy inline-HTML plan flow is RETIRED
+  // (founder direction 2026-07-17) — every platform pill has a
+  // plan-format matrix entry now.
+  let systemPrompt;
+  if (planMode) {
+    systemPrompt = buildPlanModeDirective({ lockedPlatform: platform })
+      + buildSystemPrompt(
+          platform, photos, documents, socialUrls, brandDna,
+          integrationContext, carouselTemplates, existingPost, { planMode: false },
+        )
+      + recentContentBlock;
+  } else {
+    systemPrompt = buildSystemPrompt(
+      platform, photos, documents, socialUrls, brandDna,
+      integrationContext, carouselTemplates, existingPost, { planMode: false },
+    ) + recentContentBlock
+      + buildClaudeChatProtocolAddendum({ isLinkedin, editModeActive, planPlatformId: platform?.id });
+  }
 
-  // Plan Mode is text-only in the legacy flow (the plan HTML is the
-  // output) — the only tool Claude gets is ask_user for the scoping
-  // questions. Non-plan turns get the full protocol toolset.
-  const tools = [CONTENT_ASK_USER_TOOL];
+  // Toolsets: plan mode = [ask_user, create_content_plan] (same
+  // restriction as the CEO's plan mode). Normal turns get the full
+  // protocol toolset PLUS create_content_plan — a typed "plan my next
+  // 2 weeks" works without the Plan Mode toggle, exactly like AI CEO.
+  const tools = [CONTENT_ASK_USER_TOOL, CREATE_CONTENT_PLAN_TOOL];
   if (!planMode) {
     tools.push(IMAGE_TOOL, PLAN_CAROUSEL_TOOL);
     if (isLinkedin) {
@@ -235,6 +257,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
   // the frontend's existing marker/JSON parsers operate on this cumulative
   // text and stay byte-compatible.
   let lastContent = '';
+  let questionEmitted = false;
   const appendToStream = (chunk) => {
     lastContent = lastContent ? `${lastContent}\n\n${chunk}` : chunk;
     sendSSE(res, { type: 'text_delta', content: lastContent });
@@ -251,6 +274,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
     // reproduces that exactly (ask_user also always exits the loop).
     planMode: true,
     searchMode: false,
+    abortSignal,
     onChunk: (content) => {
       lastContent = content;
       sendSSE(res, { type: 'text_delta', content });
@@ -261,6 +285,8 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
     onToolStart: (name) => {
       if (name === 'plan_carousel') {
         sendSSE(res, { type: 'status', text: 'Building your carousel plan…' });
+      } else if (name === 'create_content_plan') {
+        sendSSE(res, { type: 'status', text: 'Building your content plan…' });
       } else if (name === 'generate_image') {
         sendSSE(res, { type: 'status', text: 'Preparing your image…' });
       }
@@ -270,13 +296,19 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId })
         let args;
         try { args = JSON.parse(call.arguments); } catch { args = {}; }
 
-        if (call.name === 'generate_image' || call.name === 'plan_carousel') {
+        if (call.name === 'generate_image' || call.name === 'plan_carousel' || call.name === 'create_content_plan') {
           // Executed on the frontend (Phase 1) — relay like ceo mode does.
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });
         } else if (call.name === 'ask_user') {
           // Translate to the legacy inline-JSON question block that
           // Content.jsx's questionParsed logic renders as clickable options.
-          if (args.question) {
+          // ONLY the first ask_user of the turn: two JSON blocks in one
+          // stream break the frontend's greedy question extractor and the
+          // user would see an empty bubble (robustness audit A6). The
+          // model is instructed one-question-per-turn anyway — dropping a
+          // second violates nothing the user was promised.
+          if (args.question && !questionEmitted) {
+            questionEmitted = true;
             appendToStream(JSON.stringify({
               type: 'question',
               text: args.question,

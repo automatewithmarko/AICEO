@@ -68,6 +68,16 @@ export function stableRange(seed, min, max) {
 
 export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, onRegenerate, onFullscreen, isGenerating, actionsSlot, showHeader = true, onContentChange, onUploadImages, onSchedule }) {
   const images = useMemo(() => [...(msg?.images || [])].sort((a, b) => (a.idx || 0) - (b.idx || 0)), [msg]);
+  // Slot-based carousel (same pattern as LinkedInPreview): navigation
+  // spans the FULL planned slide count, not just the images that have
+  // arrived. Slides still rendering show a "Generating slide N…"
+  // placeholder — clamping nav to arrived images made every click land
+  // back on slide 1 during generation.
+  const plan = msg?.carouselPlan || {};
+  const planSlideCount = plan.slides?.length || 0;
+  const pendingCount = msg?.pendingImages || 0;
+  const totalSlots = Math.max(planSlideCount, images.length, pendingCount > 0 ? images.length + pendingCount : 0);
+  const imageForSlot = (slot) => images.find((img, i) => (Number.isInteger(img.idx) ? img.idx : i) === slot) || null;
   const [idx, setIdx] = useState(0);
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const [editingSlideIdx, setEditingSlideIdx] = useState(null);
@@ -95,10 +105,11 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
     liReposts: stableRange(msg?.id + ':lirep', 2, 18),
   }), [msg?.id]);
 
-  // Clamp idx if images list shrinks (e.g. a regenerate happens mid-view).
+  // Clamp idx if the slot count shrinks (e.g. the preview re-binds to a
+  // post with fewer slides).
   useEffect(() => {
-    if (idx > images.length - 1) setIdx(Math.max(0, images.length - 1));
-  }, [images.length, idx]);
+    if (idx > totalSlots - 1) setIdx(Math.max(0, totalSlots - 1));
+  }, [totalSlots, idx]);
 
   // Seed the contentEditable when the incoming caption prop changes.
   // If the user hasn't typed, always mirror the prop (streaming). If they
@@ -148,14 +159,13 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
       if (isTypingTarget(e)) return;
       if (e.key === 'Escape' && onClose) { e.preventDefault(); onClose(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); setIdx(i => Math.max(0, i - 1)); }
-      else if (e.key === 'ArrowRight') { e.preventDefault(); setIdx(i => Math.min(images.length - 1, i + 1)); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); setIdx(i => Math.min(totalSlots - 1, i + 1)); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [images.length, onClose]);
+  }, [totalSlots, onClose]);
 
   if (!msg) return null;
-  const plan = msg.carouselPlan || {};
   const isLinkedin = msg.platform === 'linkedin';
   const panelClass = `content-ig-preview${isLinkedin ? ' content-ig-preview--linkedin' : ''}`;
   const previewLabel = isLinkedin ? 'LinkedIn preview' : 'Instagram preview';
@@ -165,8 +175,6 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
   // the FIRST case but freezes forever in the second. AICEO chat creates
   // text-only IG posts via create_artifact with no image generation —
   // those previously got stuck on the skeleton.
-  const planSlideCount = plan.slides?.length || 0;
-  const pendingCount = msg.pendingImages || 0;
   const isGeneratingMedia = planSlideCount > 0 || pendingCount > 0;
   const captionText = plan.caption || msg.content || '';
 
@@ -210,7 +218,7 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
   if (images.length === 0 && !captionText.trim()) {
     return null;
   }
-  const current = images[idx] || null;
+  const current = imageForSlot(idx);
   const caption = captionText;
   // LinkedIn captions usually aren't truncated aggressively on feed; IG
   // folds at ~125 chars. Different fold per platform keeps the preview honest.
@@ -224,8 +232,10 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
 
   const slideIdx = current ? (current.idx ?? idx) : idx;
   const atStart = idx === 0;
-  const atEnd = idx === Math.max(0, images.length - 1);
-  const hasMedia = !!current;
+  const atEnd = idx === Math.max(0, totalSlots - 1);
+  // Media renders whenever there's at least one slot — an arrived image
+  // OR a still-generating slide (which shows its placeholder).
+  const hasMedia = totalSlots > 0;
 
   return (
     <div className={panelClass} role="dialog" aria-label={previewLabel}>
@@ -277,8 +287,26 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
               sees the caption + actions instead of a stuck spinner. */}
           {hasMedia && (
           <div className="content-ig-media">
-            <img src={current.src} alt={`Slide ${idx + 1}`} className="content-ig-slide" />
-            <div className="content-ig-counter">{idx + 1}/{images.length}</div>
+            {current ? (
+              <img src={current.src} alt={`Slide ${idx + 1}`} className="content-ig-slide" />
+            ) : (pendingCount > 0 || plan.generating) && !(plan.failedSlides || []).includes(idx) ? (
+              <div className="content-ig-pending-slide">
+                <Loader size={24} className="cs-spinner" />
+                <span>Generating slide {idx + 1}…</span>
+              </div>
+            ) : (
+              /* Not generating anymore and no image — the slide failed.
+                 Honest label + a retry (re-rolls from the slide spec). */
+              <div className="content-ig-pending-slide content-ig-pending-slide--failed">
+                <span>Slide {idx + 1} didn&apos;t render</span>
+                {onRegenerate && (
+                  <button type="button" className="content-ig-slide-retry" onClick={() => onRegenerate(idx)} disabled={isGenerating}>
+                    <RefreshCw size={13} /> Retry slide
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="content-ig-counter">{idx + 1}/{totalSlots}</div>
             {!atStart && (
               <button className="content-ig-nav content-ig-nav--prev" onClick={() => setIdx(i => i - 1)} aria-label="Previous slide">
                 <ChevronLeft size={20} />
@@ -289,7 +317,8 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
                 <ChevronRight size={20} />
               </button>
             )}
-            {/* Hover tools — only for this slide. Live actions, not fake icons. */}
+            {/* Hover tools — only for this slide, only once it exists. */}
+            {current && (
             <div className="content-ig-tools">
               {onFullscreen && (
                 <button className="content-ig-tool" onClick={() => onFullscreen(slideIdx)} title="Full screen" disabled={isGenerating}>
@@ -336,8 +365,9 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
                 <Download size={14} />
               </button>
             </div>
+            )}
             {/* Inline edit instruction overlay on the slide */}
-            {editingSlideIdx === slideIdx && onEdit && (
+            {current && editingSlideIdx === slideIdx && onEdit && (
               <div className="content-ig-edit-overlay" onClick={(e) => e.stopPropagation()}>
                 <input
                   type="text"
@@ -375,8 +405,10 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
                 </button>
               </div>
             )}
-            {/* Loading overlay while regen/edit runs for any slide */}
-            {isGenerating && editingSlideIdx === null && (msg.editingIdx === slideIdx || (msg.pendingImages || 0) > 0) && (
+            {/* Loading overlay ONLY when THIS slide is being regenerated /
+                edited. Pending slots render their own placeholder, so
+                arrived slides stay browsable while the rest generate. */}
+            {isGenerating && editingSlideIdx === null && current && msg.editingIdx === slideIdx && (
               <div className="content-ig-loading-overlay">
                 <Loader size={24} className="cs-spinner" />
               </div>
@@ -384,11 +416,12 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
           </div>
           )}
 
-          {/* Dots indicator — both platforms */}
-          {images.length > 1 && (
+          {/* Dots indicator — both platforms. One dot per SLOT; slides
+              that haven't arrived yet render dimmed. */}
+          {totalSlots > 1 && (
             <div className="content-ig-indicator">
-              {images.map((_, i) => (
-                <span key={i} className={`content-ig-indicator-dot${i === idx ? ' content-ig-indicator-dot--active' : ''}`} />
+              {Array.from({ length: totalSlots }).map((_, i) => (
+                <span key={i} className={`content-ig-indicator-dot${i === idx ? ' content-ig-indicator-dot--active' : ''}${!imageForSlot(i) ? ' content-ig-indicator-dot--pending' : ''}`} />
               ))}
             </div>
           )}

@@ -4,6 +4,7 @@ import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide, generatePlanItem } from '../lib/api';
+import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from '../lib/planRunner';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
 import { getMeetings } from '../lib/meetings-api';
@@ -106,39 +107,8 @@ function stripCeoContextBlocks(content) {
 // message's AI-facing content when building apiMessages so the model can
 // reference plan items in later turns ("write day 3's post") — the
 // backend's PRIOR PLAN AWARENESS prompt section matches this exact shape.
-function serializeContentPlan(plan) {
-  if (!plan?.items?.length) return '';
-  const head = `[CONTENT PLAN — ${plan.title || 'Content plan'} | ${(plan.platforms || []).join(', ') || 'multi-platform'} | ${plan.items.length} pieces]`;
-  const rows = plan.items.map((it, i) => {
-    const status = plan.itemStates?.[i]?.status || 'pending';
-    const bits = [`Day ${it.day} — ${it.platform} ${it.format}: ${it.topic}`];
-    if (it.hook) bits.push(`hook: "${it.hook}"`);
-    if (it.cta) bits.push(`cta: ${it.cta}`);
-    bits.push(`status: ${status}`);
-    return bits.join(' | ');
-  });
-  return [head, ...rows].join('\n');
-}
-
-const PLAN_FORMAT_LABELS = {
-  text_post: 'text post',
-  single_image: 'image post',
-  carousel: 'carousel',
-  reel_script: 'reel script',
-  youtube_script: 'YouTube script',
-};
-const PLAN_PLATFORM_LABELS = { linkedin: 'LinkedIn', instagram: 'Instagram', x: 'X', youtube: 'YouTube' };
-
-// Chat-bubble label for one generated plan piece.
-function planPieceLabel(item, imageFailed) {
-  const plat = PLAN_PLATFORM_LABELS[item.platform] || item.platform;
-  const fmt = PLAN_FORMAT_LABELS[item.format] || item.format;
-  const what = item.format === 'youtube_script' ? 'YouTube script' : `${plat} ${fmt}`;
-  const base = `Day ${item.day} — ${what}: ${item.topic}`;
-  return imageFailed
-    ? `${base}\n\n(One or more images failed to generate — open the piece to regenerate them.)`
-    : base;
-}
+// Plan-run helpers live in src/lib/planRunner.js — shared with /Content
+// so both tabs drive the SAME batch runner (fix once, ships everywhere).
 
 // ── Component ──
 export default function AiCeo() {
@@ -2187,6 +2157,9 @@ export default function AiCeo() {
           } : prev),
           onSlideFailed: (idx, error) => {
             console.error(`[AiCeo] carousel slide ${idx + 1} failed (server): ${error}`);
+            // Credit exhaustion is not an ordinary slide failure — surface
+            // the paywall instead of a dead retry loop (audit B1).
+            if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
             setArtifact((prev) => prev ? {
               ...prev,
               pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
@@ -2268,6 +2241,7 @@ export default function AiCeo() {
         } : prev),
         onSlideFailed: (idx, error) => {
           console.error(`[AiCeo] carousel retry slide ${idx + 1} failed (server): ${error}`);
+          if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
           setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
         },
       });
@@ -2290,10 +2264,18 @@ export default function AiCeo() {
   // its own message with an openable artifact chip. A failed item is
   // marked and the run continues; HTTP 402 pauses the run resumably.
   const handleStopPlanRun = useCallback((planMsgId) => {
-    // Cooperative: checked between items and between carousel slides, so
-    // the in-flight piece finishes before the run halts.
     const token = activePlanRunsRef.current.get(planMsgId);
-    if (token) token.cancelled = true;
+    if (!token) return;
+    token.cancelled = true;
+    // Hard-abort the in-flight request so Stop is immediate (founder
+    // finding: cooperative-only cancel felt broken), and reflect
+    // "Stopping…" on the card right away.
+    try { token.abort?.abort(); } catch { /* already aborted */ }
+    setMessages((prev) => prev.map((m) =>
+      m.id === planMsgId && m.contentPlan
+        ? { ...m, contentPlan: { ...m.contentPlan, runState: 'stopping' } }
+        : m
+    ));
   }, []);
 
   const handleGeneratePlanContent = useCallback(async (planMsgId, { retryFailedOnly = false } = {}) => {
@@ -2335,7 +2317,7 @@ export default function AiCeo() {
       ));
     };
 
-    const token = { cancelled: false };
+    const token = makeRunToken();
     activePlanRunsRef.current.set(planMsgId, token);
     setActivePlanRunMsgId(planMsgId);
     updatePlan({ runState: 'running' });
@@ -2344,57 +2326,73 @@ export default function AiCeo() {
     const brandName = brandDna?.brand_name || user?.name || '';
 
     try {
-      for (let i = 0; i < items.length; i++) {
-        // Session switched mid-run (loadSession/newConversation replaced
-        // the messages array) — appending there would corrupt the other
-        // session. Bail; this plan resumes from persisted state later.
-        if (sessionIdRef.current !== runSessionId) token.cancelled = true;
-        if (token.cancelled) break;
-        if (itemStates[i].status !== 'pending') continue;
-        const item = items[i];
-
-        itemStates[i] = { status: 'running' };
-        updatePlan({});
-
-        try {
-          const resp = await generatePlanItem({
-            item,
-            planTitle: plan.title,
-            planContext: serializeContentPlan({ ...plan, itemStates }),
-          });
-
+      // The run loop itself lives in src/lib/planRunner.js — shared with
+      // /Content. This tab only provides generateItem + how a finished
+      // piece becomes an AI CEO message (artifact chip + commit).
+      await runPlanItems({
+        items,
+        itemStates,
+        token,
+        updatePlan,
+        isRunValid: () => {
+          // Session switched mid-run (loadSession/newConversation replaced
+          // the messages array) — appending there would corrupt the other
+          // session. Bail; this plan resumes from persisted state later.
+          if (sessionIdRef.current !== runSessionId) token.cancelled = true;
+          return sessionIdRef.current === runSessionId;
+        },
+        generateItem: (item) => generatePlanItem({
+          item,
+          planTitle: plan.title,
+          planContext: serializeContentPlan({ ...plan, itemStates }),
+          // Feeds the shared LinkedIn writer's sign-off server-side.
+          userName: user?.name || null,
+        }, token.abort.signal),
+        materializePiece: async ({ item, index: i, resp }) => {
           const agentSource = item.platform === 'x' ? 'twitter' : item.platform;
           let art;
           let imageFailed = false;
 
           if (resp.kind === 'carousel' && resp.carouselPlan?.slides?.length) {
-            // Pre-approved carousel: same sequential per-slide loop the
-            // interactive approve flow runs, with sub-progress on the card.
+            // Pre-approved carousel: rendered by the UNIFIED server-side
+            // carousel renderer — the exact same POST /api/generate/carousel
+            // the interactive approve flows in BOTH tabs use (per-slide
+            // retries, slide-1 visual anchoring, storage URLs). One
+            // implementation everywhere; fixes ship to every entry point
+            // (robustness audit M2).
             const slides = resp.carouselPlan.slides;
             const slidePlatform = item.platform === 'linkedin' ? 'linkedin' : 'instagram';
-            const backendPlatform = slidePlatform === 'linkedin' ? 'linkedin_carousel' : 'instagram';
             const images = [];
-            for (let s = 0; s < slides.length; s++) {
-              if (token.cancelled || sessionIdRef.current !== runSessionId) break;
-              itemStates[i] = { status: 'running', progress: { done: s, total: slides.length } };
-              updatePlan({});
-              try {
-                const prompt = buildCarouselSlidePrompt({
+            itemStates[i] = { status: 'running', progress: { done: 0, total: slides.length } };
+            updatePlan({});
+            try {
+              await generateCarouselServerSide({
+                platform: slidePlatform,
+                plan: {
+                  hook: resp.carouselPlan.hook,
+                  caption: resp.carouselPlan.caption,
+                  slides,
                   designSystem: resp.carouselPlan.designSystem,
-                  slide: slides[s],
-                  index: s,
-                  total: slides.length,
-                  brand: { name: brandName },
-                  platform: slidePlatform,
-                });
-                const r = await generateImageWithRetry(prompt, backendPlatform, null, null, {});
-                if (r?.image?.data) images.push({ src: `data:${r.image.mimeType};base64,${r.image.data}`, idx: s });
-                else imageFailed = true;
-              } catch (slideErr) {
-                console.error(`[AiCeo] plan carousel slide ${s + 1} failed:`, slideErr?.message);
-                imageFailed = true;
-              }
+                },
+                brand: { name: brandName },
+              }, {
+                onSlideDone: (idx, url) => {
+                  images.push({ src: url, idx });
+                  itemStates[i] = { status: 'running', progress: { done: images.length, total: slides.length } };
+                  updatePlan({});
+                },
+                onSlideFailed: (idx, error) => {
+                  console.error(`[AiCeo] plan carousel slide ${idx + 1} failed (server): ${error}`);
+                  imageFailed = true;
+                  if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
+                },
+              }, token.abort.signal);
+            } catch (carErr) {
+              if (carErr?.name === 'AbortError' || token.cancelled) throw carErr;
+              console.error('[AiCeo] plan carousel generation failed:', carErr?.message);
+              imageFailed = true;
             }
+            images.sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
             art = {
               id: Date.now(),
               type: 'content_post',
@@ -2439,23 +2437,10 @@ export default function AiCeo() {
             planItemRef: { planMsgId, index: i },
           }]);
           await commitOwnedArtifact(pieceMsgId, art);
-          itemStates[i] = { status: 'done', msgId: pieceMsgId, ...(imageFailed ? { imageFailed: true } : {}) };
-          updatePlan({});
-        } catch (err) {
-          const msg = String(err?.message || err);
-          if (msg.startsWith('HTTP 402')) {
-            // Credits ran out — pause resumably instead of failing items.
-            console.warn('[AiCeo] plan run paused — credits depleted');
-            itemStates[i] = { status: 'pending' };
-            token.cancelled = true;
-            setCreditsDepleted(true);
-          } else {
-            console.error(`[AiCeo] plan item ${i + 1} failed:`, msg);
-            itemStates[i] = { status: 'failed', error: msg.slice(0, 200) };
-          }
-          updatePlan({});
-        }
-      }
+          return { pieceMsgId, imageFailed };
+        },
+      });
+      if (token.creditsDepleted) setCreditsDepleted(true);
     } finally {
       activePlanRunsRef.current.delete(planMsgId);
       setActivePlanRunMsgId(null);

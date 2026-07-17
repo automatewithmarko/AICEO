@@ -792,6 +792,7 @@
 /* ── Split view for LinkedIn preview ── */
 .content-main--split {
   flex-direction: row;
+  --content-split: 50%;
 }
 
 .content-main-chat {
@@ -810,6 +811,58 @@
   overflow: hidden;
 }
 
+/* Draggable divider widths — chat gets --content-split, preview the rest. */
+.content-main--split .content-main-chat { flex: 0 0 var(--content-split); }
+.content-main--split .content-main-preview { flex: 0 0 calc(100% - var(--content-split) - 1px); }
+.content-main--dragging { cursor: col-resize; user-select: none; }
+
+/* Divider — mirrors .ceo-divider in AiCeo.css */
+.content-divider {
+  width: 17px;
+  margin: 0 -8px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 4;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-touch-callout: none;
+}
+
+.content-divider::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  translate: -50% 0;
+  background: var(--border-light, #e5e5e5);
+}
+
+.content-divider-handle {
+  position: relative;
+  width: 10px;
+  height: 28px;
+  background: var(--bg-white, #fff);
+  border: 1px solid var(--border-light, #e5e5e5);
+  border-radius: 6px;
+  pointer-events: none;
+  transition: background 0.15s, box-shadow 0.15s;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.content-divider:hover .content-divider-handle {
+  background: #f0f0f2;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.content-main--dragging .content-divider-handle {
+  background: var(--brand-red-light, #fde8e8);
+  border-color: var(--brand-red, #e02424);
+}
+
 @media (max-width: 768px) {
   .content-main-preview {
     position: fixed;
@@ -821,6 +874,9 @@
     z-index: 100;
     background: #f4f2ee;
   }
+  /* Preview goes fullscreen on mobile — no divider, chat keeps full width. */
+  .content-divider { display: none; }
+  .content-main--split .content-main-chat { flex: 1; }
 }
 
 /* ── Instagram side preview (IG-feed-style) ── */
