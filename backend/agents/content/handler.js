@@ -52,6 +52,8 @@ import {
   buildClaudeChatProtocolAddendum,
   SUBMIT_POST_ADDENDUM,
 } from './claude-protocol.js';
+import { CREATE_CONTENT_PLAN_TOOL } from '../content-plan-tool.js';
+import { buildPlanModeDirective, isPlanSupportedPlatform } from './plan-mode.js';
 
 export async function handleContentOrchestration({ res, sendSSE, body, userId, abortSignal = null }) {
   const {
@@ -204,17 +206,39 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
           .join('\n\n');
   }
 
-  const systemPrompt = buildSystemPrompt(
-    platform, photos, documents, socialUrls, brandDna,
-    integrationContext, carouselTemplates, existingPost, { planMode },
-  ) + recentContentBlock
-    + buildClaudeChatProtocolAddendum({ planMode, isLinkedin, editModeActive });
+  // Plan Mode — the SAME in-chat content-plan system the AI CEO uses
+  // (shared directive in plan-mode.js, create_content_plan tool,
+  // ContentPlanMessage card, plan-item generation): one implementation,
+  // fixes ship to every tab. The /Content platform pill pre-answers the
+  // platform question. Platforms without a plan-format matrix entry
+  // (facebook, tiktok) fall back to the legacy inline-HTML plan flow so
+  // nothing regresses there.
+  const planPlatformSupported = isPlanSupportedPlatform(platform?.id);
+  const unifiedPlanMode = planMode && planPlatformSupported;
 
-  // Plan Mode is text-only in the legacy flow (the plan HTML is the
-  // output) — the only tool Claude gets is ask_user for the scoping
-  // questions. Non-plan turns get the full protocol toolset.
+  let systemPrompt;
+  if (unifiedPlanMode) {
+    systemPrompt = buildPlanModeDirective({ lockedPlatform: platform })
+      + buildSystemPrompt(
+          platform, photos, documents, socialUrls, brandDna,
+          integrationContext, carouselTemplates, existingPost, { planMode: false },
+        )
+      + recentContentBlock;
+  } else {
+    systemPrompt = buildSystemPrompt(
+      platform, photos, documents, socialUrls, brandDna,
+      integrationContext, carouselTemplates, existingPost, { planMode },
+    ) + recentContentBlock
+      + buildClaudeChatProtocolAddendum({ planMode, isLinkedin, editModeActive });
+  }
+
+  // Toolsets: unified plan mode = [ask_user, create_content_plan] (same
+  // restriction as the CEO's plan mode); legacy plan mode = ask_user only
+  // (HTML plan is text output); normal turns = the full protocol toolset.
   const tools = [CONTENT_ASK_USER_TOOL];
-  if (!planMode) {
+  if (unifiedPlanMode) {
+    tools.push(CREATE_CONTENT_PLAN_TOOL);
+  } else if (!planMode) {
     tools.push(IMAGE_TOOL, PLAN_CAROUSEL_TOOL);
     if (isLinkedin) {
       tools.push(GENERATE_LINKEDIN_POST_TOOL);
@@ -274,7 +298,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
         let args;
         try { args = JSON.parse(call.arguments); } catch { args = {}; }
 
-        if (call.name === 'generate_image' || call.name === 'plan_carousel') {
+        if (call.name === 'generate_image' || call.name === 'plan_carousel' || call.name === 'create_content_plan') {
           // Executed on the frontend (Phase 1) — relay like ceo mode does.
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });
         } else if (call.name === 'ask_user') {

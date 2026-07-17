@@ -5,10 +5,12 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import DOMPurify from 'dompurify';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend, generateCarouselServerSide } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend, generateCarouselServerSide, generatePlanItem } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import CarouselPlanCard from '../components/social-canvas/CarouselPlanCard';
+import ContentPlanMessage from '../components/ContentPlanMessage';
+import { serializeContentPlan, planPieceLabel, runPlanItems } from '../lib/planRunner';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
 import ChatDropOverlay from '../components/ChatDropOverlay';
@@ -274,6 +276,9 @@ async function streamContentUnified(messages, onTextChunk, onToolCall, abortSign
         toolCallsOut.push({ kind: 'image', id: `unified-${toolCallsOut.length}`, prompt: args.prompt });
       } else if (name === 'plan_carousel' && Array.isArray(args.slides) && args.designSystem) {
         toolCallsOut.push({ kind: 'plan', id: `unified-${toolCallsOut.length}`, plan: args });
+      } else if (name === 'create_content_plan' && Array.isArray(args.items) && args.items.length > 0) {
+        // In-chat content plan (shared with AI CEO — planRunner.js).
+        toolCallsOut.push({ kind: 'content_plan', id: `unified-${toolCallsOut.length}`, plan: args });
       }
     },
     onError: (err) => {
@@ -1207,6 +1212,11 @@ export default function Content() {
             totalSlides: m.linkedinPost.totalSlides || 0,
           };
         }
+        // In-chat content plan (shared with AI CEO): persist the plan +
+        // per-item run states so a reload resumes exactly where it left
+        // off; planItemRef ties generated pieces back to their plan row.
+        if (m.contentPlan) persisted.contentPlan = m.contentPlan;
+        if (m.planItemRef) persisted.planItemRef = m.planItemRef;
         return persisted;
       }));
       // Also update local state with uploaded URLs so future saves don't re-upload
@@ -1443,6 +1453,35 @@ export default function Content() {
           // and render the CAROUSEL PLAN card the user was seeing.
           const planCalls = planMode ? [] : normalized.filter(c => c.kind === 'plan');
           const imageCalls = planMode ? [] : normalized.filter(c => c.kind === 'image');
+          const contentPlanCalls = normalized.filter(c => c.kind === 'content_plan');
+
+          if (contentPlanCalls.length > 0) {
+            // In-chat content plan (unified with AI CEO): attach to the
+            // message; ContentPlanMessage renders the day-by-day card with
+            // its "Generate content" button. Generation runs through the
+            // shared planRunner + the same plan-item / carousel / image
+            // endpoints every other tab uses.
+            const cp = contentPlanCalls[0].plan;
+            console.log(`📅 Content plan received: ${cp.items?.length} pieces (${activePlatform.id})`);
+            setMessages((prev) => prev.map((m) =>
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    contentPlan: {
+                      title: cp.title || 'Content plan',
+                      timeframeDays: cp.timeframe_days || cp.timeframeDays || (cp.items?.length ?? 7),
+                      platforms: cp.platforms || [activePlatform.id],
+                      summary: cp.summary || '',
+                      items: cp.items || [],
+                      itemStates: [],
+                      runState: 'idle',
+                    },
+                    platform: activePlatform.id,
+                  }
+                : m
+            ));
+            return;
+          }
 
           if (planCalls.length > 0) {
             // Only take the first plan — Claude should only produce one.
@@ -2503,6 +2542,195 @@ export default function Content() {
     setIsGenerating(false);
     setActiveAssistantId(null);
   }, [messages, photos, brandDna, generateSlideWithRetry]);
+
+  // ── In-chat content plan runner ──
+  // The SAME plan system the AI CEO uses: shared run loop + helpers in
+  // src/lib/planRunner.js, generation via the unified backend endpoints
+  // (plan-item → shared LinkedIn writer, /api/generate/carousel,
+  // /api/generate/image). This tab only defines how a finished piece
+  // becomes a /Content chat message (inline images/carousel/LinkedIn
+  // preview instead of AI CEO's artifact chips).
+  const activePlanRunsRef = useRef(new Map());
+  const [activePlanRunMsgId, setActivePlanRunMsgId] = useState(null);
+
+  const handleStopPlanRun = useCallback((planMsgId) => {
+    const token = activePlanRunsRef.current.get(planMsgId);
+    if (token) token.cancelled = true;
+  }, []);
+
+  // Open a finished plan piece: carousels/images → side preview panel,
+  // LinkedIn text posts → LinkedIn preview.
+  const openPlanPiece = useCallback((pieceMsgId) => {
+    const msg = messages.find((m) => m.id === pieceMsgId);
+    if (!msg) return;
+    if (msg.linkedinPost?.content) {
+      setCarouselSideView(null);
+      setLinkedinPreview({
+        content: msg.linkedinPost.content,
+        images: msg.images || [],
+        totalSlides: msg.linkedinPost.totalSlides || 0,
+        msgId: msg.id,
+      });
+      return;
+    }
+    if ((msg.images?.length || 0) > 0 || msg.carouselPlan) {
+      setLinkedinPreview(null);
+      setCarouselSideView({ msgId: msg.id });
+    }
+  }, [messages]);
+
+  const handleGeneratePlanContent = useCallback(async (planMsgId, { retryFailedOnly = false } = {}) => {
+    if (isGenerating || activePlanRunsRef.current.size > 0) return;
+
+    // Freshest plan + messages via a setState pass-through (closure lag).
+    const snapshot = await new Promise((resolve) => {
+      setMessages((prev) => {
+        const m = prev.find((x) => x.id === planMsgId);
+        resolve(m?.contentPlan ? { plan: m.contentPlan, allMessages: prev } : null);
+        return prev;
+      });
+    });
+    if (!snapshot) return;
+    const { plan, allMessages } = snapshot;
+    const items = plan.items || [];
+    if (items.length === 0) return;
+
+    // Reconcile against pieces that actually exist (autosave debounce can
+    // lose the last tick across a reload — planItemRef is ground truth).
+    const itemStates = items.map((_, i) => {
+      const prevState = { ...(plan.itemStates?.[i] || { status: 'pending' }) };
+      const pieceMsg = allMessages.find((m) => m.planItemRef?.planMsgId === planMsgId && m.planItemRef?.index === i);
+      if (pieceMsg) return { ...prevState, status: 'done', msgId: pieceMsg.id };
+      if (retryFailedOnly && prevState.status === 'failed') return { status: 'pending' };
+      if (prevState.status === 'done' || prevState.status === 'running') return { status: 'pending' };
+      return prevState;
+    });
+
+    const updatePlan = (patch) => {
+      setMessages((prev) => prev.map((m) =>
+        m.id === planMsgId && m.contentPlan
+          ? { ...m, contentPlan: { ...m.contentPlan, ...patch, itemStates: [...itemStates] } }
+          : m
+      ));
+    };
+
+    const token = { cancelled: false };
+    activePlanRunsRef.current.set(planMsgId, token);
+    setActivePlanRunMsgId(planMsgId);
+    setIsGenerating(true);
+    updatePlan({ runState: 'running' });
+    const runSessionId = sessionIdRef.current;
+
+    try {
+      await runPlanItems({
+        items,
+        itemStates,
+        token,
+        updatePlan,
+        isRunValid: () => {
+          if (sessionIdRef.current !== runSessionId) token.cancelled = true;
+          return sessionIdRef.current === runSessionId;
+        },
+        generateItem: (item) => generatePlanItem({
+          item,
+          planTitle: plan.title,
+          planContext: serializeContentPlan({ ...plan, itemStates }),
+          userName: user?.name || null,
+        }),
+        materializePiece: async ({ item, index: i, resp }) => {
+          const pieceMsgId = `msg-${Date.now()}-plan-${i}`;
+          let imageFailed = false;
+          const piece = {
+            id: pieceMsgId,
+            role: 'assistant',
+            content: '',
+            images: [],
+            pendingImages: 0,
+            platform: item.platform,
+            planItemRef: { planMsgId, index: i },
+          };
+
+          if (resp.kind === 'carousel' && resp.carouselPlan?.slides?.length) {
+            const slides = resp.carouselPlan.slides;
+            const images = [];
+            itemStates[i] = { status: 'running', progress: { done: 0, total: slides.length } };
+            updatePlan({});
+            try {
+              await generateCarouselServerSide({
+                platform: item.platform === 'linkedin' ? 'linkedin' : 'instagram',
+                plan: {
+                  hook: resp.carouselPlan.hook,
+                  caption: resp.carouselPlan.caption,
+                  slides,
+                  designSystem: resp.carouselPlan.designSystem,
+                },
+                brand: { name: brandDna?.brand_name || user?.name || '' },
+              }, {
+                onSlideDone: (idx, url) => {
+                  images.push({ src: url, idx });
+                  itemStates[i] = { status: 'running', progress: { done: images.length, total: slides.length } };
+                  updatePlan({});
+                },
+                onSlideFailed: (idx, error) => {
+                  imageFailed = true;
+                  if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
+                },
+              });
+            } catch (carErr) {
+              console.error('[Content] plan carousel failed:', carErr?.message);
+              imageFailed = true;
+            }
+            images.sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
+            piece.content = resp.carouselPlan.caption || planPieceLabel(item, imageFailed);
+            piece.images = images;
+            piece.carouselPlan = { ...resp.carouselPlan, approved: true, generating: false, failedSlides: [] };
+          } else if (resp.kind === 'single_image' && resp.image_prompt) {
+            piece.content = resp.content || '';
+            try {
+              const imgPlatform = item.platform === 'linkedin' ? 'linkedin' : item.platform === 'instagram' ? 'instagram' : 'general';
+              const r = await generateImage(resp.image_prompt, imgPlatform, null, null, {});
+              if (r?.image?.data) piece.images = [{ src: `data:${r.image.mimeType};base64,${r.image.data}`, idx: 0 }];
+              else imageFailed = true;
+            } catch (imgErr) {
+              console.error('[Content] plan single image failed:', imgErr?.message);
+              imageFailed = true;
+            }
+          } else if (item.platform === 'linkedin' && item.format === 'text_post') {
+            // LinkedIn text post → summary card + Open Preview, same as
+            // interactive posts in this tab.
+            piece.content = planPieceLabel(item, false);
+            piece.linkedinPost = { content: resp.content || '', totalSlides: 0 };
+          } else {
+            piece.content = resp.content || '';
+          }
+
+          setMessages((prev) => [...prev, piece]);
+          return { pieceMsgId, imageFailed };
+        },
+      });
+      if (token.creditsDepleted) setCreditsDepleted(true);
+    } finally {
+      activePlanRunsRef.current.delete(planMsgId);
+      setActivePlanRunMsgId(null);
+      setIsGenerating(false);
+    }
+
+    if (token.cancelled || sessionIdRef.current !== runSessionId) {
+      if (sessionIdRef.current === runSessionId) updatePlan({ runState: 'stopped' });
+      return;
+    }
+    updatePlan({ runState: 'done' });
+    const doneCount = itemStates.filter((s) => s.status === 'done').length;
+    const failedCount = itemStates.filter((s) => s.status === 'failed').length;
+    setMessages((prev) => [...prev, {
+      id: `msg-${Date.now()}-plan-complete`,
+      role: 'assistant',
+      content: failedCount === 0
+        ? `All of your content is generated. ${doneCount} pieces are ready above — open any of them to review, edit, or schedule.`
+        : `Generated ${doneCount} of ${items.length} pieces. ${failedCount} failed — hit "Retry failed" on the plan card and I'll take another pass.`,
+      images: [],
+    }]);
+  }, [isGenerating, brandDna, user]);
 
   // Block sending while any attachment is still uploading/extracting  -  otherwise the
   // AI receives a prompt without the context the user just attached.
@@ -4167,6 +4395,19 @@ export default function Content() {
                           onApprove={() => handleCarouselApprove(msg.id)}
                           onRetryFailed={() => handleRetryFailedSlides(msg.id)}
                           onUpdatePlan={(next) => handleUpdateCarouselPlan(msg.id, next)}
+                        />
+                      )}
+                      {/* In-chat content plan — the SAME card + runner the
+                          AI CEO uses (src/lib/planRunner.js). */}
+                      {msg.contentPlan && (
+                        <ContentPlanMessage
+                          plan={msg.contentPlan}
+                          isRunActive={activePlanRunMsgId === msg.id}
+                          runLocked={isGenerating || activePlanRunMsgId !== null}
+                          onGenerate={() => handleGeneratePlanContent(msg.id)}
+                          onRetryFailed={() => handleGeneratePlanContent(msg.id, { retryFailedOnly: true })}
+                          onStop={() => handleStopPlanRun(msg.id)}
+                          onOpenItem={(pieceMsgId) => openPlanPiece(pieceMsgId)}
                         />
                       )}
                       {/* LinkedIn text-post summary card — always visible.
