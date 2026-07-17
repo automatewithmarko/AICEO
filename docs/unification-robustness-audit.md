@@ -107,21 +107,32 @@ content_post artifacts, but bypasses the unified generation paths.**
 
 ## 3. Prioritized fix list
 
-**P0 — real cost/UX bugs, fix before wide release:**
-1. Wire `res.on('close') → AbortController` through `/api/content-orchestrate`, `/api/orchestrate` (CEO), and `/api/generate/carousel` (A1, B2) — plan-item already shows the pattern.
-2. Stripe dev/prod endpoint fight (D1): provisioning deletes stale same-user endpoints on other hosts.
-3. Carousel credit exhaustion UX (B1): detect 'Insufficient credits' in slide_failed → paywall + disable retry; optional upfront balance check for requested slide count.
+**P0 — real cost/UX bugs: ✅ ALL FIXED 2026-07-17**
+1. ✅ `res.on('close') → AbortController` wired through `/api/content-orchestrate`, `/api/orchestrate`, and `/api/generate/carousel` (A1, B2).
+2. ✅ Stripe dev/prod endpoint fight (D1): provisioning deletes stale same-user endpoints on other hosts.
+3. ✅ Carousel credit exhaustion (B1): 'Insufficient credits' slide failures raise the paywall in both tabs; balance is pre-checked per slide.
 
-**P1 — quality/robustness:**
-4. Plan-item LinkedIn posts → shared writer (M1).
-5. Plan runner carousels → server renderer (M2).
-6. Content.jsx: surface CONTEXT_EXCEEDED message (A4).
-7. Only translate first ask_user per round (A6).
-8. Probe: unknown errors → 'unverified', not granted (D4).
-9. Dedupe slideIndexes (B3).
+**P1 — quality/robustness: ✅ ALL FIXED 2026-07-17**
+4. ✅ Plan-item LinkedIn posts → shared writer (M1).
+5. ✅ Plan runner carousels → server renderer (M2) — in BOTH tabs via the shared runner.
+6. ✅ Content surfaces CONTEXT_EXCEEDED verbatim (A4).
+7. ✅ Only the first ask_user per turn is translated (A6).
+8. ✅ Probe: unknown errors → 'unverified' bucket (D4).
+9. ✅ slideIndexes deduped (B3).
 
 **P2 — product decisions + hygiene:**
-10. Metering decisions (E3/M5): bill Content chat? per-slide vs per-attempt? upfront carousel gate?
-11. Content tab plan-mode replacement (M6 port plan above).
-12. Reconnect-different-account data pruning (D3).
-13. recentContent fencing (E2); document autosave loss windows (E1).
+10. ✅ Metering DECIDED + implemented (docs/credits-policy.md): chat and
+    planning free everywhere; images/slides are the billed service;
+    carousel debits per successfully delivered slide (never per attempt).
+11. ✅ Content tab plan-mode replaced with the unified in-chat plan
+    system (shared directive plan-mode.js, shared ContentPlanMessage,
+    shared runner src/lib/planRunner.js). facebook/tiktok pills keep the
+    legacy HTML plan as a fallback until they get plan-format entries.
+12. OPEN: Reconnect-different-account data pruning (D3) — old
+    integration_data lingers; old account's endpoint can't be removed
+    without the old key (document for support).
+13. OPEN: recentContent fencing (E2, low risk); autosave loss windows
+    (E1) — documented here, accept for now.
+
+See also: docs/unified-tool-map.md (which UI calls which backend
+function) and docs/credits-policy.md (billing policy).

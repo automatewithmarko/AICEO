@@ -431,6 +431,46 @@ are now signature-verified; disconnect cleans up the webhook it created.
 6. **Live sync:** create a product in Stripe → appears in AICEO within
    seconds; archive it in Stripe → disappears.
 
+### Round 6 — unified content planning + robustness fixes (2026-07-17)
+
+**What shipped, in plain words:** Content planning is now ONE system used
+by both tabs. Plan Mode in the Content tab produces the same in-chat plan
+card (day-by-day list + "Generate content" button) the AI CEO has — no
+more old HTML plan page on supported platforms. Under the hood, plan
+pieces generate through the exact same engines as everything else: plan
+LinkedIn posts use the full shared writer now (they'll read like your
+interactive posts), and plan carousels render server-side with retries
+and visual anchoring. Also: chat and planning are now FREE everywhere
+(see docs/credits-policy.md — credits only pay for images/slides), and a
+batch of robustness fixes landed (closing the tab now stops generation
+and billing; running out of credits mid-carousel shows the paywall
+instead of a dead retry loop).
+
+**Test checklist:**
+1. **Content tab Plan Mode (LinkedIn or Instagram pill):** toggle Plan
+   Mode → "plan my next 7 days" → an in-chat plan card appears (day-by-
+   day list, no HTML page, and it must NOT ask which platform — the pill
+   decides). Items only for the pill's platform, formats rotating.
+2. **Generate content from the plan (Content tab):** hit "Generate
+   content" → pieces appear one at a time as normal chat messages —
+   LinkedIn text posts get the summary card + Open Preview, carousels
+   arrive with slides (server-rendered), image posts with caption +
+   image. Stop mid-run → Resume works. Reload mid-run → Resume works.
+3. **Same in AI CEO:** plan → generate → identical behavior (artifact
+   chips there). Plan LinkedIn posts should now read like interactive
+   ones (full writer quality, your sign-off).
+4. **Quality check:** compare a plan-generated LinkedIn post vs an
+   interactive one — same writer, should be indistinguishable.
+5. **Free chat:** verify chat messages and planning no longer deduct
+   credits (balance unchanged after chatting/planning; drops only when
+   images/slides generate).
+6. **Tab-close stop:** start a carousel, close the tab, reopen — the
+   run should NOT have kept billing to completion in the background.
+7. **Credit exhaustion:** (if testable) run credits to zero mid-carousel
+   → paywall appears instead of silent slide failures.
+8. **Facebook/TikTok pills:** Plan Mode there still uses the old HTML
+   plan (intentional fallback — these platforms have no plan formats yet).
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you
