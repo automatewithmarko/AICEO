@@ -13,9 +13,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 16px;
+  /* Right padding clears the app's fixed notification bell
+     (.notif-bell-wrap: fixed, top 16px, right 20px) which floats over
+     the top-right corner of this panel. */
+  padding: 12px 64px 12px 16px;
   border-bottom: 1px solid var(--border-light, #e5e5e5);
   flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .script-preview-header { padding-right: 56px; }
 }
 
 .script-preview-icon { color: #7c3aed; flex-shrink: 0; }

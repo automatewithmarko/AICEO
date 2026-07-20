@@ -556,6 +556,44 @@ instead of a dead retry loop).
    this, the deeper fix is in that service's own system prompt — point
    me at that repo and I'll fix it there.
 
+### Round 9 — text-post canvas, script-guide engine, builder question cap (2026-07-20)
+
+**What shipped, in plain words:** the prompt.md findings from later on 2026-07-20.
+
+1. **Text-only posts open in canvas in /Content.** An Instagram (or
+   Facebook/X/TikTok) post with no image now arrives as a post card with
+   "Open preview" — the caption lives in the social preview panel
+   (editable, with the schedule/publish toolbar), never dumped inline.
+   LinkedIn already had this via its own writer; AI CEO already used
+   canvas artifacts. Test: Instagram pill → "write me a caption about X,
+   no image" → hand-off sentence + post card → preview opens with the
+   caption, edit + save works, survives reload.
+2. **Script canvas buttons visible.** The script panel's Edit/Copy/
+   Download/Close buttons no longer hide behind the floating
+   notification bell — the header reserves space for it.
+3. **BooSend builder: max 1-2 questions, only critical ones.** The build
+   policy now orders the builder to build immediately when the request
+   describes trigger + conditions + messages, ask ONLY for details the
+   automation cannot work without (like the actual ebook URL), never ask
+   about goals/niche/tone/audience, never re-ask, and default the
+   non-critical details (noting them in the build summary). Test: paste
+   the "book" story example → it should ask for the ebook link at most,
+   then build.
+4. **VIDEO SCRIPT ENGINE is now the script brain.** The master pack
+   (docs/VIDEO SCRIPT ENGINE — COMPLETE MASTER PACK.docx) is distilled
+   into backend/agents/content/video-script-guide.js — ONE source used
+   by every script path: Content chat, AI CEO chat, and plan-generated
+   reel/YouTube scripts. Short-form scripts now follow the full craft
+   spec (3-second hook ≤12 words, word budgets per duration, but/
+   therefore beats, re-hooks, [VISUAL]/[TEXT ON SCREEN] cues, production
+   notes, banned AI-cliché words, loop endings); YouTube scripts follow
+   the long-form spec (click confirmation, payoff map, chapter
+   micro-hooks, mid-video subscribe ask, bridge ending — no outro).
+   Test: ask for a 45s reel script → it should arrive in the script card
+   with HOOK/BODY/CTA structure, visual cues, and production notes; ask
+   for a 10-min YouTube script → payoff map + chapters + no "thanks for
+   watching".
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you

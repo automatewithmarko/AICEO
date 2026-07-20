@@ -284,6 +284,10 @@ async function streamContentUnified(messages, onTextChunk, onToolCall, abortSign
         // Video script (reel / short / YouTube) — rendered as a script
         // card + side preview instead of inline chat text.
         toolCallsOut.push({ kind: 'script', id: `unified-${toolCallsOut.length}`, title: args.title || '', script: args.script });
+      } else if (name === 'submit_text_post' && args.caption) {
+        // Finished text-only post — rendered as a post card that opens
+        // the social preview instead of inline chat text.
+        toolCallsOut.push({ kind: 'text_post', id: `unified-${toolCallsOut.length}`, caption: args.caption });
       }
     },
     onError: (err) => {
@@ -1262,6 +1266,9 @@ export default function Content() {
             platform: m.scriptDoc.platform || null,
           };
         }
+        if (m.socialPost && m.socialPost.caption) {
+          persisted.socialPost = { caption: m.socialPost.caption };
+        }
         // In-chat content plan (shared with AI CEO): persist the plan +
         // per-item run states so a reload resumes exactly where it left
         // off; planItemRef ties generated pieces back to their plan row.
@@ -1530,6 +1537,22 @@ export default function Content() {
                   }
                 : m
             ));
+            return;
+          }
+
+          const textPostCalls = normalized.filter(c => c.kind === 'text_post');
+          if (textPostCalls.length > 0) {
+            // Text-only post → post card + auto-open the social preview
+            // (SocialPreview's text-only render: caption + action row).
+            const tp = textPostCalls[0];
+            setMessages((prev) => prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, socialPost: { caption: tp.caption }, platform: m.platform || activePlatform.id }
+                : m
+            ));
+            setLinkedinPreview(null);
+            setScriptView(null);
+            setCarouselSideView({ msgId: assistantMsgId });
             return;
           }
 
@@ -4546,6 +4569,38 @@ export default function Content() {
                           </button>
                         </div>
                       )}
+                      {/* Text-only post summary card — the caption lives
+                          in the side preview, never inline chat. */}
+                      {msg.socialPost && msg.socialPost.caption && (
+                        <div className="content-linkedin-summary">
+                          <div className="content-script-summary-icon content-post-summary-icon">
+                            <PenLine size={18} />
+                          </div>
+                          <div className="content-linkedin-summary-body">
+                            <div className="content-linkedin-summary-label">
+                              {(platforms.find((p) => p.id === msg.platform)?.name || 'Social')} post
+                            </div>
+                            <div className="content-linkedin-summary-snippet">
+                              {msg.socialPost.caption.split('\n')[0].slice(0, 120)}{msg.socialPost.caption.length > 120 ? '…' : ''}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="content-linkedin-summary-open"
+                            onClick={() => {
+                              if (carouselSideView?.msgId === msg.id) return;
+                              setLinkedinPreview(null);
+                              setScriptView(null);
+                              setCarouselSideView({ msgId: msg.id });
+                            }}
+                            disabled={carouselSideView?.msgId === msg.id}
+                            title={carouselSideView?.msgId === msg.id ? 'Already open in the side panel' : 'Open the post preview'}
+                          >
+                            <Maximize2 size={14} />
+                            {carouselSideView?.msgId === msg.id ? 'Preview open' : 'Open preview'}
+                          </button>
+                        </div>
+                      )}
                       {/* Video-script summary card — the script itself
                           lives in the side preview, never inline chat. */}
                       {msg.scriptDoc && msg.scriptDoc.content && (
@@ -5144,7 +5199,9 @@ export default function Content() {
           return (
             <div className="content-main-preview">
               <SocialPreview
-                msg={panelMsg}
+                msg={panelMsg.socialPost?.caption
+                  ? { ...panelMsg, content: panelMsg.socialPost.caption }
+                  : panelMsg}
                 brandDna={brandDna}
                 user={user}
                 isGenerating={isGenerating}
@@ -5154,13 +5211,15 @@ export default function Content() {
                   // Persist the edited caption on the source message so
                   // subsequent renders and any downstream publish/schedule
                   // pipeline see the user's version, not the AI's original.
-                  // Update carouselPlan.caption when present (single source
-                  // of truth for carousels) and fall back to content for
-                  // plain single/text posts.
+                  // carouselPlan.caption for carousels, socialPost.caption
+                  // for text-only posts, content for plain single posts.
                   setMessages(prev => prev.map(m => {
                     if (m.id !== panelMsg.id) return m;
                     if (m.carouselPlan) {
                       return { ...m, carouselPlan: { ...m.carouselPlan, caption: nextCaption } };
+                    }
+                    if (m.socialPost) {
+                      return { ...m, socialPost: { ...m.socialPost, caption: nextCaption } };
                     }
                     return { ...m, content: nextCaption };
                   }));

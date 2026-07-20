@@ -133,6 +133,27 @@ export const SUBMIT_SCRIPT_TOOL = {
   },
 };
 
+// Deliver a finished TEXT-ONLY social post (no image) as a structured
+// payload. Relayed to the client, which shows a post card + opens the
+// social preview panel — founder finding 2026-07-20: "Text-post for
+// instagram did not open in canvas in /content". LinkedIn text posts
+// have their own two-pass writer (generate_linkedin_post/submit_post);
+// this covers every other pill (Instagram, Facebook, X, TikTok).
+export const SUBMIT_TEXT_POST_TOOL = {
+  type: 'function',
+  function: {
+    name: 'submit_text_post',
+    description: 'Deliver a finished TEXT-ONLY social post (a caption/post with NO image generation in this turn). caption must contain ONLY the ready-to-paste post text — every writing rule from the system prompt applies to it exactly. In the same turn write ONE short hand-off sentence as normal chat text and NEVER the post itself. Do NOT call this when you are also calling generate_image (image posts keep their caption as chat text), for carousels (plan_carousel carries its caption), or on the LinkedIn tab (use generate_linkedin_post).',
+    parameters: {
+      type: 'object',
+      properties: {
+        caption: { type: 'string', description: 'The complete, final post text with proper line breaks. Nothing before it, nothing after it.' },
+      },
+      required: ['caption'],
+    },
+  },
+};
+
 // Runtime addendum appended AFTER the verbatim /Content system prompt for
 // the 'chat' intent. Only overrides the delivery MECHANISM.
 export function buildClaudeChatProtocolAddendum({ isLinkedin = false, editModeActive = false, planPlatformId = null } = {}) {
@@ -148,6 +169,9 @@ export function buildClaudeChatProtocolAddendum({ isLinkedin = false, editModeAc
   }
   a += `${++n}. CAROUSELS AND IMAGES: unchanged — call plan_carousel / generate_image exactly as described above. For SINGLE POSTS and STORIES you MUST write the ready-to-post caption as normal chat text in the SAME turn as your generate_image call(s) — an image with no caption is an incomplete deliverable and a bug. (Carousels are the exception: their caption lives in the plan_carousel caption field, not chat text.)\n`;
   a += `${++n}. VIDEO SCRIPTS (reels, shorts, TikToks, YouTube videos): wherever the flow above says to write the script as your text output, call the submit_script tool with the full script instead. NEVER stream a script into chat — the client renders it as an openable script card. Chat text in that turn is ONE short hand-off sentence, nothing more.\n`;
+  if (!isLinkedin) {
+    a += `${++n}. TEXT-ONLY POSTS: when the finished deliverable is a post/caption with NO image being generated this turn, call submit_text_post with the complete caption — the client renders it as a post card that opens in the social preview. NEVER write the finished caption inline in chat. (Posts WITH images keep the existing behavior: caption as chat text alongside the generate_image call.)\n`;
+  }
   a += `${++n}. ONE ACTION PER TURN (same turn-taking rule as above): either ONE ask_user call, OR one generation action (generate_linkedin_post, submit_script, plan_carousel, or a set of generate_image calls), OR pure conversation. Never combine a question with a generation action in the same turn.\n`;
   a += `${++n}. NO META-COMMENTARY: never output planning notes, checklists, "Constraint Checklist", "Mental Sandbox", option analysis, or internal reasoning as text. Your visible text is only what the user should read in chat.\n`;
   a += `${++n}. NEVER WRITE A TOOL CALL AS TEXT: no {"tool_code": ...}, no JSON function syntax, no pseudo-code invocations in your reply. If you intend to generate an image or plan a carousel you MUST invoke the actual tool. A tool call typed as text reaches the user as raw JSON and executes nothing — it is the worst possible failure.\n`;
