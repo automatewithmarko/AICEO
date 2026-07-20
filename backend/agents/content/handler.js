@@ -112,7 +112,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
       systemPrompt,
       messages,
       tools: [SUBMIT_POST_TOOL],
-      toolChoice: { function: { name: 'submit_post' } },
+      toolChoice: { type: 'function', function: { name: 'submit_post' } },
       // planMode:true = the orchestrator loop's exit-after-first-tool-round
       // switch — one forced submit_post call and we're done.
       planMode: true,

@@ -56,7 +56,9 @@ export async function runLinkedInTextPostPass({ messages, variation = 'A', userN
     systemPrompt,
     messages,
     tools: [SUBMIT_POST_TOOL],
-    toolChoice: { function: { name: 'submit_post' } },
+    // Full OpenAI object form — the Grok fallback forwards this verbatim
+    // and XAI 422s without the `type` field (untagged-enum deserialize).
+    toolChoice: { type: 'function', function: { name: 'submit_post' } },
     planMode: true,      // exit after the one forced tool round
     searchMode: false,
     abortSignal,

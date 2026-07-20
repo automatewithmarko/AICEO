@@ -647,6 +647,39 @@ instead of a dead retry loop).
 - YouTube long-form instead: # title + payoff map + [CHAPTER] sections
   with hook-style titles + bridge ending to a named next video.
 
+### Round 11 — image timeouts, honest progress UX, LinkedIn 422 (2026-07-20)
+
+**What shipped, in plain words:**
+
+1. **Images no longer die at 2 minutes.** The stuck "Generating slide
+   1…" was a timeout chain: gpt-image-2 at high quality can take over 2
+   minutes, and BOTH our server cap and the browser cap were exactly
+   120s — the request was killed mid-render ("TimeoutError: signal
+   timed out" in your console). Server now allows 180s for OpenAI (then
+   still falls back to Gemini), browser allows 300s.
+2. **Failures are never silent anymore.** If an image still fails after
+   all that, you now get a clear chat message saying what happened
+   ("took too long and timed out") and how to retry — instead of a
+   forever-spinner or a caption-only post with no explanation. In AI
+   CEO, plain image requests also show a loading panel the whole time
+   they render (that path previously had no progress UI at all).
+3. **The AI stops claiming a rendering image is "done."** Both tabs'
+   prompts now force in-progress phrasing — "Generating your image now,
+   it'll appear in the canvas in a minute" — never "your image is
+   ready" while the panel is still empty.
+4. **LinkedIn 422 fixed.** Your "XAI API error (422) … ToolChoice"
+   came from the LinkedIn writer's forced tool call: its tool_choice
+   object was missing the type field. Claude tolerated it, but when a
+   turn fell back to the Grok provider, xAI rejected the request.
+   Fixed at both call sites plus a normalization guard in the
+   transport so no future caller can hit it.
+
+**Test:** Instagram pill → "generate me a single image post" → caption
+card + preview open while the image renders (up to ~3 min) → image lands
+next to the caption. Kill your network mid-generation → you should get
+the ⚠️ failure message, not a stuck spinner. LinkedIn pill → generate a
+single-image post → no 422, post text arrives via the normal preview.
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you

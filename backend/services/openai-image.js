@@ -26,7 +26,10 @@ import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
 
 const OPENAI_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
-const OPENAI_TIMEOUT_MS = 120_000;
+// 180s — gpt-image-2 at quality=high regularly needs >120s; the caller
+// still has Gemini as a fallback after this, and the frontend's client
+// cap is 300s, so 180 + fallback fits inside it.
+const OPENAI_TIMEOUT_MS = 180_000;
 // gpt-image-1 prompt cap is a few thousand tokens; our fully-built prompt
 // (platform rules + brand context + quality rules + user prompt) can hit
 // ~4-6k characters. OpenAI silently truncates past its limit but returns

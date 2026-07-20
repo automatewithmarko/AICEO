@@ -1703,6 +1703,18 @@ export default function Content() {
           const failed = results.filter(r => r.status === 'rejected');
           if (failed.length > 0) {
             console.warn(`⚠️ ${failed.length} image(s) failed`);
+            // Surface it — a silent failure left the preview caption-only
+            // with no explanation and no path forward.
+            const reason = failed[0]?.reason;
+            const why = reason?.name === 'TimeoutError'
+              ? 'it took too long and timed out'
+              : (reason?.message || 'generation failed');
+            setMessages((prev) => [...prev, {
+              id: `msg-${Date.now()}-imgfail`,
+              role: 'assistant',
+              content: `⚠️ ${failed.length === 1 ? 'The image' : `${failed.length} images`} for this post didn't finish (${why}). Say "regenerate the image" and I'll retry it.`,
+              images: [],
+            }]);
           }
         },
         abort.signal,
