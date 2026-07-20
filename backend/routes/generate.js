@@ -625,16 +625,28 @@ ${prompt}`;
       .map((p) => p.inlineData);
 
     if (isOpenAIImageConfigured()) {
-      const openaiResult = await generateImageWithOpenAI({
+      let openaiResult = await generateImageWithOpenAI({
         prompt: imagePrompt,
         referenceImages: openaiRefs,
         aspectRatio: pConfig.aspectRatio,
-        // Map imageSize ('1K'/'2K') → quality hint. 2K platforms
-        // (stories, tiktok) get 'high'; others also get 'high' but
-        // could be downgraded to 'medium' later if latency becomes a
-        // concern.
         quality: 'high',
       });
+      // One retry at quality=medium with a tighter cap before touching
+      // Gemini: a high-quality render that blows the 150s window usually
+      // succeeds at medium in well under 90s, and the Gemini fallback is
+      // useless whenever its prepay credits are exhausted (the exact
+      // failure of 2026-07-20 — OpenAI timed out once, Gemini 429'd,
+      // user got nothing).
+      if (!openaiResult.ok && (openaiResult.timeout || (openaiResult.status && openaiResult.status >= 500))) {
+        console.warn(`[generate/image] OpenAI attempt 1 failed (${openaiResult.status || 'n/a'}${openaiResult.timeout ? ' TIMEOUT' : ''}): ${openaiResult.error} — retrying once at quality=medium`);
+        openaiResult = await generateImageWithOpenAI({
+          prompt: imagePrompt,
+          referenceImages: openaiRefs,
+          aspectRatio: pConfig.aspectRatio,
+          quality: 'medium',
+          timeoutMs: 90_000,
+        });
+      }
       if (openaiResult.ok) {
         return {
           ok: true,
@@ -686,7 +698,15 @@ ${prompt}`;
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
       console.log(`[generate/image] Gemini error: ${geminiRes.status} ${errText}`);
-      return { ok: false, status: geminiRes.status, body: { error: errText } };
+      // Human-readable error for the chat UI — the raw provider JSON
+      // (e.g. Gemini's "prepayment credits are depleted" blob) reads as
+      // a broken product. Full detail stays in the log above.
+      const friendly = geminiRes.status === 429
+        ? 'Image generation is temporarily unavailable (provider capacity). Please try again in a few minutes.'
+        : geminiRes.status === 400
+          ? 'The image provider declined this request — try rephrasing the image description.'
+          : 'Image generation failed. Please try again.';
+      return { ok: false, status: geminiRes.status, body: { error: friendly, detail: errText.slice(0, 300) } };
     }
 
     const result = await geminiRes.json();

@@ -26,10 +26,11 @@ import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
 
 const OPENAI_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
-// 180s — gpt-image-2 at quality=high regularly needs >120s; the caller
-// still has Gemini as a fallback after this, and the frontend's client
-// cap is 300s, so 180 + fallback fits inside it.
-const OPENAI_TIMEOUT_MS = 180_000;
+// 150s default — gpt-image-2 at quality=high regularly needs >120s. The
+// caller retries once at quality=medium with a shorter cap, then falls
+// to Gemini; the whole chain must fit the frontend's 300s client cap.
+// Per-call override via opts.timeoutMs.
+const OPENAI_TIMEOUT_MS = 150_000;
 // gpt-image-1 prompt cap is a few thousand tokens; our fully-built prompt
 // (platform rules + brand context + quality rules + user prompt) can hit
 // ~4-6k characters. OpenAI silently truncates past its limit but returns
@@ -86,7 +87,7 @@ function mapQuality(hint) {
  * @param {string} [opts.quality] - low|medium|high|auto (defaults to 'high')
  * @returns {Promise<{ok: boolean, data?: string, mimeType?: string, error?: string, status?: number, timeout?: boolean}>}
  */
-export async function generateImageWithOpenAI({ prompt, referenceImages, aspectRatio, quality }) {
+export async function generateImageWithOpenAI({ prompt, referenceImages, aspectRatio, quality, timeoutMs }) {
   if (!prompt) return { ok: false, error: 'prompt is required' };
   if (!process.env.OPENAI_API_KEY) {
     return { ok: false, error: 'OPENAI_API_KEY not configured' };
@@ -97,7 +98,7 @@ export async function generateImageWithOpenAI({ prompt, referenceImages, aspectR
   const refs = Array.isArray(referenceImages) ? referenceImages.filter((r) => r?.data) : [];
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs || OPENAI_TIMEOUT_MS);
 
   const client = getClient();
 
@@ -153,8 +154,11 @@ export async function generateImageWithOpenAI({ prompt, referenceImages, aspectR
     console.log(`[openai-image] ✅ image generated (${Math.round(data.length / 1024)}KB base64)`);
     return { ok: true, data, mimeType: 'image/png' };
   } catch (err) {
-    // OpenAI SDK v4 errors carry .status and .code. AbortError → timeout.
-    const isTimeout = err.name === 'AbortError' || err.code === 'ETIMEDOUT';
+    // OpenAI SDK v4 errors carry .status and .code. Our AbortController
+    // firing surfaces as APIUserAbortError ("Request was aborted.") —
+    // NOT AbortError — so match all abort shapes as timeout.
+    const isTimeout = err.name === 'AbortError' || err.name === 'APIUserAbortError'
+      || err.code === 'ETIMEDOUT' || /\baborted\b/i.test(err.message || '');
     const status = err.status || err.statusCode || null;
     // Try to extract the OpenAI error body if present — helpful for
     // triaging content-policy blocks vs auth vs quota errors.
