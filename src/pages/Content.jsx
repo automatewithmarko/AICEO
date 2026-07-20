@@ -336,7 +336,7 @@ async function streamContentResponse(messages, _systemPrompt, onTextChunk, onToo
 // dummy reaction/comment/share counts so they don't fluctuate on every
 // render but still vary between posts.
 
-function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform = 'instagram' }) {
+function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform = 'instagram', caption = '' }) {
   const navigate = useNavigate();
   const [downloading, setDownloading] = useState(false);
   const [showTip, setShowTip] = useState(() => {
@@ -561,7 +561,9 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
       if (needsMedia && !media.length) throw new Error('No images to schedule');
       const { post } = await createCalendarPost({
         platform,
-        caption: plan.caption || '',
+        // plan.caption for carousels; the caption prop covers single-image
+        // and text-only posts (plan is undefined there).
+        caption: plan?.caption || caption || '',
         content_type: media.length > 1 ? 'carousel' : media.length === 1 ? 'image' : 'text',
         scheduled_at: mode === 'scheduled' ? new Date(scheduleWhen).toISOString() : null,
         media,
@@ -702,6 +704,9 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
         <CalendarDays size={14} />
         {scheduleStatus === 'published' ? 'Published' : scheduleStatus === 'saved' ? 'Saved' : (scheduling ? 'Saving…' : 'Schedule')}
       </button>
+      {/* Template only applies to carousels (it saves plan.designSystem);
+          single-image / text-only posts have no plan. */}
+      {plan?.designSystem && (
       <button
         type="button"
         className="li-toolbar-btn"
@@ -711,6 +716,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
       >
         <Zap size={14} /> {templateSaved ? 'Template saved' : (savingTemplate ? 'Saving…' : 'Template')}
       </button>
+      )}
       {/* Post to {Platform} button — direct publish via connected account.
           On LinkedIn carousels this sits alongside the native Post to
           LinkedIn button below — both route through the same BooSend →
@@ -1542,18 +1548,22 @@ export default function Content() {
 
           const textPostCalls = normalized.filter(c => c.kind === 'text_post');
           if (textPostCalls.length > 0) {
-            // Text-only post → post card + auto-open the social preview
-            // (SocialPreview's text-only render: caption + action row).
+            // Finished post caption (text-only OR image post) → post card;
+            // the caption lives in the social preview, never inline chat.
             const tp = textPostCalls[0];
             setMessages((prev) => prev.map((m) =>
               m.id === assistantMsgId
                 ? { ...m, socialPost: { caption: tp.caption }, platform: m.platform || activePlatform.id }
                 : m
             ));
-            setLinkedinPreview(null);
-            setScriptView(null);
-            setCarouselSideView({ msgId: assistantMsgId });
-            return;
+            if (imageCalls.length === 0) {
+              // Text-only: open the preview now. Image posts fall through —
+              // the generate_image path below opens it as slides stream in.
+              setLinkedinPreview(null);
+              setScriptView(null);
+              setCarouselSideView({ msgId: assistantMsgId });
+              return;
+            }
           }
 
           const scriptCalls = normalized.filter(c => c.kind === 'script');
@@ -1592,8 +1602,12 @@ export default function Content() {
           // Auto-open the side preview for Instagram image generation
           // (carousel, single post, or story) so the user sees slides
           // stream in without scrolling. Matches LinkedIn's auto-open.
-          if (activePlatform.id === 'instagram') {
+          // Also auto-open whenever a submit_text_post caption landed
+          // this turn (image post on any non-LinkedIn pill) — the canvas
+          // pairs the caption with the incoming image.
+          if (activePlatform.id === 'instagram' || textPostCalls.length > 0) {
             setLinkedinPreview(null);
+            setScriptView(null);
             setCarouselSideView({ msgId: assistantMsgId });
           }
 
@@ -2790,7 +2804,6 @@ export default function Content() {
             piece.images = images;
             piece.carouselPlan = { ...resp.carouselPlan, approved: true, generating: false, failedSlides: [] };
           } else if (resp.kind === 'single_image' && resp.image_prompt) {
-            piece.content = resp.content || '';
             try {
               const imgPlatform = item.platform === 'linkedin' ? 'linkedin' : item.platform === 'instagram' ? 'instagram' : 'general';
               const r = await generateImage(resp.image_prompt, imgPlatform, null, null, {});
@@ -2799,6 +2812,15 @@ export default function Content() {
             } catch (imgErr) {
               console.error('[Content] plan single image failed:', imgErr?.message);
               imageFailed = true;
+            }
+            // Caption lives in the preview canvas (post card in chat),
+            // same treatment as interactive image posts — never inline.
+            const caption = resp.content || '';
+            piece.content = planPieceLabel(item, imageFailed);
+            if (item.platform === 'linkedin') {
+              piece.linkedinPost = { content: caption, totalSlides: 0 };
+            } else {
+              piece.socialPost = { caption };
             }
           } else if (item.platform === 'linkedin' && item.format === 'text_post') {
             // LinkedIn text post → summary card + Open Preview, same as
@@ -5190,6 +5212,7 @@ export default function Content() {
                       plan={panelMsg.carouselPlan}
                       images={sortedImgs}
                       platform="linkedin"
+                      caption={panelMsg.linkedinPost?.content || ''}
                     />
                   }
                 />
@@ -5230,6 +5253,7 @@ export default function Content() {
                     plan={panelMsg.carouselPlan}
                     images={[...(panelMsg.images || [])].sort((a, b) => a.idx - b.idx)}
                     platform="instagram"
+                    caption={panelMsg.socialPost?.caption || panelMsg.content || ''}
                   />
                 }
                 onEdit={panelMsg.carouselPlan ? (idx, src, instruction) => {

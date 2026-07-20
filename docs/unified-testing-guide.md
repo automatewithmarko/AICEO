@@ -560,14 +560,19 @@ instead of a dead retry loop).
 
 **What shipped, in plain words:** the prompt.md findings from later on 2026-07-20.
 
-1. **Text-only posts open in canvas in /Content.** An Instagram (or
-   Facebook/X/TikTok) post with no image now arrives as a post card with
-   "Open preview" — the caption lives in the social preview panel
-   (editable, with the schedule/publish toolbar), never dumped inline.
-   LinkedIn already had this via its own writer; AI CEO already used
-   canvas artifacts. Test: Instagram pill → "write me a caption about X,
-   no image" → hand-off sentence + post card → preview opens with the
-   caption, edit + save works, survives reload.
+1. **Text-only AND single-image posts open in canvas in /Content.** An
+   Instagram (or Facebook/X/TikTok) post — with or without an image —
+   now arrives as a post card with "Open preview": the caption lives in
+   the social preview panel paired with its image (editable, with the
+   schedule/publish toolbar), never dumped inline. Plan-generated
+   single-image pieces get the same card (LinkedIn ones use the LinkedIn
+   preview card). Also fixed along the way: scheduling a single-image or
+   text-only post from the preview toolbar now carries the caption (it
+   used to crash — the toolbar only knew carousel captions), and the
+   "Template" button only shows on carousels where it applies. Test:
+   Instagram pill → "make me an image post about X" → hand-off sentence
+   + post card + preview auto-opens with caption + image together;
+   schedule it and check the calendar entry has the caption.
 2. **Script canvas buttons visible.** The script panel's Edit/Copy/
    Download/Close buttons no longer hide behind the floating
    notification bell — the header reserves space for it.
