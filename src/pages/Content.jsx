@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2, ExternalLink } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2, ExternalLink, Clapperboard } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -15,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
 import ChatDropOverlay from '../components/ChatDropOverlay';
 import SocialPreview, { SlideViewerModal } from '../components/SocialPreview';
+import ScriptPreview from '../components/ScriptPreview';
 import { useChatFileDropZone } from '../hooks/useChatFileDropZone';
 import '../components/Paywall.css';
 import './Content.css';
@@ -279,6 +280,14 @@ async function streamContentUnified(messages, onTextChunk, onToolCall, abortSign
       } else if (name === 'create_content_plan' && Array.isArray(args.items) && args.items.length > 0) {
         // In-chat content plan (shared with AI CEO — planRunner.js).
         toolCallsOut.push({ kind: 'content_plan', id: `unified-${toolCallsOut.length}`, plan: args });
+      } else if (name === 'submit_script' && args.script) {
+        // Video script (reel / short / YouTube) — rendered as a script
+        // card + side preview instead of inline chat text.
+        toolCallsOut.push({ kind: 'script', id: `unified-${toolCallsOut.length}`, title: args.title || '', script: args.script });
+      } else if (name === 'submit_text_post' && args.caption) {
+        // Finished text-only post — rendered as a post card that opens
+        // the social preview instead of inline chat text.
+        toolCallsOut.push({ kind: 'text_post', id: `unified-${toolCallsOut.length}`, caption: args.caption });
       }
     },
     onError: (err) => {
@@ -327,7 +336,7 @@ async function streamContentResponse(messages, _systemPrompt, onTextChunk, onToo
 // dummy reaction/comment/share counts so they don't fluctuate on every
 // render but still vary between posts.
 
-function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform = 'instagram' }) {
+function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform = 'instagram', caption = '' }) {
   const navigate = useNavigate();
   const [downloading, setDownloading] = useState(false);
   const [showTip, setShowTip] = useState(() => {
@@ -552,7 +561,9 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
       if (needsMedia && !media.length) throw new Error('No images to schedule');
       const { post } = await createCalendarPost({
         platform,
-        caption: plan.caption || '',
+        // plan.caption for carousels; the caption prop covers single-image
+        // and text-only posts (plan is undefined there).
+        caption: plan?.caption || caption || '',
         content_type: media.length > 1 ? 'carousel' : media.length === 1 ? 'image' : 'text',
         scheduled_at: mode === 'scheduled' ? new Date(scheduleWhen).toISOString() : null,
         media,
@@ -693,6 +704,9 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
         <CalendarDays size={14} />
         {scheduleStatus === 'published' ? 'Published' : scheduleStatus === 'saved' ? 'Saved' : (scheduling ? 'Saving…' : 'Schedule')}
       </button>
+      {/* Template only applies to carousels (it saves plan.designSystem);
+          single-image / text-only posts have no plan. */}
+      {plan?.designSystem && (
       <button
         type="button"
         className="li-toolbar-btn"
@@ -702,6 +716,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
       >
         <Zap size={14} /> {templateSaved ? 'Template saved' : (savingTemplate ? 'Saving…' : 'Template')}
       </button>
+      )}
       {/* Post to {Platform} button — direct publish via connected account.
           On LinkedIn carousels this sits alongside the native Post to
           LinkedIn button below — both route through the same BooSend →
@@ -881,6 +896,9 @@ export default function Content() {
   const [splitPct, setSplitPct] = useState(50);
   const [splitDragging, setSplitDragging] = useState(false);
   const splitRef = useRef(null);
+  // Video-script side preview — { msgId }. The script itself lives on the
+  // message as msg.scriptDoc = { title, content, platform }.
+  const [scriptView, setScriptView] = useState(null);
 
   useEffect(() => {
     if (!splitDragging) return;
@@ -917,6 +935,13 @@ export default function Content() {
   const ensureSessionPromiseRef = useRef(null);
   const [editPrompt, setEditPrompt] = useState('');
   const [linkedinPreview, setLinkedinPreview] = useState(null); // { content, images, msgId }
+
+  // Only ONE side-preview tenant at a time: opening the LinkedIn or
+  // carousel preview evicts the script preview (the reverse eviction is
+  // done explicitly at the script-open call sites).
+  useEffect(() => {
+    if (linkedinPreview || carouselSideView) setScriptView(null);
+  }, [linkedinPreview, carouselSideView]);
   // Mirror so `sendToAI`'s finally block can read the latest preview
   // without capturing a stale closure. Needed to prevent the
   // "AI didn't produce a response" overwrite from firing on valid
@@ -1240,6 +1265,16 @@ export default function Content() {
             totalSlides: m.linkedinPost.totalSlides || 0,
           };
         }
+        if (m.scriptDoc && m.scriptDoc.content) {
+          persisted.scriptDoc = {
+            title: m.scriptDoc.title || '',
+            content: m.scriptDoc.content,
+            platform: m.scriptDoc.platform || null,
+          };
+        }
+        if (m.socialPost && m.socialPost.caption) {
+          persisted.socialPost = { caption: m.socialPost.caption };
+        }
         // In-chat content plan (shared with AI CEO): persist the plan +
         // per-item run states so a reload resumes exactly where it left
         // off; planItemRef ties generated pieces back to their plan row.
@@ -1511,6 +1546,42 @@ export default function Content() {
             return;
           }
 
+          const textPostCalls = normalized.filter(c => c.kind === 'text_post');
+          if (textPostCalls.length > 0) {
+            // Finished post caption (text-only OR image post) → post card;
+            // the caption lives in the social preview, never inline chat.
+            const tp = textPostCalls[0];
+            setMessages((prev) => prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, socialPost: { caption: tp.caption }, platform: m.platform || activePlatform.id }
+                : m
+            ));
+            if (imageCalls.length === 0) {
+              // Text-only: open the preview now. Image posts fall through —
+              // the generate_image path below opens it as slides stream in.
+              setLinkedinPreview(null);
+              setScriptView(null);
+              setCarouselSideView({ msgId: assistantMsgId });
+              return;
+            }
+          }
+
+          const scriptCalls = normalized.filter(c => c.kind === 'script');
+          if (scriptCalls.length > 0) {
+            // Video script → card on the message + auto-open the side
+            // preview (same pattern as LinkedIn's auto-open).
+            const sc = scriptCalls[0];
+            setMessages((prev) => prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, scriptDoc: { title: sc.title || '', content: sc.script, platform: activePlatform.id }, platform: m.platform || activePlatform.id }
+                : m
+            ));
+            setLinkedinPreview(null);
+            setCarouselSideView(null);
+            setScriptView({ msgId: assistantMsgId });
+            return;
+          }
+
           if (planCalls.length > 0) {
             // Only take the first plan — Claude should only produce one.
             const plan = planCalls[0].plan;
@@ -1524,6 +1595,17 @@ export default function Content() {
 
           if (imageCalls.length === 0) return;
           hadImageGeneration = true;
+          // Safety net: if the model generated an image but skipped
+          // submit_text_post (caption streamed as chat text, old-style),
+          // promote that text to socialPost so the canvas still shows a
+          // caption on the FIRST attempt — not only after a reload.
+          if (textPostCalls.length === 0 && activePlatform.id !== 'linkedin') {
+            setMessages((prev) => prev.map((m) => {
+              if (m.id !== assistantMsgId || m.socialPost) return m;
+              const caption = (m.content || '').trim();
+              return caption ? { ...m, socialPost: { caption } } : m;
+            }));
+          }
           console.log(`🖼️ Generating ${imageCalls.length} image(s) in parallel`);
           setMessages((prev) => prev.map((m) =>
             m.id === assistantMsgId ? { ...m, pendingImages: imageCalls.length, platform: m.platform || activePlatform.id } : m
@@ -1531,8 +1613,12 @@ export default function Content() {
           // Auto-open the side preview for Instagram image generation
           // (carousel, single post, or story) so the user sees slides
           // stream in without scrolling. Matches LinkedIn's auto-open.
-          if (activePlatform.id === 'instagram') {
+          // Also auto-open whenever a submit_text_post caption landed
+          // this turn (image post on any non-LinkedIn pill) — the canvas
+          // pairs the caption with the incoming image.
+          if (activePlatform.id === 'instagram' || textPostCalls.length > 0) {
             setLinkedinPreview(null);
+            setScriptView(null);
             setCarouselSideView({ msgId: assistantMsgId });
           }
 
@@ -1617,6 +1703,18 @@ export default function Content() {
           const failed = results.filter(r => r.status === 'rejected');
           if (failed.length > 0) {
             console.warn(`⚠️ ${failed.length} image(s) failed`);
+            // Surface it — a silent failure left the preview caption-only
+            // with no explanation and no path forward.
+            const reason = failed[0]?.reason;
+            const why = reason?.name === 'TimeoutError'
+              ? 'it took too long and timed out'
+              : (reason?.message || 'generation failed');
+            setMessages((prev) => [...prev, {
+              id: `msg-${Date.now()}-imgfail`,
+              role: 'assistant',
+              content: `⚠️ ${failed.length === 1 ? 'The image' : `${failed.length} images`} for this post didn't finish (${why}). Say "regenerate the image" and I'll retry it.`,
+              images: [],
+            }]);
           }
         },
         abort.signal,
@@ -2610,6 +2708,12 @@ export default function Content() {
       });
       return;
     }
+    if (msg.scriptDoc?.content) {
+      setLinkedinPreview(null);
+      setCarouselSideView(null);
+      setScriptView({ msgId: msg.id });
+      return;
+    }
     if ((msg.images?.length || 0) > 0 || msg.carouselPlan) {
       setLinkedinPreview(null);
       setCarouselSideView({ msgId: msg.id });
@@ -2723,7 +2827,6 @@ export default function Content() {
             piece.images = images;
             piece.carouselPlan = { ...resp.carouselPlan, approved: true, generating: false, failedSlides: [] };
           } else if (resp.kind === 'single_image' && resp.image_prompt) {
-            piece.content = resp.content || '';
             try {
               const imgPlatform = item.platform === 'linkedin' ? 'linkedin' : item.platform === 'instagram' ? 'instagram' : 'general';
               const r = await generateImage(resp.image_prompt, imgPlatform, null, null, {});
@@ -2733,11 +2836,29 @@ export default function Content() {
               console.error('[Content] plan single image failed:', imgErr?.message);
               imageFailed = true;
             }
+            // Caption lives in the preview canvas (post card in chat),
+            // same treatment as interactive image posts — never inline.
+            const caption = resp.content || '';
+            piece.content = planPieceLabel(item, imageFailed);
+            if (item.platform === 'linkedin') {
+              piece.linkedinPost = { content: caption, totalSlides: 0 };
+            } else {
+              piece.socialPost = { caption };
+            }
           } else if (item.platform === 'linkedin' && item.format === 'text_post') {
             // LinkedIn text post → summary card + Open Preview, same as
             // interactive posts in this tab.
             piece.content = planPieceLabel(item, false);
             piece.linkedinPost = { content: resp.content || '', totalSlides: 0 };
+          } else if (item.format === 'reel_script' || item.format === 'youtube_script') {
+            // Video script → script card + side preview, never the full
+            // script dumped inline (same treatment as interactive scripts).
+            piece.content = planPieceLabel(item, false);
+            piece.scriptDoc = {
+              title: resp.title || item.topic || '',
+              content: resp.content || '',
+              platform: item.platform,
+            };
           } else {
             piece.content = resp.content || '';
           }
@@ -4044,9 +4165,9 @@ export default function Content() {
       {/* Main content area. When split, the chat/preview widths come from
           the draggable divider via the --content-split CSS variable. */}
       <div
-        className={`content-main${linkedinPreview || carouselSideView ? ' content-main--split' : ''}${splitDragging ? ' content-main--dragging' : ''}`}
+        className={`content-main${linkedinPreview || carouselSideView || scriptView ? ' content-main--split' : ''}${splitDragging ? ' content-main--dragging' : ''}`}
         ref={splitRef}
-        style={linkedinPreview || carouselSideView ? { '--content-split': `${splitPct}%` } : undefined}
+        style={linkedinPreview || carouselSideView || scriptView ? { '--content-split': `${splitPct}%` } : undefined}
       >
         <div className="content-main-chat">
         {/* Platform Pill Selector */}
@@ -4493,6 +4614,70 @@ export default function Content() {
                           </button>
                         </div>
                       )}
+                      {/* Text-only post summary card — the caption lives
+                          in the side preview, never inline chat. */}
+                      {msg.socialPost && msg.socialPost.caption && (
+                        <div className="content-linkedin-summary">
+                          <div className="content-script-summary-icon content-post-summary-icon">
+                            <PenLine size={18} />
+                          </div>
+                          <div className="content-linkedin-summary-body">
+                            <div className="content-linkedin-summary-label">
+                              {(platforms.find((p) => p.id === msg.platform)?.name || 'Social')} post
+                            </div>
+                            <div className="content-linkedin-summary-snippet">
+                              {msg.socialPost.caption.split('\n')[0].slice(0, 120)}{msg.socialPost.caption.length > 120 ? '…' : ''}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="content-linkedin-summary-open"
+                            onClick={() => {
+                              if (carouselSideView?.msgId === msg.id) return;
+                              setLinkedinPreview(null);
+                              setScriptView(null);
+                              setCarouselSideView({ msgId: msg.id });
+                            }}
+                            disabled={carouselSideView?.msgId === msg.id}
+                            title={carouselSideView?.msgId === msg.id ? 'Already open in the side panel' : 'Open the post preview'}
+                          >
+                            <Maximize2 size={14} />
+                            {carouselSideView?.msgId === msg.id ? 'Preview open' : 'Open preview'}
+                          </button>
+                        </div>
+                      )}
+                      {/* Video-script summary card — the script itself
+                          lives in the side preview, never inline chat. */}
+                      {msg.scriptDoc && msg.scriptDoc.content && (
+                        <div className="content-linkedin-summary content-script-summary">
+                          <div className="content-script-summary-icon">
+                            <Clapperboard size={18} />
+                          </div>
+                          <div className="content-linkedin-summary-body">
+                            <div className="content-linkedin-summary-label">
+                              {(msg.scriptDoc.platform || msg.platform) === 'youtube' ? 'YouTube script' : 'Reel script'}
+                            </div>
+                            <div className="content-linkedin-summary-snippet">
+                              {(msg.scriptDoc.title || msg.scriptDoc.content.split('\n')[0]).slice(0, 120)}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="content-linkedin-summary-open"
+                            onClick={() => {
+                              if (scriptView?.msgId === msg.id) return;
+                              setLinkedinPreview(null);
+                              setCarouselSideView(null);
+                              setScriptView({ msgId: msg.id });
+                            }}
+                            disabled={scriptView?.msgId === msg.id}
+                            title={scriptView?.msgId === msg.id ? 'Already open in the side panel' : 'Open the script'}
+                          >
+                            <Maximize2 size={14} />
+                            {scriptView?.msgId === msg.id ? 'Script open' : 'Open script'}
+                          </button>
+                        </div>
+                      )}
                       {/* Image carousel — inline slides act as a compact
                           thumbnail strip even for carousels (preview holds
                           the editing surface; chat keeps a visual summary
@@ -4838,7 +5023,7 @@ export default function Content() {
         </div>
         {/* Draggable divider between chat and preview — same interaction
             as the AI CEO chat/canvas slider. */}
-        {(linkedinPreview || carouselSideView) && (
+        {(linkedinPreview || carouselSideView || scriptView) && (
           <div
             className="content-divider"
             onMouseDown={(e) => { e.preventDefault(); setSplitDragging(true); }}
@@ -5050,6 +5235,7 @@ export default function Content() {
                       plan={panelMsg.carouselPlan}
                       images={sortedImgs}
                       platform="linkedin"
+                      caption={panelMsg.linkedinPost?.content || ''}
                     />
                   }
                 />
@@ -5059,7 +5245,9 @@ export default function Content() {
           return (
             <div className="content-main-preview">
               <SocialPreview
-                msg={panelMsg}
+                msg={panelMsg.socialPost?.caption
+                  ? { ...panelMsg, content: panelMsg.socialPost.caption }
+                  : panelMsg}
                 brandDna={brandDna}
                 user={user}
                 isGenerating={isGenerating}
@@ -5069,13 +5257,15 @@ export default function Content() {
                   // Persist the edited caption on the source message so
                   // subsequent renders and any downstream publish/schedule
                   // pipeline see the user's version, not the AI's original.
-                  // Update carouselPlan.caption when present (single source
-                  // of truth for carousels) and fall back to content for
-                  // plain single/text posts.
+                  // carouselPlan.caption for carousels, socialPost.caption
+                  // for text-only posts, content for plain single posts.
                   setMessages(prev => prev.map(m => {
                     if (m.id !== panelMsg.id) return m;
                     if (m.carouselPlan) {
                       return { ...m, carouselPlan: { ...m.carouselPlan, caption: nextCaption } };
+                    }
+                    if (m.socialPost) {
+                      return { ...m, socialPost: { ...m.socialPost, caption: nextCaption } };
                     }
                     return { ...m, content: nextCaption };
                   }));
@@ -5086,6 +5276,7 @@ export default function Content() {
                     plan={panelMsg.carouselPlan}
                     images={[...(panelMsg.images || [])].sort((a, b) => a.idx - b.idx)}
                     platform="instagram"
+                    caption={panelMsg.socialPost?.caption || panelMsg.content || ''}
                   />
                 }
                 onEdit={panelMsg.carouselPlan ? (idx, src, instruction) => {
@@ -5094,6 +5285,30 @@ export default function Content() {
                 onRegenerate={panelMsg.carouselPlan?.slides ? (idx) => {
                   handleCarouselSlideRegenerate(panelMsg.id, idx);
                 } : null}
+              />
+            </div>
+          );
+        })()}
+        {/* Video-script side preview — the /Content "canvas" for reel /
+            YouTube scripts (AI CEO renders the same content as a
+            markdown_doc artifact). */}
+        {scriptView && (() => {
+          const sMsg = messages.find((m) => m.id === scriptView.msgId);
+          if (!sMsg?.scriptDoc?.content) return null;
+          return (
+            <div className="content-main-preview">
+              <ScriptPreview
+                title={sMsg.scriptDoc.title}
+                content={sMsg.scriptDoc.content}
+                platform={sMsg.scriptDoc.platform || sMsg.platform}
+                onClose={() => setScriptView(null)}
+                onContentChange={(next) => {
+                  // Persist user edits on the source message so they
+                  // survive re-renders and session saves.
+                  setMessages((prev) => prev.map((m) =>
+                    m.id === sMsg.id ? { ...m, scriptDoc: { ...m.scriptDoc, content: next } } : m
+                  ));
+                }}
               />
             </div>
           );

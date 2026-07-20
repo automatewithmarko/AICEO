@@ -338,7 +338,8 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     }
     prompt += `\nCRITICAL: Every generate_image call MUST incorporate the user's brand identity. In your image prompts, explicitly instruct: "Use the brand colors [${brandDna.colors?.primary || ''}, ${brandDna.colors?.secondary || ''}] and use ${brandDna.main_font || 'the brand font'} typography."\n`;
     prompt += `- Do NOT mention "brand logo" in your image prompts unless the user specifically asks for it. Most social media content (thumbnails, carousels, posts) should NOT have a logo.\n`;
-    prompt += `- ALWAYS instruct: "Use the person's face and likeness from the attached reference photos"  -  the person MUST appear in every image.\n\n`;
+    prompt += `- ALWAYS instruct: "Use the person's face and likeness from the attached reference photos"  -  the person MUST appear in every image.\n`;
+    prompt += `- When a person appears, ALSO instruct: "Real photographic skin texture with visible pores and natural imperfections  -  do not airbrush, smooth, or beautify the face; it must be instantly recognizable as the same person as the reference photos."\n\n`;
   }
 
   let hasContext = false;

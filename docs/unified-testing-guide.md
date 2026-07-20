@@ -517,6 +517,191 @@ instead of a dead retry loop).
    resize (25%–75% range), on desktop only (mobile preview stays
    fullscreen).
 
+### Round 8 — reel-script cards, real faces, workflow-first DM builds (2026-07-20)
+
+**What shipped, in plain words:** your three findings from 2026-07-20.
+
+1. **Reel/YouTube scripts open in a card, not inline chat.** In the
+   Content tab a generated script now arrives as a compact "Reel script"
+   card with an "Open script" button — the full script lives in a side
+   panel (with edit, copy, and download), never dumped into the chat.
+   Works for scripts asked in chat AND scripts generated from a content
+   plan. The AI CEO tab already did this via its canvas. Test: on the
+   Instagram or TikTok pill ask for "a 30-second reel script about X" →
+   one hand-off sentence in chat + script card → Open script → side
+   panel; the resize divider works there too. Old sessions with inline
+   scripts still display as before.
+2. **Faces look like the person, with real skin.** Every image path
+   (single posts, LinkedIn images, carousel slides, stories) now demands
+   the exact likeness from your reference photos AND real photographic
+   skin — visible pores, natural imperfections, no airbrush/beauty-filter
+   smoothing. Also fixed: carousels no longer force your face onto
+   text-first slides — the founder photo only appears where the slide
+   design calls for one (hook/CTA). Test: generate an image post with
+   brand photos set → the face should be recognizably you with natural
+   skin texture, not a smoothed "Botox" lookalike.
+3. **DM automation builder prefers simple workflows.** Every build
+   request to the BooSend builder now carries a build policy: requests
+   that are trigger → condition → messages/buttons (like your
+   story-comment "book" → follower check → ebook link example) must be
+   built as plain deterministic workflows with keyword triggers and ZERO
+   AI nodes; AI agents only when the request genuinely needs free-form
+   language understanding at runtime. Test: Marketing → DM automation →
+   paste the "book" story example → the resulting graph should show
+   trigger/condition/message nodes, no "AI Agent" node.
+   **Note:** the builder LLM itself runs on the external
+   `boosend-automation-api` service (it's in your Railway team, but its
+   code isn't in this repo). This policy rides on every request we send
+   it and should steer it; if it still insists on agent builds after
+   this, the deeper fix is in that service's own system prompt — point
+   me at that repo and I'll fix it there.
+
+### Round 9 — text-post canvas, script-guide engine, builder question cap (2026-07-20)
+
+**What shipped, in plain words:** the prompt.md findings from later on 2026-07-20.
+
+1. **Text-only AND single-image posts open in canvas in /Content.** An
+   Instagram (or Facebook/X/TikTok) post — with or without an image —
+   now arrives as a post card with "Open preview": the caption lives in
+   the social preview panel paired with its image (editable, with the
+   schedule/publish toolbar), never dumped inline. Plan-generated
+   single-image pieces get the same card (LinkedIn ones use the LinkedIn
+   preview card). Also fixed along the way: scheduling a single-image or
+   text-only post from the preview toolbar now carries the caption (it
+   used to crash — the toolbar only knew carousel captions), and the
+   "Template" button only shows on carousels where it applies. Test:
+   Instagram pill → "make me an image post about X" → hand-off sentence
+   + post card + preview auto-opens with caption + image together;
+   schedule it and check the calendar entry has the caption.
+2. **Script canvas buttons visible.** The script panel's Edit/Copy/
+   Download/Close buttons no longer hide behind the floating
+   notification bell — the header reserves space for it.
+3. **BooSend builder: max 1-2 questions, only critical ones.** The build
+   policy now orders the builder to build immediately when the request
+   describes trigger + conditions + messages, ask ONLY for details the
+   automation cannot work without (like the actual ebook URL), never ask
+   about goals/niche/tone/audience, never re-ask, and default the
+   non-critical details (noting them in the build summary). Test: paste
+   the "book" story example → it should ask for the ebook link at most,
+   then build.
+4. **VIDEO SCRIPT ENGINE is now the script brain.** The master pack
+   (docs/VIDEO SCRIPT ENGINE — COMPLETE MASTER PACK.docx) is distilled
+   into backend/agents/content/video-script-guide.js — ONE source used
+   by every script path: Content chat, AI CEO chat, and plan-generated
+   reel/YouTube scripts. Short-form scripts now follow the full craft
+   spec (3-second hook ≤12 words, word budgets per duration, but/
+   therefore beats, re-hooks, [VISUAL]/[TEXT ON SCREEN] cues, production
+   notes, banned AI-cliché words, loop endings); YouTube scripts follow
+   the long-form spec (click confirmation, payoff map, chapter
+   micro-hooks, mid-video subscribe ask, bridge ending — no outro).
+   Test: ask for a 45s reel script → it should arrive in the script card
+   with HOOK/BODY/CTA structure, visual cues, and production notes; ask
+   for a 10-min YouTube script → payoff map + chapters + no "thanks for
+   watching".
+
+### Round 10 — caption reliability, gpt-image-2, script-guide compliance (2026-07-20)
+
+**What shipped, in plain words:**
+
+1. **Caption always shows in the canvas on the FIRST attempt.** Root
+   cause found: while slides/images were still generating, the preview
+   showed the loading skeleton (which has no caption area at all); when
+   the first image arrived, the caption editor appeared but its
+   fill-in logic only ran when the caption TEXT changed — so it stayed
+   empty until a reload remounted the panel. The editor now re-seeds on
+   every render (safe — it never overwrites your typing). Plus a safety
+   net: if the AI generates an image but delivers the caption the
+   old-style way (as chat text) instead of through the post card, that
+   text is automatically promoted into the canvas caption. Test:
+   Instagram pill → image post → open preview WHILE the image renders →
+   caption must be there the moment the image lands, no reload needed.
+2. **Image model upgraded: gpt-image-1 → gpt-image-2.** The "no hands"
+   audit found we were two generations behind — your OpenAI key has
+   gpt-image-2 (April 2026). Both endpoints were live-verified with our
+   exact parameters before switching. Roll back anytime by setting
+   OPENAI_IMAGE_MODEL=gpt-image-1 on Railway (no deploy needed).
+   Note: anatomy glitches can still happen on ANY model — if a specific
+   image has one, hit regenerate; but the rate should drop sharply.
+3. **Scripts now actually follow the master guide.** The submit_script
+   tool's own description still asked for the OLD format ("spoken script
+   with direction notes") and was overriding the guide — your example
+   reel (plain lines + "Direction:" note) is exactly that old format.
+   Now the tool description defers to the guide.
+
+**How to test a script against the master guide (60-second check):**
+- Shape: **HOOK** (with [VISUAL: …] and [TEXT ON SCREEN: …]) → **BODY**
+  (one sentence per line, [B-ROLL]/[CUT] cues) → **CTA** →
+  --- PRODUCTION NOTES --- (delivery marks, captions style, music,
+  B-roll list). If it's plain paragraphs with a "Direction:" line at the
+  end, it's the OLD format — report it.
+- Hook: first line ≤12 words, no greeting/intro, specific (a number or
+  named thing beats a vague claim).
+- Length: ~2.5 words/second — a 60s reel should be 140-170 words of
+  spoken text; 30s ≈ 70-90.
+- Sound: read it aloud — short sentences, "you", contractions; beats
+  connected by "but"/"so", never "and then".
+- Bans: no "Hey guys", no "In today's world", no "unlock/leverage/
+  game-changing" AI-speak, no spoken "like and follow" ending.
+- Ending: last line twists or loops back to the first line — never
+  "thanks for watching".
+- YouTube long-form instead: # title + payoff map + [CHAPTER] sections
+  with hook-style titles + bridge ending to a named next video.
+
+### Round 11 — image timeouts, honest progress UX, LinkedIn 422 (2026-07-20)
+
+**What shipped, in plain words:**
+
+1. **Images no longer die at 2 minutes.** The stuck "Generating slide
+   1…" was a timeout chain: gpt-image-2 at high quality can take over 2
+   minutes, and BOTH our server cap and the browser cap were exactly
+   120s — the request was killed mid-render ("TimeoutError: signal
+   timed out" in your console). Server now allows 180s for OpenAI (then
+   still falls back to Gemini), browser allows 300s.
+2. **Failures are never silent anymore.** If an image still fails after
+   all that, you now get a clear chat message saying what happened
+   ("took too long and timed out") and how to retry — instead of a
+   forever-spinner or a caption-only post with no explanation. In AI
+   CEO, plain image requests also show a loading panel the whole time
+   they render (that path previously had no progress UI at all).
+3. **The AI stops claiming a rendering image is "done."** Both tabs'
+   prompts now force in-progress phrasing — "Generating your image now,
+   it'll appear in the canvas in a minute" — never "your image is
+   ready" while the panel is still empty.
+4. **LinkedIn 422 fixed.** Your "XAI API error (422) … ToolChoice"
+   came from the LinkedIn writer's forced tool call: its tool_choice
+   object was missing the type field. Claude tolerated it, but when a
+   turn fell back to the Grok provider, xAI rejected the request.
+   Fixed at both call sites plus a normalization guard in the
+   transport so no future caller can hit it.
+
+**Test:** Instagram pill → "generate me a single image post" → caption
+card + preview open while the image renders (up to ~3 min) → image lands
+next to the caption. Kill your network mid-generation → you should get
+the ⚠️ failure message, not a stuck spinner. LinkedIn pill → generate a
+single-image post → no 422, post text arrives via the normal preview.
+
+### Round 12 — image-wait UI everywhere + founder on middle slides (2026-07-20)
+
+**What shipped, in plain words:**
+
+1. **Visible "Generating image…" everywhere an image can render.** The
+   remaining blind spot was adding an image to an existing LinkedIn
+   TEXT post (both tabs): the preview showed nothing at all while the
+   image rendered — the media area now shows a "Generating image… this
+   can take a minute or two" placeholder where the image will land.
+   Plain image requests in AI CEO already open a loading panel (Round
+   11); Content chat already shows pending placeholders. Test: open a
+   LinkedIn text post → Generate Image → the gray generating box appears
+   immediately in the post preview, image replaces it when done.
+2. **Founder photo threads through carousel middle slides.** Decks of
+   5+ slides now put a SUBTLE founder byline chip (small circular
+   avatar in the footer row, exact likeness, natural skin) on the
+   center middle slide — and a second one on decks of 9+ — in addition
+   to the prominent hook/CTA appearances. Applies to LinkedIn and
+   Instagram carousels from every path (chat, plan runner). Test:
+   generate a 7-slide carousel → slide 4 should carry the small avatar
+   chip at the bottom-left; hook/CTA unchanged.
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you

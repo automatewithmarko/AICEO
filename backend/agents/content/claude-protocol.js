@@ -112,23 +112,73 @@ export const SUBMIT_POST_TOOL = {
   },
 };
 
+// Deliver a video script (reel / short / YouTube) as a structured payload.
+// Relayed to the client as a tool_call: Content.jsx attaches a script card
+// with an "Open script" side preview instead of the script being dumped
+// into the chat stream (founder finding 2026-07-20). Mirrors the AI CEO
+// tab, where scripts already land as markdown_doc canvas artifacts.
+export const SUBMIT_SCRIPT_TOOL = {
+  type: 'function',
+  function: {
+    name: 'submit_script',
+    description: 'Deliver a complete VIDEO SCRIPT (Instagram/TikTok reel, short-form video, or YouTube video). Call this INSTEAD of writing the script as chat text — wherever the system prompt says to write a video script as your text output, that now means calling this tool. The script field must contain ONLY the ready-to-use script; every script-writing rule from the system prompt applies to it exactly. In the same turn write ONE short hand-off sentence as normal chat text (e.g. "Here\'s your 30-second reel script — open it to review.") and NEVER the script itself.',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Short title for the script card, e.g. "Reel: 3 automations that replaced my SDR team".' },
+        script: { type: 'string', description: 'The complete final script, following the VIDEO SCRIPT GUIDE in the system prompt EXACTLY — short-form: **HOOK** (with [VISUAL] + [TEXT ON SCREEN]) / **BODY** (one sentence per line with visual cues) / **CTA** / --- PRODUCTION NOTES ---; long-form YouTube: markdown with # title, payoff map, [CHAPTER] sections, bridge ending.' },
+      },
+      required: ['title', 'script'],
+    },
+  },
+};
+
+// Deliver a finished TEXT-ONLY social post (no image) as a structured
+// payload. Relayed to the client, which shows a post card + opens the
+// social preview panel — founder finding 2026-07-20: "Text-post for
+// instagram did not open in canvas in /content". LinkedIn text posts
+// have their own two-pass writer (generate_linkedin_post/submit_post);
+// this covers every other pill (Instagram, Facebook, X, TikTok).
+export const SUBMIT_TEXT_POST_TOOL = {
+  type: 'function',
+  function: {
+    name: 'submit_text_post',
+    description: 'Deliver the finished post copy (caption) for a SINGLE POST or STORY — text-only or image post alike. For image posts, call this in the SAME turn as your generate_image call(s); the client pairs the caption with the image in the preview canvas. caption must contain ONLY the ready-to-paste post text — every writing rule from the system prompt applies to it exactly. In the same turn write ONE short hand-off sentence as normal chat text and NEVER the post itself. Do NOT call this for carousels (plan_carousel carries its caption) or on the LinkedIn tab (use generate_linkedin_post).',
+    parameters: {
+      type: 'object',
+      properties: {
+        caption: { type: 'string', description: 'The complete, final post text with proper line breaks. Nothing before it, nothing after it.' },
+      },
+      required: ['caption'],
+    },
+  },
+};
+
 // Runtime addendum appended AFTER the verbatim /Content system prompt for
 // the 'chat' intent. Only overrides the delivery MECHANISM.
 export function buildClaudeChatProtocolAddendum({ isLinkedin = false, editModeActive = false, planPlatformId = null } = {}) {
+  let n = 0;
   let a = `\n\n=== TOOL PROTOCOL (READ LAST — OVERRIDES THE TEXT-MARKER MECHANICS ABOVE) ===\n`;
   a += `You are running with native tools. Everything above about WHAT to ask, WHEN to ask, question limits, content strategy, quality bars, guardrails, and output rules still applies EXACTLY. Only the delivery MECHANISM changes:\n`;
-  a += `1. QUESTIONS: never type a question as plain text and never type the {"type":"question",...} JSON block. Call the ask_user tool instead. The question content, option style, and hard caps follow the rules above.\n`;
+  a += `${++n}. QUESTIONS: never type a question as plain text and never type the {"type":"question",...} JSON block. Call the ask_user tool instead. The question content, option style, and hard caps follow the rules above.\n`;
   if (isLinkedin) {
-    a += `2. LINKEDIN TEXT POSTS: never type <<READY_A>> or <<READY_B>>, and never write the post text yourself. When the flow above says to emit a READY marker, call generate_linkedin_post with variation "A" or "B" instead (same one-sentence commitment text first, then the tool call).\n`;
+    a += `${++n}. LINKEDIN TEXT POSTS: never type <<READY_A>> or <<READY_B>>, and never write the post text yourself. When the flow above says to emit a READY marker, call generate_linkedin_post with variation "A" or "B" instead (same one-sentence commitment text first, then the tool call).\n`;
     if (editModeActive) {
-      a += `3. LINKEDIN EDIT MODE: never type <<EDIT_TEXT>>, <<ADD_IMAGE_AI>>, <<USE_UPLOADED_IMAGE>>, or <<ADD_IMAGE_ASK>>. Call edit_linkedin_post with the matching action (and the rewrite instruction for edit_text) exactly where the Edit Mode rules above say to emit a marker.\n`;
+      a += `${++n}. LINKEDIN EDIT MODE: never type <<EDIT_TEXT>>, <<ADD_IMAGE_AI>>, <<USE_UPLOADED_IMAGE>>, or <<ADD_IMAGE_ASK>>. Call edit_linkedin_post with the matching action (and the rewrite instruction for edit_text) exactly where the Edit Mode rules above say to emit a marker.\n`;
     }
   }
-  a += `${isLinkedin ? (editModeActive ? '4' : '3') : '2'}. CAROUSELS AND IMAGES: unchanged — call plan_carousel / generate_image exactly as described above. For SINGLE POSTS and STORIES you MUST write the ready-to-post caption as normal chat text in the SAME turn as your generate_image call(s) — an image with no caption is an incomplete deliverable and a bug. (Carousels are the exception: their caption lives in the plan_carousel caption field, not chat text.)\n`;
-  a += `${isLinkedin ? (editModeActive ? '5' : '4') : '3'}. ONE ACTION PER TURN (same turn-taking rule as above): either ONE ask_user call, OR one generation action (generate_linkedin_post, plan_carousel, or a set of generate_image calls), OR pure conversation. Never combine a question with a generation action in the same turn.\n`;
-  a += `${isLinkedin ? (editModeActive ? '6' : '5') : '4'}. NO META-COMMENTARY: never output planning notes, checklists, "Constraint Checklist", "Mental Sandbox", option analysis, or internal reasoning as text. Your visible text is only what the user should read in chat.\n`;
-  a += `${isLinkedin ? (editModeActive ? '7' : '6') : '5'}. NEVER WRITE A TOOL CALL AS TEXT: no {"tool_code": ...}, no JSON function syntax, no pseudo-code invocations in your reply. If you intend to generate an image or plan a carousel you MUST invoke the actual tool. A tool call typed as text reaches the user as raw JSON and executes nothing — it is the worst possible failure.\n`;
-  a += `${isLinkedin ? (editModeActive ? '8' : '7') : '6'}. MULTI-DAY CONTENT PLANS: when the user asks to plan multiple days/pieces of content ("plan my next 2 weeks", "content calendar for July", "a week of posts"), call the create_content_plan tool — the client renders it as a day-by-day plan card with a "Generate content" button. NEVER write a plan as prose, markdown tables, or HTML. The platform is ALREADY DECIDED by the current tab${planPlatformId ? ` (platforms = ["${planPlatformId}"], every item's platform = "${planPlatformId}")` : ''} — never ask which platform. Ask NO discovery questions for plans: infer timeframe (default 7 days, cap 31), one piece per day, topics from the brand context, formats platform-appropriate and rotating. Do NOT generate the pieces yourself — the user triggers that from the plan card.\n`;
+  if (isLinkedin) {
+    a += `${++n}. CAROUSELS AND IMAGES: unchanged — call plan_carousel / generate_image exactly as described above. For SINGLE POSTS and STORIES you MUST write the ready-to-post caption as normal chat text in the SAME turn as your generate_image call(s) — an image with no caption is an incomplete deliverable and a bug. (Carousels are the exception: their caption lives in the plan_carousel caption field, not chat text.)\n`;
+  } else {
+    a += `${++n}. CAROUSELS AND IMAGES: call plan_carousel / generate_image exactly as described above. Carousel captions live in the plan_carousel caption field.\n`;
+    a += `${++n}. FINISHED POSTS (single posts and stories — WITH or WITHOUT images): deliver the complete ready-to-post caption by calling submit_text_post, in the SAME turn as your generate_image call(s) when the post has an image. NEVER write the finished caption inline in chat — the client shows a post card and pairs the caption with the image in the preview canvas. Chat text is ONE short hand-off sentence. An image post without a submit_text_post caption is an incomplete deliverable and a bug.\n`;
+    a += `${++n}. IMAGE TIMING: your chat text appears BEFORE any generate_image image finishes rendering (it takes 1-3 minutes). Phrase the hand-off as IN PROGRESS ("Your post is in the preview — the image is rendering now and will appear in a minute"). NEVER say the image is ready/generated/done in the same turn you requested it.\n`;
+  }
+  a += `${++n}. VIDEO SCRIPTS (reels, shorts, TikToks, YouTube videos): wherever the flow above says to write the script as your text output, call the submit_script tool with the full script instead. NEVER stream a script into chat — the client renders it as an openable script card. Chat text in that turn is ONE short hand-off sentence, nothing more.\n`;
+  a += `${++n}. ONE ACTION PER TURN (same turn-taking rule as above): either ONE ask_user call, OR one generation action (generate_linkedin_post, submit_script, submit_text_post, plan_carousel, or a set of generate_image calls — submit_text_post PLUS its generate_image calls counts as one action), OR pure conversation. Never combine a question with a generation action in the same turn.\n`;
+  a += `${++n}. NO META-COMMENTARY: never output planning notes, checklists, "Constraint Checklist", "Mental Sandbox", option analysis, or internal reasoning as text. Your visible text is only what the user should read in chat.\n`;
+  a += `${++n}. NEVER WRITE A TOOL CALL AS TEXT: no {"tool_code": ...}, no JSON function syntax, no pseudo-code invocations in your reply. If you intend to generate an image or plan a carousel you MUST invoke the actual tool. A tool call typed as text reaches the user as raw JSON and executes nothing — it is the worst possible failure.\n`;
+  a += `${++n}. MULTI-DAY CONTENT PLANS: when the user asks to plan multiple days/pieces of content ("plan my next 2 weeks", "content calendar for July", "a week of posts"), call the create_content_plan tool — the client renders it as a day-by-day plan card with a "Generate content" button. NEVER write a plan as prose, markdown tables, or HTML. The platform is ALREADY DECIDED by the current tab${planPlatformId ? ` (platforms = ["${planPlatformId}"], every item's platform = "${planPlatformId}")` : ''} — never ask which platform. Ask NO discovery questions for plans: infer timeframe (default 7 days, cap 31), one piece per day, topics from the brand context, formats platform-appropriate and rotating. Do NOT generate the pieces yourself — the user triggers that from the plan card.\n`;
   return a;
 }
 

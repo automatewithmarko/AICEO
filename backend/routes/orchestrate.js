@@ -12,6 +12,7 @@ import { buildCeoUnifiedSocialAddendum, runLinkedInTextPostPass, GENERATE_LINKED
 import { buildPlanModeDirective } from '../agents/content/plan-mode.js';
 import { PLAN_CAROUSEL_TOOL } from '../agents/plan-carousel-tool.js';
 import { COMPOSE_SINGLE_IMAGE_POST_TOOL, PLAN_PLATFORM_FORMATS } from '../agents/content-plan-tool.js';
+import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE, SCRIPT_GUIDE_ROUTER } from '../agents/content/video-script-guide.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
 import { extractFromUrl } from '../services/social.js';
 import { requireActiveAccount } from '../middleware/gate.js';
@@ -101,6 +102,9 @@ Pack the task_description with everything: topic, audience, tone, products, CTA,
 ask_user: Ask a question with clickable options. Use this instead of typing questions. Keep it tight, 3-5 options max.
 
 create_artifact: Make content directly in the canvas (emails, posts, code, docs, REEL/VIDEO SCRIPTS). NOT for newsletters/landing pages/etc. When user asks for a reel or short-form video, write a script here.
+${SCRIPT_GUIDE_ROUTER}
+${SHORT_FORM_SCRIPT_GUIDE}
+${LONG_FORM_SCRIPT_GUIDE}
 
 SOCIAL POST RULE (READ THIS BEFORE EVERY LinkedIn/IG/X/TikTok/Facebook REQUEST):
 - ANY social media post = create_artifact with type:"content_post" AND platform:"<network>". This is the ONLY correct combination.
@@ -125,6 +129,7 @@ check_emails: Read the user's inbox (or sent/drafts). Use whenever they ask abou
 
 generate_image: Create social graphics, thumbnails, cover images.
 CRITICAL — IMAGE INTEGRITY RULE: If you intend to give the user an image, you MUST call the generate_image tool. Never write "here's your image", "check the image panel", "I made you a graphic", "image generated", or any phrasing that implies an image exists, UNLESS you actually emitted a generate_image tool call in the same turn. If you can't or won't call the tool, say so plainly ("I can't generate that image right now"). Hallucinating a tool call is worse than refusing — the user sees text claiming success but no image, and trusts the product less.
+CRITICAL — IMAGE TIMING RULE: Your chat text appears BEFORE the image finishes rendering (generation takes 1-3 minutes). Even when you DID call generate_image, phrase it as in-progress — "Generating your image now — it'll appear in the canvas in a minute or two." NEVER past tense ("your image is ready", "I've created the image"): the user reads that while staring at a still-empty panel and thinks the product is broken.
 CRITICAL — IMAGE PROMPT IDENTITY RULE: The generate_image prompt argument must NEVER include the user's real name, ethnicity, nationality, or detailed physical description (e.g. "Bazil Sajjad, a young Pakistani man with short dark hair"). Google's image model blocks named-real-person requests. If the user/founder should appear in the image, just say "the founder" or "a person" — the attached reference photo already carries their likeness. Describe the SCENE, OUTFIT, POSE, MOOD, BACKGROUND, STYLE — never the person's identity.
 
 VIDEO/SOCIAL LINKS: When the user pastes a video or social media link, the system auto-extracts the transcript, metadata, and creator info and attaches it to the message. You'll see it as "EXTRACTED VIDEO CONTENT". Use that data to discuss, analyze, summarize, or repurpose the content. Don't ask the user what the video is about  -  you already have the transcript.
@@ -2195,9 +2200,9 @@ function buildPlanItemSystemPrompt({ context, platform, format }) {
   } else if (format === 'text_post') {
     prompt += `\n\n=== DELIVERABLE: LINKEDIN TEXT POST ===\nPlain text, ready to paste into LinkedIn. The hook is the FIRST line, verbatim from the brief. Framework-heavy (numbered points, tight single-sentence lines) for educate/sell/engage angles; story-flow (personal narrative, single-line paragraphs, emotional pivot) for nurture angles. 150-300 words. End with the CTA from the brief. No HTML, no markdown headers.`;
   } else if (format === 'reel_script') {
-    prompt += `\n\n=== DELIVERABLE: REEL SCRIPT ===\nA clean SPOKEN script — the actual words said on camera, line by line, natural flow. Do NOT use labels like [HOOK], [SCENE], [VISUAL], [VOICEOVER], or timestamps. Start with the hook line (the scroll-stopper), flow into the body, end with the CTA. Keep it under 60 seconds of speech. Add a brief "Direction:" note at the very end (1-2 lines) with suggested visuals and trending audio.`;
+    prompt += `\n\n=== DELIVERABLE: REEL SCRIPT ===\nA short-form video script written EXACTLY per the guide below (output format, word budget, hook craft, production notes). The brief's hook is your first hook candidate — beat it if you can. Default duration 45-60 seconds unless the brief specifies otherwise.\n${SHORT_FORM_SCRIPT_GUIDE}`;
   } else if (format === 'youtube_script') {
-    prompt += `\n\n=== DELIVERABLE: YOUTUBE SCRIPT ===\nMarkdown. Structure: "# <video title>" (one strong title), "## Hook" (the first 15 seconds, verbatim spoken words), "## Intro", 3-5 "## <chapter>" body sections with the actual spoken content, "## Outro" with the CTA. Conversational spoken language throughout — this gets read aloud, not published as an article.`;
+    prompt += `\n\n=== DELIVERABLE: YOUTUBE SCRIPT ===\nA long-form YouTube script written EXACTLY per the guide below (markdown with payoff map, chapters, bridge ending). Default 8-10 minutes unless the brief specifies otherwise.\n${LONG_FORM_SCRIPT_GUIDE}`;
   } else if (format === 'single_image') {
     prompt += `\n\n=== DELIVERABLE: SINGLE-IMAGE POST ===\nCall compose_single_image_post with the finished post copy (plain text, hook as the first line, CTA at the end, platform-appropriate length) AND an actionable image_prompt (subject, composition, mood, style, brand-color hints, text overlay if any). The image_prompt must NEVER include a real person's name, ethnicity, or identity.`;
   } else if (format === 'carousel') {

@@ -1,18 +1,23 @@
 // OpenAI image generation — primary provider for /api/generate/image.
 // Gemini remains available as an automatic fallback (see routes/generate.js).
 //
-// Model: gpt-image-1 — supports both text-to-image and image-to-image
-// (multi-reference) via two separate endpoints:
+// Model: gpt-image-2 (upgraded 2026-07-20 from gpt-image-1 after the
+// founder's "no hands" finding — the key has gpt-image-2-2026-04-21
+// access and both endpoints were live-verified with our exact params).
+// Override with OPENAI_IMAGE_MODEL to roll back without a deploy.
+// Supports both text-to-image and image-to-image (multi-reference) via
+// two separate endpoints:
 //   - /v1/images/generations  → text prompt only
 //   - /v1/images/edits        → prompt + one or more reference images
 //                               (brand logo + brand photos + user's own
 //                                chat-attached image, in that order)
+// NOTE: gpt-image-2 REJECTS the input_fidelity parameter (400) — do not
+// add it; reference fidelity is native in this model.
 //
-// Aspect ratios: gpt-image-1 supports exactly three sizes (1024x1024,
-// 1536x1024, 1024x1536). Our platform configs use 1:1, 16:9, 9:16, 4:3,
-// 3:4 — we map close matches. The image itself is still crop-safe on the
-// consuming UI, but generating at the closest supported ratio keeps
-// composition intact.
+// Aspect ratios: three sizes (1024x1024, 1536x1024, 1024x1536). Our
+// platform configs use 1:1, 16:9, 9:16, 4:3, 3:4 — we map close matches.
+// The image itself is still crop-safe on the consuming UI, but
+// generating at the closest supported ratio keeps composition intact.
 //
 // Returns {ok, data, mimeType, error, status, timeout} — never throws so
 // the caller can transparently fall through to Gemini on any failure.
@@ -20,8 +25,11 @@
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
 
-const OPENAI_MODEL = 'gpt-image-1';
-const OPENAI_TIMEOUT_MS = 120_000;
+const OPENAI_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
+// 180s — gpt-image-2 at quality=high regularly needs >120s; the caller
+// still has Gemini as a fallback after this, and the frontend's client
+// cap is 300s, so 180 + fallback fits inside it.
+const OPENAI_TIMEOUT_MS = 180_000;
 // gpt-image-1 prompt cap is a few thousand tokens; our fully-built prompt
 // (platform rules + brand context + quality rules + user prompt) can hit
 // ~4-6k characters. OpenAI silently truncates past its limit but returns

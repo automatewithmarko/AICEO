@@ -1102,7 +1102,11 @@ export async function generateImage(prompt, platform, brandData, referenceImages
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000), // 120s client-side timeout
+    // 300s: gpt-image-2 at quality=high can run past 2 minutes, and the
+    // server may still fall through to Gemini after its own 180s OpenAI
+    // cap — the old 120s client cap fired first and surfaced as
+    // "TimeoutError: signal timed out" with a forever-pending slide.
+    signal: AbortSignal.timeout(300_000),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Image generation failed' }));

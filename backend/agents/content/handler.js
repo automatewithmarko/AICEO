@@ -49,11 +49,14 @@ import {
   GENERATE_LINKEDIN_POST_TOOL,
   EDIT_LINKEDIN_POST_TOOL,
   SUBMIT_POST_TOOL,
+  SUBMIT_SCRIPT_TOOL,
+  SUBMIT_TEXT_POST_TOOL,
   buildClaudeChatProtocolAddendum,
   SUBMIT_POST_ADDENDUM,
 } from './claude-protocol.js';
 import { CREATE_CONTENT_PLAN_TOOL } from '../content-plan-tool.js';
 import { buildPlanModeDirective } from './plan-mode.js';
+import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE } from './video-script-guide.js';
 
 export async function handleContentOrchestration({ res, sendSSE, body, userId, abortSignal = null }) {
   const {
@@ -109,7 +112,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
       systemPrompt,
       messages,
       tools: [SUBMIT_POST_TOOL],
-      toolChoice: { function: { name: 'submit_post' } },
+      toolChoice: { type: 'function', function: { name: 'submit_post' } },
       // planMode:true = the orchestrator loop's exit-after-first-tool-round
       // switch — one forced submit_post call and we're done.
       planMode: true,
@@ -226,7 +229,10 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
       platform, photos, documents, socialUrls, brandDna,
       integrationContext, carouselTemplates, existingPost, { planMode: false },
     ) + recentContentBlock
-      + buildClaudeChatProtocolAddendum({ isLinkedin, editModeActive, planPlatformId: platform?.id });
+      + buildClaudeChatProtocolAddendum({ isLinkedin, editModeActive, planPlatformId: platform?.id })
+      // Craft guide for the submit_script tool — YouTube pill gets the
+      // long-form guide, every other pill's video is short-form.
+      + (platform?.id === 'youtube' ? LONG_FORM_SCRIPT_GUIDE : SHORT_FORM_SCRIPT_GUIDE);
   }
 
   // Toolsets: plan mode = [ask_user, create_content_plan] (same
@@ -235,10 +241,14 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
   // 2 weeks" works without the Plan Mode toggle, exactly like AI CEO.
   const tools = [CONTENT_ASK_USER_TOOL, CREATE_CONTENT_PLAN_TOOL];
   if (!planMode) {
-    tools.push(IMAGE_TOOL, PLAN_CAROUSEL_TOOL);
+    tools.push(IMAGE_TOOL, PLAN_CAROUSEL_TOOL, SUBMIT_SCRIPT_TOOL);
     if (isLinkedin) {
       tools.push(GENERATE_LINKEDIN_POST_TOOL);
       if (editModeActive) tools.push(EDIT_LINKEDIN_POST_TOOL);
+    } else {
+      // Text-only posts on non-LinkedIn pills land in the preview canvas
+      // via submit_text_post (LinkedIn has its own two-pass writer).
+      tools.push(SUBMIT_TEXT_POST_TOOL);
     }
   }
 
@@ -289,6 +299,10 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
         sendSSE(res, { type: 'status', text: 'Building your content plan…' });
       } else if (name === 'generate_image') {
         sendSSE(res, { type: 'status', text: 'Preparing your image…' });
+      } else if (name === 'submit_script') {
+        sendSSE(res, { type: 'status', text: 'Writing your script…' });
+      } else if (name === 'submit_text_post') {
+        sendSSE(res, { type: 'status', text: 'Writing your post…' });
       }
     },
     onToolCalls: async (toolCalls) => {
@@ -296,7 +310,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
         let args;
         try { args = JSON.parse(call.arguments); } catch { args = {}; }
 
-        if (call.name === 'generate_image' || call.name === 'plan_carousel' || call.name === 'create_content_plan') {
+        if (call.name === 'generate_image' || call.name === 'plan_carousel' || call.name === 'create_content_plan' || call.name === 'submit_script' || call.name === 'submit_text_post') {
           // Executed on the frontend (Phase 1) — relay like ceo mode does.
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });
         } else if (call.name === 'ask_user') {

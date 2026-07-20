@@ -137,6 +137,21 @@ export function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total
   const isFinal = index === total - 1;
   const isHook = index === 0;
   const isMiddle = !isHook && !isFinal;
+  // Subtle founder presence on middle slides (founder request
+  // 2026-07-20): hook + CTA carry the prominent founder visuals; exactly
+  // ONE middle slide (TWO when the deck is 9+ slides) gets a quiet
+  // founder byline chip so the person threads through the whole set.
+  const founderMiddleIdxs = (() => {
+    if (total < 5) return new Set();
+    const center = Math.floor((total - 1) / 2);
+    const set = new Set([center]);
+    if (total >= 9) {
+      const late = Math.floor(((total - 1) * 3) / 4);
+      if (late !== center && late > 0 && late < total - 1) set.add(late);
+    }
+    return set;
+  })();
+  const isFounderByline = isMiddle && founderMiddleIdxs.has(index);
 
   const { cleaned: headlineClean, accentWords } = extractAccent(slide.headline);
   // Same universal marker-stripper we apply to the headline via
@@ -227,8 +242,9 @@ The reader swipes and NOTHING shifts vertically except the content itself. Same 
       `    ${accentPhrase}`,
       bodyClean ? `  • Hairline rule (at y ≈ 66%, thin 40px line in muted color at ~30% opacity, aligned to left margin) then body copy directly below (top edge y ≈ 70%, bottom edge by y ≈ 82%, ${cfg.bodyPx}px, muted color, weight 400, leading 1.5, left-aligned, readable column width, max 3 lines): "${bodyClean}"` : '',
       `  • Bottom-right hint pill (at y ≈ 92%, x = right - 48px): "Keep swiping →"`,
+      isFounderByline ? `  • FOUNDER BYLINE CHIP (subtle — at y ≈ 92%, x = left margin, same footer row as the hint pill): a small circular founder avatar, about 88px diameter, cropped from the attached founder reference photo — exact likeness, natural photographic skin texture, never airbrushed. A quiet byline mark, NOT a hero portrait: it must not compete with the headline or shift any anchor point.` : '',
       ``,
-      `EDITORIAL ANCHOR (only non-text element on this slide): a single ghosted slide-index numeral "${ghostNumeral}" rendered very large (around ${cfg.ghostNumeralPx}px tall), heavy weight, in the accent color at only 6–8 percent opacity, positioned in the top-right area so it bleeds partially off the right edge of the canvas. It sits BEHIND the main text as a typographic flourish — no outline, no shadow, no other decoration. This exact motif repeats on every middle slide to create rhythm.`,
+      `EDITORIAL ANCHOR (${isFounderByline ? 'with the founder byline chip, the only non-text elements' : 'only non-text element'} on this slide): a single ghosted slide-index numeral "${ghostNumeral}" rendered very large (around ${cfg.ghostNumeralPx}px tall), heavy weight, in the accent color at only 6–8 percent opacity, positioned in the top-right area so it bleeds partially off the right edge of the canvas. It sits BEHIND the main text as a typographic flourish — no outline, no shadow, no other decoration. This exact motif repeats on every middle slide to create rhythm.`,
       ``,
       `CRAFT NOTES: breathe. Every middle slide uses the same vertical anchors so the swipe reads as aligned. Feel of ${cfg.moodReferences}, not an infographic. No icons, no illustrations, no cards, no diagrams, no emoji. ${cfg.toneNote}.`,
       (slide.visualElement?.description ? `(Planner hint — use ONLY for body phrasing if useful, ignore any visual suggestion: ${sanitizeStyleText(slide.visualElement.description)})` : ''),

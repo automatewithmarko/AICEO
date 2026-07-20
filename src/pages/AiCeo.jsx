@@ -1751,6 +1751,19 @@ export default function AiCeo() {
                 };
               });
             console.log(`[AiCeo] 🖼  generate_image START — prompt="${(args.prompt || '').slice(0, 120)}...", refImages=${refImages.length}`);
+            // Show the generation in progress IMMEDIATELY: gpt-image-2
+            // can take 1-3 minutes, and without a pending state the user
+            // stares at a silent panel (or worse, chat text claiming the
+            // image is done). Bump pendingImages on the open artifact —
+            // or open a fresh 'image' artifact skeleton if none exists —
+            // so ArtifactPanel renders its loading state the whole time.
+            setArtifact(prev => {
+              if (prev) return { ...prev, pendingImages: (prev.pendingImages || 0) + 1 };
+              const placeholder = { id: Date.now(), type: 'image', title: 'Generating image…', content: '', images: [], pendingImages: 1 };
+              setPanelOpen(true);
+              if (isMobileRef.current) setMobileArtifactOpen(true);
+              return placeholder;
+            });
             try {
               // editUserImage flag tells the backend "these reference
               // images are the user's primary subject — don't fall back
@@ -1780,17 +1793,18 @@ export default function AiCeo() {
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                 setArtifact(prev => {
-                  // Existing artifact: append the new image to whatever
-                  // type the panel is already showing. Don't reshape it.
-                  if (prev) return { ...prev, images: [...(prev.images || []), { src }] };
-                  // Fresh panel: use the new 'image' artifact type. This
-                  // gets a clean centered viewer (no fake Instagram
-                  // phone mockup) — generate_image with no platform
-                  // context isn't social content, so don't pretend it
-                  // is. Platform-targeted content (create_content with
-                  // instagram_post / linkedin_post / etc.) keeps the
-                  // 'content_post' type where the social wrapper makes
-                  // sense.
+                  // Existing artifact (or the pending skeleton created at
+                  // START): append the image and clear this generation's
+                  // pending slot. Don't reshape the type — except the
+                  // skeleton, which becomes a real image artifact.
+                  if (prev) {
+                    return {
+                      ...prev,
+                      title: prev.title === 'Generating image…' ? 'Generated Image' : prev.title,
+                      images: [...(prev.images || []), { src }],
+                      pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
+                    };
+                  }
                   const newArt = { id: Date.now(), type: 'image', title: 'Generated Image', content: '', images: [{ src }] };
                   setPanelOpen(true);
                   if (isMobileRef.current) setMobileArtifactOpen(true);
@@ -1804,9 +1818,25 @@ export default function AiCeo() {
                     ? { ...m, hasArtifact: true, artifactTitle: 'Open preview', artifactType: 'image' }
                     : m
                 ));
+              } else {
+                // 200 with no image — treat like a failure so pending
+                // clears and the user learns what happened.
+                throw new Error(result.error || 'No image was returned');
               }
             } catch (e) {
               console.error(`[AiCeo] 🖼  generate_image ERROR:`, e);
+              // Clear the pending slot and tell the user in chat —
+              // silently swallowing this left a forever-spinning panel
+              // (or nothing at all when the turn had no text).
+              setArtifact(prev => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
+              const reason = e?.name === 'TimeoutError'
+                ? 'it took too long and timed out'
+                : (e?.message || 'unknown error');
+              setMessages(prev => [...prev, {
+                id: `msg-${Date.now()}-imgfail`,
+                role: 'assistant',
+                content: `⚠️ The image didn't finish generating (${reason}). Say "try the image again" and I'll regenerate it.`,
+              }]);
             }
           }
         },

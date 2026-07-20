@@ -347,7 +347,16 @@ async function streamXai({ systemPrompt, messages, model, maxTokens, tools, tool
     // Callers can force the model to call SOME tool (no free-text response)
     // by passing toolChoice='required'. Used by Plan Mode to prevent the CEO
     // from typing plans as inline chat instead of calling create_artifact.
-    body.tool_choice = toolChoice || 'auto';
+    // Object-form normalization: XAI's serde 422s on a bare
+    // {function:{name}} without type:'function' ("did not match any
+    // variant of untagged enum ToolChoice" — seen 2026-07-20 on the
+    // LinkedIn submit_post fallback), so guarantee the full shape here
+    // regardless of what the caller passed.
+    let tc = toolChoice || 'auto';
+    if (typeof tc === 'object' && tc.function?.name) {
+      tc = { type: 'function', function: { name: tc.function.name } };
+    }
+    body.tool_choice = tc;
   }
 
   // Link caller's abort signal to our internal controller so the idle watchdog
