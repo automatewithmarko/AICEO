@@ -1637,7 +1637,11 @@ function ImageRenderer({ images, pendingImages, title }) {
       <div className="ap-image-stage">
         {isLoading ? (
           <div className="ap-post-loading">
-            <span>Generating</span>
+            <div className="ap-image-loading-inner">
+              <span className="ap-image-loading-spin" aria-hidden="true" />
+              <span className="ap-image-loading-title">Generating your image…</span>
+              <span className="ap-image-loading-sub">usually takes 1–3 minutes — it will appear right here</span>
+            </div>
           </div>
         ) : current ? (
           <>

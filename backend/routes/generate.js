@@ -630,6 +630,12 @@ ${prompt}`;
         referenceImages: openaiRefs,
         aspectRatio: pConfig.aspectRatio,
         quality: 'high',
+        // 110s first-attempt cap: live data (2026-07-20) shows q=high
+        // with reference images either finishes well under this or blows
+        // past 150s anyway — a tighter cap gets the medium retry (which
+        // reliably succeeds in ~60s) started sooner, cutting the
+        // worst-case wait from ~240s to ~200s.
+        timeoutMs: 110_000,
       });
       // One retry at quality=medium with a tighter cap before touching
       // Gemini: a high-quality render that blows the 150s window usually

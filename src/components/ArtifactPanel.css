@@ -856,6 +856,43 @@
 /* The legacy spinner div is still rendered by ContentPostRenderer.
    We hide it instead of touching the JSX — the shimmer above is the
    whole visual now. */
+/* Prominent image-generating state — the old bare "GENERATING" micro-
+   label was invisible during a 1-3 minute gpt-image-2 render. */
+.ap-image-loading-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 0 24px;
+}
+.ap-image-loading-spin {
+  width: 26px;
+  height: 26px;
+  border: 2.5px solid rgba(255, 255, 255, 0.15);
+  border-top-color: rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+  animation: ap-image-spin 0.9s linear infinite;
+}
+@keyframes ap-image-spin { to { transform: rotate(360deg); } }
+.ap-image-loading-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-family: inherit;
+}
+.ap-image-loading-sub {
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: rgba(255, 255, 255, 0.45);
+  font-family: inherit;
+}
+
 .ap-post-loading-spinner {
   display: none;
 }
