@@ -27,6 +27,10 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
   const sortedImages = images ? [...images].sort((a, b) => a.idx - b.idx) : [];
   const hasImage = sortedImages.length > 0;
   const isCarousel = totalSlides > 0;
+  // A single image is being generated for this text post: Content passes
+  // isGeneratingImage (its Generate Image flow); AiCeo's ArtifactPanel
+  // passes isGenerating = pendingImages > 0.
+  const imagePending = !isCarousel && !hasImage && (!!isGeneratingImage || !!isGenerating);
 
   // Auto-advance to newly arrived slide
   const prevCountRef = useRef(0);
@@ -274,8 +278,12 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
             </div>
           )}
 
-          {/* Carousel / Image area */}
-          {(isCarousel || hasImage) && (
+          {/* Carousel / Image area. imagePending: a single image is being
+              generated for this text post (Content's Generate Image
+              button, or AiCeo's generate_image with the post open) — show
+              a visible generating placeholder where the image will land
+              instead of nothing (gpt-image-2 runs 1-3 minutes). */}
+          {(isCarousel || hasImage || imagePending) && (
             <div className="li-card-image">
               {isCarousel ? (
                 /* Carousel view — completed slides + pending/blank placeholders. */
@@ -502,6 +510,11 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                       <Trash2 size={14} />
                     </button>
                   )}
+                </div>
+              ) : imagePending ? (
+                <div className="li-image-generating" role="status" aria-live="polite">
+                  <Loader size={22} className="li-spin" />
+                  <span>Generating image… this can take a minute or two</span>
                 </div>
               ) : null}
             </div>

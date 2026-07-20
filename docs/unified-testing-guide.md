@@ -680,6 +680,28 @@ next to the caption. Kill your network mid-generation → you should get
 the ⚠️ failure message, not a stuck spinner. LinkedIn pill → generate a
 single-image post → no 422, post text arrives via the normal preview.
 
+### Round 12 — image-wait UI everywhere + founder on middle slides (2026-07-20)
+
+**What shipped, in plain words:**
+
+1. **Visible "Generating image…" everywhere an image can render.** The
+   remaining blind spot was adding an image to an existing LinkedIn
+   TEXT post (both tabs): the preview showed nothing at all while the
+   image rendered — the media area now shows a "Generating image… this
+   can take a minute or two" placeholder where the image will land.
+   Plain image requests in AI CEO already open a loading panel (Round
+   11); Content chat already shows pending placeholders. Test: open a
+   LinkedIn text post → Generate Image → the gray generating box appears
+   immediately in the post preview, image replaces it when done.
+2. **Founder photo threads through carousel middle slides.** Decks of
+   5+ slides now put a SUBTLE founder byline chip (small circular
+   avatar in the footer row, exact likeness, natural skin) on the
+   center middle slide — and a second one on decks of 9+ — in addition
+   to the prominent hook/CTA appearances. Applies to LinkedIn and
+   Instagram carousels from every path (chat, plan runner). Test:
+   generate a 7-slide carousel → slide 4 should carry the small avatar
+   chip at the bottom-left; hook/CTA unchanged.
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you
