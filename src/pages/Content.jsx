@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2, ExternalLink } from 'lucide-react';
+import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2, ExternalLink, Clapperboard } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -15,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
 import ChatDropOverlay from '../components/ChatDropOverlay';
 import SocialPreview, { SlideViewerModal } from '../components/SocialPreview';
+import ScriptPreview from '../components/ScriptPreview';
 import { useChatFileDropZone } from '../hooks/useChatFileDropZone';
 import '../components/Paywall.css';
 import './Content.css';
@@ -279,6 +280,10 @@ async function streamContentUnified(messages, onTextChunk, onToolCall, abortSign
       } else if (name === 'create_content_plan' && Array.isArray(args.items) && args.items.length > 0) {
         // In-chat content plan (shared with AI CEO — planRunner.js).
         toolCallsOut.push({ kind: 'content_plan', id: `unified-${toolCallsOut.length}`, plan: args });
+      } else if (name === 'submit_script' && args.script) {
+        // Video script (reel / short / YouTube) — rendered as a script
+        // card + side preview instead of inline chat text.
+        toolCallsOut.push({ kind: 'script', id: `unified-${toolCallsOut.length}`, title: args.title || '', script: args.script });
       }
     },
     onError: (err) => {
@@ -881,6 +886,9 @@ export default function Content() {
   const [splitPct, setSplitPct] = useState(50);
   const [splitDragging, setSplitDragging] = useState(false);
   const splitRef = useRef(null);
+  // Video-script side preview — { msgId }. The script itself lives on the
+  // message as msg.scriptDoc = { title, content, platform }.
+  const [scriptView, setScriptView] = useState(null);
 
   useEffect(() => {
     if (!splitDragging) return;
@@ -917,6 +925,13 @@ export default function Content() {
   const ensureSessionPromiseRef = useRef(null);
   const [editPrompt, setEditPrompt] = useState('');
   const [linkedinPreview, setLinkedinPreview] = useState(null); // { content, images, msgId }
+
+  // Only ONE side-preview tenant at a time: opening the LinkedIn or
+  // carousel preview evicts the script preview (the reverse eviction is
+  // done explicitly at the script-open call sites).
+  useEffect(() => {
+    if (linkedinPreview || carouselSideView) setScriptView(null);
+  }, [linkedinPreview, carouselSideView]);
   // Mirror so `sendToAI`'s finally block can read the latest preview
   // without capturing a stale closure. Needed to prevent the
   // "AI didn't produce a response" overwrite from firing on valid
@@ -1240,6 +1255,13 @@ export default function Content() {
             totalSlides: m.linkedinPost.totalSlides || 0,
           };
         }
+        if (m.scriptDoc && m.scriptDoc.content) {
+          persisted.scriptDoc = {
+            title: m.scriptDoc.title || '',
+            content: m.scriptDoc.content,
+            platform: m.scriptDoc.platform || null,
+          };
+        }
         // In-chat content plan (shared with AI CEO): persist the plan +
         // per-item run states so a reload resumes exactly where it left
         // off; planItemRef ties generated pieces back to their plan row.
@@ -1508,6 +1530,22 @@ export default function Content() {
                   }
                 : m
             ));
+            return;
+          }
+
+          const scriptCalls = normalized.filter(c => c.kind === 'script');
+          if (scriptCalls.length > 0) {
+            // Video script → card on the message + auto-open the side
+            // preview (same pattern as LinkedIn's auto-open).
+            const sc = scriptCalls[0];
+            setMessages((prev) => prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, scriptDoc: { title: sc.title || '', content: sc.script, platform: activePlatform.id }, platform: m.platform || activePlatform.id }
+                : m
+            ));
+            setLinkedinPreview(null);
+            setCarouselSideView(null);
+            setScriptView({ msgId: assistantMsgId });
             return;
           }
 
@@ -2610,6 +2648,12 @@ export default function Content() {
       });
       return;
     }
+    if (msg.scriptDoc?.content) {
+      setLinkedinPreview(null);
+      setCarouselSideView(null);
+      setScriptView({ msgId: msg.id });
+      return;
+    }
     if ((msg.images?.length || 0) > 0 || msg.carouselPlan) {
       setLinkedinPreview(null);
       setCarouselSideView({ msgId: msg.id });
@@ -2738,6 +2782,15 @@ export default function Content() {
             // interactive posts in this tab.
             piece.content = planPieceLabel(item, false);
             piece.linkedinPost = { content: resp.content || '', totalSlides: 0 };
+          } else if (item.format === 'reel_script' || item.format === 'youtube_script') {
+            // Video script → script card + side preview, never the full
+            // script dumped inline (same treatment as interactive scripts).
+            piece.content = planPieceLabel(item, false);
+            piece.scriptDoc = {
+              title: resp.title || item.topic || '',
+              content: resp.content || '',
+              platform: item.platform,
+            };
           } else {
             piece.content = resp.content || '';
           }
@@ -4044,9 +4097,9 @@ export default function Content() {
       {/* Main content area. When split, the chat/preview widths come from
           the draggable divider via the --content-split CSS variable. */}
       <div
-        className={`content-main${linkedinPreview || carouselSideView ? ' content-main--split' : ''}${splitDragging ? ' content-main--dragging' : ''}`}
+        className={`content-main${linkedinPreview || carouselSideView || scriptView ? ' content-main--split' : ''}${splitDragging ? ' content-main--dragging' : ''}`}
         ref={splitRef}
-        style={linkedinPreview || carouselSideView ? { '--content-split': `${splitPct}%` } : undefined}
+        style={linkedinPreview || carouselSideView || scriptView ? { '--content-split': `${splitPct}%` } : undefined}
       >
         <div className="content-main-chat">
         {/* Platform Pill Selector */}
@@ -4493,6 +4546,38 @@ export default function Content() {
                           </button>
                         </div>
                       )}
+                      {/* Video-script summary card — the script itself
+                          lives in the side preview, never inline chat. */}
+                      {msg.scriptDoc && msg.scriptDoc.content && (
+                        <div className="content-linkedin-summary content-script-summary">
+                          <div className="content-script-summary-icon">
+                            <Clapperboard size={18} />
+                          </div>
+                          <div className="content-linkedin-summary-body">
+                            <div className="content-linkedin-summary-label">
+                              {(msg.scriptDoc.platform || msg.platform) === 'youtube' ? 'YouTube script' : 'Reel script'}
+                            </div>
+                            <div className="content-linkedin-summary-snippet">
+                              {(msg.scriptDoc.title || msg.scriptDoc.content.split('\n')[0]).slice(0, 120)}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="content-linkedin-summary-open"
+                            onClick={() => {
+                              if (scriptView?.msgId === msg.id) return;
+                              setLinkedinPreview(null);
+                              setCarouselSideView(null);
+                              setScriptView({ msgId: msg.id });
+                            }}
+                            disabled={scriptView?.msgId === msg.id}
+                            title={scriptView?.msgId === msg.id ? 'Already open in the side panel' : 'Open the script'}
+                          >
+                            <Maximize2 size={14} />
+                            {scriptView?.msgId === msg.id ? 'Script open' : 'Open script'}
+                          </button>
+                        </div>
+                      )}
                       {/* Image carousel — inline slides act as a compact
                           thumbnail strip even for carousels (preview holds
                           the editing surface; chat keeps a visual summary
@@ -4838,7 +4923,7 @@ export default function Content() {
         </div>
         {/* Draggable divider between chat and preview — same interaction
             as the AI CEO chat/canvas slider. */}
-        {(linkedinPreview || carouselSideView) && (
+        {(linkedinPreview || carouselSideView || scriptView) && (
           <div
             className="content-divider"
             onMouseDown={(e) => { e.preventDefault(); setSplitDragging(true); }}
@@ -5094,6 +5179,30 @@ export default function Content() {
                 onRegenerate={panelMsg.carouselPlan?.slides ? (idx) => {
                   handleCarouselSlideRegenerate(panelMsg.id, idx);
                 } : null}
+              />
+            </div>
+          );
+        })()}
+        {/* Video-script side preview — the /Content "canvas" for reel /
+            YouTube scripts (AI CEO renders the same content as a
+            markdown_doc artifact). */}
+        {scriptView && (() => {
+          const sMsg = messages.find((m) => m.id === scriptView.msgId);
+          if (!sMsg?.scriptDoc?.content) return null;
+          return (
+            <div className="content-main-preview">
+              <ScriptPreview
+                title={sMsg.scriptDoc.title}
+                content={sMsg.scriptDoc.content}
+                platform={sMsg.scriptDoc.platform || sMsg.platform}
+                onClose={() => setScriptView(null)}
+                onContentChange={(next) => {
+                  // Persist user edits on the source message so they
+                  // survive re-renders and session saves.
+                  setMessages((prev) => prev.map((m) =>
+                    m.id === sMsg.id ? { ...m, scriptDoc: { ...m.scriptDoc, content: next } } : m
+                  ));
+                }}
               />
             </div>
           );

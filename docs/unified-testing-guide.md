@@ -517,6 +517,45 @@ instead of a dead retry loop).
    resize (25%–75% range), on desktop only (mobile preview stays
    fullscreen).
 
+### Round 8 — reel-script cards, real faces, workflow-first DM builds (2026-07-20)
+
+**What shipped, in plain words:** your three findings from 2026-07-20.
+
+1. **Reel/YouTube scripts open in a card, not inline chat.** In the
+   Content tab a generated script now arrives as a compact "Reel script"
+   card with an "Open script" button — the full script lives in a side
+   panel (with edit, copy, and download), never dumped into the chat.
+   Works for scripts asked in chat AND scripts generated from a content
+   plan. The AI CEO tab already did this via its canvas. Test: on the
+   Instagram or TikTok pill ask for "a 30-second reel script about X" →
+   one hand-off sentence in chat + script card → Open script → side
+   panel; the resize divider works there too. Old sessions with inline
+   scripts still display as before.
+2. **Faces look like the person, with real skin.** Every image path
+   (single posts, LinkedIn images, carousel slides, stories) now demands
+   the exact likeness from your reference photos AND real photographic
+   skin — visible pores, natural imperfections, no airbrush/beauty-filter
+   smoothing. Also fixed: carousels no longer force your face onto
+   text-first slides — the founder photo only appears where the slide
+   design calls for one (hook/CTA). Test: generate an image post with
+   brand photos set → the face should be recognizably you with natural
+   skin texture, not a smoothed "Botox" lookalike.
+3. **DM automation builder prefers simple workflows.** Every build
+   request to the BooSend builder now carries a build policy: requests
+   that are trigger → condition → messages/buttons (like your
+   story-comment "book" → follower check → ebook link example) must be
+   built as plain deterministic workflows with keyword triggers and ZERO
+   AI nodes; AI agents only when the request genuinely needs free-form
+   language understanding at runtime. Test: Marketing → DM automation →
+   paste the "book" story example → the resulting graph should show
+   trigger/condition/message nodes, no "AI Agent" node.
+   **Note:** the builder LLM itself runs on the external
+   `boosend-automation-api` service (it's in your Railway team, but its
+   code isn't in this repo). This policy rides on every request we send
+   it and should steer it; if it still insists on agent builds after
+   this, the deeper fix is in that service's own system prompt — point
+   me at that repo and I'll fix it there.
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you

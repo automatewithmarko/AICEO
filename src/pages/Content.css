@@ -2931,6 +2931,20 @@
   border-radius: 10px;
   background: var(--surface-primary, #fff);
 }
+
+/* Video-script summary card — reuses the LinkedIn card layout with a
+   clapperboard icon instead of a thumbnail. */
+.content-script-summary-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #f5f2ff;
+  color: #7c3aed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
 .content-linkedin-summary-thumb {
   width: 56px;
   height: 56px;

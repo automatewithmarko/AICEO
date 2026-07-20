@@ -59,6 +59,16 @@ const NATIONALITIES = [
   'Italian','Russian','Ukrainian','Polish','Turkish','Persian','Iranian','Israeli','Jewish',
   'Latino','Latina','Hispanic','Asian','Caucasian','White','Black','European',
 ];
+// Shared face-rendering spec, appended whenever founder reference photos
+// are attached. Without this the models default to beauty-filter skin —
+// the founder's "everyone looks like they have Botox" complaint
+// (2026-07-20) — and drift off the reference likeness.
+const FACE_REALISM_RULES = `
+FACE REALISM — CRITICAL (applies to every human face in the image):
+- LIKENESS: the person must be INSTANTLY recognizable as the SAME person as in the reference photos — identical facial structure, nose, jawline, eye shape and spacing, eyebrows, hairline, hair color and texture, and exact skin tone. Do NOT idealize, slim, de-age, or "beautify" them. A generic attractive lookalike is a failure.
+- SKIN: real photographic skin texture — visible pores, fine lines, subtle natural blemishes, natural facial asymmetry. Skin must NEVER look airbrushed, waxy, plastic-smooth, or beauty-filtered. Over-smoothed "AI skin" is a failure; keep the texture you can see in the reference photos.
+- LIGHT: natural, believable lighting on the face with soft real shadows — not a flat, poreless studio glow.`;
+
 function sanitizeIdentityFromPrompt(text) {
   if (!text) return text;
   let out = text;
@@ -447,6 +457,12 @@ export async function generateImageCore({ userId, rawPrompt, platform, brandData
     const hasLogo = !!brand?.logoUrl;
     const hasPhotos = (brand?.photoUrls?.length || 0) > 0;
     const userImgCount = (editUserImage && referenceImages?.length) ? referenceImages.length : 0;
+    // Carousel SLIDE renders embed a DESIGN SYSTEM block in the prompt —
+    // that's what distinguishes them from single posts on the same
+    // platform id. Slides only show the founder where the slide design
+    // asks for one; forcing "MUST include this person" onto every
+    // text-first slide was fighting the slide spec.
+    const isCarouselPlatform = /DESIGN SYSTEM/i.test(prompt);
 
     let brandImageInstructions = '';
     if (userImgCount > 0) {
@@ -463,7 +479,7 @@ export async function generateImageCore({ userId, rawPrompt, platform, brandData
       if (hasPhotos) {
         const n = brand.photoUrls.length;
         const range = n > 1 ? `${idx}–${idx + n - 1}` : `${idx}`;
-        lines.push(`  ${range}. BRAND PHOTO${n > 1 ? 'S' : ''} — reference photo${n > 1 ? 's' : ''} of the user/founder. Use the face/likeness only if the prompt requires a person; otherwise ignore.`);
+        lines.push(`  ${range}. BRAND PHOTO${n > 1 ? 'S' : ''} — reference photo${n > 1 ? 's' : ''} of the user/founder. Use the face/likeness only if the prompt requires a person; otherwise ignore. When the person appears, follow the FACE REALISM rules below exactly.`);
         idx += n;
       }
       const range = userImgCount > 1 ? `${idx}–${idx + userImgCount - 1}` : `${idx}`;
@@ -475,7 +491,10 @@ export async function generateImageCore({ userId, rawPrompt, platform, brandData
       brandImageInstructions = `
 BRAND ASSETS (attached as reference images):
 - FIRST attached image = BRAND LOGO. Place it small and subtle (corner watermark, max 24px height). The logo is NOT the hero — it's a subtle brand mark.
-- REMAINING attached images = REFERENCE PHOTOS of the user/founder. You MUST include this person in the image — use their exact face and likeness from these photos. They should be a prominent, visible part of the composition. Do NOT generate a random person or leave the person out. Social media content with a real human face gets 2-3x more engagement.`;
+- REMAINING attached images = REFERENCE PHOTOS of the user/founder. ${isCarouselPlatform
+    ? 'Include this person ONLY where the slide design calls for a person (e.g. a founder portrait on a hook/CTA slide) — never force them onto text-first slides.'
+    : 'You MUST include this person in the image. They should be a prominent, visible part of the composition. Do NOT generate a random person or leave the person out. Social media content with a real human face gets 2-3x more engagement.'}
+${FACE_REALISM_RULES}`;
     } else if (hasLogo) {
       brandImageInstructions = `
 BRAND ASSETS (attached as reference):
@@ -483,7 +502,10 @@ BRAND ASSETS (attached as reference):
     } else if (hasPhotos) {
       brandImageInstructions = `
 BRAND ASSETS (attached as reference):
-- The attached images are REFERENCE PHOTOS of the user/founder. You MUST include this person in the image — use their exact face and likeness from these photos. They should be a prominent, visible part of the composition. Do NOT generate a random person or leave the person out.`;
+- The attached images are REFERENCE PHOTOS of the user/founder. ${isCarouselPlatform
+    ? 'Include this person ONLY where the slide design calls for a person (e.g. a founder portrait on a hook/CTA slide) — never force them onto text-first slides.'
+    : 'You MUST include this person in the image. They should be a prominent, visible part of the composition. Do NOT generate a random person or leave the person out.'}
+${FACE_REALISM_RULES}`;
     }
 
     // Platform-specific quality framing — stories/social photos need iPhone-natural look, not studio
@@ -498,17 +520,20 @@ BRAND ASSETS (attached as reference):
 - NO hyper-edited HDR, NO cinematic color grading, NO teal-and-orange film look.
 - The photo should look like it was taken TODAY by a real person — casual, authentic, relatable.
 - If the prompt describes a scene, imagine how a regular person would photograph it with their iPhone.
+- Faces: real photographic skin — visible pores, fine lines, natural asymmetry and imperfections. NEVER airbrushed, waxy, plastic-smooth, or beauty-filtered.
 - NO cartoons, NO illustrations, NO vector art, NO AI-looking generic imagery.`
       : isCarousel
       ? `DESIGN QUALITY RULES:
 - If the prompt contains a DESIGN SYSTEM block, the block is authoritative. Do not override its colors, layout, or typography. Your only job is to render it faithfully.
 - Clean, modern graphic design. Glass-morphism cards / floating UI mockups / diagrams / stat blocks / editorial treatments are preferred over flat posters.
+- Any human face that appears must have real photographic skin texture — visible pores, natural imperfections — never airbrushed, waxy, or beauty-filtered.
 - NO cartoons, NO pixel art, NO clip-art, NO AI-looking generic imagery.
 - Text must be spelled correctly, rendered at the exact size/weight specified, and perfectly readable.
 - Use brand colors and fonts as specified — they are requirements, not suggestions.`
       : `GENERAL QUALITY RULES:
 - Photorealistic or modern graphic design — NO cartoons, NO pixel art, NO illustrations, NO clip-art, NO AI-looking generic imagery.
 - Natural, authentic look. Avoid over-produced studio aesthetics, neon lighting, and sci-fi visuals unless explicitly requested.
+- Any human face must have real photographic skin texture — visible pores, fine lines, natural asymmetry and imperfections. NEVER airbrushed, waxy, plastic-smooth, or beauty-filtered.
 - Any text on the image must be spelled correctly, large, and perfectly readable.
 - Clean composition with clear visual hierarchy.
 - Use brand colors and fonts as specified — they are requirements, not suggestions.`;

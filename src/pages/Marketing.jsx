@@ -26,6 +26,20 @@ import './Marketing.css';
 // their own restore paths and are intentionally excluded.
 const HTML_TOOLS_WITH_SNAPSHOTS = new Set(['newsletter', 'landing', 'squeeze', 'leadmagnet']);
 
+// ── DM automation builder policy ──
+// The BooSend builder LLM runs on the external boosend-automation-api
+// service; the only lever this repo has over its build decisions is the
+// message we send it. Without this policy it defaulted to AI-agent
+// builds for requests that are plain deterministic workflows (founder
+// finding 2026-07-20: story-comment "book" → follower check → DM with
+// button → ebook link came back as an AI agent). Prepended to EVERY
+// build request so the rule survives session context.
+const DM_BUILD_POLICY = `[Build policy — choose the SIMPLEST build type that satisfies the request]
+1. DEFAULT TO A DETERMINISTIC WORKFLOW made only of non-AI nodes: trigger (keyword detection), condition (field/operator branches like follower checks), instagram send-message (text + buttons), smartDelay, waitForReply, action, randomizer.
+2. Use AI nodes (ai agent, aiCondition, aiExtractor, chatgpt, grok, gemini) ONLY when the request genuinely needs free-form natural-language understanding or generation at runtime — e.g. answering open-ended product questions, conversational lead qualification, or intent detection the user explicitly asked for beyond a simple keyword.
+3. Decision test: if the request can be expressed as trigger → conditions → fixed messages/buttons/delays, it MUST be a plain workflow with ZERO AI nodes. A specific trigger word (e.g. comment "book") means KEYWORD detection, not AI intent recognition. Follower checks, link delivery, and "check again" buttons are condition + message nodes, never an agent.
+4. Keep the graph as small as the request allows — no extra nodes, branches, or AI steps the user did not ask for.`;
+
 // ── Shared prompt skeleton ──
 const SHARED_RULES = `=== ABSOLUTE OUTPUT RULES (NON-NEGOTIABLE) ===
 1. NEVER use em dashes (the long dash character). Use commas, periods, or start a new sentence.
@@ -2291,6 +2305,8 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
             agentMessage = `[Brand context]\n${parts.join('\n')}\n\n[User request]\n${agentMessage}`;
           }
         }
+        // Workflow-vs-agent policy rides on every request (see const).
+        agentMessage = `${DM_BUILD_POLICY}\n\n${agentMessage}`;
         await streamBoosendAgentBuild({
           message: agentMessage,
           graph: currentGraph,

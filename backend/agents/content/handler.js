@@ -49,6 +49,7 @@ import {
   GENERATE_LINKEDIN_POST_TOOL,
   EDIT_LINKEDIN_POST_TOOL,
   SUBMIT_POST_TOOL,
+  SUBMIT_SCRIPT_TOOL,
   buildClaudeChatProtocolAddendum,
   SUBMIT_POST_ADDENDUM,
 } from './claude-protocol.js';
@@ -235,7 +236,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
   // 2 weeks" works without the Plan Mode toggle, exactly like AI CEO.
   const tools = [CONTENT_ASK_USER_TOOL, CREATE_CONTENT_PLAN_TOOL];
   if (!planMode) {
-    tools.push(IMAGE_TOOL, PLAN_CAROUSEL_TOOL);
+    tools.push(IMAGE_TOOL, PLAN_CAROUSEL_TOOL, SUBMIT_SCRIPT_TOOL);
     if (isLinkedin) {
       tools.push(GENERATE_LINKEDIN_POST_TOOL);
       if (editModeActive) tools.push(EDIT_LINKEDIN_POST_TOOL);
@@ -289,6 +290,8 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
         sendSSE(res, { type: 'status', text: 'Building your content plan…' });
       } else if (name === 'generate_image') {
         sendSSE(res, { type: 'status', text: 'Preparing your image…' });
+      } else if (name === 'submit_script') {
+        sendSSE(res, { type: 'status', text: 'Writing your script…' });
       }
     },
     onToolCalls: async (toolCalls) => {
@@ -296,7 +299,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
         let args;
         try { args = JSON.parse(call.arguments); } catch { args = {}; }
 
-        if (call.name === 'generate_image' || call.name === 'plan_carousel' || call.name === 'create_content_plan') {
+        if (call.name === 'generate_image' || call.name === 'plan_carousel' || call.name === 'create_content_plan' || call.name === 'submit_script') {
           // Executed on the frontend (Phase 1) — relay like ceo mode does.
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });
         } else if (call.name === 'ask_user') {
