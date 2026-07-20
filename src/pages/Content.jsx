@@ -1595,6 +1595,17 @@ export default function Content() {
 
           if (imageCalls.length === 0) return;
           hadImageGeneration = true;
+          // Safety net: if the model generated an image but skipped
+          // submit_text_post (caption streamed as chat text, old-style),
+          // promote that text to socialPost so the canvas still shows a
+          // caption on the FIRST attempt — not only after a reload.
+          if (textPostCalls.length === 0 && activePlatform.id !== 'linkedin') {
+            setMessages((prev) => prev.map((m) => {
+              if (m.id !== assistantMsgId || m.socialPost) return m;
+              const caption = (m.content || '').trim();
+              return caption ? { ...m, socialPost: { caption } } : m;
+            }));
+          }
           console.log(`🖼️ Generating ${imageCalls.length} image(s) in parallel`);
           setMessages((prev) => prev.map((m) =>
             m.id === assistantMsgId ? { ...m, pendingImages: imageCalls.length, platform: m.platform || activePlatform.id } : m

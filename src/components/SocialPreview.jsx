@@ -111,13 +111,19 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
     if (idx > totalSlots - 1) setIdx(Math.max(0, totalSlots - 1));
   }, [totalSlots, idx]);
 
-  // Seed the contentEditable when the incoming caption prop changes.
+  // Seed the contentEditable from the incoming caption prop. Runs after
+  // EVERY render (no dep array) because the caption node itself mounts
+  // late: while slides are still generating this component renders the
+  // skeleton branch with no captionRef div, and a deps-gated effect
+  // ([msg.content]) would never re-fire when the div finally mounts with
+  // unchanged text — that was the "caption only appears after reload"
+  // bug. The body is idempotent (innerText comparison), so per-render
+  // execution is safe and never causes a cursor jump.
   // If the user hasn't typed, always mirror the prop (streaming). If they
-  // HAVE typed, their draft normally wins — but an EXTERNAL caption
-  // change (the AI shipped an update, or the preview re-bound to another
-  // message/version) must override the stale draft; freezing forever was
-  // the "edits only appear after refresh" bug. A save round-trip comes
-  // back as an identical prop and is ignored (no cursor jump).
+  // HAVE typed, their draft wins — but an EXTERNAL caption change (the
+  // AI shipped an update, or the preview re-bound to another message)
+  // overrides the stale draft; freezing forever was the "edits only
+  // appear after refresh" bug.
   useEffect(() => {
     if (!captionRef.current) return;
     const incoming = (msg?.carouselPlan?.caption) || (msg?.content) || '';
@@ -130,7 +136,7 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
     if (captionRef.current.innerText !== incoming) {
       captionRef.current.innerText = incoming;
     }
-  }, [msg?.content, msg?.carouselPlan?.caption]);
+  });
 
   const handleCaptionInput = () => {
     captionUserEdited.current = true;

@@ -599,6 +599,54 @@ instead of a dead retry loop).
    for a 10-min YouTube script → payoff map + chapters + no "thanks for
    watching".
 
+### Round 10 — caption reliability, gpt-image-2, script-guide compliance (2026-07-20)
+
+**What shipped, in plain words:**
+
+1. **Caption always shows in the canvas on the FIRST attempt.** Root
+   cause found: while slides/images were still generating, the preview
+   showed the loading skeleton (which has no caption area at all); when
+   the first image arrived, the caption editor appeared but its
+   fill-in logic only ran when the caption TEXT changed — so it stayed
+   empty until a reload remounted the panel. The editor now re-seeds on
+   every render (safe — it never overwrites your typing). Plus a safety
+   net: if the AI generates an image but delivers the caption the
+   old-style way (as chat text) instead of through the post card, that
+   text is automatically promoted into the canvas caption. Test:
+   Instagram pill → image post → open preview WHILE the image renders →
+   caption must be there the moment the image lands, no reload needed.
+2. **Image model upgraded: gpt-image-1 → gpt-image-2.** The "no hands"
+   audit found we were two generations behind — your OpenAI key has
+   gpt-image-2 (April 2026). Both endpoints were live-verified with our
+   exact parameters before switching. Roll back anytime by setting
+   OPENAI_IMAGE_MODEL=gpt-image-1 on Railway (no deploy needed).
+   Note: anatomy glitches can still happen on ANY model — if a specific
+   image has one, hit regenerate; but the rate should drop sharply.
+3. **Scripts now actually follow the master guide.** The submit_script
+   tool's own description still asked for the OLD format ("spoken script
+   with direction notes") and was overriding the guide — your example
+   reel (plain lines + "Direction:" note) is exactly that old format.
+   Now the tool description defers to the guide.
+
+**How to test a script against the master guide (60-second check):**
+- Shape: **HOOK** (with [VISUAL: …] and [TEXT ON SCREEN: …]) → **BODY**
+  (one sentence per line, [B-ROLL]/[CUT] cues) → **CTA** →
+  --- PRODUCTION NOTES --- (delivery marks, captions style, music,
+  B-roll list). If it's plain paragraphs with a "Direction:" line at the
+  end, it's the OLD format — report it.
+- Hook: first line ≤12 words, no greeting/intro, specific (a number or
+  named thing beats a vague claim).
+- Length: ~2.5 words/second — a 60s reel should be 140-170 words of
+  spoken text; 30s ≈ 70-90.
+- Sound: read it aloud — short sentences, "you", contractions; beats
+  connected by "but"/"so", never "and then".
+- Bans: no "Hey guys", no "In today's world", no "unlock/leverage/
+  game-changing" AI-speak, no spoken "like and follow" ending.
+- Ending: last line twists or loops back to the first line — never
+  "thanks for watching".
+- YouTube long-form instead: # title + payoff map + [CHAPTER] sections
+  with hook-style titles + bridge ending to a named next video.
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you
