@@ -693,14 +693,17 @@ single-image post → no 422, post text arrives via the normal preview.
    11); Content chat already shows pending placeholders. Test: open a
    LinkedIn text post → Generate Image → the gray generating box appears
    immediately in the post preview, image replaces it when done.
-2. **Founder photo threads through carousel middle slides.** Decks of
-   5+ slides now put a SUBTLE founder byline chip (small circular
-   avatar in the footer row, exact likeness, natural skin) on the
-   center middle slide — and a second one on decks of 9+ — in addition
-   to the prominent hook/CTA appearances. Applies to LinkedIn and
-   Instagram carousels from every path (chat, plan runner). Test:
-   generate a 7-slide carousel → slide 4 should carry the small avatar
-   chip at the bottom-left; hook/CTA unchanged.
+2. **Founder photo threads through carousel middle slides.** EVERY
+   middle slide now carries a very subtle founder profile chip (~64px
+   circular avatar, footer row, same spot each slide — like the
+   poster's avatar on a feed), and the center middle slide (plus a
+   second on 9+ decks) gets a slightly more prominent ~140px portrait.
+   Hook/CTA keep their prominent treatment. Exact likeness + natural
+   skin rules apply; if no founder photos are set in Brand DNA the
+   chip is omitted entirely (never an invented face). Applies to
+   LinkedIn and Instagram carousels from every path. Test: 7-slide
+   carousel → small avatar chip bottom-left on slides 2-6, larger one
+   on slide 4.
 
 ## If you find a problem
 
