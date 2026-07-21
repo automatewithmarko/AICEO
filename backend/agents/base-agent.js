@@ -169,6 +169,25 @@ function gatewaySubstitutionError(served, requested) {
   return e;
 }
 
+// Shared !res.ok handler for every Anthropic-protocol call. When MENTOR
+// relays its upstream account's billing failure (observed 2026-07-21:
+// 400 "Your credit balance is too low to access the Anthropic API" from
+// Mentor's own Anthropic account), that is the gateway telling us it
+// cannot serve Claude right now — the same class as silent model
+// substitution. Tag it GATEWAY_SUBSTITUTED so the existing retry/rescue
+// chains route the turn to a working Claude (direct key) instead of
+// failing the generation with someone else's billing error.
+async function throwAnthropicApiError(res, target) {
+  const errText = await res.text().catch(() => 'Unknown error');
+  if (target?.via === 'mentor' && (res.status === 400 || res.status === 402) && /credit balance|billing|insufficient credit/i.test(errText)) {
+    const e = new Error('Mentor gateway upstream Anthropic account is out of credits — gateway cannot serve Claude');
+    e.code = 'GATEWAY_SUBSTITUTED';
+    e.servedBy = 'mentor-billing-error';
+    throw e;
+  }
+  throw new Error(`Anthropic API error (${res.status}): ${errText}`);
+}
+
 async function streamAnthropic(args) {
   try {
     return await streamAnthropicWithSubstitutionRetry(args);
@@ -281,8 +300,7 @@ async function streamAnthropicCore({ systemPrompt, messages, model, maxTokens, o
   const res = await fetchWithMentorFallback(target, buildInit);
 
   if (!res.ok) {
-    const errText = await res.text().catch(() => 'Unknown error');
-    throw new Error(`Anthropic API error (${res.status}): ${errText}`);
+    await throwAnthropicApiError(res, target);
   }
 
   const reader = res.body?.getReader();
@@ -682,8 +700,7 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
     }
 
     if (!res.ok) {
-      const errText = await res.text().catch(() => 'Unknown error');
-      throw new Error(`Anthropic API error (${res.status}): ${errText}`);
+      await throwAnthropicApiError(res, target);
     }
 
     const response = await res.json();
@@ -1518,8 +1535,7 @@ async function streamAnthropicWithToolsCore({ systemPrompt, messages, model, too
   const res = await fetchWithMentorFallback(target, buildInit);
 
   if (!res.ok) {
-    const errText = await res.text().catch(() => 'Unknown error');
-    throw new Error(`Anthropic API error (${res.status}): ${errText}`);
+    await throwAnthropicApiError(res, target);
   }
 
   const reader = res.body?.getReader();
