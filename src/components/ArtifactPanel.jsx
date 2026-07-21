@@ -920,6 +920,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                       isGenerating={(artifact.pendingImages || 0) > 0}
                       pendingImages={artifact.pendingImages || 0}
                       failedSlides={artifact.carouselPlan?.failedSlides || []}
+                      regeneratingIdx={artifact.editingSlideIdx ?? null}
                       onContentChange={onContentChange}
                       onUploadImages={handleCanvasUploadImages}
                       onPostToLinkedIn={handleCanvasPostToLinkedIn}
@@ -985,6 +986,9 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                       images: images || [],
                       content: content || '',
                       pendingImages: artifact.pendingImages,
+                      // Single-slide regenerate marker — SocialPreview
+                      // renders "Regenerating slide N…" for this slot.
+                      editingIdx: artifact.editingSlideIdx ?? undefined,
                       // carouselPlan trips SocialPreview into the
                       // "Rendering N / M slides…" skeleton state while
                       // the per-slide image gen loop runs (see AiCeo.jsx

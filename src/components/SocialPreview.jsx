@@ -300,7 +300,15 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
               sees the caption + actions instead of a stuck spinner. */}
           {hasMedia && (
           <div className="content-ig-media">
-            {current && !brokenSlots.has(idx) ? (
+            {msg?.editingIdx === idx ? (
+              /* Single-slide regenerate in flight — image models can take
+                 1-3 minutes; without this the click looked like it did
+                 nothing (founder report, 2026-07-21). */
+              <div className="content-ig-pending-slide">
+                <Loader size={24} className="cs-spinner" />
+                <span>Regenerating slide {idx + 1}… this can take a couple of minutes</span>
+              </div>
+            ) : current && !brokenSlots.has(idx) ? (
               <img
                 src={current.src}
                 alt={`Slide ${idx + 1}`}
@@ -322,7 +330,7 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
                 <span>Slide {idx + 1} didn&apos;t render</span>
                 {onRegenerate && (
                   <button type="button" className="content-ig-slide-retry" onClick={() => onRegenerate(idx)} disabled={isGenerating}>
-                    <RefreshCw size={13} /> Retry slide
+                    <RefreshCw size={13} /> Regenerate slide
                   </button>
                 )}
               </div>

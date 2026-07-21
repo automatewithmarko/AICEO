@@ -2121,10 +2121,23 @@ export default function AiCeo() {
 
   const handleRegenerateCarouselSlide = useCallback(async (slideIdx) => {
     if (typeof slideIdx !== 'number') return;
-    // Mark slide as being edited (show spinner overlay in LinkedInPreview)
+    // Mark slide as being edited (shows "Regenerating…" in the previews)
     setArtifact((prev) => prev ? { ...prev, editingSlideIdx: slideIdx } : prev);
-    await runSingleCarouselSlide(slideIdx, null);
-    setArtifact((prev) => prev ? { ...prev, editingSlideIdx: null } : prev);
+    const ok = await runSingleCarouselSlide(slideIdx, null);
+    setArtifact((prev) => {
+      if (!prev) return prev;
+      const failedSet = new Set(prev.carouselPlan?.failedSlides || []);
+      // Success clears the failure flag; failure lands the slide back in
+      // the visible failed state instead of console-only silence.
+      if (ok) failedSet.delete(slideIdx); else failedSet.add(slideIdx);
+      return {
+        ...prev,
+        editingSlideIdx: null,
+        carouselPlan: prev.carouselPlan
+          ? { ...prev.carouselPlan, failedSlides: [...failedSet].sort((a, b) => a - b) }
+          : prev.carouselPlan,
+      };
+    });
   }, [runSingleCarouselSlide]);
 
   const handleEditCarouselSlide = useCallback(async (slideIdx, _src, instruction) => {

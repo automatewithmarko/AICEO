@@ -2457,7 +2457,16 @@ export default function Content() {
       }));
     } catch (err) {
       console.error('Slide regenerate failed:', err);
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, editingIdx: undefined } : m));
+      // Land back in the visible failed state (spinner → "didn't render" +
+      // Regenerate) instead of console-only silence.
+      setMessages(prev => prev.map(m => m.id === msgId ? {
+        ...m,
+        editingIdx: undefined,
+        carouselPlan: {
+          ...m.carouselPlan,
+          failedSlides: [...new Set([...(m.carouselPlan?.failedSlides || []), slideIdx])].sort((a, b) => a - b),
+        },
+      } : m));
     } finally {
       setIsGenerating(false);
     }
@@ -5301,6 +5310,7 @@ export default function Content() {
                   isGenerating={isGenerating}
                   pendingImages={panelMsg.pendingImages || 0}
                   failedSlides={panelMsg.carouselPlan?.failedSlides || []}
+                  regeneratingIdx={panelMsg.editingIdx ?? null}
                   onClose={() => setCarouselSideView(null)}
                   plan={panelMsg.carouselPlan}
                   onAddSlide={(afterIdx) => handleCarouselAddSlide(panelMsg.id, afterIdx)}

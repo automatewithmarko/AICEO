@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload, Send, CalendarClock, ExternalLink, Pencil, RefreshCw, Trash2, Plus, Maximize2 } from 'lucide-react';
 import './LinkedInPreview.css';
 
-export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge, onEditSlide, onRegenerateSlide, onDeleteImage, isGenerating, actionsSlot, onContentChange, plan, onAddSlide, onRemoveSlide, onFullscreen, pendingImages = 0, failedSlides = [] }) {
+export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge, onEditSlide, onRegenerateSlide, onDeleteImage, isGenerating, actionsSlot, onContentChange, plan, onAddSlide, onRemoveSlide, onFullscreen, pendingImages = 0, failedSlides = [], regeneratingIdx = null }) {
   const [editedText, setEditedText] = useState(null);
   const [copied, setCopied] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
@@ -307,7 +307,15 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                 <div className="li-carousel">
                   {/* Current slot: completed image, blank placeholder,
                       failed (with Regenerate), or pending */}
-                  {currentImage && !isBrokenSlide ? (
+                  {regeneratingIdx === slideIdx ? (
+                    /* Single-slide regenerate in flight — image models can
+                       take 1-3 minutes; without this the click looked
+                       like it did nothing (founder report, 2026-07-21). */
+                    <div className="li-carousel-pending-slide">
+                      <Loader size={24} className="li-spin" />
+                      <span>Regenerating slide {slideIdx + 1}… this can take a couple of minutes</span>
+                    </div>
+                  ) : currentImage && !isBrokenSlide ? (
                     <img
                       src={currentImage.src}
                       alt={`Slide ${slideIdx + 1}`}
