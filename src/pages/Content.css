@@ -2932,6 +2932,31 @@
   background: var(--surface-primary, #fff);
 }
 
+/* Default-template star + tag in the premade gallery */
+.cs-template-star {
+  border: none;
+  background: transparent;
+  color: #c9c9cf;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.cs-template-star:hover { color: #f59e0b; }
+.cs-template-star--on { color: #f59e0b; }
+.cs-template-default-tag {
+  margin-left: 6px;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #b45309;
+  vertical-align: middle;
+}
+
 /* Section labels inside the templates sidebar list (premade vs saved). */
 .cs-templates-group-label {
   font-size: 10px;

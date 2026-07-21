@@ -11,7 +11,7 @@
 // Content.jsx original stays in place as the flag-off path until Phase 5.
 import { useState, useEffect } from 'react';
 import { Trash2, Pencil, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
-import { getCarouselTemplates, deleteCarouselTemplate } from '../../lib/api';
+import { getCarouselTemplates, deleteCarouselTemplate, getCuratedCarouselTemplates } from '../../lib/api';
 import './CarouselPlanCard.css';
 
 export default
@@ -32,7 +32,13 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
     if (activeSlide >= slides.length) setActiveSlide(Math.max(0, slides.length - 1));
   }, [slides.length, activeSlide]);
 
-  // Lazy-fetch saved templates only when the picker is opened.
+  // Curated (premade) templates load on mount (cached module-level in
+  // api.js) so the header badge can name the locked template immediately;
+  // saved samples stay lazy behind the picker.
+  const [curated, setCurated] = useState([]);
+  useEffect(() => {
+    getCuratedCarouselTemplates().then(setCurated).catch(() => {});
+  }, []);
   const loadTemplates = async () => {
     if (templates.length > 0 || loadingTemplates) return;
     setLoadingTemplates(true);
@@ -48,9 +54,32 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
 
   const applyTemplate = (template) => {
     if (!editable || !onUpdatePlan || !template?.design_system) return;
-    onUpdatePlan({ ...plan, designSystem: template.design_system });
+    // Saved samples carry no templateId — strip any previous curated lock
+    // so the renderer goes back to the standard editorial layout.
+    const { templateId: _drop, ...cleanDs } = template.design_system;
+    onUpdatePlan({ ...plan, designSystem: cleanDs });
     setTemplatesOpen(false);
   };
+
+  const applyCurated = (t) => {
+    if (!editable || !onUpdatePlan || !t?.designSystem) return;
+    // Premade template: full preset + templateId so the server-side
+    // renderer recreates the template's exact layout.
+    const brandName = ds.brandStrip?.brandName || t.designSystem.brandStrip?.brandName || '';
+    onUpdatePlan({
+      ...plan,
+      designSystem: {
+        ...t.designSystem,
+        templateId: t.id,
+        brandStrip: { ...(t.designSystem.brandStrip || {}), brandName },
+      },
+    });
+    setTemplatesOpen(false);
+  };
+
+  // Which premade template (if any) this plan is locked to — shown as a
+  // badge in the header so the user can see the style at a glance.
+  const lockedCurated = curated.find(t => t.id === ds.templateId) || null;
 
   const removeTemplate = async (id) => {
     try {
@@ -105,6 +134,11 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
       <div className="content-carousel-plan-header">
         <span className="content-carousel-plan-badge">CAROUSEL PLAN</span>
         <span className="content-carousel-plan-slides-count">{slides.length} slides{editable ? ' · editable' : ''}</span>
+        {lockedCurated && (
+          <span className="content-carousel-plan-template-badge" title={`This carousel renders in the "${lockedCurated.name}" premade template style`}>
+            ◈ {lockedCurated.name}
+          </span>
+        )}
         {editable && (
           <div className="content-carousel-plan-templates-wrap">
             <button
@@ -117,6 +151,29 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
             </button>
             {templatesOpen && (
               <div className="content-carousel-plan-templates-pop" onClick={(e) => e.stopPropagation()}>
+                {curated.length > 0 && (
+                  <>
+                    <div className="content-carousel-plan-templates-group">Premade templates</div>
+                    {curated.map(t => (
+                      <div key={t.id} className="content-carousel-plan-template-row">
+                        <button type="button" className="content-carousel-plan-template-apply" onClick={() => applyCurated(t)} title={t.description}>
+                          {t.preview ? <img src={t.preview} alt="" className="content-carousel-plan-template-thumb" /> : null}
+                          <div className="content-carousel-plan-template-info">
+                            <div className="content-carousel-plan-template-name">
+                              {t.name}{ds.templateId === t.id ? ' ✓' : ''}
+                            </div>
+                            <div className="content-carousel-plan-template-swatches">
+                              {[t.designSystem?.palette?.background, t.designSystem?.palette?.accentPrimary, t.designSystem?.palette?.gradientStart, t.designSystem?.palette?.gradientEnd].filter(Boolean).map((hex, i) => (
+                                <span key={i} className="content-carousel-plan-template-swatch" style={{ background: hex }} />
+                              ))}
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    ))}
+                    <div className="content-carousel-plan-templates-group">Your saved samples</div>
+                  </>
+                )}
                 {loadingTemplates && <div className="content-carousel-plan-templates-empty">Loading…</div>}
                 {!loadingTemplates && templates.length === 0 && (
                   <div className="content-carousel-plan-templates-empty">No saved templates yet. After generating a carousel, click "Save as template" to capture its design system.</div>

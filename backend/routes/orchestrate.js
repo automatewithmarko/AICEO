@@ -13,6 +13,7 @@ import { buildPlanModeDirective } from '../agents/content/plan-mode.js';
 import { PLAN_CAROUSEL_TOOL } from '../agents/plan-carousel-tool.js';
 import { COMPOSE_SINGLE_IMAGE_POST_TOOL, PLAN_PLATFORM_FORMATS } from '../agents/content-plan-tool.js';
 import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE, SCRIPT_GUIDE_ROUTER } from '../agents/content/video-script-guide.js';
+import { applyCuratedTemplateToPlanArgs } from '../agents/content/curated-carousel-templates.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
 import { extractFromUrl } from '../services/social.js';
 import { requireActiveAccount } from '../middleware/gate.js';
@@ -1599,6 +1600,14 @@ RULES:
         } else if (call.name === 'create_artifact' || call.name === 'generate_image' || call.name === 'plan_carousel' || call.name === 'create_content_plan') {
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
+          if (call.name === 'plan_carousel') {
+            // Deterministic curated-template enforcement: honors a
+            // model-set templateId (user named one in chat) or falls
+            // back to the user's stored default template.
+            applyCuratedTemplateToPlanArgs(args, {
+              defaultTemplateId: context?.brandDna?.default_carousel_template_id || null,
+            });
+          }
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });
         } else if (call.name === 'generate_linkedin_post') {
           // Unified pipeline (Phase 4): run the shared two-phase LinkedIn

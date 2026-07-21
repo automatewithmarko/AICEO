@@ -377,3 +377,24 @@ export function getCuratedTemplate(templateId) {
   if (!templateId) return null;
   return CURATED_CAROUSEL_TEMPLATES.find((t) => t.id === templateId) || null;
 }
+
+// Deterministic template enforcement on a plan_carousel tool call —
+// applied SERVER-SIDE at the relay so the template never depends on the
+// model obeying the "copy templateId" prompt instruction (the fragile
+// link behind the 2026-07-21 "template not applied" bug).
+// Priority: explicit user selection > model-set templateId (CEO by-name)
+// > the user's stored default (brand_dna.default_carousel_template_id).
+// Keeps the user's brand name in the template's brandStrip.
+export function applyCuratedTemplateToPlanArgs(args, { explicitCuratedId = null, defaultTemplateId = null } = {}) {
+  if (!args || typeof args !== 'object') return args;
+  const chosenId = explicitCuratedId || args.designSystem?.templateId || defaultTemplateId;
+  const curated = getCuratedTemplate(chosenId);
+  if (!curated) return args;
+  const brandName = args.designSystem?.brandStrip?.brandName || curated.designSystem.brandStrip?.brandName || '';
+  args.designSystem = {
+    ...curated.designSystem,
+    templateId: curated.id,
+    brandStrip: { ...(curated.designSystem.brandStrip || {}), brandName },
+  };
+  return args;
+}

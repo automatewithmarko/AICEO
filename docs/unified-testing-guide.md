@@ -739,6 +739,41 @@ slides should show the green-on-black style with your avatar chip in the
 header of each slide, hero cutout on slide 1 and the CTA slide. Then try
 the same by name from AI CEO chat.
 
+### Round 14 — template enforcement + default template (2026-07-21)
+
+**Why:** Round 13's template picker relied on the AI copying the
+template id into its plan — a soft link that silently failed (your
+Emerald Authority test), and the selection itself could go stale before
+sending. Both fixed, plus the default-template system you asked for.
+
+1. **Templates now apply deterministically.** The server force-stamps
+   the chosen template onto every carousel plan at the moment the plan
+   is created — it no longer depends on the AI following instructions.
+   Priority order: your explicit pick (sidebar or plan card) → a
+   template named in chat → your saved default. Also fixed a stale-state
+   bug where the sidebar selection didn't ride along with the next
+   message.
+2. **Default template (both tabs).** Every premade template in the
+   Content sidebar now has a ★ star — click it to make that style your
+   default. It's stored with your Brand DNA, so EVERY carousel from AI
+   CEO or Content uses it automatically unless you pick something else
+   for that specific carousel. Click the star again to remove the
+   default. A "DEFAULT" tag shows which one is active.
+3. **Plan card "Load template" upgraded.** The picker on the carousel
+   plan (top-right, both tabs) now lists the premade templates above
+   your saved samples — switching template on an existing plan re-locks
+   it instantly (✓ marks the active one, and a badge in the plan header
+   names the locked style). Picking a saved sample switches back to the
+   standard editorial look.
+
+**Test:** (a) sidebar → select "Emerald Authority Dark" → request a
+carousel → the plan card header must show the ◈ Emerald Authority Dark
+badge, and generated slides must be the green template style. (b) Star a
+template as default, select nothing, ask AI CEO for a carousel → same
+badge + style automatically. (c) On a fresh plan, open Load template →
+switch to "Poster Red Glow" → badge updates → approve → slides render in
+the new style.
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you

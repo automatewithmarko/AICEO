@@ -1187,6 +1187,22 @@ export default function Content() {
     getCuratedCarouselTemplates().then(setCuratedTemplates).catch(() => {});
   }, []);
 
+  // Per-user DEFAULT premade template — stored on brand_dna so BOTH tabs
+  // apply it server-side whenever no explicit selection is made. The
+  // sidebar star toggles it; brandDna state mirrors the DB value.
+  const defaultCuratedId = brandDna?.default_carousel_template_id || null;
+  const setDefaultCuratedTemplate = useCallback(async (templateId) => {
+    const next = defaultCuratedId === templateId ? null : templateId;
+    setBrandDna((prev) => prev ? { ...prev, default_carousel_template_id: next } : prev);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user || !brandDna?.id) return;
+      await supabase.from('brand_dna').update({ default_carousel_template_id: next }).eq('id', brandDna.id);
+    } catch (err) {
+      console.warn('[templates] default save failed:', err);
+    }
+  }, [defaultCuratedId, brandDna?.id]);
+
   // The selected templates' design systems — injected into plan_carousel
   // system prompt so Claude anchors the new carousel to them. A curated
   // template rides first with curatedId set → build-system-prompt locks
@@ -2118,7 +2134,7 @@ export default function Content() {
         return { ...m, content: "The AI didn't produce a response. Please try again." };
       }));
     }
-  }, [activePlatform, photos, documents, socialUrls, brandDna, integrationCtx, planMode]);
+  }, [activePlatform, photos, documents, socialUrls, brandDna, integrationCtx, planMode, selectedTemplatesData]);
 
   const stopGenerating = useCallback(() => {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; setIsGenerating(false); setActiveAssistantId(null); }
@@ -4055,6 +4071,7 @@ export default function Content() {
                   )}
                   {curatedTemplates.map(t => {
                     const on = selectedCuratedId === t.id;
+                    const isDefault = defaultCuratedId === t.id;
                     const p = t.designSystem?.palette || {};
                     return (
                       <div key={t.id} className={`cs-template-item${on ? ' cs-template-item--on' : ''}`}>
@@ -4066,7 +4083,9 @@ export default function Content() {
                         >
                           {t.preview && <img src={t.preview} alt="" className="cs-template-thumb" />}
                           <div className="cs-template-info">
-                            <div className="cs-template-name">{t.name}</div>
+                            <div className="cs-template-name">
+                              {t.name}{isDefault && <span className="cs-template-default-tag">DEFAULT</span>}
+                            </div>
                             <div className="cs-template-swatches">
                               {[p.background, p.accentPrimary, p.gradientStart, p.gradientEnd].filter(Boolean).map((hex, i) => (
                                 <span key={i} className="cs-template-swatch" style={{ background: hex }} />
@@ -4074,6 +4093,14 @@ export default function Content() {
                             </div>
                           </div>
                           {on && <span className="cs-template-dot" />}
+                        </button>
+                        <button
+                          type="button"
+                          className={`cs-template-star${isDefault ? ' cs-template-star--on' : ''}`}
+                          onClick={() => setDefaultCuratedTemplate(t.id)}
+                          title={isDefault ? 'Remove as default template' : 'Make this my default template — every carousel (AI CEO + Content) uses it unless I pick another'}
+                        >
+                          ★
                         </button>
                       </div>
                     );

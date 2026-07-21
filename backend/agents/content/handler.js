@@ -57,6 +57,7 @@ import {
 import { CREATE_CONTENT_PLAN_TOOL } from '../content-plan-tool.js';
 import { buildPlanModeDirective } from './plan-mode.js';
 import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE } from './video-script-guide.js';
+import { applyCuratedTemplateToPlanArgs } from './curated-carousel-templates.js';
 
 export async function handleContentOrchestration({ res, sendSSE, body, userId, abortSignal = null }) {
   const {
@@ -312,6 +313,16 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
 
         if (call.name === 'generate_image' || call.name === 'plan_carousel' || call.name === 'create_content_plan' || call.name === 'submit_script' || call.name === 'submit_text_post') {
           // Executed on the frontend (Phase 1) — relay like ceo mode does.
+          if (call.name === 'plan_carousel') {
+            // Deterministic curated-template enforcement: the sidebar
+            // selection (curatedId) wins, then a model-set templateId,
+            // then the user's stored default — never dependent on the
+            // model copying the prompt instruction.
+            applyCuratedTemplateToPlanArgs(args, {
+              explicitCuratedId: carouselTemplates?.[0]?.curatedId || null,
+              defaultTemplateId: brandDna?.default_carousel_template_id || null,
+            });
+          }
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });
         } else if (call.name === 'ask_user') {
           // Translate to the legacy inline-JSON question block that
