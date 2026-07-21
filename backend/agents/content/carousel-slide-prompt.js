@@ -226,6 +226,7 @@ The reader swipes and NOTHING shifts vertically except the content itself. Same 
       `THIS SLIDE (${role}): ${template.layout && template.layout[role] ? template.layout[role] : ''}`,
       `PERSON TREATMENT: ${template.founderTreatment || 'none'} — use the attached founder reference photos with exact likeness and natural photographic skin texture (never airbrushed). If NO founder reference photo is attached, OMIT every person/avatar element entirely — never invent a face.`,
       template.notes ? `STYLE SIGNATURES: ${template.notes}` : '',
+      `BREATHING ROOM — AS IMPORTANT AS THE LAYOUT ITSELF: reproduce the template's generous spacing exactly. Large empty margins; a clear vertical gap between EVERY zone (header chip, headline, body, imagery, footer); headline line-height ≈ 1.15-1.3 and body line-height ≈ 1.5-1.6; a full blank-line gap between paragraphs; at least 48px of clear space between any text block and any image/card/icon. NEVER shrink margins, tighten leading, or squeeze zones to fit content — if the TEXT CONTENT below does not fit comfortably, render it at a SMALLER size instead of packing it tighter. Empty space is part of the design: keep roughly a third of the canvas visually empty. The slide must feel airy and effortless to scan — a dense, cluttered, information-heavy slide is a FAILED render.`,
     ].filter(Boolean).join('\n');
     textContent = [
       `  • Headline: "${headlineClean}"`,

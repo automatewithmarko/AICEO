@@ -774,6 +774,18 @@ badge + style automatically. (c) On a fresh plan, open Load template →
 switch to "Poster Red Glow" → badge updates → approve → slides render in
 the new style.
 
+**Round 14b — breathing room (2026-07-21):** template renders were
+matching the layouts but packing content too tight. Two fixes: (1) the
+renderer now treats spacing as a hard rule — clear gaps between every
+zone, relaxed line-height, ≥48px between text and imagery, roughly a
+third of the canvas kept empty, and when copy doesn't fit it renders
+SMALLER instead of tighter ("a dense, cluttered slide is a FAILED
+render"); (2) the planner gets a copy budget with templates — headlines
+≤ 8 words, body ≤ 2 short sentences, one idea per slide, split dense
+points across slides. Test: regenerate a template carousel → slides
+should feel airy and scannable like the source decks, not
+information-heavy.
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you

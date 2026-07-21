@@ -117,6 +117,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
         // renderer recreates the template's exact layout via templateId.
         prompt += `   - PREMADE TEMPLATE SELECTED BY USER — "${t.name}" (id: ${t.curatedId}):\n`;
         prompt += `     In plan_carousel, set designSystem.templateId to EXACTLY "${t.curatedId}" and copy every designSystem value below VERBATIM — do NOT modify, harmonize, or re-derive any of them (Brand DNA colors do NOT override a premade template). Plan the slide CONTENT (badge/headline/body/cta) normally; the template engine controls the visuals.\n`;
+        prompt += `     COPY BUDGET (protects the template's whitespace — premade templates live on generous spacing): headlines ≤ 8 words; body ≤ 2 short sentences (≈ 12-20 words TOTAL, not per sentence); ONE idea per slide. If a point needs more words, split it across two slides instead of packing one. Overstuffed copy destroys the template's airy, scannable feel.\n`;
         prompt += `     designSystem to copy: ${JSON.stringify({ templateId: t.curatedId, ...ds })}\n`;
       } else {
       prompt += `   - SAVED TEMPLATE SELECTED BY USER — "${t.name}":\n`;

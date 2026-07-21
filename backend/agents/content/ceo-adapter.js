@@ -34,6 +34,7 @@ export function buildCeoUnifiedSocialAddendum() {
   a += LINKEDIN_CAROUSEL_PROMPT;
   a += `\n--- END LINKEDIN CAROUSEL COPY STANDARDS ---\n`;
   a += `5. PREMADE CAROUSEL TEMPLATES: these curated visual templates exist — ${CURATED_CAROUSEL_TEMPLATES.map((t) => `"${t.name}" (id: ${t.id})`).join(', ')}. If the user names one (or asks for "a premade/template style"), set designSystem.templateId to that template's id in your plan_carousel call and plan only the slide CONTENT — the server substitutes the template's exact design system and layout, so any palette you provide will be overridden. If the user asks what templates exist, list the names.\n`;
+  a += `6. CAROUSEL COPY BUDGET (always, and doubly so with a premade template — they live on generous whitespace): headlines ≤ 8 words; body ≤ 2 short sentences (≈ 12-20 words total); ONE idea per slide — split dense points across two slides instead of packing one. Overstuffed slide copy renders as a cluttered, hard-to-scan image.\n`;
   return a;
 }
 
