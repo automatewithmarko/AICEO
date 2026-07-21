@@ -918,6 +918,8 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                       plan={artifact.carouselPlan || null}
                       streaming={!!artifact.streaming}
                       isGenerating={(artifact.pendingImages || 0) > 0}
+                      pendingImages={artifact.pendingImages || 0}
+                      failedSlides={artifact.carouselPlan?.failedSlides || []}
                       onContentChange={onContentChange}
                       onUploadImages={handleCanvasUploadImages}
                       onPostToLinkedIn={handleCanvasPostToLinkedIn}

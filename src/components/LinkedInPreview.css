@@ -578,6 +578,33 @@
   100% { background-position: 0% 0%; }
 }
 
+/* Failed slide — no shimmer (nothing is coming), honest label + retry */
+.li-carousel-pending-slide--failed {
+  background: #f3f3f5;
+  animation: none;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.li-carousel-retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 50px;
+  background: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary, #1a1a1a);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.li-carousel-retry-btn:hover:not(:disabled) {
+  border-color: var(--brand-red, #e91a44);
+  color: var(--brand-red, #e91a44);
+}
+.li-carousel-retry-btn:disabled { opacity: 0.5; cursor: default; }
+
 .li-carousel-dot--pending {
   background: rgba(0,0,0,0.1);
   border: 1px dashed rgba(0,0,0,0.2);

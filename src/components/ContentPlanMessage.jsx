@@ -24,8 +24,12 @@ export default function ContentPlanMessage({
   onRetryFailed,
   onStop,
   onOpenItem,
+  onRegenerateItem,
 }) {
   const [confirming, setConfirming] = useState(false);
+  // Per-item Regenerate: which item's instruction box is open + its draft.
+  const [regenIdx, setRegenIdx] = useState(null);
+  const [regenText, setRegenText] = useState('');
 
   const items = plan.items || [];
   const states = plan.itemStates || [];
@@ -61,45 +65,86 @@ export default function ContentPlanMessage({
         {items.map((item, i) => {
           const st = states[i] || { status: 'pending' };
           const clickable = st.status === 'done' && st.msgId;
+          const canRegen = st.status === 'done' && !isRunActive && !runLocked && typeof onRegenerateItem === 'function';
           return (
-            <div
-              key={i}
-              className={`cpm-day cpm-day--${st.status} ${clickable ? 'cpm-day--clickable' : ''}`}
-              onClick={clickable ? () => onOpenItem(st.msgId) : undefined}
-              title={st.status === 'failed' ? (st.error || 'Generation failed') : clickable ? 'Open this piece' : undefined}
-            >
-              <div className="cpm-day-left">
-                <span className="cpm-day-num">Day {item.day}</span>
-                <span className={`cpm-pill cpm-pill--${item.platform}`}>{PLATFORM_LABELS[item.platform] || item.platform}</span>
-                <span className="cpm-format">{FORMAT_LABELS[item.format] || item.format}</span>
+            <div key={i} className="cpm-day-wrap">
+              <div
+                className={`cpm-day cpm-day--${st.status} ${clickable ? 'cpm-day--clickable' : ''}`}
+                onClick={clickable ? () => onOpenItem(st.msgId) : undefined}
+                title={st.status === 'failed' ? (st.error || 'Generation failed') : clickable ? 'Open this piece' : undefined}
+              >
+                <div className="cpm-day-left">
+                  <span className="cpm-day-num">Day {item.day}</span>
+                  <span className={`cpm-pill cpm-pill--${item.platform}`}>{PLATFORM_LABELS[item.platform] || item.platform}</span>
+                  <span className="cpm-format">{FORMAT_LABELS[item.format] || item.format}</span>
+                </div>
+                <div className="cpm-day-body">
+                  <span className="cpm-topic">{item.topic}</span>
+                  {item.hook && <span className="cpm-hook">&ldquo;{item.hook}&rdquo;</span>}
+                  {item.details && <span className="cpm-details">{item.details}</span>}
+                </div>
+                <span className="cpm-status">
+                  {st.status === 'running' && (
+                    <>
+                      {runningProgress?.total ? (
+                        <span className="cpm-subprogress">slide {Math.min((runningProgress.done || 0) + 1, runningProgress.total)}/{runningProgress.total}</span>
+                      ) : null}
+                      <Loader2 size={14} className="cpm-spin" />
+                    </>
+                  )}
+                  {st.status === 'done' && (
+                    <>
+                      {st.imageFailed && (
+                        <span className="cpm-imgfail" title="An image failed — open the piece to regenerate it">
+                          <ImageOff size={13} />
+                        </span>
+                      )}
+                      {canRegen && (
+                        <button
+                          className="cpm-regen-btn"
+                          title="Not happy with this piece? Regenerate it with instructions"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRegenText('');
+                            setRegenIdx(regenIdx === i ? null : i);
+                          }}
+                        >
+                          <RefreshCw size={13} />
+                        </button>
+                      )}
+                      <Check size={14} className="cpm-check" />
+                    </>
+                  )}
+                  {st.status === 'failed' && <AlertCircle size={14} className="cpm-fail" />}
+                  {st.status === 'pending' && <span className="cpm-dot" />}
+                </span>
               </div>
-              <div className="cpm-day-body">
-                <span className="cpm-topic">{item.topic}</span>
-                {item.hook && <span className="cpm-hook">&ldquo;{item.hook}&rdquo;</span>}
-                {item.details && <span className="cpm-details">{item.details}</span>}
-              </div>
-              <span className="cpm-status">
-                {st.status === 'running' && (
-                  <>
-                    {runningProgress?.total ? (
-                      <span className="cpm-subprogress">slide {Math.min((runningProgress.done || 0) + 1, runningProgress.total)}/{runningProgress.total}</span>
-                    ) : null}
-                    <Loader2 size={14} className="cpm-spin" />
-                  </>
-                )}
-                {st.status === 'done' && (
-                  <>
-                    {st.imageFailed && (
-                      <span className="cpm-imgfail" title="An image failed — open the piece to regenerate it">
-                        <ImageOff size={13} />
-                      </span>
-                    )}
-                    <Check size={14} className="cpm-check" />
-                  </>
-                )}
-                {st.status === 'failed' && <AlertCircle size={14} className="cpm-fail" />}
-                {st.status === 'pending' && <span className="cpm-dot" />}
-              </span>
+              {regenIdx === i && canRegen && (
+                <div className="cpm-regen">
+                  <input
+                    autoFocus
+                    className="cpm-regen-input"
+                    placeholder="What should change? e.g. different hook, lighter tone, focus on pricing…"
+                    value={regenText}
+                    onChange={(e) => setRegenText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        setRegenIdx(null);
+                        onRegenerateItem(i, regenText.trim());
+                      }
+                      if (e.key === 'Escape') setRegenIdx(null);
+                    }}
+                  />
+                  <button
+                    className="cpm-btn cpm-btn--primary cpm-regen-go"
+                    onClick={() => { setRegenIdx(null); onRegenerateItem(i, regenText.trim()); }}
+                  >
+                    <RefreshCw size={13} /> Regenerate
+                  </button>
+                  <button className="cpm-btn cpm-btn--ghost" onClick={() => setRegenIdx(null)}>Cancel</button>
+                </div>
+              )}
             </div>
           );
         })}

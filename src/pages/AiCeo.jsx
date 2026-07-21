@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide, generatePlanItem , getCuratedCarouselTemplates, findCuratedCarouselTemplate } from '../lib/api';
 import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from '../lib/planRunner';
+import { sweepCarouselMessages, sweepCarouselHolder } from '../lib/carouselState';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
 import { getMeetings } from '../lib/meetings-api';
@@ -809,10 +810,12 @@ export default function AiCeo() {
         );
       }
     }
-    setMessages(loadedMessages);
+    // Sweep interrupted carousels: stale pending/generating flags off,
+    // never-arrived slides into failedSlides so the retry UI lights up.
+    setMessages(sweepCarouselMessages(loadedMessages));
     setCurrentQuestion(null);
     if (data.artifact) {
-      setArtifact(data.artifact);
+      setArtifact(sweepCarouselHolder(data.artifact));
       setPanelOpen(true);
       if (isMobile) setMobileArtifactOpen(true);
     } else {
@@ -2212,11 +2215,30 @@ export default function AiCeo() {
         console.error('[AiCeo] server-side carousel generation failed:', err);
         setArtifact((prev) => prev ? { ...prev, pendingImages: 0 } : prev);
       }
-      setArtifact((prev) => prev ? {
-        ...prev,
-        streaming: false,
-        carouselPlan: prev.carouselPlan ? { ...prev.carouselPlan, generating: false } : prev.carouselPlan,
-      } : prev);
+      // Consistency sweep (parity with /Content): every slide index must
+      // end up in images OR failedSlides — an interrupted run emits
+      // neither for slides it never reached, which used to strand them
+      // as forever-spinners with no retry.
+      setArtifact((prev) => {
+        if (!prev) return prev;
+        const presentIdx = new Set((prev.images || []).map((im) => im.idx));
+        const failedSet = new Set(prev.carouselPlan?.failedSlides || []);
+        const recovered = [];
+        for (let i = 0; i < slides.length; i++) {
+          if (!presentIdx.has(i) && !failedSet.has(i)) recovered.push(i);
+        }
+        if (recovered.length) console.warn(`[AiCeo] carousel sweep recovered missing slides: ${recovered.map((i) => i + 1).join(', ')}`);
+        return {
+          ...prev,
+          streaming: false,
+          pendingImages: 0,
+          carouselPlan: prev.carouselPlan ? {
+            ...prev.carouselPlan,
+            generating: false,
+            failedSlides: [...failedSet, ...recovered].sort((a, b) => a - b),
+          } : prev.carouselPlan,
+        };
+      });
       if (assistantMsgId) commitOwnedArtifact(assistantMsgId);
     })();
   }, [brandDna, user, commitOwnedArtifact]);
@@ -2316,7 +2338,7 @@ export default function AiCeo() {
     ));
   }, []);
 
-  const handleGeneratePlanContent = useCallback(async (planMsgId, { retryFailedOnly = false } = {}) => {
+  const handleGeneratePlanContent = useCallback(async (planMsgId, { retryFailedOnly = false, regenerateIndex = null, modifications = '' } = {}) => {
     if (isGenerating || activePlanRunsRef.current.size > 0) return;
 
     // Read the freshest plan + messages via a setState pass-through (the
@@ -2341,11 +2363,26 @@ export default function AiCeo() {
     const itemStates = items.map((_, i) => {
       const prevState = { ...(plan.itemStates?.[i] || { status: 'pending' }) };
       const pieceMsg = allMessages.find((m) => m.planItemRef?.planMsgId === planMsgId && m.planItemRef?.index === i);
+      // Scoped regenerate: ONLY the target index runs (even though its
+      // piece already exists); every other item is frozen — done stays
+      // done, and untouched pending items are 'held' so the runner
+      // doesn't batch-generate them as a side effect.
+      if (regenerateIndex != null) {
+        if (i === regenerateIndex) return { status: 'pending' };
+        if (pieceMsg) return { ...prevState, status: 'done', msgId: pieceMsg.id };
+        return prevState.status === 'pending' ? { status: 'held' } : prevState;
+      }
       if (pieceMsg) return { ...prevState, status: 'done', msgId: pieceMsg.id };
       if (retryFailedOnly && prevState.status === 'failed') return { status: 'pending' };
       if (prevState.status === 'done' || prevState.status === 'running') return { status: 'pending' };
       return prevState;
     });
+    // The piece the regenerate replaces — retired only after the fresh
+    // one lands, so a failed regen keeps the old version.
+    const oldPieceMsg = regenerateIndex != null
+      ? allMessages.find((m) => m.planItemRef?.planMsgId === planMsgId && m.planItemRef?.index === regenerateIndex)
+      : null;
+    const prevRunState = plan.runState === 'running' || plan.runState === 'stopping' ? 'interrupted' : (plan.runState || 'done');
 
     const updatePlan = (patch) => {
       setMessages((prev) => prev.map((m) =>
@@ -2385,6 +2422,8 @@ export default function AiCeo() {
           planContext: serializeContentPlan({ ...plan, itemStates }),
           // Feeds the shared LinkedIn writer's sign-off server-side.
           userName: user?.name || null,
+          // Per-item regenerate: the user's "what should change" note.
+          ...(regenerateIndex != null && modifications ? { modifications } : {}),
         }, token.abort.signal),
         materializePiece: async ({ item, index: i, resp }) => {
           const agentSource = item.platform === 'x' ? 'twitter' : item.platform;
@@ -2431,6 +2470,9 @@ export default function AiCeo() {
               imageFailed = true;
             }
             images.sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
+            // Slides that never arrived are retryable failures — flag them
+            // so the preview shows Regenerate instead of a silent gap.
+            const missingIdxs = slides.map((_, si) => si).filter((si) => !images.some((im) => im.idx === si));
             art = {
               id: Date.now(),
               type: 'content_post',
@@ -2440,7 +2482,7 @@ export default function AiCeo() {
               totalSlides: slides.length,
               pendingImages: 0,
               streaming: false,
-              carouselPlan: { ...resp.carouselPlan, approved: true },
+              carouselPlan: { ...resp.carouselPlan, approved: true, failedSlides: missingIdxs },
               agentSource: slidePlatform,
             };
           } else if (resp.kind === 'single_image' && resp.image_prompt) {
@@ -2482,6 +2524,19 @@ export default function AiCeo() {
     } finally {
       activePlanRunsRef.current.delete(planMsgId);
       setActivePlanRunMsgId(null);
+    }
+
+    // Scoped regenerate wrap-up: un-hold frozen items, retire the old
+    // piece only if the fresh one landed, restore the pre-run state.
+    // No batch completion message for a single-piece regen.
+    if (regenerateIndex != null) {
+      itemStates.forEach((s, i) => { if (s?.status === 'held') itemStates[i] = { status: 'pending' }; });
+      const st = itemStates[regenerateIndex];
+      if (st?.status === 'done' && oldPieceMsg && st.msgId && st.msgId !== oldPieceMsg.id) {
+        setMessages((prev) => prev.filter((m) => m.id !== oldPieceMsg.id));
+      }
+      if (sessionIdRef.current === runSessionId) updatePlan({ runState: prevRunState });
+      return;
     }
 
     if (token.cancelled || sessionIdRef.current !== runSessionId) {
@@ -3153,6 +3208,7 @@ export default function AiCeo() {
                             runLocked={!!activePlanRunMsgId || isGenerating}
                             onGenerate={() => handleGeneratePlanContent(msg.id)}
                             onRetryFailed={() => handleGeneratePlanContent(msg.id, { retryFailedOnly: true })}
+                            onRegenerateItem={(index, instructions) => handleGeneratePlanContent(msg.id, { regenerateIndex: index, modifications: instructions })}
                             onStop={() => handleStopPlanRun(msg.id)}
                             onOpenItem={(itemMsgId) => {
                               setSelectedMsgId(itemMsgId);

@@ -2226,7 +2226,7 @@ function buildPlanItemSystemPrompt({ context, platform, format }) {
   return prompt;
 }
 
-function buildPlanItemUserMessage({ item, planTitle, planContext }) {
+function buildPlanItemUserMessage({ item, planTitle, planContext, modifications }) {
   const lines = [
     `PLAN: ${planTitle || 'Content plan'}`,
     `PIECE: Day ${item.day || '?'} — ${item.platform} ${item.format}`,
@@ -2238,6 +2238,12 @@ function buildPlanItemUserMessage({ item, planTitle, planContext }) {
   if (item.date) lines.push(`SCHEDULED FOR: ${item.date}`);
   if (planContext) {
     lines.push('', 'FULL PLAN (context only — keep this piece distinct, do NOT repeat the other items\' angles):', String(planContext).slice(0, 4000));
+  }
+  // Per-item Regenerate: the user rejected the previous take and typed
+  // what to change. Their instructions override the plan row's defaults
+  // (including the verbatim-hook rule) wherever they conflict.
+  if (modifications) {
+    lines.push('', 'REGENERATION — the user was not satisfied with the previous version. Apply these instructions; they OVERRIDE any conflicting line above:', String(modifications).slice(0, 1500));
   }
   lines.push('', 'Write this piece now.');
   return lines.join('\n');
@@ -2276,7 +2282,7 @@ async function runForcedToolCall({ systemPrompt, messages, tool, toolName, abort
 // is the image/slide generation each piece triggers.
 router.post('/api/orchestrate/plan-item', requireActiveAccount(), async (req, res) => {
   const userId = req.user?.id;
-  const { item, planTitle = '', planContext = '', userName = null } = req.body || {};
+  const { item, planTitle = '', planContext = '', userName = null, modifications = '' } = req.body || {};
 
   if (!item || typeof item !== 'object') {
     return res.status(400).json({ error: 'item object required' });
@@ -2307,7 +2313,7 @@ router.post('/api/orchestrate/plan-item', requireActiveAccount(), async (req, re
     context.activeBrief = activeBrief;
 
     const systemPrompt = buildPlanItemSystemPrompt({ context, platform, format });
-    const messages = [{ role: 'user', content: buildPlanItemUserMessage({ item, planTitle, planContext }) }];
+    const messages = [{ role: 'user', content: buildPlanItemUserMessage({ item, planTitle, planContext, modifications }) }];
     const title = `Day ${item.day || '?'} — ${String(item.topic).slice(0, 60)}`;
 
     // LinkedIn text posts go through the SAME two-phase writer every other

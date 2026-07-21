@@ -82,6 +82,13 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const [editingSlideIdx, setEditingSlideIdx] = useState(null);
   const [editDraft, setEditDraft] = useState('');
+  // Slots whose <img> failed to load (dead storage URL) — rendered as
+  // failed-with-Retry instead of a broken image. A successful regenerate
+  // replaces the src, so clear the flag when the src for a slot changes.
+  const [brokenSlots, setBrokenSlots] = useState(() => new Set());
+  useEffect(() => {
+    setBrokenSlots(new Set());
+  }, [images]);
   // Inline caption editing state. Same pattern as LinkedInPreview: a
   // contentEditable div seeded from the incoming caption prop, cursor
   // stability guaranteed by only re-syncing before the user has typed.
@@ -293,9 +300,17 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
               sees the caption + actions instead of a stuck spinner. */}
           {hasMedia && (
           <div className="content-ig-media">
-            {current ? (
-              <img src={current.src} alt={`Slide ${idx + 1}`} className="content-ig-slide" />
-            ) : (pendingCount > 0 || plan.generating) && !(plan.failedSlides || []).includes(idx) ? (
+            {current && !brokenSlots.has(idx) ? (
+              <img
+                src={current.src}
+                alt={`Slide ${idx + 1}`}
+                className="content-ig-slide"
+                // Dead storage URL (e.g. interrupted upload / 404) — route
+                // into the failed branch with a working Retry instead of a
+                // broken-image icon that counts as success.
+                onError={() => setBrokenSlots((prev) => new Set(prev).add(idx))}
+              />
+            ) : !current && (pendingCount > 0 || plan.generating) && !(plan.failedSlides || []).includes(idx) ? (
               <div className="content-ig-pending-slide">
                 <Loader size={24} className="cs-spinner" />
                 <span>Generating slide {idx + 1}…</span>

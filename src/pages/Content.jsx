@@ -11,6 +11,7 @@ import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import CarouselPlanCard from '../components/social-canvas/CarouselPlanCard';
 import ContentPlanMessage from '../components/ContentPlanMessage';
 import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from '../lib/planRunner';
+import { sweepCarouselMessages } from '../lib/carouselState';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
 import ChatDropOverlay from '../components/ChatDropOverlay';
@@ -1357,7 +1358,9 @@ export default function Content() {
     sessionIdRef.current = data.id;
     setSessionId(data.id);
     setSelectedPlatform(data.platform || 'instagram');
-    setMessages(data.messages || []);
+    // Sweep interrupted carousels: stale pending/generating flags off,
+    // never-arrived slides into failedSlides so the retry UI lights up.
+    setMessages(sweepCarouselMessages(data.messages || []));
     setCurrentQuestion(null);
     setShowSessions(false);
     setLinkedinPreview(null);
@@ -2752,7 +2755,7 @@ export default function Content() {
     }
   }, [messages]);
 
-  const handleGeneratePlanContent = useCallback(async (planMsgId, { retryFailedOnly = false } = {}) => {
+  const handleGeneratePlanContent = useCallback(async (planMsgId, { retryFailedOnly = false, regenerateIndex = null, modifications = '' } = {}) => {
     if (isGenerating || activePlanRunsRef.current.size > 0) return;
 
     // Freshest plan + messages via a setState pass-through (closure lag).
@@ -2773,11 +2776,26 @@ export default function Content() {
     const itemStates = items.map((_, i) => {
       const prevState = { ...(plan.itemStates?.[i] || { status: 'pending' }) };
       const pieceMsg = allMessages.find((m) => m.planItemRef?.planMsgId === planMsgId && m.planItemRef?.index === i);
+      // Scoped regenerate: ONLY the target index runs (even though its
+      // piece already exists); every other item is frozen — done stays
+      // done, and untouched pending items are 'held' so the runner
+      // doesn't batch-generate them as a side effect.
+      if (regenerateIndex != null) {
+        if (i === regenerateIndex) return { status: 'pending' };
+        if (pieceMsg) return { ...prevState, status: 'done', msgId: pieceMsg.id };
+        return prevState.status === 'pending' ? { status: 'held' } : prevState;
+      }
       if (pieceMsg) return { ...prevState, status: 'done', msgId: pieceMsg.id };
       if (retryFailedOnly && prevState.status === 'failed') return { status: 'pending' };
       if (prevState.status === 'done' || prevState.status === 'running') return { status: 'pending' };
       return prevState;
     });
+    // The piece the regenerate replaces — retired only after the fresh
+    // one lands, so a failed regen keeps the old version.
+    const oldPieceMsg = regenerateIndex != null
+      ? allMessages.find((m) => m.planItemRef?.planMsgId === planMsgId && m.planItemRef?.index === regenerateIndex)
+      : null;
+    const prevRunState = plan.runState === 'running' || plan.runState === 'stopping' ? 'interrupted' : (plan.runState || 'done');
 
     const updatePlan = (patch) => {
       setMessages((prev) => prev.map((m) =>
@@ -2809,6 +2827,8 @@ export default function Content() {
           planTitle: plan.title,
           planContext: serializeContentPlan({ ...plan, itemStates }),
           userName: user?.name || null,
+          // Per-item regenerate: the user's "what should change" note.
+          ...(regenerateIndex != null && modifications ? { modifications } : {}),
         }, token.abort.signal),
         materializePiece: async ({ item, index: i, resp }) => {
           const pieceMsgId = `msg-${Date.now()}-plan-${i}`;
@@ -2857,7 +2877,10 @@ export default function Content() {
             images.sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
             piece.content = resp.carouselPlan.caption || planPieceLabel(item, imageFailed);
             piece.images = images;
-            piece.carouselPlan = { ...resp.carouselPlan, approved: true, generating: false, failedSlides: [] };
+            // Slides that never arrived are retryable failures — flag them
+            // so the preview shows Regenerate instead of a silent gap.
+            const missingIdxs = slides.map((_, si) => si).filter((si) => !images.some((im) => im.idx === si));
+            piece.carouselPlan = { ...resp.carouselPlan, approved: true, generating: false, failedSlides: missingIdxs };
           } else if (resp.kind === 'single_image' && resp.image_prompt) {
             try {
               const imgPlatform = item.platform === 'linkedin' ? 'linkedin' : item.platform === 'instagram' ? 'instagram' : 'general';
@@ -2904,6 +2927,19 @@ export default function Content() {
       activePlanRunsRef.current.delete(planMsgId);
       setActivePlanRunMsgId(null);
       setIsGenerating(false);
+    }
+
+    // Scoped regenerate wrap-up: un-hold frozen items, retire the old
+    // piece only if the fresh one landed, restore the pre-run state.
+    // No batch completion message for a single-piece regen.
+    if (regenerateIndex != null) {
+      itemStates.forEach((s, i) => { if (s?.status === 'held') itemStates[i] = { status: 'pending' }; });
+      const st = itemStates[regenerateIndex];
+      if (st?.status === 'done' && oldPieceMsg && st.msgId && st.msgId !== oldPieceMsg.id) {
+        setMessages((prev) => prev.filter((m) => m.id !== oldPieceMsg.id));
+      }
+      if (sessionIdRef.current === runSessionId) updatePlan({ runState: prevRunState });
+      return;
     }
 
     if (token.cancelled || sessionIdRef.current !== runSessionId) {
@@ -4646,6 +4682,7 @@ export default function Content() {
                           runLocked={isGenerating || activePlanRunMsgId !== null}
                           onGenerate={() => handleGeneratePlanContent(msg.id)}
                           onRetryFailed={() => handleGeneratePlanContent(msg.id, { retryFailedOnly: true })}
+                          onRegenerateItem={(index, instructions) => handleGeneratePlanContent(msg.id, { regenerateIndex: index, modifications: instructions })}
                           onStop={() => handleStopPlanRun(msg.id)}
                           onOpenItem={(pieceMsgId) => openPlanPiece(pieceMsgId)}
                         />
@@ -5262,6 +5299,8 @@ export default function Content() {
                   totalSlides={planSlideCount}
                   streaming={false}
                   isGenerating={isGenerating}
+                  pendingImages={panelMsg.pendingImages || 0}
+                  failedSlides={panelMsg.carouselPlan?.failedSlides || []}
                   onClose={() => setCarouselSideView(null)}
                   plan={panelMsg.carouselPlan}
                   onAddSlide={(afterIdx) => handleCarouselAddSlide(panelMsg.id, afterIdx)}

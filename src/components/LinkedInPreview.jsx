@@ -2,10 +2,16 @@ import { useState, useRef, useEffect } from 'react';
 import { Copy, Check, ImagePlus, Loader, X, ChevronLeft, ChevronRight, Download, Upload, Send, CalendarClock, ExternalLink, Pencil, RefreshCw, Trash2, Plus, Maximize2 } from 'lucide-react';
 import './LinkedInPreview.css';
 
-export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge, onEditSlide, onRegenerateSlide, onDeleteImage, isGenerating, actionsSlot, onContentChange, plan, onAddSlide, onRemoveSlide, onFullscreen }) {
+export default function LinkedInPreview({ content, images, userName, userAvatar, onClose, onGenerateImage, isGeneratingImage, streaming, totalSlides, onUploadImages, onPostToLinkedIn, onSchedule, isLinkedInConnected, userSubtitle, followerCount, postAge, onEditSlide, onRegenerateSlide, onDeleteImage, isGenerating, actionsSlot, onContentChange, plan, onAddSlide, onRemoveSlide, onFullscreen, pendingImages = 0, failedSlides = [] }) {
   const [editedText, setEditedText] = useState(null);
   const [copied, setCopied] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
+  // Slots whose <img> failed to load (dead storage URL) — rendered as
+  // failed-with-Regenerate instead of a broken image icon.
+  const [brokenSlots, setBrokenSlots] = useState(() => new Set());
+  useEffect(() => {
+    setBrokenSlots(new Set());
+  }, [images]);
   const [postState, setPostState] = useState('idle'); // idle | posting | posted | error
   const [postError, setPostError] = useState('');
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -201,6 +207,16 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
   const currentSlide = slideSpec(slideIdx);
   const isBlankSlide = currentSlide && !currentImage && currentSlide.blank === true;
   const isPendingSlide = !currentImage && !isBlankSlide;
+  // Failure detection (parity with SocialPreview — LinkedIn used to show
+  // "Generating slide N..." FOREVER for a slide that would never arrive,
+  // with no retry): a slot is failed when it's flagged in failedSlides,
+  // when nothing is actively generating anymore (no pending counter, not
+  // streaming), or when its stored URL is dead (img onError).
+  const isFailedSlide = isPendingSlide && (
+    failedSlides.includes(slideIdx) ||
+    (pendingImages === 0 && !streaming && !isGenerating)
+  );
+  const isBrokenSlide = !!currentImage && brokenSlots.has(slideIdx);
   // Middle-slide indices are removable (hook and CTA stay locked).
   const canRemoveCurrent = planSlides.length > 0 && slideIdx > 0 && slideIdx < planSlides.length - 1;
 
@@ -289,9 +305,29 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
                 /* Carousel view — completed slides + pending/blank placeholders. */
                 <>
                 <div className="li-carousel">
-                  {/* Current slot: completed image, blank placeholder, or pending */}
-                  {currentImage ? (
-                    <img src={currentImage.src} alt={`Slide ${slideIdx + 1}`} className="li-carousel-img" />
+                  {/* Current slot: completed image, blank placeholder,
+                      failed (with Regenerate), or pending */}
+                  {currentImage && !isBrokenSlide ? (
+                    <img
+                      src={currentImage.src}
+                      alt={`Slide ${slideIdx + 1}`}
+                      className="li-carousel-img"
+                      onError={() => setBrokenSlots((prev) => new Set(prev).add(slideIdx))}
+                    />
+                  ) : (isFailedSlide || isBrokenSlide) ? (
+                    <div className="li-carousel-pending-slide li-carousel-pending-slide--failed">
+                      <span>Slide {slideIdx + 1} didn&apos;t render</span>
+                      {onRegenerateSlide && (
+                        <button
+                          type="button"
+                          className="li-carousel-retry-btn"
+                          onClick={() => onRegenerateSlide(slideIdx)}
+                          disabled={isGenerating}
+                        >
+                          <RefreshCw size={13} /> Regenerate slide
+                        </button>
+                      )}
+                    </div>
                   ) : isBlankSlide ? (
                     <div className="li-carousel-blank-slide">
                       <div className="li-carousel-blank-label">Blank slide</div>

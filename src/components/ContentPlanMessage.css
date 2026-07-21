@@ -264,6 +264,52 @@
   color: #059669;
 }
 
+/* Per-item Regenerate */
+.cpm-regen-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: none;
+  background: none;
+  color: var(--text-muted, #8a8a94);
+  cursor: pointer;
+  border-radius: 5px;
+  transition: color 0.15s, background 0.15s;
+}
+.cpm-regen-btn:hover {
+  color: var(--brand-red, #e91a44);
+  background: rgba(233, 26, 68, 0.08);
+}
+
+.cpm-regen {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  margin: 0 0 4px;
+  background: var(--bg-light, #f7f7f9);
+  border: 1px solid var(--border-light, #e8e8ee);
+  border-radius: 8px;
+}
+.cpm-regen-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border-medium, #d8d8e0);
+  border-radius: 6px;
+  font-size: 12.5px;
+  background: var(--bg-white, #fff);
+  color: var(--text-primary, #1a1a1a);
+}
+.cpm-regen-input:focus {
+  outline: none;
+  border-color: var(--brand-red, #e91a44);
+}
+.cpm-regen-go {
+  white-space: nowrap;
+}
+
 /* Narrow screens: stack the day-row columns */
 @media (max-width: 560px) {
   .cpm-day {
