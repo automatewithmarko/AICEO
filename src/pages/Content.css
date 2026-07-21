@@ -2932,6 +2932,16 @@
   background: var(--surface-primary, #fff);
 }
 
+/* Section labels inside the templates sidebar list (premade vs saved). */
+.cs-templates-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary, #999);
+  padding: 6px 4px 2px;
+}
+
 /* Text-only post summary card icon — teal accent. */
 .content-post-summary-icon {
   background: #ecfeff !important;

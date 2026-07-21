@@ -17,6 +17,7 @@ import { executeCeoOrchestrator } from '../base-agent.js';
 import { buildLinkedInPostSystemPrompt } from './second-pass-prompts.js';
 import { SUBMIT_POST_TOOL, GENERATE_LINKEDIN_POST_TOOL, SUBMIT_POST_ADDENDUM } from './claude-protocol.js';
 import { LINKEDIN_CAROUSEL_PROMPT } from './linkedin-prompts.js';
+import { CURATED_CAROUSEL_TEMPLATES } from './curated-carousel-templates.js';
 
 export { GENERATE_LINKEDIN_POST_TOOL };
 
@@ -32,6 +33,7 @@ export function buildCeoUnifiedSocialAddendum() {
   a += `--- LINKEDIN CAROUSEL COPY STANDARDS (from the /Content strategist — apply when planning LinkedIn carousels) ---\n`;
   a += LINKEDIN_CAROUSEL_PROMPT;
   a += `\n--- END LINKEDIN CAROUSEL COPY STANDARDS ---\n`;
+  a += `5. PREMADE CAROUSEL TEMPLATES: these curated visual templates exist — ${CURATED_CAROUSEL_TEMPLATES.map((t) => `"${t.name}" (id: ${t.id})`).join(', ')}. If the user names one (or asks for "a premade/template style"), set designSystem.templateId to that template's id in your plan_carousel call and plan only the slide CONTENT — the server substitutes the template's exact design system and layout, so any palette you provide will be overridden. If the user asks what templates exist, list the names.\n`;
   return a;
 }
 

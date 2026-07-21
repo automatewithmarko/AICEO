@@ -3,7 +3,7 @@ import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap, Paperclip, Loader2, AlertCircle, CalendarDays } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide, generatePlanItem } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide, generatePlanItem , getCuratedCarouselTemplates, findCuratedCarouselTemplate } from '../lib/api';
 import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from '../lib/planRunner';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
@@ -592,6 +592,13 @@ export default function AiCeo() {
       document.removeEventListener('touchend', handleUp);
     };
   }, [dragging]);
+
+  // Warm the curated carousel-template cache so single-slide
+  // edit/regenerate can resolve plan.designSystem.templateId
+  // synchronously (findCuratedCarouselTemplate reads this cache).
+  useEffect(() => {
+    getCuratedCarouselTemplates().catch(() => {});
+  }, []);
 
   // ── Session persistence ──
   useEffect(() => {
@@ -2071,6 +2078,7 @@ export default function AiCeo() {
     try {
       prompt = buildCarouselSlidePrompt({
         designSystem: plan.designSystem,
+        template: findCuratedCarouselTemplate(plan.designSystem?.templateId),
         slide,
         index: slideIdx,
         total: plan.slides.length,

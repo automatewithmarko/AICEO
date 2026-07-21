@@ -111,7 +111,7 @@ export const CAROUSEL_PLATFORM_CONFIG = {
 //   TEXT CONTENT   — exact strings that should appear on the image.
 //   VISUAL STYLE   — how to render them. Hex/sizes go here, in parens.
 //   DO NOT RENDER  — hard list of tokens forbidden as visible text.
-export function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand, platform = 'instagram' }) {
+export function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total, brand, platform = 'instagram', template = null }) {
   const cfg = CAROUSEL_PLATFORM_CONFIG[platform] || CAROUSEL_PLATFORM_CONFIG.instagram;
   const p = ds.palette || {};
   const card = ds.card || {};
@@ -162,7 +162,7 @@ export function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total
     ? `Highlighted word${accentWords.length === 1 ? '' : 's'}: ${accentWords.map(w => `"${w}"`).join(' and ')}. Render only ${accentWords.length === 1 ? 'that word' : 'those words'} with a smooth left-to-right gradient fill from ${p.gradientStart || p.accentPrimary || 'the highlight color'} to ${p.gradientEnd || p.accentPrimary || 'the highlight color'}. No underline. No outline. No glow on the letters.`
     : `No highlighted word on this slide — render the headline in a single solid color (primary text color).`;
 
-  const visualStyle = [
+  let visualStyle = [
     `Canvas: ${cfg.canvas}, high resolution.`,
     `Background: solid ${p.background || '#0f1115'} across the entire canvas, with a soft radial gradient glow of ${p.glow || p.accentPrimary || '#e5a82c'} anchored in the ${cornerLabel} corner and fading to transparent. Overlay a very subtle ${sanitizeStyleText(ds.texture) || 'fine grain noise at about 4 percent opacity'}.`,
     `Typography: modern clean sans-serif in the ${typo.family || 'Inter'} family (or a close neutral sans-serif fallback). Never serif. Never decorative script.`,
@@ -190,7 +190,41 @@ UNIVERSAL VERTICAL GRID (ALL slides in this carousel follow these EXACT vertical
 • Horizontal margins: ${cfg.leftMarginPx}px left, ${cfg.rightMarginPx}px right, consistent on every slide.
 The reader swipes and NOTHING shifts vertically except the content itself. Same margins, same anchor lines, every slide.`;
 
-  if (isHook) {
+  if (template) {
+    // ── PREMADE TEMPLATE MODE ──
+    // The curated template's digested layout spec replaces the built-in
+    // editorial layout entirely; the design system is the template's own
+    // (locked at plan time via designSystem.templateId).
+    const role = isHook ? 'hook' : isFinal ? 'final' : 'middle';
+    visualStyle = [
+      `Canvas: ${cfg.canvas}, high resolution.`,
+      `Background: base color ${p.background || '#0f1115'}; ${sanitizeStyleText(ds.texture) || 'clean'}.`,
+      `Typography: ${typo.family || 'Inter'} (${typo.fallback || 'sans-serif'} fallback), headline weight ${typo.headlineWeight || 700}, body weight ${typo.bodyWeight || 400}. Follow the template's type pairing exactly (including serif-italic accents when the template uses them).`,
+      `Headline color: ${p.textPrimary || '#ffffff'}. Body/muted color: ${p.textMuted || '#b5b9c4'}.`,
+      ds.accentTreatment ? `Accent treatment: ${sanitizeStyleText(ds.accentTreatment)}.` : '',
+      `Color lock: use ONLY these colors — background ${p.background || ''}, primary text ${p.textPrimary || ''}, muted ${p.textMuted || ''}, accentPrimary ${p.accentPrimary || ''}, accentSecondary ${p.accentSecondary || ''}, gradient ${p.gradientStart || ''} to ${p.gradientEnd || ''}, glow ${p.glow || ''}. No other colors.`,
+      ds.mood ? `Overall mood: ${sanitizeStyleText(ds.mood)}.` : '',
+    ].filter(Boolean).join('\n');
+    layoutNotes = [
+      `LAYOUT — PREMADE TEMPLATE "${template.name}" (${role} slide, ${slideNum} of ${totalNum}). Recreate this template's ${role}-slide layout EXACTLY, substituting the TEXT CONTENT below and the USER'S OWN name, brand, and reference photos for the example author's:`,
+      `ELEMENTS ON EVERY SLIDE: ${template.layout && template.layout.common ? template.layout.common : ''}`,
+      `THIS SLIDE (${role}): ${template.layout && template.layout[role] ? template.layout[role] : ''}`,
+      `PERSON TREATMENT: ${template.founderTreatment || 'none'} — use the attached founder reference photos with exact likeness and natural photographic skin texture (never airbrushed). If NO founder reference photo is attached, OMIT every person/avatar element entirely — never invent a face.`,
+      template.notes ? `STYLE SIGNATURES: ${template.notes}` : '',
+    ].filter(Boolean).join('\n');
+    textContent = [
+      `  • Headline: "${headlineClean}"`,
+      `    ${accentPhrase}`,
+      bodyClean ? `  • Body copy: "${bodyClean}"` : '',
+      badgeText ? `  • Badge/label: "${badgeText}"` : '',
+      (isFinal && ctaText) ? `  • CTA: "${ctaText}"` : '',
+      brandName ? `  • Creator/brand name for the header chip: "${brandName}"` : '',
+      `  • Slide counter: "${slideNum} / ${totalNum}" — render in the template's page-number style, or omit if the template omits it on ${role} slides.`,
+      '',
+      "Place each string into the template layout's corresponding zone. Render EXACTLY these strings and no other text.",
+      (slide.visualElement && slide.visualElement.description) ? `(Planner visual hint: ${sanitizeStyleText(slide.visualElement.description)})` : '',
+    ].filter(Boolean).join('\n');
+  } else if (isHook) {
     layoutNotes = `LAYOUT — OPENING SPREAD (slide 01): visually the richest slide in the set, but it follows the SAME vertical grid as the others so the swipe reads as aligned. The headline lands at the 28% top anchor. The hero visual (founder portrait / card stack / product mockup) sits BEHIND or BESIDE the text grid — not above it pushing the headline down. Think of it as the cover of ${cfg.moodReferences}: compositional depth through layering, not by moving the text lines around.${verticalGrid}`;
     textContent = [
       brandName ? `  • Top-left wordmark (at y ≈ 8%, x = 48px): "${brandName}"` : `  • Top-left (y ≈ 8%): nothing`,

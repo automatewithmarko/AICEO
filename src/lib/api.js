@@ -1567,6 +1567,24 @@ export async function publishCalendarPost(id) {
 
 // ─── Carousel Templates (saved design systems) ───
 
+// Curated (premade) template registry — fetched once and cached so the
+// synchronous lookup below can serve the slide renderers (single-slide
+// edit/regenerate paths need the template's layout spec client-side).
+let _curatedCarouselCache = null;
+export async function getCuratedCarouselTemplates() {
+  if (_curatedCarouselCache) return _curatedCarouselCache;
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/carousel-templates/curated`, { headers });
+  if (!res.ok) return [];
+  const j = await res.json();
+  _curatedCarouselCache = j.templates || [];
+  return _curatedCarouselCache;
+}
+export function findCuratedCarouselTemplate(templateId) {
+  if (!templateId || !_curatedCarouselCache) return null;
+  return _curatedCarouselCache.find((t) => t.id === templateId) || null;
+}
+
 export async function getCarouselTemplates() {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/carousel-templates`, { headers });

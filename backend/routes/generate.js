@@ -6,6 +6,7 @@ import { generateImageWithOpenAI, isOpenAIImageConfigured } from '../services/op
 import { deductCredits, hasCredits } from '../services/credits.js';
 import { supabase as storageSupabase } from '../services/storage.js';
 import { buildCarouselSlidePrompt } from '../agents/content/carousel-slide-prompt.js';
+import { getCuratedTemplate } from '../agents/content/curated-carousel-templates.js';
 
 const router = Router();
 
@@ -893,6 +894,23 @@ router.post('/api/generate/carousel', async (req, res) => {
     return res.status(400).json({ error: 'plan with slides[] and designSystem is required' });
   }
 
+  // Premade template normalization: when the plan carries a curated
+  // templateId (picked in /Content, or named in AI CEO chat where the
+  // model can't see the full preset), the registry designSystem is
+  // authoritative — replace whatever the model produced so colors,
+  // typography, and layout always match the template exactly.
+  {
+    const curated = getCuratedTemplate(plan.designSystem?.templateId);
+    if (curated) {
+      const brandNameKeep = plan.designSystem?.brandStrip?.brandName || curated.designSystem.brandStrip?.brandName || '';
+      plan.designSystem = {
+        ...curated.designSystem,
+        templateId: curated.id,
+        brandStrip: { ...(curated.designSystem.brandStrip || {}), brandName: brandNameKeep },
+      };
+    }
+  }
+
   // Disputed-account hold — mirrors requireCredits' upfront check.
   try {
     const { data: sub } = await storageSupabase
@@ -970,6 +988,10 @@ router.post('/api/generate/carousel', async (req, res) => {
       total,
       brand,
       platform,
+      // Premade template: the plan's designSystem.templateId (set by the
+      // planner when the user picked a curated template) switches the
+      // renderer to that template's digested layout spec.
+      template: getCuratedTemplate(plan.designSystem?.templateId),
     });
     const refs = referenceImagesBySlide?.[idx]
       || (idx !== 0 && hookRef ? [hookRef] : null);

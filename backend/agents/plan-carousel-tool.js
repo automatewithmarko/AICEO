@@ -58,6 +58,7 @@ export const PLAN_CAROUSEL_TOOL = {
           type: 'object',
           description: 'Locked design system inherited by every slide. Must honor the Brand DNA primary color as the anchor accent — pick secondary/gradient/glow to harmonize with it, not replace it.',
           properties: {
+            templateId: { type: 'string', description: 'ONLY when the user selected a premade template (or named one): the curated template id, copied verbatim from the template instructions. Never invent a value.' },
             mode: { type: 'string', description: 'dark | light | mixed' },
             palette: {
               type: 'object',

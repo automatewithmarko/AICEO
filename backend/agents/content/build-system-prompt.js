@@ -112,12 +112,20 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       const t = carouselTemplates[0];
       const ds = t.design_system || {};
       const p = ds.palette || {};
+      if (t.curatedId) {
+        // Premade (curated) template: the design system is LOCKED — the
+        // renderer recreates the template's exact layout via templateId.
+        prompt += `   - PREMADE TEMPLATE SELECTED BY USER — "${t.name}" (id: ${t.curatedId}):\n`;
+        prompt += `     In plan_carousel, set designSystem.templateId to EXACTLY "${t.curatedId}" and copy every designSystem value below VERBATIM — do NOT modify, harmonize, or re-derive any of them (Brand DNA colors do NOT override a premade template). Plan the slide CONTENT (badge/headline/body/cta) normally; the template engine controls the visuals.\n`;
+        prompt += `     designSystem to copy: ${JSON.stringify({ templateId: t.curatedId, ...ds })}\n`;
+      } else {
       prompt += `   - SAVED TEMPLATE SELECTED BY USER — "${t.name}":\n`;
       prompt += `     Use this design system as the starting point for the new carousel. Inherit the locked visual DNA so the new post reads as part of the same series. You MAY tweak values only if the new topic genuinely demands it (e.g. different accent for a very different emotional tone), but default is: keep the template as-is.\n`;
       prompt += `     Palette: bg=${p.background || ''}, accentPrimary=${p.accentPrimary || ''}, accentSecondary=${p.accentSecondary || ''}, gradientStart=${p.gradientStart || ''}, gradientEnd=${p.gradientEnd || ''}, textPrimary=${p.textPrimary || ''}, textMuted=${p.textMuted || ''}, glow=${p.glow || ''}.\n`;
       prompt += `     Mode: ${ds.mode || 'dark'}. Font family: ${ds.typography?.family || 'Inter'}. Card style: ${ds.card?.style || 'glass'}. Accent treatment: ${ds.accentTreatment || 'gradient'}. Mood: ${ds.mood || ''}.\n`;
       if (carouselTemplates.length > 1) {
         prompt += `     (${carouselTemplates.length - 1} additional template${carouselTemplates.length > 2 ? 's' : ''} also selected — prefer the first but harmonize with the others if it helps.)\n`;
+      }
       }
     }
     prompt += `   - SLIDE VISUAL BUDGET: Slide 1 (hook) and last slide (CTA) get RICH visuals — card stacks, founder photo with floating proof chip, full stat blocks, chat UIs, diagrams, etc. MIDDLE slides (2..N-1) are TEXT-FORWARD — headline + body are the hero. Their visualElement must be MINIMAL: pick one of {"minimal-icon", "stat-chip", "divider-line", "numeric-marker"} for visualElement.kind and describe it as a tiny supporting accent (single outlined icon, one short stat, subtle divider, faint slide-number marker). Do NOT propose card-stack, node-diagram, chat-ui, ui-mockup, or founder-photo for middle slides — save those for the hook and CTA.\n`;

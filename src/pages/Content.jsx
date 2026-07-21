@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import DOMPurify from 'dompurify';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend, generateCarouselServerSide, generatePlanItem } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend, generateCarouselServerSide, generatePlanItem, getCuratedCarouselTemplates, findCuratedCarouselTemplate } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import CarouselPlanCard from '../components/social-canvas/CarouselPlanCard';
@@ -1178,12 +1178,26 @@ export default function Content() {
     }
   }, []);
 
+  // Curated (premade) templates — the client-supplied designs digested
+  // into replicable profiles. Single-select; a curated pick takes
+  // precedence over saved samples in the prompt injection.
+  const [curatedTemplates, setCuratedTemplates] = useState([]);
+  const [selectedCuratedId, setSelectedCuratedId] = useState(null);
+  useEffect(() => {
+    getCuratedCarouselTemplates().then(setCuratedTemplates).catch(() => {});
+  }, []);
+
   // The selected templates' design systems — injected into plan_carousel
-  // system prompt so Claude anchors the new carousel to them.
-  const selectedTemplatesData = useMemo(
-    () => savedTemplates.filter(t => selectedTemplateIds.has(t.id)),
-    [savedTemplates, selectedTemplateIds]
-  );
+  // system prompt so Claude anchors the new carousel to them. A curated
+  // template rides first with curatedId set → build-system-prompt locks
+  // the designSystem verbatim + templateId for the layout engine.
+  const selectedTemplatesData = useMemo(() => {
+    const curated = selectedCuratedId ? curatedTemplates.find(t => t.id === selectedCuratedId) : null;
+    const curatedEntry = curated
+      ? [{ curatedId: curated.id, name: curated.name, design_system: curated.designSystem }]
+      : [];
+    return [...curatedEntry, ...savedTemplates.filter(t => selectedTemplateIds.has(t.id))];
+  }, [savedTemplates, selectedTemplateIds, curatedTemplates, selectedCuratedId]);
 
   // ── Session persistence ──
   // Load sessions list on mount and auto-restore the most recent session
@@ -2225,6 +2239,7 @@ export default function Content() {
       };
       const basePrompt = buildCarouselSlidePrompt({
         designSystem: plan.designSystem,
+        template: findCuratedCarouselTemplate(plan.designSystem?.templateId),
         slide: slideForPrompt,
         index: imgIdx,
         total: plan.slides.length,
@@ -2376,6 +2391,7 @@ export default function Content() {
 
       const slidePrompt = buildCarouselSlidePrompt({
         designSystem: plan.designSystem,
+        template: findCuratedCarouselTemplate(plan.designSystem?.templateId),
         slide,
         index: slideIdx,
         total: plan.slides.length,
@@ -3017,6 +3033,7 @@ export default function Content() {
         // prepend the user's edit instruction as an override at the top.
         const basePrompt = buildCarouselSlidePrompt({
           designSystem: plan.designSystem,
+          template: findCuratedCarouselTemplate(plan.designSystem?.templateId),
           slide,
           index: imgIdx,
           total: plan.slides.length,
@@ -4032,6 +4049,38 @@ export default function Content() {
               </button>
               {templatesSidebarOpen && (
                 <div className="cs-templates-list">
+                  {/* Premade (curated) templates — single-select gallery */}
+                  {curatedTemplates.length > 0 && (
+                    <div className="cs-templates-group-label">Premade templates</div>
+                  )}
+                  {curatedTemplates.map(t => {
+                    const on = selectedCuratedId === t.id;
+                    const p = t.designSystem?.palette || {};
+                    return (
+                      <div key={t.id} className={`cs-template-item${on ? ' cs-template-item--on' : ''}`}>
+                        <button
+                          type="button"
+                          className="cs-template-toggle"
+                          onClick={() => setSelectedCuratedId(on ? null : t.id)}
+                          title={on ? 'Deselect this premade template' : `Generate carousels in the "${t.name}" style`}
+                        >
+                          {t.preview && <img src={t.preview} alt="" className="cs-template-thumb" />}
+                          <div className="cs-template-info">
+                            <div className="cs-template-name">{t.name}</div>
+                            <div className="cs-template-swatches">
+                              {[p.background, p.accentPrimary, p.gradientStart, p.gradientEnd].filter(Boolean).map((hex, i) => (
+                                <span key={i} className="cs-template-swatch" style={{ background: hex }} />
+                              ))}
+                            </div>
+                          </div>
+                          {on && <span className="cs-template-dot" />}
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {savedTemplates.length > 0 && curatedTemplates.length > 0 && (
+                    <div className="cs-templates-group-label">Your saved samples</div>
+                  )}
                   {savedTemplates.map(t => {
                     const on = selectedTemplateIds.has(t.id);
                     const p = t.design_system?.palette || {};

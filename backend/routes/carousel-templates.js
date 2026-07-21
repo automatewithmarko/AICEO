@@ -1,7 +1,15 @@
 import { Router } from 'express';
 import { supabase } from '../services/storage.js';
+import { CURATED_CAROUSEL_TEMPLATES } from '../agents/content/curated-carousel-templates.js';
 
 const router = Router();
+
+// ─── Curated (premade) templates — global, read-only registry ───
+// Served before the per-user routes; previews are static frontend assets
+// under public/carousel-templates/.
+router.get('/api/carousel-templates/curated', (_req, res) => {
+  res.json({ templates: CURATED_CAROUSEL_TEMPLATES });
+});
 
 // ─── List user's saved carousel design-system templates ───
 router.get('/api/carousel-templates', async (req, res) => {

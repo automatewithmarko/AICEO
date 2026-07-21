@@ -705,6 +705,40 @@ single-image post → no 422, post text arrives via the normal preview.
    carousel → small avatar chip bottom-left on slides 2-6, larger one
    on slide 4.
 
+### Round 13 — premade carousel templates (2026-07-21)
+
+**What shipped, in plain words:** the client's 14 example carousel decks
+are now a picker of premade templates. I read every slide of every deck
+(148 images) and digested each into a replicable design profile — exact
+colors, fonts, per-slide layouts (hook / middle / CTA), and where the
+person appears. 12 distinct styles made the cut (one folder was a
+YouTube banner, not a carousel; one was a byte-identical duplicate):
+Emerald Authority Dark, Vivid Gradient SaaS, Crimson Tutorial Steps,
+Crimson App Playbook, Serif Noir Essay, Coral Proof Dark, Crimson Serif
+Authority, Royal Blue Rounded, Noir Magazine Spread, Poster Red Glow,
+Navy Electric Explainer, Forest Mint Infographic.
+
+How it works:
+- **Content tab:** the sidebar's "Saved carousel samples" section now has
+  a **Premade templates** gallery on top (thumbnail + name + color
+  swatches, single-select). Pick one → ask for a carousel (Instagram or
+  LinkedIn) → the plan locks to that template's exact design system, and
+  every slide renders in the template's layout — with YOUR name, brand,
+  and photos substituted for the example author's. Slide edit/regenerate
+  stays locked to the template.
+- **AI CEO:** name one in chat — "make me a carousel in the Poster Red
+  Glow style" — and the server substitutes the template's exact design
+  regardless of what the model guessed. Ask "what carousel templates
+  exist?" and it lists them.
+- If you have no founder photos in Brand DNA, person elements are
+  omitted entirely (never an invented face).
+
+**Test:** Content tab → open "Saved carousel samples" → pick "Emerald
+Authority Dark" → "make me a 7-slide carousel about X" → approve → the
+slides should show the green-on-black style with your avatar chip in the
+header of each slide, hero cutout on slide 1 and the CTA slide. Then try
+the same by name from AI CEO chat.
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you
