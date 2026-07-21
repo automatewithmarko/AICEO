@@ -194,6 +194,7 @@ export function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total
 
   const verticalGrid = `
 UNIVERSAL VERTICAL GRID (ALL slides in this carousel follow these EXACT vertical anchor points — do not vary between slides):
+IMPORTANT: every px and % value below is an INVISIBLE blueprint coordinate telling you WHERE to place things. The finished image must contain ZERO measurement labels — no "48px", no "28%", no ruler marks or spacing annotations along the edges. Draw the content AT these positions, never the numbers themselves.
 • Canvas outer padding: 48px on all edges (branding strip and slide counter sit inside this).
 • Branding strip + slide counter: at y ≈ 8% from top (anchored to the top padding line).
 • Badge pill row: at y ≈ 18% from top, aligned to the left margin.
@@ -291,6 +292,8 @@ The reader swipes and NOTHING shifts vertically except the content itself. Same 
     'do not render any hex color codes (like #abc123) anywhere on the image',
     'do not render any CSS syntax or fragments such as "linear-gradient", "radial-gradient", "rgba", "span", "div", "px", "em", "weight"',
     'do not render font size numbers followed by px (for example "18px") anywhere on the image',
+    'do not render ANY measurement annotation anywhere: no pixel values ("48px", "40px"), no percentage values ("14%", "28%", "92%"), no "y ≈" coordinates — the numbers in LAYOUT are invisible blueprint coordinates, never visible content',
+    'do not draw the layout grid itself: no ruler marks, no spacing labels, no dimension callouts along the edges or margins (a slide with small px/% numbers down its sides is a FAILED render)',
     'do not render font weight numbers (for example "400", "700") anywhere on the image',
     'do not render curly braces, square brackets, or angle brackets',
     'do not render the words "accent", "gradient", "opacity", "leading", "tracking", or any other styling jargon as literal text',
@@ -333,6 +336,6 @@ The reader swipes and NOTHING shifts vertically except the content itself. Same 
     `=== DO NOT INCLUDE (visual) ===`,
     [...doNotBase, ...doNotExtra].map(s => `- ${s}`).join('\n'),
     ``,
-    `HARD RULES: Every piece of text that appears on the image must be copied exactly from TEXT CONTENT above (same words, same punctuation, same capitalization). Any word not listed in TEXT CONTENT must not appear. If you are tempted to render a hex code, size, or any styling term as visible text, STOP — those are instructions, not content.`,
+    `HARD RULES: Every piece of text that appears on the image must be copied exactly from TEXT CONTENT above (same words, same punctuation, same capitalization). Any word not listed in TEXT CONTENT must not appear. If you are tempted to render a hex code, size, measurement (any px or % value), or any styling term as visible text, STOP — those are instructions, not content. Rendering the blueprint (measurement labels along the edges, ruler-style annotations) instead of only the content is the single worst failure mode for this task.`,
   ].join('\n');
 }

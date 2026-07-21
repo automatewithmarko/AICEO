@@ -537,7 +537,8 @@ ${FACE_REALISM_RULES}`;
 - Any human face must have real photographic skin texture — visible pores, fine lines, natural asymmetry and imperfections. NEVER airbrushed, waxy, plastic-smooth, or beauty-filtered.
 - Any text on the image must be spelled correctly, large, and perfectly readable.
 - Clean composition with clear visual hierarchy.
-- Use brand colors and fonts as specified — they are requirements, not suggestions.`;
+- Use brand colors and fonts as specified — they are requirements, not suggestions.
+- NEVER render measurement annotations as visible text: no pixel values ("48px"), no percentage values ("28%"), no "y ≈" coordinates, no ruler marks or spacing labels along the edges. Any px/% number in the prompt is an invisible layout coordinate telling you WHERE to place content — drawing the numbers themselves is a failed render.`;
 
     const imagePrompt = `You are creating visual content for social media.
 
