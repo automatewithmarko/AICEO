@@ -264,6 +264,12 @@
   color: #059669;
 }
 
+.cpm-scheduled {
+  display: inline-flex;
+  align-items: center;
+  color: #059669;
+}
+
 /* Per-item Regenerate */
 .cpm-regen-btn {
   display: inline-flex;

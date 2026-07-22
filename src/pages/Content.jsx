@@ -12,6 +12,8 @@ import CarouselPlanCard from '../components/social-canvas/CarouselPlanCard';
 import ContentPlanMessage from '../components/ContentPlanMessage';
 import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from '../lib/planRunner';
 import { sweepCarouselMessages } from '../lib/carouselState';
+import { bulkSchedulePieces } from '../lib/planSchedule';
+import SchedulePlanModal from '../components/SchedulePlanModal';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
 import ChatDropOverlay from '../components/ChatDropOverlay';
@@ -2968,6 +2970,92 @@ export default function Content() {
     }]);
   }, [isGenerating, brandDna, user]);
 
+  // ── Bulk-schedule a generated content plan (founder spec, 2026-07-22) ──
+  // Opens the calendar preview modal; Confirm loops the SAME
+  // createCalendarPost pipeline the one-by-one schedule flows use.
+  const [planSchedule, setPlanSchedule] = useState(null); // { planMsgId, plan, entries }
+  const [planScheduleBusy, setPlanScheduleBusy] = useState(false);
+  const [planScheduleProgress, setPlanScheduleProgress] = useState('');
+
+  const handleOpenPlanSchedule = useCallback(async (planMsgId) => {
+    const snapshot = await new Promise((resolve) => {
+      setMessages((prev) => {
+        const m = prev.find((x) => x.id === planMsgId);
+        resolve(m?.contentPlan ? { plan: m.contentPlan, allMessages: prev } : null);
+        return prev;
+      });
+    });
+    if (!snapshot) return;
+    const { plan, allMessages } = snapshot;
+    const SCHEDULABLE = new Set(['linkedin', 'instagram']);
+
+    const entries = (plan.items || []).map((item, i) => {
+      const st = plan.itemStates?.[i] || {};
+      const base = { index: i, platform: item.platform };
+      if (st.status !== 'done') return { ...base, schedulable: false, reason: 'not generated yet' };
+      if (!SCHEDULABLE.has(item.platform)) return { ...base, schedulable: false, reason: 'auto-publishing not supported for this platform yet' };
+      if (item.format === 'reel_script' || item.format === 'youtube_script') return { ...base, schedulable: false, reason: 'script — nothing to post directly' };
+      const pm = allMessages.find((m) => m.planItemRef?.planMsgId === planMsgId && m.planItemRef?.index === i)
+        || (st.msgId ? allMessages.find((m) => m.id === st.msgId) : null);
+      if (!pm) return { ...base, schedulable: false, reason: 'generated piece not found' };
+
+      let caption = '';
+      let media = [];
+      let contentType = 'text';
+      if (item.format === 'carousel') {
+        caption = pm.carouselPlan?.caption || pm.content || item.hook || item.topic || '';
+        media = (pm.images || []).filter((im) => im?.src);
+        contentType = 'carousel';
+        if (!media.length) return { ...base, schedulable: false, reason: 'slides missing — regenerate the piece first' };
+      } else if (item.format === 'single_image') {
+        caption = pm.linkedinPost?.content || pm.socialPost?.caption || item.hook || item.topic || '';
+        media = (pm.images || []).filter((im) => im?.src);
+        contentType = 'image';
+        if (!media.length) return { ...base, schedulable: false, reason: 'image missing — regenerate the piece first' };
+      } else {
+        caption = pm.linkedinPost?.content || pm.content || '';
+        contentType = 'text';
+      }
+      if (!String(caption).trim()) return { ...base, schedulable: false, reason: 'no caption found on the piece' };
+      return { ...base, schedulable: true, caption, media, contentType, mediaCount: media.length };
+    });
+
+    setPlanSchedule({ planMsgId, plan, entries });
+  }, []);
+
+  const handleConfirmPlanSchedule = useCallback(async (assignments, time) => {
+    const ctx = planSchedule;
+    if (!ctx || planScheduleBusy) return;
+    setPlanScheduleBusy(true);
+    try {
+      const { scheduled, failed } = await bulkSchedulePieces({
+        entries: ctx.entries,
+        assignments,
+        time,
+        onProgress: (n, total) => setPlanScheduleProgress(`Scheduling ${n}/${total}…`),
+      });
+      // Stamp scheduledAt on the plan rows (persists with the session).
+      setMessages((prev) => prev.map((m) => {
+        if (m.id !== ctx.planMsgId || !m.contentPlan) return m;
+        const states = [...(m.contentPlan.itemStates || [])];
+        for (const s of scheduled) states[s.index] = { ...(states[s.index] || {}), scheduledAt: s.scheduledAt };
+        return { ...m, contentPlan: { ...m.contentPlan, itemStates: states } };
+      }));
+      setMessages((prev) => [...prev, {
+        id: `msg-${Date.now()}-plan-scheduled`,
+        role: 'assistant',
+        content: failed.length === 0
+          ? `Scheduled ${scheduled.length} post${scheduled.length === 1 ? '' : 's'}. They'll go out automatically — you can reschedule, edit, or cancel any of them from the Calendar tab.`
+          : `Scheduled ${scheduled.length} of ${scheduled.length + failed.length} posts. ${failed.length} failed (${failed.map((f) => `Day ${(ctx.plan.items[f.index]?.day) ?? f.index + 1}: ${f.error}`).join('; ')}) — you can retry those from their piece or the Calendar tab.`,
+        images: [],
+      }]);
+      setPlanSchedule(null);
+    } finally {
+      setPlanScheduleBusy(false);
+      setPlanScheduleProgress('');
+    }
+  }, [planSchedule, planScheduleBusy]);
+
   // Block sending while any attachment is still uploading/extracting  -  otherwise the
   // AI receives a prompt without the context the user just attached.
   const pendingAttachments = useMemo(() => {
@@ -4323,6 +4411,19 @@ export default function Content() {
           </div>
         </div>
 
+        {/* Bulk-schedule preview for a generated content plan */}
+        {planSchedule && (
+          <SchedulePlanModal
+            planTitle={planSchedule.plan.title}
+            items={planSchedule.plan.items || []}
+            entries={planSchedule.entries}
+            busy={planScheduleBusy}
+            progress={planScheduleProgress}
+            onClose={() => { if (!planScheduleBusy) setPlanSchedule(null); }}
+            onConfirm={handleConfirmPlanSchedule}
+          />
+        )}
+
         {/* Sessions overlay + panel */}
         {showSessions && (
           <>
@@ -4692,6 +4793,7 @@ export default function Content() {
                           onGenerate={() => handleGeneratePlanContent(msg.id)}
                           onRetryFailed={() => handleGeneratePlanContent(msg.id, { retryFailedOnly: true })}
                           onRegenerateItem={(index, instructions) => handleGeneratePlanContent(msg.id, { regenerateIndex: index, modifications: instructions })}
+                          onScheduleAll={() => handleOpenPlanSchedule(msg.id)}
                           onStop={() => handleStopPlanRun(msg.id)}
                           onOpenItem={(pieceMsgId) => openPlanPiece(pieceMsgId)}
                         />

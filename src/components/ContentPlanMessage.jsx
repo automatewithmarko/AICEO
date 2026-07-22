@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CalendarDays, Check, Loader2, AlertCircle, ImageOff, Square, RefreshCw, Sparkles } from 'lucide-react';
+import { CalendarDays, CalendarClock, CalendarCheck2, Check, Loader2, AlertCircle, ImageOff, Square, RefreshCw, Sparkles } from 'lucide-react';
 import './ContentPlanMessage.css';
 
 const FORMAT_LABELS = {
@@ -25,6 +25,7 @@ export default function ContentPlanMessage({
   onStop,
   onOpenItem,
   onRegenerateItem,
+  onScheduleAll,
 }) {
   const [confirming, setConfirming] = useState(false);
   // Per-item Regenerate: which item's instruction box is open + its draft.
@@ -94,6 +95,11 @@ export default function ContentPlanMessage({
                   )}
                   {st.status === 'done' && (
                     <>
+                      {st.scheduledAt && (
+                        <span className="cpm-scheduled" title={`Scheduled for ${new Date(st.scheduledAt).toLocaleString()}`}>
+                          <CalendarCheck2 size={13} />
+                        </span>
+                      )}
                       {st.imageFailed && (
                         <span className="cpm-imgfail" title="An image failed — open the piece to regenerate it">
                           <ImageOff size={13} />
@@ -211,6 +217,11 @@ export default function ContentPlanMessage({
                   <RefreshCw size={13} /> Retry failed
                 </button>
               )}
+              {doneCount > 0 && onScheduleAll && (
+                <button className="cpm-btn cpm-btn--ghost" disabled={runLocked} onClick={onScheduleAll} title="Pick dates on a calendar and bulk-schedule the generated pieces">
+                  <CalendarClock size={13} /> Schedule
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -226,6 +237,11 @@ export default function ContentPlanMessage({
                   <RefreshCw size={13} /> Retry failed
                 </button>
               </>
+            )}
+            {doneCount > 0 && onScheduleAll && (
+              <button className="cpm-btn cpm-btn--primary" disabled={runLocked} onClick={onScheduleAll} title="Pick dates on a calendar and bulk-schedule the generated pieces">
+                <CalendarClock size={13} /> Schedule
+              </button>
             )}
           </div>
         )}
