@@ -786,6 +786,41 @@ points across slides. Test: regenerate a template carousel → slides
 should feel airy and scannable like the source decks, not
 information-heavy.
 
+**Round 15 — single-image post templates (2026-07-23):** carousels had a
+template system, single-image posts had none: every IG/LI post image was
+whatever prose the model wrote. Now there are **17 brand-agnostic layout
+templates** across six intents (educational, authority, proof, engagement,
+promotional, story) in `backend/agents/content/image-post-templates.js`.
+The AI picks one per post and writes only the on-image copy; the server
+composes the layout, spacing, brand colors, and typography. No picker in
+the UI yet — the AI chooses in the background.
+
+The platform difference is built in: on **LinkedIn** the image is *visual
+support* for the caption (one idea, ≤14 visible words, thumbnail-legible,
+3:4); on **Instagram** the image *is* the post and carries the full value
+standalone (≤32 words, 1:1). Founder photo is template-driven — portrait,
+quote and story templates feature them; metric, framework, checklist and
+offer cards stay face-free (the backend no longer forces a person into
+every post image).
+
+Applied on all four paths: /Content Instagram, AI CEO, plan-card
+`single_image` items, and the /Content LinkedIn "add an image" button
+(which previously used a hard-coded generic prompt with no model at all —
+it now calls `POST /api/orchestrate/compose-image-post`).
+
+**Test:** (a) /Content Instagram → "single post about X" → the image
+should be a designed card (big type, real whitespace, brand colors), not
+generic AI art; server log shows `[image-post] template=… platform=…`.
+(b) Ask for an Instagram **story** instead → no `[image-post]` log line,
+behavior unchanged. (c) /Content LinkedIn → generate a text post → "add an
+image" → log shows `[compose-image-post] template=…`; the image carries
+one idea in very few words. (d) AI CEO → "make me a LinkedIn image post
+about our pricing change". (e) A plan with a `single_image` item →
+Generate content. (f) Regenerate any of them → same layout, no drift.
+Different post types should visibly pick different layouts: a result with
+a number → giant stat card; a framework → numbered rows; a quote → quote
+card; a launch → announcement card.
+
 ## If you find a problem
 
 Capture it like prompt.md: what you typed, what happened, what you
