@@ -58,6 +58,8 @@ import { CREATE_CONTENT_PLAN_TOOL } from '../content-plan-tool.js';
 import { buildPlanModeDirective } from './plan-mode.js';
 import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE } from './video-script-guide.js';
 import { applyCuratedTemplateToPlanArgs } from './curated-carousel-templates.js';
+import { applyImagePostTemplateToArgs } from './image-post-templates.js';
+import { composeImagePostSpec } from './image-post-composer.js';
 
 export async function handleContentOrchestration({ res, sendSSE, body, userId, abortSignal = null }) {
   const {
@@ -321,6 +323,18 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
             applyCuratedTemplateToPlanArgs(args, {
               explicitCuratedId: carouselTemplates?.[0]?.curatedId || null,
               defaultTemplateId: brandDna?.default_carousel_template_id || null,
+            });
+          } else if (call.name === 'generate_image') {
+            // Single-image POST templates: same deterministic model —
+            // the model picks a template + writes the on-image copy, the
+            // server composes the layout prompt. Story frames, thumbnails,
+            // plain images and edits pass through untouched.
+            await applyImagePostTemplateToArgs(args, {
+              platform: platform?.id || null,
+              brandDna,
+              repair: ({ platform: p, brief }) => composeImagePostSpec({
+                platform: p, brief, brandDna, userName, abortSignal,
+              }),
             });
           }
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });

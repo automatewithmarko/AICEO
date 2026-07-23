@@ -18,6 +18,7 @@ import { buildLinkedInPostSystemPrompt } from './second-pass-prompts.js';
 import { SUBMIT_POST_TOOL, GENERATE_LINKEDIN_POST_TOOL, SUBMIT_POST_ADDENDUM } from './claude-protocol.js';
 import { LINKEDIN_CAROUSEL_PROMPT } from './linkedin-prompts.js';
 import { CURATED_CAROUSEL_TEMPLATES } from './curated-carousel-templates.js';
+import { buildImagePostTemplateCatalog } from './image-post-templates.js';
 
 export { GENERATE_LINKEDIN_POST_TOOL };
 
@@ -35,6 +36,8 @@ export function buildCeoUnifiedSocialAddendum() {
   a += `\n--- END LINKEDIN CAROUSEL COPY STANDARDS ---\n`;
   a += `5. PREMADE CAROUSEL TEMPLATES: these curated visual templates exist — ${CURATED_CAROUSEL_TEMPLATES.map((t) => `"${t.name}" (id: ${t.id})`).join(', ')}. If the user names one (or asks for "a premade/template style"), set designSystem.templateId to that template's id in your plan_carousel call and plan only the slide CONTENT — the server substitutes the template's exact design system and layout, so any palette you provide will be overridden. If the user asks what templates exist, list the names.\n`;
   a += `6. CAROUSEL COPY BUDGET (always, and doubly so with a premade template — they live on generous whitespace): headlines ≤ 8 words; body ≤ 2 short sentences (≈ 12-20 words total); ONE idea per slide — split dense points across two slides instead of packing one. Overstuffed slide copy renders as a cluttered, hard-to-scan image.\n`;
+  a += `7. SINGLE-IMAGE POSTS (Instagram or LinkedIn feed post with ONE static image): the image is rendered from a layout template, not from your prose. Call generate_image with purpose:"post_image", post_platform, post_template, and post_copy — the server substitutes the layout, spacing, brand colors, and typography, so any visual description you write is discarded.\n\n`;
+  a += `${buildImagePostTemplateCatalog({ platform: 'both' })}\n`;
   return a;
 }
 

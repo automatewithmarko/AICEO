@@ -77,13 +77,19 @@ export const CREATE_CONTENT_PLAN_TOOL = {
 };
 
 // Server-side only — forced via tool_choice inside POST /api/orchestrate/
-// plan-item for single_image items so the copy and the image prompt come
+// plan-item for single_image items so the copy and the image spec come
 // back as one structured payload. NOT part of the CEO tool list.
+//
+// 2026-07-23: on Instagram/LinkedIn this returns a TEMPLATE choice + the
+// on-image copy instead of a free-form image_prompt; the route composes the
+// final prompt via buildImagePostPrompt(). Because this call is
+// tool_choice-forced, plan-generated post images are templated 100% of the
+// time. image_prompt remains for the platforms without a template system.
 export const COMPOSE_SINGLE_IMAGE_POST_TOOL = {
   type: 'function',
   function: {
     name: 'compose_single_image_post',
-    description: 'Return the finished post copy plus the image prompt for a single-image social post.',
+    description: 'Return the finished post copy plus the visual spec for a single-image social post.',
     parameters: {
       type: 'object',
       properties: {
@@ -91,12 +97,31 @@ export const COMPOSE_SINGLE_IMAGE_POST_TOOL = {
           type: 'string',
           description: 'The exact post copy, plain text, hook as the first line. Ready to paste.',
         },
+        image_template: {
+          type: 'string',
+          description: 'REQUIRED on Instagram and LinkedIn: the id of the layout template whose "use when" matches this post, from the SINGLE-IMAGE POST TEMPLATES list in your instructions.',
+        },
+        image_copy: {
+          type: 'object',
+          description: 'REQUIRED on Instagram and LinkedIn: the exact words that appear ON the image. Fill ONLY the fields the chosen template uses, and respect the copy budget — the layout is built on whitespace.',
+          properties: {
+            kicker: { type: 'string', description: 'Short label above the headline (2-4 words).' },
+            headline: { type: 'string', description: 'The hero line — the one idea the image states. Under 12 words.' },
+            support: { type: 'string', description: 'Single supporting line. Under 12 words.' },
+            items: { type: 'array', items: { type: 'string' }, description: 'List rows for framework / checklist / flow / versus / before-after / case templates. Max 5, each under 7 words.' },
+            metric_value: { type: 'string', description: 'Hero number exactly as it should render, e.g. "$180", "62%", "3.2x".' },
+            metric_label: { type: 'string', description: 'One-line label under the metric.' },
+            attribution: { type: 'string', description: 'Attribution for quote/testimonial templates: name, then role or company.' },
+            cta: { type: 'string', description: 'Call to action for offer/announcement templates. Under 5 words.' },
+            visual_subject: { type: 'string', description: 'The photographic subject, for photo-led templates only. Never a real person\'s name, ethnicity, or physical description — say "the founder".' },
+          },
+        },
         image_prompt: {
           type: 'string',
-          description: 'Actionable image description an AI image generator can execute: subject, composition, mood, style, brand-color hints, text overlay if any. NEVER a real person\'s name, ethnicity, or identity.',
+          description: 'Only for platforms WITHOUT a template system (X, Facebook): an actionable image description — subject, composition, mood, style, brand-color hints, text overlay if any. NEVER a real person\'s name, ethnicity, or identity.',
         },
       },
-      required: ['content', 'image_prompt'],
+      required: ['content'],
     },
   },
 };
