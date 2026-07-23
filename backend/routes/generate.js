@@ -210,7 +210,10 @@ DESIGN SYSTEM TAKES PRIORITY:
 - Respect the DO NOT list at the bottom of each per-slide block.
 - NEVER render any curly braces, square brackets, or angle brackets as visible text. Any token that arrives wrapped in {{ }}, < >, or [ ] is an instruction to unwrap — render only the inner word without the wrapper.
 
-FALLBACK (only when NO DESIGN SYSTEM block is present — single post, not a planned carousel):
+IMAGE POST TEMPLATE BLOCKS WORK THE SAME WAY:
+- If the prompt contains an "IMAGE POST TEMPLATE" layout block, that block is authoritative for the composition, the palette, the typography, the spacing, and whether a person appears. Render it faithfully and do not substitute your own design.
+
+FALLBACK (only when NEITHER a DESIGN SYSTEM nor an IMAGE POST TEMPLATE block is present — a loose image, not a planned carousel or templated post):
 - Clean modern graphic design. Bold sans-serif typography. Left-aligned body text. Readable at mobile size.
 - Use the brand colors and fonts as specified.
 - NO stock photography, NO clipart, NO cartoon illustrations, NO generic AI-looking imagery.
@@ -298,7 +301,10 @@ DESIGN SYSTEM TAKES PRIORITY:
 - Respect the DO NOT list at the bottom of each per-slide block.
 - NEVER render any curly braces, square brackets, or angle brackets as visible text. Any token that arrives wrapped in {{ }}, < >, or [ ] is an instruction to unwrap — render only the inner word without the wrapper.
 
-FALLBACK (only when NO DESIGN SYSTEM block is present — single text-post image, not a planned carousel):
+IMAGE POST TEMPLATE BLOCKS WORK THE SAME WAY:
+- If the prompt contains an "IMAGE POST TEMPLATE" layout block, that block is authoritative for the composition, the palette, the typography, the spacing, and whether a person appears. Render it faithfully and do not substitute your own design. On LinkedIn that image is VISUAL SUPPORT for the written post: one idea, few words, legible as a thumbnail.
+
+FALLBACK (only when NEITHER a DESIGN SYSTEM nor an IMAGE POST TEMPLATE block is present — a loose image, not a planned carousel or templated post):
 - Professional, clean design with authority. Bold headline text as the main element, minimal layout, corporate-friendly colors.
 - If reference photos of the founder/user are attached, FEATURE THEM prominently — LinkedIn posts with a real person get 2-3x more engagement. Show their face, natural expression, professional but approachable.
 - Composition: person on one side, bold text on the other. Or person as background with text overlay.
@@ -458,12 +464,13 @@ export async function generateImageCore({ userId, rawPrompt, platform, brandData
     const hasLogo = !!brand?.logoUrl;
     const hasPhotos = (brand?.photoUrls?.length || 0) > 0;
     const userImgCount = (editUserImage && referenceImages?.length) ? referenceImages.length : 0;
-    // Carousel SLIDE renders embed a DESIGN SYSTEM block in the prompt —
-    // that's what distinguishes them from single posts on the same
-    // platform id. Slides only show the founder where the slide design
-    // asks for one; forcing "MUST include this person" onto every
-    // text-first slide was fighting the slide spec.
-    const isCarouselPlatform = /DESIGN SYSTEM/i.test(prompt);
+    // Composed prompts own their own composition, person placement
+    // included: carousel SLIDE renders embed a DESIGN SYSTEM block, and
+    // single-image POST renders embed an IMAGE POST TEMPLATE block (whose
+    // PERSON line is driven by the template's founderTreatment). Forcing
+    // "MUST include this person" onto those was fighting the layout spec —
+    // a metric card or checklist has no place for a portrait.
+    const isCarouselPlatform = /DESIGN SYSTEM|IMAGE POST TEMPLATE/i.test(prompt);
 
     let brandImageInstructions = '';
     if (userImgCount > 0) {
@@ -493,7 +500,7 @@ export async function generateImageCore({ userId, rawPrompt, platform, brandData
 BRAND ASSETS (attached as reference images):
 - FIRST attached image = BRAND LOGO. Place it small and subtle (corner watermark, max 24px height). The logo is NOT the hero — it's a subtle brand mark.
 - REMAINING attached images = REFERENCE PHOTOS of the user/founder. ${isCarouselPlatform
-    ? 'Include this person ONLY where the slide design calls for a person (e.g. a founder portrait on a hook/CTA slide) — never force them onto text-first slides.'
+    ? 'The layout spec in the prompt decides whether a person appears: include this person ONLY where it explicitly calls for one (a founder portrait, an avatar chip). Never force them onto a text-first slide or a face-free layout.'
     : 'You MUST include this person in the image. They should be a prominent, visible part of the composition. Do NOT generate a random person or leave the person out. Social media content with a real human face gets 2-3x more engagement.'}
 ${FACE_REALISM_RULES}`;
     } else if (hasLogo) {
@@ -504,7 +511,7 @@ BRAND ASSETS (attached as reference):
       brandImageInstructions = `
 BRAND ASSETS (attached as reference):
 - The attached images are REFERENCE PHOTOS of the user/founder. ${isCarouselPlatform
-    ? 'Include this person ONLY where the slide design calls for a person (e.g. a founder portrait on a hook/CTA slide) — never force them onto text-first slides.'
+    ? 'The layout spec in the prompt decides whether a person appears: include this person ONLY where it explicitly calls for one (a founder portrait, an avatar chip). Never force them onto a text-first slide or a face-free layout.'
     : 'You MUST include this person in the image. They should be a prominent, visible part of the composition. Do NOT generate a random person or leave the person out.'}
 ${FACE_REALISM_RULES}`;
     }

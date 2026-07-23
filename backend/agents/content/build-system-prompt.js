@@ -14,6 +14,7 @@
 
 import { LINKEDIN_CAROUSEL_PROMPT } from './linkedin-prompts.js';
 import { PLATFORM_GUIDANCE } from './platform-guidance.js';
+import { buildImagePostTemplateCatalog } from './image-post-templates.js';
 
 export
 function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext, carouselTemplates = [], existingPost = null, opts = {}) {
@@ -271,15 +272,25 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- NO cartoons, NO pixel art, NO clip-art, NO illustrations, NO stock photos\n`;
   if (platform.id === 'instagram') {
     prompt += `- INSTAGRAM (single post / story): Image MUST be SQUARE (1:1). For carousels, do NOT call generate_image — use plan_carousel instead (the client builds the per-slide prompts from your locked design system).\n`;
+    prompt += `- The rules in this section apply to STORIES and other loose images. A single-image POST is rendered from a layout template instead — see SINGLE-IMAGE POST TEMPLATES below, which overrides everything here.\n`;
   } else if (platform.id === 'youtube') {
     prompt += `- YOUTUBE: Image MUST be LANDSCAPE (16:9). Thumbnail style  -  dramatic, high contrast, 3-4 words max in huge bold text.\n`;
   } else if (platform.id === 'tiktok') {
     prompt += `- TIKTOK: Image MUST be PORTRAIT (9:16). Bold centered text overlay, eye-catching at small size.\n`;
   } else if (platform.id === 'linkedin') {
-    prompt += `- LINKEDIN (single text-post image): Image MUST be 3:4 PORTRAIT ratio. Professional, clean design with authority. Bold headline text, minimal layout. For carousels, do NOT call generate_image — use plan_carousel instead (the client builds the per-slide prompts from your locked design system).\n`;
+    prompt += `- LINKEDIN (single text-post image): Image MUST be 3:4 PORTRAIT ratio. For carousels, do NOT call generate_image — use plan_carousel instead (the client builds the per-slide prompts from your locked design system).\n`;
+    prompt += `- The image that accompanies a LinkedIn post is rendered from a layout template — see SINGLE-IMAGE POST TEMPLATES below, which overrides everything here.\n`;
   }
   prompt += `- Always specify exact colors (e.g. "black background with white text and red accent")\n`;
   prompt += `- The text on the image should be the HOOK or KEY MESSAGE  -  not decorative\n\n`;
+
+  // Single-image POST templates — the deterministic layout system for
+  // IG/LI feed post images (founder request 2026-07-23). The catalog tells
+  // the model WHICH template and WHAT copy; the server owns the layout,
+  // spacing, brand colors, and typography (image-post-templates.js).
+  if (platform.id === 'instagram' || platform.id === 'linkedin') {
+    prompt += buildImagePostTemplateCatalog({ platform: platform.id }) + '\n\n';
+  }
 
   prompt += `=== TARGET PLATFORM: ${platform.name} ===\n`;
   prompt += (PLATFORM_GUIDANCE[platform.id] || `Tailor all content for ${platform.name}.`) + '\n\n';

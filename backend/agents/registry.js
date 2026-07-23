@@ -8,6 +8,7 @@ import leadMagnet from './lead-magnet.js';
 import dmAutomation from './dm-automation.js';
 import { PLAN_CAROUSEL_TOOL } from './plan-carousel-tool.js';
 import { CREATE_CONTENT_PLAN_TOOL } from './content-plan-tool.js';
+import { IMAGE_POST_TEMPLATE_IDS } from './content/image-post-templates.js';
 
 const agents = {
   newsletter,
@@ -101,13 +102,43 @@ export function buildAgentTools() {
       type: 'function',
       function: {
         name: 'generate_image',
-        description: 'Generate a professional image for content, social media graphics, or thumbnails.',
+        description: 'Generate a professional image for content, social media graphics, or thumbnails. For an Instagram or LinkedIn SINGLE-IMAGE POST also pass purpose:"post_image" plus post_platform, post_template and post_copy — the server then renders a designed, brand-colored layout instead of using your prompt text. For anything else (story frames, thumbnails, plain images, edits of an attached image) set the matching purpose and write a normal descriptive prompt.',
         parameters: {
           type: 'object',
           properties: {
             prompt: {
               type: 'string',
-              description: 'Detailed image prompt: style, subject, composition, colors, text overlays.',
+              description: 'For post_image calls: ONE plain sentence naming the subject (a fallback — the server replaces it with the composed layout). Otherwise a detailed image prompt: style, subject, composition, colors, text overlays.',
+            },
+            purpose: {
+              type: 'string',
+              enum: ['post_image', 'story_frame', 'thumbnail', 'plain_image', 'edit_existing'],
+              description: 'What this image is for. "post_image" = the single static image of an Instagram or LinkedIn feed post (the only value that triggers the template system).',
+            },
+            post_platform: {
+              type: 'string',
+              enum: ['instagram', 'linkedin'],
+              description: 'Required with purpose "post_image": which feed this post image is for. Instagram images carry the value themselves; LinkedIn images are visual support for the post text.',
+            },
+            post_template: {
+              type: 'string',
+              enum: IMAGE_POST_TEMPLATE_IDS,
+              description: 'Required with purpose "post_image": the layout template whose "use when" matches what this post is doing. See the SINGLE-IMAGE POST TEMPLATES section of your instructions.',
+            },
+            post_copy: {
+              type: 'object',
+              description: 'Required with purpose "post_image": the exact words that appear ON the image. Fill ONLY the fields the chosen template uses.',
+              properties: {
+                kicker: { type: 'string', description: 'Short label above the headline (2-4 words).' },
+                headline: { type: 'string', description: 'The hero line — the one idea the image states. Under 12 words.' },
+                support: { type: 'string', description: 'Single supporting line. Under 12 words.' },
+                items: { type: 'array', items: { type: 'string' }, description: 'List rows for framework / checklist / flow / versus / before-after / case templates. Max 5, each under 7 words.' },
+                metric_value: { type: 'string', description: 'Hero number exactly as it should render, e.g. "$180", "62%", "3.2x".' },
+                metric_label: { type: 'string', description: 'One-line label under the metric.' },
+                attribution: { type: 'string', description: 'Attribution for quote/testimonial templates: name, then role or company.' },
+                cta: { type: 'string', description: 'Call to action for offer/announcement templates. Under 5 words.' },
+                visual_subject: { type: 'string', description: 'The photographic subject, for photo-led templates only. Never a real person\'s name, ethnicity, or physical description — say "the founder".' },
+              },
             },
           },
           required: ['prompt'],

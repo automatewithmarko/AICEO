@@ -1214,6 +1214,26 @@ export async function generatePlanItem(payload, signal) {
   return res.json();
 }
 
+// Compose a templated image prompt for a post whose TEXT already exists
+// (the /Content LinkedIn "add an image to this post" button). The server
+// picks the layout template, writes the on-image copy from the post, and
+// returns the finished prompt for generateImage(). Callers should fall
+// back to their own prompt if this throws — it's an upgrade, not a gate.
+export async function composeImagePost({ platform = 'linkedin', postText, userName = null }, signal) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/orchestrate/compose-image-post`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, postText, userName }),
+    signal: signal ?? AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`HTTP ${res.status}: ${err.error || 'Compose failed'}`);
+  }
+  return res.json();
+}
+
 export async function uploadImageToStorage(base64, mimeType) {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/generate/upload-image`, {
