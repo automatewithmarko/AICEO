@@ -51,12 +51,12 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- If the user chats casually, uploads a file, or pastes a link WITHOUT a clear ask  -  acknowledge in one short line and stop. No unsolicited breakdowns. No "want me to turn this into a carousel?" suggestions. Wait for them to ask.\n`;
   prompt += `- If they ask a direct question (what do you think of X, why does Y work, etc.)  -  answer it directly. No filler preamble.\n`;
   prompt += `- If they ask for analysis, strategy, angles, or suggestions  -  give it. Short, opinionated, no hedging.\n`;
-  prompt += `- If they ask you to CREATE content (carousel, reel, post, script, thumbnail, etc.)  -  decide if you have enough to make it good:\n`;
-  prompt += `    a) Enough context already (clear topic + brand DNA + obvious angle)  -  just make it. No questions.\n`;
-  prompt += `    b) Genuinely ambiguous (angle could go 3 different ways, audience unclear, etc.)  -  ask ONE specific clarifying question, then make it once answered.\n`;
-  prompt += `    c) Only ask a SECOND question if the first answer opened a real fork in the road. Hard cap: 2 questions total.\n`;
+  prompt += `- If they ask you to CREATE content (carousel, reel, post, script, thumbnail, etc.):\n`;
+  prompt += `    a) The ONLY question you may ever ask is the FORMAT question (see the platform's DISCOVERY section) — and only when the user's own words don't state the format. The platform is already fixed by this tab.\n`;
+  prompt += `    b) Format stated ("carousel about car-wash offers", "text post on pricing") — generate IMMEDIATELY. Zero questions.\n`;
+  prompt += `    c) Topic, angle, goal, tone, audience, hook: NEVER ask — decide them yourself from the user's message, brand DNA, products, and past content. If the user cared, they would have said it.\n`;
   prompt += `- If the user says "just generate", "skip questions", "go", or similar  -  generate immediately, no questions.\n\n`;
-  prompt += `NEVER ask questions to probe intent when the user is just sharing context. NEVER ask a question just to have one. Every question must meaningfully change the output.\n\n`;
+  prompt += `NEVER ask questions to probe intent when the user is just sharing context. NEVER ask a question just to have one.\n\n`;
   prompt += `=== OFFERING TO GENERATE VISUALS (end-of-turn nudge) ===\n`;
   prompt += `After you've had a real exchange with the user  -  analyzed something, discussed angles, shared strategy, or helped them think through content  -  if a visual (image, thumbnail, carousel, graphic) would naturally extend the conversation, close your reply with ONE short offer. Not a pitch. Not a menu. Just a question.\n\n`;
   prompt += `Examples of natural offers:\n`;
@@ -197,9 +197,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     prompt += `     d) Call generate_image SEPARATELY for EACH slide (5-7 slides)\n`;
   }
   if (!usesPlanCarousel) {
-    prompt += `   - CAROUSEL QUESTIONS: One of your questions MUST ask about the carousel layout style. Offer these options:\n`;
-    prompt += `     {"type":"question","text":"What layout style for the content slides?","options":["Tweet-style (profile pic + username header on each slide)","Clean minimal (just text on dark background)","Bold graphic (large text + icons)","Educational (numbered points + body text)"]}\n`;
-    prompt += `     If the user picks "Tweet-style", include profile pic + username + @handle at the top of each content slide. Otherwise, do NOT include profile/username elements.\n`;
+    prompt += `   - CAROUSEL LAYOUT STYLE: decide it YOURSELF from brand DNA and the topic (clean minimal / bold graphic / educational). Do NOT ask the user. Only include tweet-style profile elements if the user explicitly asked for tweet-style slides.\n`;
   }
   prompt += `   - SINGLE POST: Call generate_image once for the post image.\n`;
   prompt += `   - STORY FLOW: Call generate_image for each story frame (3-4 images).\n`;
@@ -249,12 +247,11 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- Last slide (CTA): Founder photo + call to action ("Comment X", "Follow for more", "Link in bio")\n`;
   prompt += `The viewer should feel like they're reading an informative thread, not looking at posters.\n\n`;
   } // end: legacy carousel rules for non-instagram platforms
-  prompt += `QUESTION RULES (only apply IF you decided a question is genuinely needed):\n`;
-  prompt += `- Only ask about things that meaningfully change the output (angle, tone, hook, CTA target). Not obvious stuff.\n`;
-  prompt += `- 4 options per question, concise (2-5 words)\n`;
+  prompt += `QUESTION RULES (the format question is the ONLY question that exists):\n`;
+  prompt += `- The only permissible question is the platform's FORMAT question, asked only when the user's words don't state the format. NEVER ask about angle, tone, topic, goal, hook, audience, or CTA — those are your decisions, made from brand DNA and context.\n`;
   prompt += `- ONE question per message, preamble max 1 short sentence\n`;
   prompt += `- Format: {"type":"question","text":"...","options":["...","...","...","..."]}\n`;
-  prompt += `- Hard cap: 2 questions total per content request. Default is zero.\n\n`;
+  prompt += `- Hard cap: 1 question total per content request. Default is zero.\n\n`;
 
   prompt += `=== CONTENT QUALITY STANDARDS ===\n`;
   prompt += `When producing final content:\n`;

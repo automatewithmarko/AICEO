@@ -1500,6 +1500,7 @@ export default function AiCeo() {
             // via ask_user counts here too.
             const FORMAT_KEYWORDS = [
               'text post', 'carousel', 'single post', 'story', 'stories',
+              'image post', 'photo post', 'picture post', 'infographic',
               'tweet', 'thread', 'reply', 'quote',
               'question post', 'announcement',
               'surprise me',
