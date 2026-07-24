@@ -8,7 +8,7 @@ import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
 import { handleContentOrchestration } from '../agents/content/handler.js';
-import { buildCeoUnifiedSocialAddendum, runLinkedInTextPostPass, GENERATE_LINKEDIN_POST_TOOL } from '../agents/content/ceo-adapter.js';
+import { buildCeoUnifiedSocialAddendum, runLinkedInTextPostPass, GENERATE_LINKEDIN_POST_TOOL, mapContentItemsToSocialRefs } from '../agents/content/ceo-adapter.js';
 import { buildPlanModeDirective } from '../agents/content/plan-mode.js';
 import { PLAN_CAROUSEL_TOOL } from '../agents/plan-carousel-tool.js';
 import { COMPOSE_SINGLE_IMAGE_POST_TOOL, PLAN_PLATFORM_FORMATS } from '../agents/content-plan-tool.js';
@@ -1648,6 +1648,10 @@ RULES:
               variation: args.variation === 'B' ? 'B' : 'A',
               userName: context.ceoUserName,
               brandDna: context.brandDna,
+              // Saved references (outlier videos/posts with transcripts)
+              // drive the writer's copy-this-template block — parity with
+              // /Content's uploaded references.
+              socialUrls: mapContentItemsToSocialRefs(context.contentItems),
             });
             if (postText) {
               sendSSE(res, {
@@ -2355,6 +2359,7 @@ router.post('/api/orchestrate/plan-item', requireActiveAccount(), async (req, re
         userName: userName || null,
         brandDna: context.brandDna,
         abortSignal: abortCtl.signal,
+        socialUrls: mapContentItemsToSocialRefs(context.contentItems),
       });
       const content = String(postText || '').trim();
       if (!content) throw new Error('Empty generation result');

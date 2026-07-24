@@ -1697,6 +1697,18 @@ export default function Content() {
           // the slot — regen wins because it's a more specific signal.
           const isRegenerating = prevImages.length > 0;
           const imgArgs = isRegenerating ? null : await buildImageGenArgs();
+          // Story detection: the STORY FLOW instruction fires one
+          // generate_image per 9:16 frame (3-4 calls). Route those through
+          // the instagram_story config (9:16 portrait, 2K, story rules) —
+          // they used to render as SQUARE feed images because this always
+          // sent selectedPlatform='instagram' (founder report 2026-07-24:
+          // stories almost broken in /Content).
+          const looksLikeStoryTurn = activePlatform.id === 'instagram' && (
+            imageCalls.length >= 3 ||
+            imageCalls.some(({ prompt: p }) => /\bstory\b|\bstories\b|9:16|9x16|vertical portrait/i.test(p || ''))
+          );
+          const imageGenPlatform = looksLikeStoryTurn ? 'instagram_story' : selectedPlatform;
+          if (looksLikeStoryTurn) console.log(`[Content] story turn detected — generating ${imageCalls.length} frames at 9:16`);
           const results = await Promise.allSettled(
             imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
               console.log(`  🎨 [${idx + 1}/${imageCalls.length}] ${imgPrompt.slice(0, 80)}...`);
@@ -1719,7 +1731,7 @@ export default function Content() {
               const opts = (!isRegenerating && imgArgs.editUserImage)
                 ? { editUserImage: true }
                 : {};
-              const result = await generateImage(imgPrompt, selectedPlatform, brandImageData, refImages, opts);
+              const result = await generateImage(imgPrompt, imageGenPlatform, brandImageData, refImages, opts);
               // Update message as each image completes
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;

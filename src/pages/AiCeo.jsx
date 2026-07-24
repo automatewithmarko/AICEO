@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide, generatePlanItem , getCuratedCarouselTemplates, findCuratedCarouselTemplate } from '../lib/api';
 import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from '../lib/planRunner';
 import { sweepCarouselMessages, sweepCarouselHolder } from '../lib/carouselState';
+import CarouselPlanCard from '../components/social-canvas/CarouselPlanCard';
 import { bulkSchedulePieces } from '../lib/planSchedule';
 import SchedulePlanModal from '../components/SchedulePlanModal';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
@@ -663,6 +664,9 @@ export default function AiCeo() {
         // back-reference stamped on each generated piece. Text-only and
         // small (~15KB for a 31-item plan) — safe for the JSONB row.
         ...(m.contentPlan ? { contentPlan: m.contentPlan } : {}),
+        // In-chat carousel plan card (plans render in chat, 2026-07-24).
+        ...(m.carouselPlan ? { carouselPlan: m.carouselPlan } : {}),
+        ...(m.carouselPlatform ? { carouselPlatform: m.carouselPlatform } : {}),
         ...(m.planItemRef ? { planItemRef: m.planItemRef } : {}),
         // Per-message artifact snapshot. Already base64-stripped at
         // commitOwnedArtifact time, so this is just URL-and-text payload.
@@ -1320,8 +1324,9 @@ export default function AiCeo() {
                 loading: true,
                 id: i,
               }));
+              const storyArtId = Date.now();
               setArtifact({
-                id: Date.now(),
+                id: storyArtId,
                 type: 'story_sequence',
                 title: parsed.summary || 'Story Sequence',
                 content: JSON.stringify(parsed),
@@ -1355,6 +1360,14 @@ export default function AiCeo() {
                 } catch (e) { console.error('Brand DNA load for stories:', e); }
 
                 const visualStyle = parsed.visual_style || '';
+                // Only touch THIS story artifact — a raw prev.frames.map
+                // corrupted whatever artifact was current if the user
+                // generated something else mid-story (audit 2026-07-24).
+                const patchFrame = (idx2, patch) => setArtifact(prev => (
+                  prev && prev.id === storyArtId && Array.isArray(prev.frames)
+                    ? { ...prev, frames: prev.frames.map((f, i) => i === idx2 ? { ...f, ...patch } : f) }
+                    : prev
+                ));
                 await Promise.all(storyFrames.map(async (frame, idx) => {
                   const captionText = frame.caption || frame.title || '';
                   const captionInstruction = captionText ? `\n\nTEXT OVERLAY  -  ONE text sticker:\n- Render EXACTLY ONE text sticker: "${captionText}"\n- Flat solid white (#FFFFFF) rectangle with rounded corners (~12px radius). NO border, NO outline, NO stroke around the pill  -  just a clean flat white shape.\n- Text: "${captionText}" in pure black (#000000), bold weight, clean sans-serif (SF Pro, Helvetica), ~30px\n- Snug padding: pill tightly wraps text. Only as wide as the text needs.\n- Centered horizontally, upper third of frame.\n- ONE sticker only. Do NOT duplicate text. Do NOT add any border or outline around the white pill.\n\nDO NOT RENDER:\n- No Instagram UI (no progress bars, profile pics, usernames, send bar, hearts)\n- No borders or outlines around the text sticker\n- No second copy of the text\n- Just the photo with one clean white text sticker on top.` : '';
@@ -1365,13 +1378,13 @@ export default function AiCeo() {
                     const allowedMime = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
                     if (result.image && allowedMime.includes(result.image.mimeType)) {
                       const src = `data:${result.image.mimeType};base64,${result.image.data}`;
-                      setArtifact(prev => prev ? { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, imageSrc: src, loading: false } : f) } : prev);
+                      patchFrame(idx, { imageSrc: src, loading: false, error: false });
                     } else {
-                      setArtifact(prev => prev ? { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, loading: false, error: true } : f) } : prev);
+                      patchFrame(idx, { loading: false, error: true });
                     }
                   } catch (err) {
                     console.error(`Story frame ${idx + 1} failed:`, err.message);
-                    setArtifact(prev => prev ? { ...prev, frames: prev.frames.map((f, i) => i === idx ? { ...f, loading: false, error: true } : f) } : prev);
+                    patchFrame(idx, { loading: false, error: true });
                   }
                 }));
                 // All frames have settled (success or error). Snapshot the
@@ -1617,6 +1630,15 @@ export default function AiCeo() {
                 }
               }
             }
+            // Inverse guard: a real HTML document mis-typed as
+            // markdown_doc/code_block renders as raw source code. Reroute
+            // to html_template so the iframe renders the page (founder
+            // report 2026-07-24: landing pages showing code).
+            if ((effectiveType === 'markdown_doc' || effectiveType === 'code_block') && args.content
+                && /<(?:!doctype|html|body|head)\b/i.test(args.content)) {
+              console.warn(`[AiCeo] create_artifact type=${args.type} but content IS an HTML document — rerouting to html_template`);
+              effectiveType = 'html_template';
+            }
             const newArt = {
               id: Date.now(),
               type: effectiveType,
@@ -1726,29 +1748,14 @@ export default function AiCeo() {
               console.warn(`[AiCeo] plan_carousel: platform missing from args, fell back to "${platform}"`);
             }
             console.log(`[AiCeo] plan_carousel platform: ${platform} (from args=${argsPlat || 'missing'})`);
-            const initialArt = {
-              id: Date.now(),
-              type: 'content_post',
-              title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel plan`,
-              content: plan.caption,
-              images: [],
-              // Zero pending until the user approves — the plan card
-              // renders, no spinner runs. On approve, we'll flip these.
-              pendingImages: 0,
-              totalSlides: plan.slides.length,
-              carouselPlan: plan,
-              agentSource: platform,
-              streaming: false,
-              // Stash the message id so handleApproveCarousel can commit
-              // the finished artifact to the right chat card at the end.
-              _assistantMsgId: assistantMsgId,
-            };
-            setArtifact(initialArt);
-            setPanelOpen(true);
-            if (isMobileRef.current) setMobileArtifactOpen(true);
+            // The PLAN lives in CHAT, not the canvas (founder, 2026-07-24:
+            // a plan is not a final output — the canvas is for final
+            // previews only). Stamp it on the assistant message; the chat
+            // renders the same CarouselPlanCard /Content uses. The canvas
+            // opens on APPROVE, when the real slides start generating.
             setMessages(prev => prev.map(m =>
               m.id === assistantMsgId
-                ? { ...m, hasArtifact: true, artifactTitle: initialArt.title, artifactType: 'content_post' }
+                ? { ...m, carouselPlan: plan, carouselPlatform: platform }
                 : m
             ));
           }
@@ -2185,23 +2192,44 @@ export default function AiCeo() {
   // then loops through slides with the shared buildCarouselSlidePrompt.
   // Sequential to keep API concurrency polite and give the progress
   // banner clean "1/N, 2/N, ..." updates.
-  const handleApproveCarousel = useCallback(() => {
-    const current = artifactRef.current;
-    const plan = current?.carouselPlan;
+  const handleApproveCarousel = useCallback((msgId) => {
+    // The plan lives on the CHAT message now (founder 2026-07-24: plans
+    // render in chat, canvas = final previews only). Approve reads it off
+    // the message, opens the canvas, and streams the real slides there.
+    let planMsg = null;
+    setMessages((prev) => { planMsg = prev.find((m) => m.id === msgId); return prev; });
+    const plan = planMsg?.carouselPlan;
     if (!plan || plan.approved) return;
     const slides = plan.slides || [];
     if (slides.length === 0) return;
-    const platform = current.agentSource === 'linkedin' ? 'linkedin' : 'instagram';
+    const platform = planMsg.carouselPlatform === 'linkedin' ? 'linkedin' : 'instagram';
     const brandName = brandDna?.brand_name || user?.name || '';
-    const assistantMsgId = current._assistantMsgId || null;
+    const assistantMsgId = msgId;
 
-    setArtifact((prev) => prev ? {
-      ...prev,
-      title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel: ${plan.hook.slice(0, 60)}`,
+    const mirrorPlan = (patch) => setMessages((prev) => prev.map((m) =>
+      m.id === msgId && m.carouselPlan ? { ...m, carouselPlan: { ...m.carouselPlan, ...patch } } : m
+    ));
+    mirrorPlan({ approved: true, generating: true, failedSlides: [] });
+
+    const art = {
+      id: Date.now(),
+      type: 'content_post',
+      title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel: ${(plan.hook || '').slice(0, 60)}`,
+      content: plan.caption || '',
+      images: [],
+      totalSlides: slides.length,
       pendingImages: slides.length,
       streaming: true,
-      carouselPlan: { ...prev.carouselPlan, approved: true, generating: true, failedSlides: [] },
-    } : prev);
+      carouselPlan: { ...plan, approved: true, generating: true, failedSlides: [] },
+      agentSource: platform,
+      _assistantMsgId: msgId,
+    };
+    setArtifact(art);
+    setPanelOpen(true);
+    if (isMobileRef.current) setMobileArtifactOpen(true);
+    setMessages((prev) => prev.map((m) =>
+      m.id === msgId ? { ...m, hasArtifact: true, artifactTitle: art.title, artifactType: 'content_post' } : m
+    ));
 
     (async () => {
       // Server-side carousel rendering (Phase 2): the backend renders the
@@ -2246,6 +2274,7 @@ export default function AiCeo() {
       // end up in images OR failedSlides — an interrupted run emits
       // neither for slides it never reached, which used to strand them
       // as forever-spinners with no retry.
+      let finalFailed = [];
       setArtifact((prev) => {
         if (!prev) return prev;
         const presentIdx = new Set((prev.images || []).map((im) => im.idx));
@@ -2255,6 +2284,7 @@ export default function AiCeo() {
           if (!presentIdx.has(i) && !failedSet.has(i)) recovered.push(i);
         }
         if (recovered.length) console.warn(`[AiCeo] carousel sweep recovered missing slides: ${recovered.map((i) => i + 1).join(', ')}`);
+        finalFailed = [...failedSet, ...recovered].sort((a, b) => a - b);
         return {
           ...prev,
           streaming: false,
@@ -2262,10 +2292,12 @@ export default function AiCeo() {
           carouselPlan: prev.carouselPlan ? {
             ...prev.carouselPlan,
             generating: false,
-            failedSlides: [...failedSet, ...recovered].sort((a, b) => a - b),
+            failedSlides: finalFailed,
           } : prev.carouselPlan,
         };
       });
+      // Chat plan card leaves "Generating..." and shows retry if needed.
+      mirrorPlan({ generating: false, failedSlides: finalFailed });
       if (assistantMsgId) commitOwnedArtifact(assistantMsgId);
     })();
   }, [brandDna, user, commitOwnedArtifact]);
@@ -2273,19 +2305,69 @@ export default function AiCeo() {
   // Unified-path plan editing (Phase 3): the shared CarouselPlanCard lets
   // the user edit slides/palette/caption BEFORE approval — mirror the
   // updated plan straight onto the artifact.
-  const handleUpdateCarouselPlan = useCallback((nextPlan) => {
-    setArtifact((prev) => {
-      if (!prev?.carouselPlan || prev.carouselPlan.approved) return prev;
-      return { ...prev, carouselPlan: { ...prev.carouselPlan, ...nextPlan } };
-    });
+  const handleUpdateCarouselPlan = useCallback((msgId, nextPlan) => {
+    setMessages((prev) => prev.map((m) =>
+      m.id === msgId && m.carouselPlan && !m.carouselPlan.approved
+        ? { ...m, carouselPlan: { ...m.carouselPlan, ...nextPlan } }
+        : m
+    ));
   }, []);
 
   // Unified-path failed-slide retry (Phase 3): re-fire only the failed
   // indexes through the server-side carousel renderer, anchored to an
   // existing successful slide for visual cohesion — same semantics as
   // /Content's handleRetryFailedSlides.
-  const handleRetryFailedCarouselSlides = useCallback(async () => {
+  // Retry one failed story frame in the OPEN story artifact — rebuilds
+  // the same cohesive sequence prompt (visual_style + frame image_prompt)
+  // the original run used. Story sequences finally get a recovery path
+  // (founder 2026-07-24: story sequence almost broken / view-only).
+  const handleRetryStoryFrame = useCallback(async (frameIdx) => {
     const current = artifactRef.current;
+    if (current?.type !== 'story_sequence' || !Array.isArray(current.frames)) return;
+    const frame = current.frames[frameIdx];
+    if (!frame?.image_prompt) return;
+    const storyArtId = current.id;
+    let visualStyle = '';
+    try { visualStyle = JSON.parse(current.content || '{}').visual_style || ''; } catch { /* no style */ }
+    const patchFrame = (patch) => setArtifact(prev => (
+      prev && prev.id === storyArtId && Array.isArray(prev.frames)
+        ? { ...prev, frames: prev.frames.map((f, i) => i === frameIdx ? { ...f, ...patch } : f) }
+        : prev
+    ));
+    patchFrame({ loading: true, error: false });
+    const captionText = frame.caption || frame.title || '';
+    const captionInstruction = captionText ? `\n\nTEXT OVERLAY  -  ONE text sticker: "${captionText}" in pure black bold sans-serif on a flat solid white rounded rectangle, centered horizontally in the upper third. ONE sticker only, no borders, no duplicates.` : '';
+    const sequencePrompt = `${visualStyle ? `VISUAL STYLE FOR THIS SERIES: ${visualStyle}\n\n` : ''}This is frame ${frameIdx + 1} of ${current.frames.length} in a cohesive Instagram Story sequence. Follow the visual style exactly so all frames feel like ONE continuous story.\n\nIMPORTANT: Generate ONLY the photo/image content. Do NOT render any Instagram UI. Just the raw image with the text sticker overlay.\n\n${frame.image_prompt}${captionInstruction}`;
+    try {
+      const result = await generateImage(sequencePrompt, 'instagram_story', null);
+      if (result?.image?.data) {
+        patchFrame({ imageSrc: `data:${result.image.mimeType};base64,${result.image.data}`, loading: false, error: false });
+        const msgId = current._assistantMsgId || selectedMsgId;
+        if (msgId) commitOwnedArtifact(msgId);
+      } else {
+        patchFrame({ loading: false, error: true });
+      }
+    } catch (err) {
+      console.error(`[AiCeo] story frame ${frameIdx + 1} retry failed:`, err?.message);
+      patchFrame({ loading: false, error: true });
+    }
+  }, [commitOwnedArtifact, selectedMsgId]);
+
+  const handleRetryFailedCarouselSlides = useCallback(async (msgId = null) => {
+    // Called from the chat plan card (with msgId) or the canvas retry
+    // banner (without). If the canvas currently shows something else,
+    // restore this carousel's artifact from its message snapshot first.
+    let current = artifactRef.current;
+    if (msgId && current?._assistantMsgId !== msgId) {
+      let snap = null;
+      setMessages((prev) => { snap = prev.find((m) => m.id === msgId)?.artifact || null; return prev; });
+      if (snap?.carouselPlan) {
+        current = { ...snap, _assistantMsgId: msgId };
+        setArtifact(current);
+        setPanelOpen(true);
+      }
+    }
+    const targetMsgId = msgId || current?._assistantMsgId || null;
     const plan = current?.carouselPlan;
     const failed = plan?.failedSlides || [];
     if (!plan || failed.length === 0) return;
@@ -2339,14 +2421,27 @@ export default function AiCeo() {
       else console.error('[AiCeo] server-side carousel retry failed:', err);
     } finally {
       carouselAbortRef.current = null;
-      setArtifact((prev) => prev ? {
-        ...prev,
-        pendingImages: 0,
-        streaming: false,
-        carouselPlan: prev.carouselPlan ? { ...prev.carouselPlan, generating: false } : prev.carouselPlan,
-      } : prev);
+      let finalFailed = [];
+      setArtifact((prev) => {
+        if (!prev) return prev;
+        finalFailed = prev.carouselPlan?.failedSlides || [];
+        return {
+          ...prev,
+          pendingImages: 0,
+          streaming: false,
+          carouselPlan: prev.carouselPlan ? { ...prev.carouselPlan, generating: false } : prev.carouselPlan,
+        };
+      });
+      if (targetMsgId) {
+        setMessages((prev) => prev.map((m) =>
+          m.id === targetMsgId && m.carouselPlan
+            ? { ...m, carouselPlan: { ...m.carouselPlan, generating: false, failedSlides: finalFailed } }
+            : m
+        ));
+        commitOwnedArtifact(targetMsgId);
+      }
     }
-  }, [brandDna, user]);
+  }, [brandDna, user, commitOwnedArtifact]);
   // ── In-chat content plan: sequential batch runner ──
   // Generates every pending plan item ONE AT A TIME (never parallel) via
   // POST /api/orchestrate/plan-item, then runs any needed image generation
@@ -3319,6 +3414,15 @@ export default function AiCeo() {
                             <span className="ceo-artifact-card-open">Open</span>
                           </div>
                         )}
+                        {msg.carouselPlan && (
+                          <CarouselPlanCard
+                            plan={msg.carouselPlan}
+                            onApprove={() => handleApproveCarousel(msg.id)}
+                            onRetryFailed={() => handleRetryFailedCarouselSlides(msg.id)}
+                            onUpdatePlan={(next) => handleUpdateCarouselPlan(msg.id, next)}
+                            onStop={handleStopCarouselGeneration}
+                          />
+                        )}
                         {msg.contentPlan && (
                           <ContentPlanMessage
                             plan={msg.contentPlan}
@@ -3652,6 +3756,7 @@ export default function AiCeo() {
               onUpdateCarouselPlan={handleUpdateCarouselPlan}
               onRetryFailedSlides={handleRetryFailedCarouselSlides}
               onStopCarousel={handleStopCarouselGeneration}
+              onRetryStoryFrame={handleRetryStoryFrame}
               sessionId={sessionId}
             />
           </div>
@@ -3685,6 +3790,7 @@ export default function AiCeo() {
             onUpdateCarouselPlan={handleUpdateCarouselPlan}
             onRetryFailedSlides={handleRetryFailedCarouselSlides}
             onStopCarousel={handleStopCarouselGeneration}
+            onRetryStoryFrame={handleRetryStoryFrame}
           />
         </div>
       )}

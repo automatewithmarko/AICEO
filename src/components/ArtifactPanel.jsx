@@ -3,7 +3,6 @@ import { X, Copy, Send, Check, Mail, Code, FileText, PenTool, ChevronLeft, Rocke
 import SocialPreview from './SocialPreview';
 import LinkedInPreview from './LinkedInPreview';
 import CanvasActionsBar from './CanvasActionsBar';
-import CarouselPlanCard from './social-canvas/CarouselPlanCard';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
@@ -15,7 +14,7 @@ import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, onApproveCarousel = null, onEditCarouselSlide = null, onRegenerateCarouselSlide = null, onDeleteCarouselSlide = null, onUpdateCarouselPlan = null, onRetryFailedSlides = null, onStopCarousel = null, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, onEditCarouselSlide = null, onRegenerateCarouselSlide = null, onDeleteCarouselSlide = null, onRetryFailedSlides = null, onRetryStoryFrame = null, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
@@ -782,7 +781,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
             {type === 'email' && <EmailRenderer content={content} />}
             {type === 'newsletter' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
             {type === 'html_template' && <HtmlRenderer content={htmlContent || content} iframeRef={iframeRef} editMapRef={editMapRef} skipIframeWriteRef={skipIframeWriteRef} />}
-            {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} />}
+            {type === 'story_sequence' && <StorySequenceRenderer frames={artifact.frames || []} onRetryFrame={onRetryStoryFrame} />}
             {type === 'content_post' && (() => {
               // Pre-plan "AI is building the plan" state — Sonnet takes
               // 15-30s to stream a plan_carousel tool call, so AiCeo
@@ -822,28 +821,11 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                 );
               }
 
-              // Carousel two-step flow: plan_carousel tool call lands here
-              // with carouselPlan.approved === false. Show the plan card
-              // for user approval; only after Approve is clicked do we
-              // flip approved=true and start the per-slide image gen loop
-              // (handled by AiCeo.jsx handleApproveCarousel).
+              // Carousel plans render in CHAT since 2026-07-24 (a plan is
+              // not a final output — the canvas is for final previews
+              // only). An unapproved plan therefore never draws here; the
+              // canvas takes over at approval, when real slides stream in.
               const carouselPlan = artifact.carouselPlan;
-              const awaitingApproval = !!(carouselPlan && carouselPlan.slides?.length > 0 && !carouselPlan.approved);
-              if (awaitingApproval) {
-                // The shared rich plan editor (same component /Content
-                // uses): per-slide text editing, insert/delete/reorder,
-                // palette editing, caption editing, and the saved
-                // design-system template picker.
-                return (
-                  <CarouselPlanCard
-                    plan={carouselPlan}
-                    onApprove={() => onApproveCarousel && onApproveCarousel()}
-                    onRetryFailed={() => onRetryFailedSlides && onRetryFailedSlides()}
-                    onUpdatePlan={onUpdateCarouselPlan}
-                    onStop={onStopCarousel}
-                  />
-                );
-              }
 
               // Post-approval failed-slide retry row. The server marks
               // failed indexes on carouselPlan.failedSlides; this surfaces
@@ -1415,8 +1397,14 @@ function HtmlRenderer({ content, iframeRef, editMapRef, skipIframeWriteRef }) {
 
     if (content) {
       const needsShimmer = content.includes('{{GENERATE:') || content.includes('{{COVER_IMAGE_PLACEHOLDER}}');
+      // Strip markdown code fences the model sometimes wraps HTML in
+      // (```html … ```) — writing them verbatim renders literal backtick
+      // text above the page (founder report 2026-07-24).
+      const unfenced = content
+        .replace(/^\s*```(?:html)?\s*\n?/i, '')
+        .replace(/\n?```\s*$/i, '');
       // Inject edit IDs for inline text editing
-      let displayHtml = replaceGeneratePlaceholders(content);
+      let displayHtml = replaceGeneratePlaceholders(unfenced);
       const { taggedHtml, editMap } = injectEditIds(displayHtml);
       if (editMapRef) editMapRef.current = editMap;
 
@@ -1765,7 +1753,7 @@ function MarkdownRenderer({ content, onContentChange }) {
   );
 }
 
-function StorySequenceRenderer({ frames }) {
+function StorySequenceRenderer({ frames, onRetryFrame = null }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const timerRef = useRef(null);
@@ -1855,6 +1843,15 @@ function StorySequenceRenderer({ frames }) {
             <div className="ap-story-frame-empty" style={{ background: '#1a1a1a' }}>
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
               <span style={{ color: '#ef4444', fontSize: 12, marginTop: 8, fontWeight: 500 }}>Failed to generate</span>
+              {onRetryFrame && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onRetryFrame(activeIndex); }}
+                  style={{ marginTop: 10, padding: '6px 16px', borderRadius: 50, border: '1px solid rgba(255,255,255,0.25)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Regenerate frame
+                </button>
+              )}
             </div>
           ) : (
             <div className="ap-story-frame-empty">
