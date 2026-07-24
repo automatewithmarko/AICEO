@@ -890,6 +890,26 @@ export default function Content() {
   const [planCanvasHtml, setPlanCanvasHtml] = useState(null);
   const [planCanvasMsgId, setPlanCanvasMsgId] = useState(null);
   const [searchStatus, setSearchStatus] = useState(null);
+  // Rotating engagement labels while a long tool-arg stream runs (founder
+  // feedback #3: keep the user engaged during plan generation — and show
+  // ONE status node, never thinking + status stacked).
+  const [statusTick, setStatusTick] = useState(0);
+  useEffect(() => {
+    if (!searchStatus || ['searching', 'writing'].includes(searchStatus)) return undefined;
+    const t = setInterval(() => setStatusTick((x) => x + 1), 2400);
+    return () => clearInterval(t);
+  }, [searchStatus]);
+  const displayStatus = (st) => {
+    if (/carousel plan/i.test(st || '')) {
+      const labels = ['Planning your carousel', 'Drafting the hook', 'Writing slide headlines', 'Locking brand colors + typography', 'Writing your caption'];
+      return labels[statusTick % labels.length];
+    }
+    if (/content plan/i.test(st || '')) {
+      const labels = ['Building your content plan', 'Mapping the week', 'Rotating formats + angles', 'Writing hooks'];
+      return labels[statusTick % labels.length];
+    }
+    return st;
+  };
   const [contentCtxMenuOpen, setContentCtxMenuOpen] = useState(false);
   const [contentHoveredCat, setContentHoveredCat] = useState(null);
   const [currentQuestion, setCurrentQuestion] = useState(null);
@@ -4734,6 +4754,8 @@ export default function Content() {
                               <><Search size={14} /> Searching the web<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
                             ) : searchStatus === 'writing' ? (
                               <><PenLine size={14} /> Writing response<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
+                            ) : searchStatus ? (
+                              <><PenLine size={14} /> {displayStatus(searchStatus)}<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
                             ) : (
                               <>thinking<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
                             )
@@ -5175,12 +5197,12 @@ export default function Content() {
                   emits these as SSE status events (handler.js
                   onToolStart). The 'searching'/'writing' enums belong to
                   the legacy thinking indicator above, not here. */}
-              {isGenerating && searchStatus && !['searching', 'writing'].includes(searchStatus) && (
+              {isGenerating && searchStatus && !['searching', 'writing'].includes(searchStatus) && messages.some((m) => m.id === activeAssistantId && (m.content || m.carouselPlan || m.contentPlan)) && (
                 <div className="content-assistant-row">
                   <img src="/favicon.png" alt="" className="content-assistant-avatar" />
                   <div className="content-thinking">
                     <span className="content-thinking-text">
-                      <PenLine size={14} /> {searchStatus}<span className="content-dots"><span>.</span><span>.</span><span>.</span></span>
+                      <PenLine size={14} /> {displayStatus(searchStatus)}<span className="content-dots"><span>.</span><span>.</span><span>.</span></span>
                     </span>
                   </div>
                 </div>

@@ -57,6 +57,7 @@ import {
 import { CREATE_CONTENT_PLAN_TOOL } from '../content-plan-tool.js';
 import { buildPlanModeDirective } from './plan-mode.js';
 import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE, scrubScriptLabels } from './video-script-guide.js';
+import { scrubAiDashes, scrubCarouselPlanDashes } from './claude-protocol.js';
 import { applyCuratedTemplateToPlanArgs } from './curated-carousel-templates.js';
 
 export async function handleContentOrchestration({ res, sendSSE, body, userId, abortSignal = null }) {
@@ -142,7 +143,7 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
           let args;
           try { args = JSON.parse(call.arguments); } catch { args = {}; }
           if (args.post_text) {
-            submitted = String(args.post_text).trim();
+            submitted = scrubAiDashes(String(args.post_text).trim());
             sendSSE(res, { type: 'text_delta', content: submitted });
           }
         }
@@ -269,6 +270,9 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
   // text and stay byte-compatible.
   let lastContent = '';
   let questionEmitted = false;
+  let imageCallCount = 0;
+  let captionDelivered = false;
+  let otherDeliverable = false;
   const appendToStream = (chunk) => {
     lastContent = lastContent ? `${lastContent}\n\n${chunk}` : chunk;
     sendSSE(res, { type: 'text_delta', content: lastContent });
@@ -311,6 +315,9 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
         let args;
         try { args = JSON.parse(call.arguments); } catch { args = {}; }
 
+        if (call.name === 'generate_image') imageCallCount += 1;
+        if (call.name === 'submit_text_post') captionDelivered = true;
+        if (call.name === 'plan_carousel' || call.name === 'create_content_plan' || call.name === 'submit_script' || call.name === 'generate_linkedin_post') otherDeliverable = true;
         if (call.name === 'generate_image' || call.name === 'plan_carousel' || call.name === 'create_content_plan' || call.name === 'submit_script' || call.name === 'submit_text_post') {
           // Executed on the frontend (Phase 1) — relay like ceo mode does.
           if (call.name === 'submit_script' && args.script) {
@@ -318,7 +325,11 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
             // reach the user even when the model ignores the prompt ban.
             args.script = scrubScriptLabels(args.script);
           }
+          if (call.name === 'submit_text_post' && args.caption) {
+            args.caption = scrubAiDashes(args.caption);
+          }
           if (call.name === 'plan_carousel') {
+            scrubCarouselPlanDashes(args);
             // Deterministic curated-template enforcement: the sidebar
             // selection (curatedId) wins, then a model-set templateId,
             // then the user's stored default — never dependent on the
@@ -366,4 +377,45 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
       }
     },
   });
+
+  // FORCED CAPTION PASS (founder, critical, 2026-07-24 feedback #3): a
+  // single-image post whose turn ended with generate_image but NO
+  // submit_text_post leaves the canvas caption empty — the model's chat
+  // text is just the hand-off sentence by protocol, so there is nothing
+  // to promote. Instead of hoping, run one pinned submit_text_post call
+  // (mirror of the LinkedIn forced submit_post pass). Single images only:
+  // carousels carry their caption in the plan, stories (2+ images) have
+  // no caption surface, questions mean the turn isn't a deliverable yet.
+  if (imageCallCount === 1 && !captionDelivered && !otherDeliverable && !questionEmitted && !isLinkedin && !planMode) {
+    console.log('[content-orchestrate] image post with no submit_text_post — running forced caption pass');
+    sendSSE(res, { type: 'status', text: 'Writing your caption…' });
+    try {
+      await executeCeoOrchestrator({
+        systemPrompt,
+        messages: [...messages, {
+          role: 'user',
+          content: 'Deliver the final ready-to-post caption for the image post you just created, following every caption rule in the system prompt (hook first line, real substance, CTA — a full post, not a hand-off sentence). Call submit_text_post now with ONLY the caption.',
+        }],
+        tools: [SUBMIT_TEXT_POST_TOOL],
+        toolChoice: { type: 'function', function: { name: 'submit_text_post' } },
+        planMode: true,
+        searchMode: false,
+        abortSignal,
+        onChunk: () => {},
+        onToolCalls: async (toolCalls) => {
+          for (const call of toolCalls) {
+            if (call.name !== 'submit_text_post') continue;
+            let args;
+            try { args = JSON.parse(call.arguments); } catch { args = {}; }
+            if (args.caption) {
+              args.caption = scrubAiDashes(args.caption);
+              sendSSE(res, { type: 'tool_call', name: 'submit_text_post', arguments: args });
+            }
+          }
+        },
+      });
+    } catch (err) {
+      console.warn(`[content-orchestrate] forced caption pass failed: ${err.message}`);
+    }
+  }
 }

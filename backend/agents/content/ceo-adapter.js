@@ -18,6 +18,7 @@ import { buildLinkedInPostSystemPrompt } from './second-pass-prompts.js';
 import { SUBMIT_POST_TOOL, GENERATE_LINKEDIN_POST_TOOL, SUBMIT_POST_ADDENDUM } from './claude-protocol.js';
 import { LINKEDIN_CAROUSEL_PROMPT } from './linkedin-prompts.js';
 import { LINKEDIN_CAROUSEL_CAPTION_PARAM, LINKEDIN_CAPTION_STANDARD_BLOCK, LINKEDIN_SLIDE_BODY_STANDARD_BLOCK } from './build-system-prompt.js';
+import { scrubAiDashes } from './claude-protocol.js';
 import { CURATED_CAROUSEL_TEMPLATES } from './curated-carousel-templates.js';
 
 export { GENERATE_LINKEDIN_POST_TOOL };
@@ -107,11 +108,11 @@ export async function runLinkedInTextPostPass({ messages, variation = 'A', userN
     },
   });
 
-  if (submitted) return submitted;
+  if (submitted) return scrubAiDashes(submitted);
   const fallback = (result?.content || '').trim();
   if (fallback) {
     console.warn(`[ceo-adapter] linkedin post pass: no submit_post call — using raw text fallback (${fallback.length} chars)`);
-    return fallback;
+    return scrubAiDashes(fallback);
   }
   return null;
 }
