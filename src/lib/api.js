@@ -1404,18 +1404,31 @@ export async function getBoosendAutomation(id) {
   return res.json();
 }
 
-export async function updateBoosendAutomation(id, { nodes, edges, viewport }) {
+export async function updateBoosendAutomation(id, { nodes, edges, viewport, name }) {
   const headers = await getAuthHeaders();
+  const body = { nodes, edges, viewport };
+  if (name !== undefined) body.name = name;
   const res = await fetch(`${API_URL}/api/boosend/automations/${id}`, {
     method: 'PUT',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nodes, edges, viewport }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Failed to update automation' }));
     throw new Error(err.error || 'Failed to update automation');
   }
   return res.json();
+}
+
+export async function suggestBoosendAutomationName({ summary, trigger }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/boosend/agent/name`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ summary, trigger }),
+  });
+  if (!res.ok) throw new Error('Failed to suggest name');
+  return res.json(); // { name }
 }
 
 export async function activateBoosendAutomation(id) {

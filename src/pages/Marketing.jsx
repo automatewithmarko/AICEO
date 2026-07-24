@@ -6,9 +6,10 @@ import { useChatFileDropZone } from '../hooks/useChatFileDropZone';
 import { ReactFlow, Background, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { supabase } from '../lib/supabase';
-import { generateImage, uploadImageToStorage, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate, getBoosendAutomation, createBoosendAutomation, updateBoosendAutomation, activateBoosendAutomation, getInstagramAccounts, streamBoosendAgentBuild, createCalendarPost, publishCalendarPost, uploadContextFiles } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getEmailAccounts, getContacts, sendEmailApi, getTemplates, getTemplate, saveTemplate, deleteTemplate, getEmails, getSalesCalls, getProducts, getContentItems, getBoosendTemplates, getBoosendTemplate, getBoosendAutomation, createBoosendAutomation, updateBoosendAutomation, activateBoosendAutomation, getInstagramAccounts, streamBoosendAgentBuild, suggestBoosendAutomationName, createCalendarPost, publishCalendarPost, uploadContextFiles } from '../lib/api';
 import { generateImageWithRetry, removeFailedImagePlaceholder } from '../lib/imageRetry';
-import AutomationGraph from '../components/AutomationGraph';
+import BuilderCanvas from '../components/dm-builder/BuilderCanvas';
+import { autoLayoutGraph } from '../components/dm-builder/autoLayout';
 import DmAutomationList from '../components/DmAutomationList';
 import NetlifyDeployButton from '../components/NetlifyDeployButton';
 import { injectEditIds, applyTextEdit } from '../lib/editableHtml';
@@ -635,10 +636,15 @@ const DEFAULT_DM_NODES = [
   },
 ];
 
-function DmFlowView({ graphData }) {
-  const nodes = graphData?.nodes?.length ? graphData.nodes : DEFAULT_DM_NODES;
-  const edges = graphData?.edges || [];
-  return <AutomationGraph nodes={nodes} edges={edges} />;
+function DmFlowView({ graphData, builderRef }) {
+  // BooSend-style ReactFlow canvas (ported node components). builderRef
+  // exposes getGraph() so publish/edit flows read live positions + inline
+  // edits, not just the last AI build.
+  const graph = useMemo(() => ({
+    nodes: graphData?.nodes?.length ? graphData.nodes : DEFAULT_DM_NODES,
+    edges: graphData?.edges || [],
+  }), [graphData]);
+  return <BuilderCanvas ref={builderRef} graph={graph} />;
 }
 
 // ── Legacy static DM flow for fallback ──
@@ -1372,6 +1378,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
   const [bsTemplates, setBsTemplates] = useState([]);
   const [bsTemplatesLoading, setBsTemplatesLoading] = useState(false);
   const [dmGraphData, setDmGraphData] = useState(null); // { nodes, edges }
+  const dmBuilderRef = useRef(null); // BuilderCanvas handle — getGraph() returns the live edited graph
   const [dmSelectedAutomation, setDmSelectedAutomation] = useState(null); // null = show list, object = show chat+canvas
   const [dmSessionContext, setDmSessionContext] = useState(null); // multi-turn agent context
   const [dmAccount, setDmAccount] = useState(null); // selected Instagram account for DM automation
@@ -2295,7 +2302,9 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
     if (activeTool === 'dm') {
       try {
         setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-status`, role: 'assistant', text: 'Building your automation...', isStatus: true }]);
-        const currentGraph = dmGraphData || { nodes: [], edges: [] };
+        // Prefer the live canvas graph (user drags/edits/deletions) over the
+        // last AI build so v3 edits what the user actually sees.
+        const currentGraph = dmBuilderRef.current?.getGraph() || dmGraphData || { nodes: [], edges: [] };
         // Prepend brand context so the agent knows the business
         let agentMessage = text.trim();
         if (brandDna && !dmSessionContext) {
@@ -2344,10 +2353,31 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
             } else if (finalData?.type === 'followup' && finalData?.question) {
               setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-q`, role: 'assistant', text: finalData.question }]);
             } else if (finalData?.type === 'build' && finalData?.graph?.nodes) {
-              const nodes = finalData.graph.nodes || [];
+              // BooSend runs autoLayoutGraph on every AI build — v3's LLM
+              // positions are unreliable (missing or piled up). Existing
+              // automations selected from the list keep their positions.
               const edges = finalData.graph.edges || [];
+              const nodes = autoLayoutGraph(finalData.graph.nodes || [], edges);
               setDmGraphData({ nodes, edges });
               const summary = finalData.summary || `Built automation with ${nodes.length} nodes!`;
+              // Auto-name a brand-new automation from its first build (user
+              // can rename in the back bar). Fire-and-forget; the guard in
+              // the setter keeps a user-typed name from being overwritten.
+              if (dmSelectedAutomation?._new && !dmSelectedAutomation.id
+                  && (!dmSelectedAutomation.name || dmSelectedAutomation.name === 'New Automation')) {
+                const tc = nodes.find((n) => n.type === 'trigger')?.data?.triggerConditions?.[0];
+                const kw = tc && (tc.keywords || tc.commentKeywords || tc.storyReplyKeywords || tc.liveCommentKeywords || tc.telegramKeywords);
+                const trigger = tc ? `${tc.type || 'trigger'}${Array.isArray(kw) && kw.length ? ` "${kw.join('", "')}"` : ''}` : '';
+                suggestBoosendAutomationName({ summary: finalData.summary || '', trigger })
+                  .then(({ name }) => {
+                    if (!name) return;
+                    setDmSelectedAutomation((cur) => {
+                      const stillDefault = cur && cur._new && !cur.id && (!cur.name || cur.name === 'New Automation');
+                      return stillDefault ? { ...cur, name } : cur;
+                    });
+                  })
+                  .catch(() => {});
+              }
               setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-done`, role: 'assistant', text: summary }]);
             } else {
               setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-fallback`, role: 'assistant', text: 'Could you tell me more about what automation you want to build?' }]);
@@ -3181,8 +3211,41 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
   const [publishingToBoosend, setPublishingToBoosend] = useState(false);
   const isExistingAutomation = dmSelectedAutomation && !dmSelectedAutomation._new && dmSelectedAutomation.id;
 
+  // Republish tracking: snapshot of the graph as last published to BooSend.
+  // Node components mutate their data in place (BooSend convention), which
+  // fires no React events — so a light poll compares the live canvas against
+  // the snapshot and flips the button to "Republish" when they differ.
+  // Republish tracking (GRAPH ONLY — renames sync to BooSend on their own,
+  // see commitDmName): snapshot of the graph as last published. Node
+  // components mutate their data in place (BooSend convention), which fires
+  // no React events — so a light poll compares the live canvas against the
+  // snapshot and flips the button to "Republish" when they differ. The user
+  // republishes manually; nothing else is pushed automatically.
+  const publishedSnapshotRef = useRef(null);
+  const [dmGraphDirty, setDmGraphDirty] = useState(false);
+
+  useEffect(() => {
+    if (activeTool !== 'dm' || !isExistingAutomation) return undefined;
+    const iv = setInterval(() => {
+      const g = dmBuilderRef.current?.getGraph();
+      if (!g || !g.nodes.length) return;
+      const now = JSON.stringify(g);
+      if (publishedSnapshotRef.current == null) {
+        // Baseline for automations opened from the list — they already live
+        // in BooSend exactly as first rendered.
+        publishedSnapshotRef.current = now;
+        return;
+      }
+      setDmGraphDirty(now !== publishedSnapshotRef.current);
+    }, 1500);
+    return () => clearInterval(iv);
+  }, [activeTool, isExistingAutomation]);
+
   const handlePublishInBoosend = async () => {
-    if (!dmGraphData?.nodes?.length) {
+    // Live canvas graph carries the user's drags, inline edits, and
+    // deletions; dmGraphData only has the last AI build / selection.
+    const liveGraph = dmBuilderRef.current?.getGraph() || dmGraphData;
+    if (!liveGraph?.nodes?.length) {
       setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-bs`, role: 'assistant', text: 'Select a template or generate a DM automation first.' }]);
       return;
     }
@@ -3197,9 +3260,10 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
       if (isExistingAutomation) {
         // Update existing automation
         await updateBoosendAutomation(dmSelectedAutomation.id, {
-          nodes: dmGraphData.nodes,
-          edges: dmGraphData.edges || [],
+          nodes: liveGraph.nodes,
+          edges: liveGraph.edges || [],
           viewport: { x: 0, y: 0, zoom: 1 },
+          name: dmSelectedAutomation.name,
         });
         autoId = dmSelectedAutomation.id;
         autoName = dmSelectedAutomation.name || 'Automation';
@@ -3208,18 +3272,24 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
         const result = await createBoosendAutomation({
           name: dmSelectedAutomation?.name || `DM Automation ${new Date().toLocaleDateString()}`,
           instagram_account_id: dmAccount.id,
-          nodes: dmGraphData.nodes,
-          edges: dmGraphData.edges || [],
+          nodes: liveGraph.nodes,
+          edges: liveGraph.edges || [],
           viewport: { x: 0, y: 0, zoom: 1 },
         });
         autoId = result.automation?.id;
         autoName = result.automation?.name || 'Automation';
+        // Subsequent publishes must UPDATE this automation, not create a copy.
+        if (autoId) {
+          setDmSelectedAutomation((prev) => ({ ...(prev || {}), _new: false, id: autoId, name: autoName }));
+        }
       }
 
       // Compile and activate
       if (autoId) {
         try {
           await activateBoosendAutomation(autoId);
+          // Auto-sync consults status to decide whether to recompile live.
+          setDmSelectedAutomation((prev) => (prev ? { ...prev, status: 'active', isActive: true } : prev));
           const verb = isExistingAutomation ? 'Updated and reactivated' : 'Published and activated';
           setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-bs`, role: 'assistant', text: `"${autoName}" ${verb} on @${dmAccount.instagram_username || 'account'}.` }]);
         } catch (activateErr) {
@@ -3227,6 +3297,8 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
           const verb = isExistingAutomation ? 'updated' : 'published';
           setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-bs`, role: 'assistant', text: `"${autoName}" ${verb} on @${dmAccount.instagram_username || 'account'} but activation failed: ${activateErr.message}` }]);
         }
+        publishedSnapshotRef.current = JSON.stringify(liveGraph);
+        setDmGraphDirty(false);
       }
     } catch (err) {
       console.error('[Publish BooSend]', err);
@@ -3297,12 +3369,16 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
     setDmGraphData({ nodes: automation.nodes || [], edges: automation.edges || [] });
     setDmSelectedAutomation(automation);
     if (automation._account) setDmAccount(automation._account);
+    publishedSnapshotRef.current = null; // poll re-baselines from the canvas
+    setDmGraphDirty(false);
   };
 
   const handleDmBack = () => {
     setDmSelectedAutomation(null);
     setDmGraphData(null);
     setDmSessionContext(null);
+    publishedSnapshotRef.current = null;
+    setDmGraphDirty(false);
   };
 
   const handleDmCreateNew = (account) => {
@@ -3310,6 +3386,27 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
     setDmSessionContext(null);
     if (account) setDmAccount(account);
     setDmSelectedAutomation({ _new: true, name: 'New Automation', status: 'draft' });
+    publishedSnapshotRef.current = null;
+    setDmGraphDirty(false);
+  };
+
+  // ── Rename automation (back-bar inline edit) ──
+  const [dmNameEditing, setDmNameEditing] = useState(false);
+  const [dmNameDraft, setDmNameDraft] = useState('');
+  const commitDmName = () => {
+    setDmNameEditing(false);
+    const name = dmNameDraft.trim();
+    if (!name || name === dmSelectedAutomation?.name) return;
+    const prevName = dmSelectedAutomation?.name;
+    setDmSelectedAutomation((prev) => (prev ? { ...prev, name } : prev));
+    // Renames sync to BooSend immediately (name-only update, no graph, no
+    // recompile). Graph changes are the user's call via Republish.
+    if (isExistingAutomation && dmSelectedAutomation?.id) {
+      updateBoosendAutomation(dmSelectedAutomation.id, { name }).catch((err) => {
+        console.error('[DM rename]', err);
+        setDmSelectedAutomation((prev) => (prev ? { ...prev, name: prevName } : prev));
+      });
+    }
   };
 
   if (isDmListView) {
@@ -3328,7 +3425,35 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
       <div className="dma-back-bar" onClick={handleDmBack}>
         <ChevronLeft size={16} />
         <span>Back to Automations</span>
-        <span className="dma-back-name">{dmSelectedAutomation.name || 'Untitled'}</span>
+        {dmNameEditing ? (
+          <input
+            className="dma-back-name"
+            style={{ border: '1px solid #d1d5db', borderRadius: 6, padding: '2px 8px', font: 'inherit', outline: 'none', minWidth: 160 }}
+            value={dmNameDraft}
+            autoFocus
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setDmNameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitDmName();
+              if (e.key === 'Escape') setDmNameEditing(false);
+            }}
+            onBlur={commitDmName}
+          />
+        ) : (
+          <span
+            className="dma-back-name"
+            style={{ cursor: 'text', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            title="Click to rename"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDmNameDraft(dmSelectedAutomation.name || '');
+              setDmNameEditing(true);
+            }}
+          >
+            {dmSelectedAutomation.name || 'Untitled'}
+            <Pencil size={12} style={{ opacity: 0.5 }} />
+          </span>
+        )}
         {dmAccount && (
           <span className="dma-back-account">
             {dmAccount.profile_picture_url
@@ -3887,17 +4012,37 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
                     {storyScheduleStatus === 'published' ? 'Published ✓' : storyScheduleStatus === 'scheduled' ? 'Scheduled ✓' : storyScheduleStatus === 'saved' ? 'Saved ✓' : action.label}
                   </button>
                 ) : action.isPublishInBoosend ? (
-                  <button
-                    key={i}
-                    className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
-                    onClick={handlePublishInBoosend}
-                    disabled={publishingToBoosend || !dmGraphData?.nodes?.length}
-                  >
-                    {action.iconSrc && <img src={action.iconSrc} alt="" className="mkt-canvas-btn-icon" />}
-                    {publishingToBoosend
-                      ? (isExistingAutomation ? 'Updating...' : 'Publishing...')
-                      : (isExistingAutomation ? 'Update In BooSend' : action.label)}
-                  </button>
+                  <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    {isExistingAutomation && (
+                      <span
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
+                          background: dmGraphDirty ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+                          color: dmGraphDirty ? '#b45309' : '#15803d',
+                        }}
+                      >
+                        <span style={{
+                          width: 7, height: 7, borderRadius: '50%',
+                          background: dmGraphDirty ? '#f59e0b' : '#22c55e',
+                        }} />
+                        {dmGraphDirty ? 'Unpublished changes' : 'Live in BooSend'}
+                      </span>
+                    )}
+                    <button
+                      className={`mkt-canvas-btn mkt-canvas-btn--${action.style}`}
+                      onClick={handlePublishInBoosend}
+                      disabled={publishingToBoosend || !dmGraphData?.nodes?.length || (isExistingAutomation && !dmGraphDirty)}
+                      title={isExistingAutomation && !dmGraphDirty ? 'The published version matches the canvas' : undefined}
+                    >
+                      {action.iconSrc && <img src={action.iconSrc} alt="" className="mkt-canvas-btn-icon" />}
+                      {publishingToBoosend
+                        ? (isExistingAutomation ? 'Republishing...' : 'Publishing...')
+                        : isExistingAutomation
+                          ? (dmGraphDirty ? 'Republish' : 'Published ✓')
+                          : action.label}
+                    </button>
+                  </span>
                 ) : (
                   <button
                     key={i}
@@ -4021,7 +4166,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
           )}
           {config.canvasEmptyType === 'dm-flow' && (
             <div className="mkt-canvas-empty mkt-canvas-empty--dmflow">
-              <DmFlowView graphData={dmGraphData} />
+              <DmFlowView graphData={dmGraphData} builderRef={dmBuilderRef} />
             </div>
           )}
           {!canvasHtml && !config.canvasEmptyType && (

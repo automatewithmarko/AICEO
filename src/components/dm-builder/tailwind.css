@@ -1,0 +1,6 @@
+/* Tailwind for the DM builder only. Preflight is disabled in
+   tailwind.config.js, so `base` emits just the universal CSS-variable
+   defaults that shadow/ring/transform utilities depend on — no reset. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
