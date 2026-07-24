@@ -552,6 +552,10 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
       // this block used to print only "transcript available").
       const withTranscript = social.filter((i) => i.transcript);
       const withoutTranscript = social.filter((i) => !i.transcript);
+      // Founder-visible audit trail — same as [content-context] in
+      // /Content: greppable proof of whether reference transcripts made
+      // it into this CEO request's prompt.
+      console.log(`[ceo-context] reference videos in prompt → with transcript: ${withTranscript.length ? withTranscript.map((i) => `"${String(i.metadata?.title || i.url || '').slice(0, 50)}" [${i.transcript.length} chars]`).join(' ; ') : 'none'} | without transcript: ${withoutTranscript.length}`);
       if (withTranscript.length) {
         prompt += `=== REFERENCE VIDEOS — COPY THEIR EXACT STRUCTURE, TONE, PATTERN ===\n`;
         prompt += `The user saved these proven videos as references. When they ask for a script or post "like" one of these, the reference is your PRIMARY template: mirror its structural beats one-for-one (hook style, pacing, reveal order, callbacks, ending), match its tone and energy, keep its signature phrasings where they fit — and swap ONLY the topic/details for the user's business. Writing a generic script while a reference transcript sits below is a failure.\n\n`;

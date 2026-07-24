@@ -148,7 +148,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       prompt += `- CAROUSEL (multiple slides swiped side-to-side) -> call plan_carousel (details in the block below).\n`;
       prompt += `- SINGLE POST (one static image, feed or grid) -> call generate_image ONCE. Do NOT call plan_carousel.\n`;
       prompt += `- STORY (vertical 9:16 frames) -> call generate_image once per frame (3-4 frames). Do NOT call plan_carousel.\n`;
-      prompt += `- REEL / SHORT-FORM VIDEO -> NO tool calls at all. Write the video SCRIPT as your text output. Do NOT call plan_carousel. Do NOT call generate_image. Reels are video, not slide decks — treating a reel like a carousel is a bug. Scripts follow the format in "REEL / TIKTOK / VIDEO SCRIPT" below.\n`;
+      prompt += `- REEL / SHORT-FORM VIDEO -> NO tool calls at all. Write the video SCRIPT as your text output. Do NOT call plan_carousel. Do NOT call generate_image. Reels are video, not slide decks — treating a reel like a carousel is a bug. Scripts follow the SHORT-FORM VIDEO SCRIPT GUIDE injected in this prompt (scored hook options, **HOOK**/**BODY**/**CTA**, production notes).\n`;
     }
     prompt += `Only route to plan_carousel when the user's request clearly points to a swipeable slide deck. Words that mean carousel: "carousel", "slides", "slide deck", "swipe post", "multi-slide". Words that DO NOT mean carousel: "reel", "video", "short", "story", "single post", "photo post". If the user's language is ambiguous, ASK a short JSON clarification before generating.\n\n`;
 
@@ -219,7 +219,8 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `   - SINGLE POST: Call generate_image once for the post image.\n`;
   prompt += `   - STORY FLOW: Call generate_image for each story frame (3-4 images).\n`;
   prompt += `   - YOUTUBE: Call generate_image for the thumbnail.\n`;
-  prompt += `   - REEL / TIKTOK / VIDEO SCRIPT: Do NOT call generate_image. Do NOT call plan_carousel. Reels are short-form VIDEO — treating a reel like a slide-deck carousel is a bug. Write the script directly as your text output. The script is the deliverable. Write it as a clean, spoken script  -  the actual words to say on camera, line by line. No labels like [HOOK], [BRIDGE], [SCENE], [VISUAL], [VOICEOVER], or [ON-SCREEN TEXT]. No timestamps. Start with the hook line, flow naturally, end with CTA if needed. Add a brief "Direction:" note at the end for visuals and audio.\n`;
+  prompt += `   - REEL / TIKTOK / VIDEO SCRIPT: Do NOT call generate_image. Do NOT call plan_carousel. Reels are short-form VIDEO — treating a reel like a slide-deck carousel is a bug. The script is the deliverable and it MUST follow the SHORT-FORM VIDEO SCRIPT GUIDE in this prompt EXACTLY: scored HOOK OPTIONS, **HOOK** (0-3s) / **BODY** / **CTA** sections of pure spoken lines (no bracket cues, no timestamps), then the --- PRODUCTION NOTES --- block. If a reference video transcript is in this prompt, copy its structure beat-for-beat.
+`;
   prompt += `   You can make MULTIPLE generate_image calls in the same response. Each slide needs its own call.\n\n`;
 
   // Legacy Instagram carousel layout rules are now owned by plan_carousel +
@@ -419,6 +420,16 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   const isOutlier = (item) => item?.source === 'outlier-detector' || item?.result?.source === 'outlier-detector';
   const outlierTemplates = doneSocial.filter(isOutlier);
   const otherSocial = doneSocial.filter((s) => !isOutlier(s));
+  // Founder-visible audit trail (2026-07-24): one grep-able line per
+  // request stating EXACTLY what reference material entered the prompt —
+  // "is the outlier transcript actually loaded?" must be answerable from
+  // the logs alone.
+  if (doneSocial.length) {
+    const fmt = (i) => `"${String(i.result?.title || i.url || '').slice(0, 50)}" ${i.result?.transcript ? `[transcript ${i.result.transcript.length} chars]` : '[NO TRANSCRIPT — structure cannot be copied]'}`;
+    console.log(`[content-context] reference material in prompt → outlier templates: ${outlierTemplates.length ? outlierTemplates.map(fmt).join(' ; ') : 'none'} | other social refs: ${otherSocial.length ? otherSocial.map(fmt).join(' ; ') : 'none'}`);
+  } else {
+    console.log('[content-context] NO reference material in prompt (no saved social items reached the request)');
+  }
 
   if (outlierTemplates.length > 0) {
     // Placed BEFORE the generic reference block so the model reads
