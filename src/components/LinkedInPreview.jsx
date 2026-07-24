@@ -15,16 +15,38 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
 
   // While carousel slides are generating, keep the SLIDES in view — the
   // post text renders above the carousel, so without this the user stares
-  // at text and must scroll to see slides appear (founder, 2026-07-24).
+  // at text and must scroll to see slides appear (founder, 2026-07-24;
+  // feedback round 2: must hold in the CANVAS instance too, where the
+  // preview mounts mid-layout as the panel opens — a single mount-time
+  // scrollIntoView computed against a half-open panel lands on the text).
   const carouselAreaRef = useRef(null);
   const wasGeneratingRef = useRef(false);
+  const scrollToSlides = (block = 'start') => {
+    carouselAreaRef.current?.scrollIntoView({ behavior: 'smooth', block });
+  };
   useEffect(() => {
     const generating = (pendingImages || 0) > 0 || (plan?.generating === true);
-    if (generating && !wasGeneratingRef.current) {
-      carouselAreaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    const started = generating && !wasGeneratingRef.current;
     wasGeneratingRef.current = generating;
+    if (!started) return undefined;
+    scrollToSlides();
+    // Re-scroll after the panel finishes opening/laying out — the first
+    // call can be measured against a mid-animation container.
+    const t1 = setTimeout(() => scrollToSlides(), 450);
+    const t2 = setTimeout(() => scrollToSlides(), 1100);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [pendingImages, plan?.generating]);
+  // Each finished slide nudges the slide area back into view (nearest =
+  // no jump when it's already visible) so the user watches slides land,
+  // not the caption above them.
+  const prevImgCountRef = useRef(0);
+  useEffect(() => {
+    const count = (images || []).filter(Boolean).length;
+    if (count > prevImgCountRef.current && (pendingImages || 0) > 0) {
+      scrollToSlides('nearest');
+    }
+    prevImgCountRef.current = count;
+  }, [images, pendingImages]);
   const [postState, setPostState] = useState('idle'); // idle | posting | posted | error
   const [postError, setPostError] = useState('');
   const [scheduleOpen, setScheduleOpen] = useState(false);

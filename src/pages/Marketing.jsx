@@ -3479,7 +3479,6 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
         title="Chat history"
       >
         <History size={16} />
-        <span>Chat history</span>
       </button>
       <button
         type="button"
@@ -4228,7 +4227,7 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
         <div className="mkt-sessions-backdrop" onClick={() => setShowSessions(false)} />
         <div className="mkt-sessions-panel">
           <div className="mkt-sessions-header">
-            <span>Chat history</span>
+            <History size={15} />
           </div>
           <div className="mkt-sessions-list">
             {sessions.length === 0 && (

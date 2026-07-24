@@ -351,6 +351,26 @@ export async function addOutlierToContext(video) {
   return res.json();
 }
 
+/**
+ * Backfill missing transcripts on saved social references (max 3 per
+ * call, server-throttled). Fire-and-forget on tab mount — references
+ * saved before the extractor fallback heal over a few page loads.
+ * Returns { ok, updated } or null on failure (never throws).
+ */
+export async function backfillTranscripts() {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_URL}/api/content-items/backfill-transcripts`, {
+      method: 'POST',
+      headers,
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 // ─── Outlier Detector ───
 
 export async function getOutlierCreators() {

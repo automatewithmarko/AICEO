@@ -16,6 +16,21 @@ export function isMediaFile(filename) {
   return SUPPORTED_EXTENSIONS.includes(ext);
 }
 
+// OpenAI Whisper fallback — the Railway GROQ_API_KEY went invalid
+// (401 on every call, dev AND production, observed 2026-07-24), which
+// silently killed every outlier/reel transcript. OPENAI_API_KEY is
+// alive (image generation uses it), and OpenAI serves the same
+// audio.transcriptions API, so a dead Groq key degrades to slower
+// transcription instead of no transcription.
+let _openaiTranscribe = null;
+function getOpenAITranscriber() {
+  if (!_openaiTranscribe) {
+    if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not configured');
+    _openaiTranscribe = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return _openaiTranscribe;
+}
+
 export async function transcribe(buffer, filename) {
   if (buffer.length > MAX_SIZE) {
     throw new Error('File too large for transcription (max 25MB)');
@@ -26,11 +41,25 @@ export async function transcribe(buffer, filename) {
     type: getMimeType(filename),
   });
 
-  const response = await groq.audio.transcriptions.create({
-    model: 'whisper-large-v3',
-    file,
-    response_format: 'verbose_json',
-  });
+  // Platform policy: Mentor-first everywhere — but the gateway has no
+  // audio-transcription endpoint, so Whisper stays direct by necessity.
+  console.warn('[video/transcribe] ⚠️ DIRECT GROQ API (Whisper) — Mentor gateway has no audio transcription endpoint');
+  let response;
+  try {
+    response = await groq.audio.transcriptions.create({
+      model: 'whisper-large-v3',
+      file,
+      response_format: 'verbose_json',
+    });
+  } catch (err) {
+    console.warn(`[video/transcribe] Groq Whisper failed (${err.status || 'n/a'}): ${err.message?.slice(0, 120)} — FALLING BACK TO DIRECT OPENAI whisper-1`);
+    response = await getOpenAITranscriber().audio.transcriptions.create({
+      model: 'whisper-1',
+      file,
+      response_format: 'verbose_json',
+    });
+    console.log(`[video/transcribe] ✅ OpenAI whisper-1 fallback succeeded (${Math.round((response.text || '').length)} chars)`);
+  }
 
   return {
     text: response.text,

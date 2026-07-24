@@ -3,7 +3,7 @@ import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap, Paperclip, Loader2, AlertCircle, CalendarDays } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide, generatePlanItem , getCuratedCarouselTemplates, findCuratedCarouselTemplate } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide, generatePlanItem , getCuratedCarouselTemplates, findCuratedCarouselTemplate, backfillTranscripts } from '../lib/api';
 import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from '../lib/planRunner';
 import { sweepCarouselMessages, sweepCarouselHolder } from '../lib/carouselState';
 import CarouselPlanCard from '../components/social-canvas/CarouselPlanCard';
@@ -297,6 +297,10 @@ export default function AiCeo() {
   // Fetch real context data from APIs
   useEffect(() => {
     let cancelled = false;
+    // Heal saved references with transcript=null (server re-extracts up
+    // to 3 per call). CEO requests read content_items server-side, so a
+    // fire-and-forget is enough — the next generation sees the transcript.
+    backfillTranscripts();
     const fmt = (d) => { try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } };
     Promise.all([
       getTemplates('newsletter').catch(() => ({ templates: [] })),
@@ -2057,6 +2061,37 @@ export default function AiCeo() {
       // so the user can't click an old card before the snapshot exists.
       // Skips ask_user-only turns (no artifact ownership) and image-type
       // artifacts (cumulative gallery — handled by commitOwnedArtifact).
+      // Caption safety net (founder feedback #2, 2026-07-24): an image
+      // post whose caption streamed as chat text (model skipped
+      // create_artifact) leaves a bare type:'image' artifact — the canvas
+      // shows the image with NO caption. Upgrade it to a content_post
+      // carrying the chat caption so the IG/LI preview renders both.
+      {
+        const art = artifactRef.current;
+        if (art?.type === 'image' && (art.images || []).length > 0) {
+          let captionText = '';
+          let historyText = '';
+          setMessages(prev => {
+            const m = prev.find(x => x.id === assistantMsgId);
+            captionText = String(m?.content || '').trim();
+            historyText = prev.slice(-6).map(x => String(x.content || x.displayText || '')).join(' ').toLowerCase();
+            return prev;
+          });
+          const looksLikePreamble = /^(i'll|i will|i'm|i am|creating|generating|let me|here('s| is)|sure|okay|got it|on it)\b/i.test(captionText) && captionText.length < 200;
+          if (captionText && !looksLikePreamble) {
+            const platformGuess = /\blinkedin\b/.test(historyText) ? 'linkedin'
+              : /\b(tweet|twitter|\bx\b)\b/.test(historyText) ? 'twitter'
+              : /\btiktok\b/.test(historyText) ? 'tiktok'
+              : /\bfacebook\b/.test(historyText) ? 'facebook'
+              : 'instagram';
+            console.log(`[AiCeo] caption net: upgrading image artifact to content_post (${platformGuess}, ${captionText.length} caption chars)`);
+            setArtifact(prev => (prev && prev.id === art.id
+              ? { ...prev, type: 'content_post', content: captionText, agentSource: prev.agentSource || platformGuess, title: /^Generat/.test(prev.title || '') ? 'Social post' : prev.title }
+              : prev));
+          }
+        }
+      }
+
       if (!askUserFiredRef.current && artifactRef.current) {
         let shouldSnapshot = false;
         setMessages(prev => {
@@ -2781,35 +2816,10 @@ export default function AiCeo() {
     };
     const updated = [...messages, userMsg];
 
-    // Carousel pre-open: Sonnet takes 15-30s to stream a plan_carousel
-    // tool call. During that time the canvas would otherwise be blank
-    // (or still showing the previous turn's artifact) and the user
-    // thinks the app is stuck. If this answer is "Carousel" (or the
-    // user typed something with carousel in it), open the panel with a
-    // "Building carousel plan…" placeholder immediately. plan_carousel
-    // firing later replaces the placeholder with the real plan card.
-    const answerLower = answer.trim().toLowerCase();
-    if (answerLower === 'carousel' || /\bcarousel\b/.test(answerLower)) {
-      // Detect platform from the FULL history so the placeholder chrome
-      // matches (LinkedIn preview vs Instagram preview).
-      const fullChatText = updated
-        .map((m) => String(m.content || m.displayText || ''))
-        .join(' ')
-        .toLowerCase();
-      const placeholderPlatform = /\blinkedin\b/i.test(fullChatText) ? 'linkedin' : 'instagram';
-      setArtifact({
-        id: `plan-pending-${Date.now()}`,
-        type: 'content_post',
-        title: `Building your ${placeholderPlatform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel plan…`,
-        content: '',
-        images: [],
-        agentSource: placeholderPlatform,
-        _planPending: true,
-      });
-      setPanelOpen(true);
-      if (isMobileRef.current) setMobileArtifactOpen(true);
-    }
-
+    // NOTE: no canvas pre-open here. Carousel plans render in CHAT; the
+    // canvas stays closed until the user approves the plan (founder
+    // 2026-07-24: the "Building your carousel plan…" placeholder card
+    // must not appear in canvas — plans are not final output).
     setMessages(updated);
     sendToAI(updated);
   }, [isGenerating, messages, sendToAI, selectedCtxItems, ceoContextCategories]);
@@ -2981,7 +2991,6 @@ export default function AiCeo() {
           <div className="ceo-chat-topbtns">
             <button className="ceo-prev-convos" title="Chat history" onClick={() => setShowSessions((v) => !v)}>
               <History size={18} />
-              <span className="ceo-prev-convos-label">Chat history</span>
             </button>
             <button className="ceo-new-chat" onClick={newConversation} title="New chat">
               <Plus size={18} />
@@ -3008,7 +3017,7 @@ export default function AiCeo() {
               <div className="ceo-sessions-backdrop" onClick={() => setShowSessions(false)} />
               <div className="ceo-sessions-panel">
                 <div className="ceo-sessions-header">
-                  <span>Chat history</span>
+                  <History size={15} />
                 </div>
                 <div className="ceo-sessions-list">
                   {sessions.length === 0 && (

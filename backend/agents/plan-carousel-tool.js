@@ -24,7 +24,7 @@ export const PLAN_CAROUSEL_TOOL = {
           description: 'Scroll-stopping headline for slide 1. Use one of: confession ("I [did unexpected thing]. Here\'s what happened."), contrarian ("[Belief] is a lie."), specificity ("[Number] in [timeframe]."), curiosity gap. NEVER "Are you making these mistakes?" or "X tips for Y".',
         },
         angle: { type: 'string', description: 'Strategic POV — why this framing, why now (one sentence).' },
-        caption: { type: 'string', description: 'The Instagram caption the user will paste with the post (2-5 sentences, no hashtags unless asked, no em dashes).' },
+        caption: { type: 'string', description: 'The caption published with the carousel. Instagram: 2-5 sentences, no hashtags unless asked, no em dashes. LinkedIn: the caption IS the post — a standalone 150-450 word LinkedIn post (structure per the LINKEDIN CAPTION STANDARD in the system prompt), never a 2-5 sentence trailer.' },
         slides: {
           type: 'array',
           description: 'The full slide roster, 5-9 items. Slide 1 is always the hook. Final slide is always the CTA.',

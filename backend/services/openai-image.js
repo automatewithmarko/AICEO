@@ -24,6 +24,7 @@
 
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
+import { MENTOR_BASE_URL } from '../agents/base-agent.js';
 
 const OPENAI_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
 // 150s default — gpt-image-2 at quality=high regularly needs >120s. The
@@ -49,7 +50,49 @@ function getClient() {
 }
 
 export function isOpenAIImageConfigured() {
-  return !!process.env.OPENAI_API_KEY;
+  // Mentor gateway proxies /api/v1/images/generations, so text-to-image
+  // works even without a direct OpenAI key.
+  return !!(process.env.OPENAI_API_KEY || process.env.MENTOR_API_KEY);
+}
+
+// Text-to-image through the Mentor gateway (platform policy: EVERYTHING
+// routes through Mentor; direct provider APIs are fallback only).
+// The gateway exposes /api/v1/images/generations (OpenAI protocol,
+// Bearer auth — live-verified 401-without-auth on 2026-07-24) but NOT
+// /api/v1/images/edits (404) — so reference-image generation cannot
+// route through Mentor and stays on the direct API by necessity.
+// Handles both b64_json and url response shapes.
+async function generateViaMentor({ prompt, size, quality, signal }) {
+  try {
+    const res = await fetch(`${MENTOR_BASE_URL}/api/v1/images/generations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.MENTOR_API_KEY}`,
+      },
+      body: JSON.stringify({ model: OPENAI_MODEL, prompt, size, quality, n: 1 }),
+      signal,
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.text()).slice(0, 200); } catch { /* drain failed */ }
+      return { ok: false, status: res.status, error: detail || `HTTP ${res.status}` };
+    }
+    const json = await res.json();
+    const item = json?.data?.[0];
+    let b64 = item?.b64_json || null;
+    if (!b64 && item?.url) {
+      const imgRes = await fetch(item.url, { signal });
+      if (imgRes.ok) b64 = Buffer.from(await imgRes.arrayBuffer()).toString('base64');
+    }
+    if (!b64) return { ok: false, error: 'mentor gateway returned no image data' };
+    console.log(`[openai-image] ✅ image generated via MENTOR gateway (${Math.round(b64.length / 1024)}KB base64)`);
+    return { ok: true, data: b64, mimeType: 'image/png' };
+  } catch (err) {
+    const isTimeout = err.name === 'AbortError' || /\baborted\b/i.test(err.message || '');
+    if (isTimeout) throw err; // caller's timeout — don't mask it as a gateway failure
+    return { ok: false, error: err.message || 'mentor gateway request failed' };
+  }
 }
 
 /**
@@ -89,20 +132,33 @@ function mapQuality(hint) {
  */
 export async function generateImageWithOpenAI({ prompt, referenceImages, aspectRatio, quality, timeoutMs }) {
   if (!prompt) return { ok: false, error: 'prompt is required' };
-  if (!process.env.OPENAI_API_KEY) {
-    return { ok: false, error: 'OPENAI_API_KEY not configured' };
-  }
 
   const size = mapAspectToSize(aspectRatio);
   const q = mapQuality(quality);
   const refs = Array.isArray(referenceImages) ? referenceImages.filter((r) => r?.data) : [];
+  const mentorAvailable = !!process.env.MENTOR_API_KEY;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs || OPENAI_TIMEOUT_MS);
 
-  const client = getClient();
-
   try {
+    // ── MENTOR FIRST (text-to-image only) ──
+    if (refs.length === 0 && mentorAvailable) {
+      const viaMentor = await generateViaMentor({ prompt, size, quality: q, signal: controller.signal });
+      if (viaMentor.ok) return viaMentor;
+      console.warn(`[openai-image] ⚠️ MENTOR gateway image generation failed (${viaMentor.status || 'n/a'}): ${viaMentor.error} — FALLING BACK TO DIRECT OPENAI API`);
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return { ok: false, error: mentorAvailable ? 'Mentor gateway failed and OPENAI_API_KEY not configured for direct fallback' : 'OPENAI_API_KEY not configured' };
+    }
+    if (refs.length > 0 && mentorAvailable) {
+      console.warn(`[openai-image] ⚠️ DIRECT OPENAI API (images/edits, ${refs.length} reference image${refs.length === 1 ? '' : 's'}) — Mentor gateway has no /images/edits endpoint, reference-image generation cannot route through Mentor`);
+    } else if (refs.length === 0 && !mentorAvailable) {
+      console.warn('[openai-image] ⚠️ DIRECT OPENAI API — MENTOR_API_KEY not configured');
+    }
+
+    const client = getClient();
     let response;
     if (refs.length > 0) {
       // Multi-reference edit path. gpt-image-1 accepts an array here.
@@ -115,17 +171,26 @@ export async function generateImageWithOpenAI({ prompt, referenceImages, aspectR
         }),
       );
       console.log(`[openai-image] edits size=${size} q=${q} refs=${images.length} promptChars=${prompt.length}`);
-      response = await client.images.edit(
-        {
-          model: OPENAI_MODEL,
-          image: images,
-          prompt,
-          size,
-          quality: q,
-          n: 1,
-        },
-        { signal: controller.signal },
-      );
+      const editParams = { model: OPENAI_MODEL, image: images, prompt, size, quality: q, n: 1 };
+      try {
+        response = await client.images.edit(editParams, { signal: controller.signal });
+      } catch (err) {
+        // "Invalid image file or mode for image N" — one bad reference
+        // was 400-ing the WHOLE generation and cascading every slide to
+        // Gemini (which then 429'd under the parallel burst). Drop the
+        // offending ref and retry once instead of giving up on OpenAI.
+        const m = err.status === 400 && /image (\d+)/i.exec(err.error?.message || err.message || '');
+        if (m && images.length > 1) {
+          const badIdx = Math.min(Math.max(parseInt(m[1], 10) - 1, 0), images.length - 1);
+          console.warn(`[openai-image] ⚠️ reference image ${m[1]} rejected (400) — retrying WITHOUT it (${images.length - 1} refs remain)`);
+          response = await client.images.edit(
+            { ...editParams, image: images.filter((_, i) => i !== badIdx) },
+            { signal: controller.signal },
+          );
+        } else {
+          throw err;
+        }
+      }
     } else {
       console.log(`[openai-image] generations size=${size} q=${q} refs=0 promptChars=${prompt.length}`);
       response = await client.images.generate(
