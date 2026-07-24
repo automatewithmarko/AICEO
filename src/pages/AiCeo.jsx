@@ -2061,6 +2061,37 @@ export default function AiCeo() {
       // so the user can't click an old card before the snapshot exists.
       // Skips ask_user-only turns (no artifact ownership) and image-type
       // artifacts (cumulative gallery — handled by commitOwnedArtifact).
+      // Caption safety net (founder feedback #2, 2026-07-24): an image
+      // post whose caption streamed as chat text (model skipped
+      // create_artifact) leaves a bare type:'image' artifact — the canvas
+      // shows the image with NO caption. Upgrade it to a content_post
+      // carrying the chat caption so the IG/LI preview renders both.
+      {
+        const art = artifactRef.current;
+        if (art?.type === 'image' && (art.images || []).length > 0) {
+          let captionText = '';
+          let historyText = '';
+          setMessages(prev => {
+            const m = prev.find(x => x.id === assistantMsgId);
+            captionText = String(m?.content || '').trim();
+            historyText = prev.slice(-6).map(x => String(x.content || x.displayText || '')).join(' ').toLowerCase();
+            return prev;
+          });
+          const looksLikePreamble = /^(i'll|i will|i'm|i am|creating|generating|let me|here('s| is)|sure|okay|got it|on it)\b/i.test(captionText) && captionText.length < 200;
+          if (captionText && !looksLikePreamble) {
+            const platformGuess = /\blinkedin\b/.test(historyText) ? 'linkedin'
+              : /\b(tweet|twitter|\bx\b)\b/.test(historyText) ? 'twitter'
+              : /\btiktok\b/.test(historyText) ? 'tiktok'
+              : /\bfacebook\b/.test(historyText) ? 'facebook'
+              : 'instagram';
+            console.log(`[AiCeo] caption net: upgrading image artifact to content_post (${platformGuess}, ${captionText.length} caption chars)`);
+            setArtifact(prev => (prev && prev.id === art.id
+              ? { ...prev, type: 'content_post', content: captionText, agentSource: prev.agentSource || platformGuess, title: /^Generat/.test(prev.title || '') ? 'Social post' : prev.title }
+              : prev));
+          }
+        }
+      }
+
       if (!askUserFiredRef.current && artifactRef.current) {
         let shouldSnapshot = false;
         setMessages(prev => {
@@ -2960,7 +2991,6 @@ export default function AiCeo() {
           <div className="ceo-chat-topbtns">
             <button className="ceo-prev-convos" title="Chat history" onClick={() => setShowSessions((v) => !v)}>
               <History size={18} />
-              <span className="ceo-prev-convos-label">Chat history</span>
             </button>
             <button className="ceo-new-chat" onClick={newConversation} title="New chat">
               <Plus size={18} />
@@ -2987,7 +3017,7 @@ export default function AiCeo() {
               <div className="ceo-sessions-backdrop" onClick={() => setShowSessions(false)} />
               <div className="ceo-sessions-panel">
                 <div className="ceo-sessions-header">
-                  <span>Chat history</span>
+                  <History size={15} />
                 </div>
                 <div className="ceo-sessions-list">
                   {sessions.length === 0 && (

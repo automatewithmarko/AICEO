@@ -344,9 +344,32 @@ async function fetchImageAsBase64(url) {
       console.warn(`[fetchImage] Failed to fetch ${url?.slice(0, 80)}: ${res.status} ${res.statusText}`);
       return null;
     }
-    const buffer = await res.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString('base64');
-    const contentType = res.headers.get('content-type') || 'image/jpeg';
+    const buffer = Buffer.from(await res.arrayBuffer());
+    // Sanitize EVERY reference through sharp: decode-validate + downscale
+    // + re-encode. One corrupt/oversized upload in brand photos was
+    // poisoning every generation on its path — OpenAI 400'd each slide
+    // ("Invalid image file or mode for image 4"), everything cascaded to
+    // Gemini, and the unthrottled burst 429'd the whole carousel
+    // (production logs, 2026-07-24). A ref sharp can't decode is dropped
+    // (logged), not passed through.
+    let outBuffer;
+    let contentType;
+    try {
+      const img = sharp(buffer, { failOn: 'error' });
+      const meta = await img.metadata();
+      const resized = img.resize({ width: 2048, height: 2048, fit: 'inside', withoutEnlargement: true });
+      if (meta.hasAlpha) {
+        outBuffer = await resized.png().toBuffer();
+        contentType = 'image/png';
+      } else {
+        outBuffer = await resized.jpeg({ quality: 92 }).toBuffer();
+        contentType = 'image/jpeg';
+      }
+    } catch (decodeErr) {
+      console.warn(`[fetchImage] ⚠️ DROPPING undecodable reference image ${url?.slice(0, 80)}: ${decodeErr.message?.slice(0, 120)}`);
+      return null;
+    }
+    const base64 = outBuffer.toString('base64');
     const result = { inlineData: { data: base64, mimeType: contentType } };
 
     // Store in cache

@@ -171,17 +171,26 @@ export async function generateImageWithOpenAI({ prompt, referenceImages, aspectR
         }),
       );
       console.log(`[openai-image] edits size=${size} q=${q} refs=${images.length} promptChars=${prompt.length}`);
-      response = await client.images.edit(
-        {
-          model: OPENAI_MODEL,
-          image: images,
-          prompt,
-          size,
-          quality: q,
-          n: 1,
-        },
-        { signal: controller.signal },
-      );
+      const editParams = { model: OPENAI_MODEL, image: images, prompt, size, quality: q, n: 1 };
+      try {
+        response = await client.images.edit(editParams, { signal: controller.signal });
+      } catch (err) {
+        // "Invalid image file or mode for image N" — one bad reference
+        // was 400-ing the WHOLE generation and cascading every slide to
+        // Gemini (which then 429'd under the parallel burst). Drop the
+        // offending ref and retry once instead of giving up on OpenAI.
+        const m = err.status === 400 && /image (\d+)/i.exec(err.error?.message || err.message || '');
+        if (m && images.length > 1) {
+          const badIdx = Math.min(Math.max(parseInt(m[1], 10) - 1, 0), images.length - 1);
+          console.warn(`[openai-image] ⚠️ reference image ${m[1]} rejected (400) — retrying WITHOUT it (${images.length - 1} refs remain)`);
+          response = await client.images.edit(
+            { ...editParams, image: images.filter((_, i) => i !== badIdx) },
+            { signal: controller.signal },
+          );
+        } else {
+          throw err;
+        }
+      }
     } else {
       console.log(`[openai-image] generations size=${size} q=${q} refs=0 promptChars=${prompt.length}`);
       response = await client.images.generate(

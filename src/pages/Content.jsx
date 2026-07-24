@@ -165,6 +165,20 @@ function parsePlainTextQuestion(content, hadImages) {
 
 // Extract image prompt from AI text when it describes an image instead of calling the tool
 // Extract a `<div class="plan-artifact">…</div>` block from assistant
+// Chunked Uint8Array -> base64. btoa(String.fromCharCode(...bytes))
+// spreads every byte as a call argument and blows the call stack on
+// multi-MB photos ("Maximum call stack size exceeded", founder console
+// log 2026-07-24) — which silently dropped the user's photo from image
+// generation. 32KB chunks keep the argument list bounded.
+function uint8ToBase64(bytes) {
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
 // message text. Returns { before, planHtml, after } if a well-balanced
 // block is found; null otherwise. Used to hoist Plan Mode HTML into a
 // canvas card with Download / Copy / Open-in-canvas actions.
@@ -2312,7 +2326,7 @@ export default function Content() {
           const r = await fetch(img.src, { mode: 'cors' });
           const b = await r.blob();
           const buf = await b.arrayBuffer();
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+          const base64 = uint8ToBase64(new Uint8Array(buf));
           return { data: base64, mimeType: b.type || 'image/jpeg' };
         } catch { return null; }
       };
@@ -2452,7 +2466,7 @@ export default function Content() {
             const r = await fetch(hookImg.src, { mode: 'cors' });
             const b = await r.blob();
             const buf = await b.arrayBuffer();
-            const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+            const base64 = uint8ToBase64(new Uint8Array(buf));
             refs = [{ data: base64, mimeType: b.type || 'image/jpeg' }];
           } catch {}
         }
@@ -3456,7 +3470,7 @@ export default function Content() {
           const r = await fetch(url, { mode: 'cors' });
           const b = await r.blob();
           const buf = await b.arrayBuffer();
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+          const base64 = uint8ToBase64(new Uint8Array(buf));
           return { data: base64, mimeType: b.type || 'image/jpeg' };
         } catch (err) {
           console.warn('[Content] buildImageGenArgs: failed to fetch user photo', url, err?.message);
@@ -4441,7 +4455,6 @@ export default function Content() {
           <div className="content-topbtns">
             <button className="content-prev-convos" title="Chat history" onClick={() => setShowSessions((v) => { if (!v) setSidebarOpen(false); return !v; })}>
               <History size={18} className="content-prev-convos-icon" />
-              <span className="content-prev-convos-label">Chat history</span>
             </button>
             <button className="content-new-chat" onClick={newConversation} title="New chat">
               <Plus size={18} />
@@ -4487,7 +4500,7 @@ export default function Content() {
             <div className="content-sessions-backdrop" onClick={() => setShowSessions(false)} />
             <div className="content-sessions-panel">
               <div className="content-sessions-header">
-                <span>Chat history</span>
+                <History size={15} />
               </div>
               <div className="content-sessions-list">
                 {sessions.length === 0 && (

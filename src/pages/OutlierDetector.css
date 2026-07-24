@@ -438,6 +438,14 @@
   cursor: default;
 }
 
+/* In-progress state must survive the mouse leaving the card — the button
+   fading to opacity 0 mid-"Adding…" made users think nothing happened
+   and re-try / generate before the transcript was saved (founder
+   feedback #2, 2026-07-24). */
+.od-add-context-btn--adding {
+  opacity: 1;
+}
+
 .od-add-context-btn--added {
   background: #22c55e;
   opacity: 1;

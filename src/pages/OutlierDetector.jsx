@@ -564,12 +564,12 @@ export default function OutlierDetector() {
                   </button>
                 ) : (
                   <button
-                    className="od-add-context-btn"
+                    className={`od-add-context-btn${addingToContext === video.id ? ' od-add-context-btn--adding' : ''}`}
                     onClick={() => handleAddToContext(video)}
                     disabled={addingToContext === video.id}
                   >
                     {addingToContext === video.id ? <Loader size={14} className="od-spin" /> : <PlusCircle size={14} />}
-                    {addingToContext === video.id ? 'Adding...' : 'Add to Context'}
+                    {addingToContext === video.id ? 'Adding to context…' : 'Add to Context'}
                   </button>
                 )}
               </div>
