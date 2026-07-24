@@ -396,22 +396,31 @@
   opacity: 1;
   color: var(--brand-red, #e63946);
 }
+/* Seamless inline editing — the inputs read as plain text (bold heading,
+   simple body) instead of boxed form fields; a subtle background appears
+   only on hover/focus so laymen see content, not a form. */
 .content-carousel-plan-slide-badge-input,
 .content-carousel-plan-slide-headline-input,
 .content-carousel-plan-slide-body-input,
 .content-carousel-plan-slide-cta-input,
 .content-carousel-plan-caption-input {
   width: 100%;
-  padding: 10px 12px;
+  padding: 2px 4px;
   border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--surface-secondary, #f5f5f5);
+  border-radius: 6px;
+  background: transparent;
   color: var(--text-primary, #1a1a1a);
   font-size: 13px;
   line-height: 1.5;
   font-family: inherit;
-  resize: vertical;
+  resize: none;
   transition: border-color 0.15s ease, background 0.15s ease;
+}
+.content-carousel-plan-slide-badge-input:hover,
+.content-carousel-plan-slide-headline-input:hover,
+.content-carousel-plan-slide-body-input:hover,
+.content-carousel-plan-slide-cta-input:hover {
+  background: var(--surface-secondary, #f5f5f5);
 }
 .content-carousel-plan-slide-badge-input {
   text-transform: uppercase;
@@ -419,18 +428,22 @@
   font-size: 10px;
   font-weight: 700;
   color: var(--text-muted, #666);
-  padding: 6px 10px;
 }
 .content-carousel-plan-slide-headline-input {
   font-size: 14px;
-  font-weight: 600;
-  min-height: 80px;
+  font-weight: 700;
+  min-height: 44px;
 }
 .content-carousel-plan-slide-body-input {
-  min-height: 150px;
+  font-size: 12px;
+  color: var(--text-muted, #555);
+  min-height: 60px;
 }
-.content-carousel-plan-slide-cta-input {
-  padding: 8px 12px;
+.content-carousel-plan-caption-input {
+  padding: 10px 12px;
+  background: var(--surface-secondary, #f5f5f5);
+  border-radius: 8px;
+  resize: vertical;
 }
 .content-carousel-plan-slide-badge-input:focus,
 .content-carousel-plan-slide-headline-input:focus,
@@ -450,10 +463,44 @@
   text-transform: uppercase;
 }
 .content-carousel-plan-slide-headline {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--text-primary, #1a1a1a);
   line-height: 1.35;
+}
+
+.content-carousel-plan-generating-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.content-carousel-plan-generating-row .content-carousel-plan-approve {
+  flex: 1;
+}
+.content-carousel-plan-stop {
+  padding: 9px 16px;
+  border: 1px solid var(--border-medium, #d8d8e0);
+  border-radius: 50px;
+  background: var(--surface-primary, #fff);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-secondary, #555);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.content-carousel-plan-stop:hover {
+  border-color: var(--brand-red, #e63946);
+  color: var(--brand-red, #e63946);
+}
+
+/* Vertical all-slides list (replaced the one-at-a-time mini carousel) */
+.content-carousel-plan-slide-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 .content-carousel-plan-slide-body {
   font-size: 12px;

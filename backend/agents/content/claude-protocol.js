@@ -126,7 +126,7 @@ export const SUBMIT_SCRIPT_TOOL = {
       type: 'object',
       properties: {
         title: { type: 'string', description: 'Short title for the script card, e.g. "Reel: 3 automations that replaced my SDR team".' },
-        script: { type: 'string', description: 'The complete final script, following the VIDEO SCRIPT GUIDE in the system prompt EXACTLY — short-form: **HOOK** (with [VISUAL] + [TEXT ON SCREEN]) / **BODY** (one sentence per line with visual cues) / **CTA** / --- PRODUCTION NOTES ---; long-form YouTube: markdown with # title, payoff map, [CHAPTER] sections, bridge ending.' },
+        script: { type: 'string', description: 'The complete final script, following the VIDEO SCRIPT GUIDE in the system prompt EXACTLY. The script is ONLY the words spoken on camera — one sentence per line, NO bracket cues ([VISUAL], [TEXT ON SCREEN], [B-ROLL], [CHAPTER]…), NO **HOOK**/**BODY**/**CTA** headers, NO timestamps — plus ONE trailing "Direction:" prose paragraph for visuals/overlays/music. Long-form YouTube: markdown with # title, payoff map, ## hook-style chapter headings, bridge ending, then the Direction section.' },
       },
       required: ['title', 'script'],
     },
@@ -173,9 +173,6 @@ export function buildClaudeChatProtocolAddendum({ isLinkedin = false, editModeAc
     a += `${++n}. CAROUSELS AND IMAGES: call plan_carousel / generate_image exactly as described above. Carousel captions live in the plan_carousel caption field.\n`;
     a += `${++n}. FINISHED POSTS (single posts and stories — WITH or WITHOUT images): deliver the complete ready-to-post caption by calling submit_text_post, in the SAME turn as your generate_image call(s) when the post has an image. NEVER write the finished caption inline in chat — the client shows a post card and pairs the caption with the image in the preview canvas. Chat text is ONE short hand-off sentence. An image post without a submit_text_post caption is an incomplete deliverable and a bug.\n`;
     a += `${++n}. IMAGE TIMING: your chat text appears BEFORE any generate_image image finishes rendering (it takes 1-3 minutes). Phrase the hand-off as IN PROGRESS ("Your post is in the preview — the image is rendering now and will appear in a minute"). NEVER say the image is ready/generated/done in the same turn you requested it.\n`;
-  }
-  if (planPlatformId === 'instagram' || planPlatformId === 'linkedin') {
-    a += `${++n}. POST IMAGES USE TEMPLATES: when the image is the visual of a single feed POST, generate_image MUST carry purpose:"post_image", post_platform, post_template, and post_copy (see SINGLE-IMAGE POST TEMPLATES above). The server renders the layout from that — a post_image call with no post_copy loses the design system. Story frames, thumbnails, plain images and edits of an attached image set their own purpose and use a normal descriptive prompt instead.\n`;
   }
   a += `${++n}. VIDEO SCRIPTS (reels, shorts, TikToks, YouTube videos): wherever the flow above says to write the script as your text output, call the submit_script tool with the full script instead. NEVER stream a script into chat — the client renders it as an openable script card. Chat text in that turn is ONE short hand-off sentence, nothing more.\n`;
   a += `${++n}. ONE ACTION PER TURN (same turn-taking rule as above): either ONE ask_user call, OR one generation action (generate_linkedin_post, submit_script, submit_text_post, plan_carousel, or a set of generate_image calls — submit_text_post PLUS its generate_image calls counts as one action), OR pure conversation. Never combine a question with a generation action in the same turn.\n`;

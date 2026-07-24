@@ -2781,8 +2781,23 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
         const latestHtml = await readLatestCanvas();
         await snapshotForMessage(stableMsgId, { html: latestHtml, type: parsed.type || 'html', summary: parsed.summary || null });
       } else {
-        // Fallback  -  show raw text
-        setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: fullContent.slice(0, 500) }]);
+        // Salvage: the agent sometimes returns bare or ```html-fenced HTML
+        // without the JSON envelope — dumping that into the chat bubble
+        // showed the user raw code (founder report 2026-07-24). If the
+        // payload IS an HTML document, render it on the canvas instead.
+        const unfenced = fullContent
+          .replace(/^\s*```(?:html)?\s*\n?/i, '')
+          .replace(/\n?```\s*$/i, '')
+          .trim();
+        if (/^<(?:!doctype|html)\b/i.test(unfenced) || (/<body\b/i.test(unfenced) && /<\/html>/i.test(unfenced))) {
+          console.warn('[Marketing] envelope missing but payload is HTML — rendering on canvas');
+          setCanvasHtml(unfenced);
+          setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: 'Done — your page is on the canvas.' }]);
+          await snapshotForMessage(stableMsgId, { html: unfenced, type: 'html', summary: null });
+        } else {
+          // Fallback  -  show raw text
+          setChatMessages((prev) => [...prev, { id: `msg-${Date.now()}-assistant`, role: 'assistant', text: fullContent.slice(0, 500) }]);
+        }
       }
       } // end !editHandled
     } catch (err) {

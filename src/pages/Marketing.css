@@ -149,6 +149,11 @@
   background: var(--bg-light);
   border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
+  /* The expanded editing form (5 fields + chips + actions) can outgrow
+     the column on short viewports — scroll instead of clipping the
+     Save/Cancel row (parent .mkt-split-left is overflow:hidden). */
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
 }
 
 /* Small dot next to a tool tab's label when a campaign brief is loaded

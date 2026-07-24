@@ -14,23 +14,24 @@ import { Trash2, Pencil, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getCarouselTemplates, deleteCarouselTemplate, getCuratedCarouselTemplates } from '../../lib/api';
 import './CarouselPlanCard.css';
 
+// Internal accent markers ({{accent}}word{{/accent}}) tell the slide
+// renderer which word gets the gradient — they must NEVER reach the
+// user's eyes. Strip them from every displayed/edited value; a user who
+// edits a headline simply loses the manual accent (the renderer picks
+// its own), which beats showing laymen raw template syntax.
+const stripMarkers = (t) => String(t || '').replace(/\{\{\/?accent\}\}/gi, '').replace(/\[\/?ACCENT\]/gi, '');
+
 export default
-function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
+function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan, onStop }) {
   const ds = plan.designSystem || {};
   const p = ds.palette || {};
   const slides = plan.slides || [];
   const failed = plan.failedSlides || [];
   const hasFailed = failed.length > 0 && !plan.generating;
   const editable = !plan.approved; // Only editable BEFORE approval.
-  const [activeSlide, setActiveSlide] = useState(0);
   const [templates, setTemplates] = useState([]);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
-
-  // Clamp activeSlide if slides array shrinks (e.g., delete).
-  useEffect(() => {
-    if (activeSlide >= slides.length) setActiveSlide(Math.max(0, slides.length - 1));
-  }, [slides.length, activeSlide]);
 
   // Curated (premade) templates load on mount (cached module-level in
   // api.js) so the header badge can name the locked template immediately;
@@ -100,21 +101,19 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
     // Hook (0) and last (CTA) cannot be removed.
     if (idx === 0 || idx === slides.length - 1) return;
     onUpdatePlan({ ...plan, slides: slides.filter((_, i) => i !== idx) });
-    setActiveSlide((cur) => Math.max(0, cur >= idx ? cur - 1 : cur));
   };
   const insertSlideAfter = (idx) => {
     if (!editable || !onUpdatePlan) return;
     const newSlide = {
       type: 'explanation',
       badge: 'NEW POINT',
-      headline: 'New slide headline — mark the {{accent}}key word{{/accent}}',
+      headline: 'New slide headline',
       body: 'One short idea. Keep it to 2–4 lines.',
       visualElement: { kind: 'minimal-icon', description: 'Small supporting accent only.' },
       doNot: [],
     };
     const next = [...slides.slice(0, idx + 1), newSlide, ...slides.slice(idx + 1)];
     onUpdatePlan({ ...plan, slides: next });
-    setActiveSlide(idx + 1); // jump to the newly-inserted slide
   };
   const moveSlide = (from, to) => {
     if (!editable || !onUpdatePlan) return;
@@ -126,7 +125,6 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
     onUpdatePlan({ ...plan, slides: next });
-    setActiveSlide(to); // follow the moved slide
   };
 
   return (
@@ -226,138 +224,96 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
           {editable && (
             <div className="content-carousel-plan-edit-hint">
               <Pencil size={11} />
-              <span>Tap any text to edit. Use arrows or dots to move between slides.</span>
+              <span>Tap any text to edit it.</span>
             </div>
           )}
         </div>
-        {slides.length > 0 && (() => {
-          const clampedActive = Math.min(activeSlide, slides.length - 1);
-          const s = slides[clampedActive] || {};
-          const i = clampedActive;
-          const isHook = i === 0;
-          const isFinal = i === slides.length - 1;
-          const isLocked = isHook || isFinal;
-          const canMoveLeft = editable && !isLocked && i > 1;
-          const canMoveRight = editable && !isLocked && i < slides.length - 2;
-          const canDelete = editable && !isLocked;
-          const canInsertAfter = editable && !isFinal;
-          return (
-            <div className="content-carousel-plan-carousel">
-              <button
-                type="button"
-                className="content-carousel-plan-carousel-nav content-carousel-plan-carousel-nav--prev"
-                onClick={() => setActiveSlide((cur) => Math.max(0, cur - 1))}
-                disabled={i === 0}
-                aria-label="Previous slide"
-              >
-                <ChevronLeft size={20} />
-              </button>
-              <div className="content-carousel-plan-viewport">
-                <div className={`content-carousel-plan-slide-card content-carousel-plan-slide-card--focused${isLocked ? ' content-carousel-plan-slide-card--locked' : ''}`}>
-                  <div className="content-carousel-plan-slide-card-head">
-                    <span className="content-carousel-plan-slide-num">{String(i + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}</span>
-                    <span className="content-carousel-plan-slide-type">{isHook ? 'HOOK' : isFinal ? 'CTA' : String(s.type || 'SLIDE').toUpperCase()}</span>
-                    {editable && (
-                      <div className="content-carousel-plan-slide-actions">
-                        {canMoveLeft && (
-                          <button type="button" className="content-carousel-plan-slide-action" title="Move slide left" onClick={() => moveSlide(i, i - 1)}>
-                            <ChevronLeft size={12} />
-                          </button>
-                        )}
-                        {canMoveRight && (
-                          <button type="button" className="content-carousel-plan-slide-action" title="Move slide right" onClick={() => moveSlide(i, i + 1)}>
-                            <ChevronRight size={12} />
-                          </button>
-                        )}
-                        {canInsertAfter && (
-                          <button type="button" className="content-carousel-plan-slide-action" title="Insert slide after this one" onClick={() => insertSlideAfter(i)}>
-                            <Plus size={12} />
-                          </button>
-                        )}
-                        {canDelete && (
-                          <button type="button" className="content-carousel-plan-slide-action content-carousel-plan-slide-action--danger" title="Delete slide" onClick={() => deleteSlide(i)}>
-                            <Trash2 size={12} />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {editable
+        {/* All slides as a plain vertical list — bold headline + simple
+            body text per card, no per-field boxes, no marker syntax
+            (laymen readability, founder spec 2026-07-24). */}
+        <div className="content-carousel-plan-slide-list">
+          {slides.map((s, i) => {
+            const isHook = i === 0;
+            const isFinal = i === slides.length - 1;
+            const isLocked = isHook || isFinal;
+            const canMoveUp = editable && !isLocked && i > 1;
+            const canMoveDown = editable && !isLocked && i < slides.length - 2;
+            const canDelete = editable && !isLocked;
+            const canInsertAfter = editable && !isFinal;
+            return (
+              <div key={i} className="content-carousel-plan-slide-card">
+                <div className="content-carousel-plan-slide-card-head">
+                  <span className="content-carousel-plan-slide-num">{String(i + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}</span>
+                  <span className="content-carousel-plan-slide-type">{isHook ? 'HOOK' : isFinal ? 'CTA' : String(s.type || 'SLIDE').toUpperCase()}</span>
+                  {editable && (
+                    <div className="content-carousel-plan-slide-actions">
+                      {canMoveUp && (
+                        <button type="button" className="content-carousel-plan-slide-action" title="Move slide up" onClick={() => moveSlide(i, i - 1)}>
+                          <ChevronLeft size={12} style={{ transform: 'rotate(90deg)' }} />
+                        </button>
+                      )}
+                      {canMoveDown && (
+                        <button type="button" className="content-carousel-plan-slide-action" title="Move slide down" onClick={() => moveSlide(i, i + 1)}>
+                          <ChevronRight size={12} style={{ transform: 'rotate(90deg)' }} />
+                        </button>
+                      )}
+                      {canInsertAfter && (
+                        <button type="button" className="content-carousel-plan-slide-action" title="Insert slide after this one" onClick={() => insertSlideAfter(i)}>
+                          <Plus size={12} />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button type="button" className="content-carousel-plan-slide-action content-carousel-plan-slide-action--danger" title="Delete slide" onClick={() => deleteSlide(i)}>
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {(editable || s.badge) && (
+                  editable
                     ? <input
                         className="content-carousel-plan-slide-badge-input"
-                        value={s.badge || ''}
+                        value={stripMarkers(s.badge)}
                         onChange={(e) => updateSlide(i, { badge: e.target.value })}
                         placeholder="BADGE LABEL"
                       />
-                    : <div className="content-carousel-plan-slide-badge">{s.badge || ''}</div>
-                  }
-                  {editable
-                    ? <>
-                        <textarea
-                          className="content-carousel-plan-slide-headline-input"
-                          value={s.headline || ''}
-                          onChange={(e) => updateSlide(i, { headline: e.target.value })}
-                          placeholder="Headline"
-                          rows={3}
-                        />
-                        <div className="content-carousel-plan-accent-hint">
-                          Tip: wrap a word in <code>{'{{accent}}'}word{'{{/accent}}'}</code> to highlight it in your brand color on the final slide.
-                        </div>
-                      </>
-                    : <div className="content-carousel-plan-slide-headline">
-                        {(s.headline || '').replace(/\{\{accent\}\}|\{\{\/accent\}\}/g, '')}
-                      </div>
-                  }
-                  {editable
-                    ? <textarea
-                        className="content-carousel-plan-slide-body-input"
-                        value={s.body || ''}
-                        onChange={(e) => updateSlide(i, { body: e.target.value })}
-                        placeholder="Body copy (2–4 lines)"
-                        rows={6}
+                    : <div className="content-carousel-plan-slide-badge">{stripMarkers(s.badge)}</div>
+                )}
+                {editable
+                  ? <textarea
+                      className="content-carousel-plan-slide-headline-input"
+                      value={stripMarkers(s.headline)}
+                      onChange={(e) => updateSlide(i, { headline: e.target.value })}
+                      placeholder="Headline"
+                      rows={2}
+                    />
+                  : <div className="content-carousel-plan-slide-headline">{stripMarkers(s.headline)}</div>
+                }
+                {editable
+                  ? <textarea
+                      className="content-carousel-plan-slide-body-input"
+                      value={stripMarkers(s.body)}
+                      onChange={(e) => updateSlide(i, { body: e.target.value })}
+                      placeholder="Body copy (2–4 lines)"
+                      rows={3}
+                    />
+                  : (s.body && <div className="content-carousel-plan-slide-body">{stripMarkers(s.body)}</div>)
+                }
+                {isFinal && (
+                  editable
+                    ? <input
+                        className="content-carousel-plan-slide-cta-input"
+                        value={stripMarkers(s.cta)}
+                        onChange={(e) => updateSlide(i, { cta: e.target.value })}
+                        placeholder="CTA button text"
                       />
-                    : (s.body && <div className="content-carousel-plan-slide-body">{s.body}</div>)
-                  }
-                  {isFinal && (
-                    editable
-                      ? <input
-                          className="content-carousel-plan-slide-cta-input"
-                          value={s.cta || ''}
-                          onChange={(e) => updateSlide(i, { cta: e.target.value })}
-                          placeholder="CTA button text"
-                        />
-                      : (s.cta && <div className="content-carousel-plan-slide-cta">CTA: {s.cta}</div>)
-                  )}
-                </div>
+                    : (s.cta && <div className="content-carousel-plan-slide-cta">CTA: {stripMarkers(s.cta)}</div>)
+                )}
               </div>
-              <button
-                type="button"
-                className="content-carousel-plan-carousel-nav content-carousel-plan-carousel-nav--next"
-                onClick={() => setActiveSlide((cur) => Math.min(slides.length - 1, cur + 1))}
-                disabled={i === slides.length - 1}
-                aria-label="Next slide"
-              >
-                <ChevronRight size={20} />
-              </button>
-            </div>
-          );
-        })()}
-        {slides.length > 1 && (
-          <div className="content-carousel-plan-dots">
-            {slides.map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                className={`content-carousel-plan-dot${i === activeSlide ? ' content-carousel-plan-dot--active' : ''}`}
-                onClick={() => setActiveSlide(i)}
-                title={`Slide ${i + 1}${i === 0 ? ' — Hook' : i === slides.length - 1 ? ' — CTA' : ''}`}
-                aria-label={`Go to slide ${i + 1}`}
-              >
-                {i + 1}
-              </button>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
       </div>
       <div className="content-carousel-plan-section">
         <div className="content-carousel-plan-label">Design system {editable ? '(tap a swatch to change)' : '(locked)'}</div>
@@ -421,8 +377,20 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
         </button>
       )}
       {plan.approved && plan.generating && (
-        <div className="content-carousel-plan-approve content-carousel-plan-approve--disabled">
-          Generating slides…
+        <div className="content-carousel-plan-generating-row">
+          <div className="content-carousel-plan-approve content-carousel-plan-approve--disabled">
+            Generating slides…
+          </div>
+          {onStop && (
+            <button
+              type="button"
+              className="content-carousel-plan-stop"
+              onClick={onStop}
+              title="Stop generating — finished slides stay; the rest get a Regenerate button"
+            >
+              Stop
+            </button>
+          )}
         </div>
       )}
       {hasFailed && (

@@ -14,7 +14,6 @@
 
 import { LINKEDIN_CAROUSEL_PROMPT } from './linkedin-prompts.js';
 import { PLATFORM_GUIDANCE } from './platform-guidance.js';
-import { buildImagePostTemplateCatalog } from './image-post-templates.js';
 
 export
 function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext, carouselTemplates = [], existingPost = null, opts = {}) {
@@ -71,6 +70,8 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- Only when a visual genuinely fits what you just discussed. If the conversation was about text copy alone, don't offer an image.\n`;
   prompt += `- Skip the offer if you already made the visual, or if the user declined once  -  don't keep re-offering.\n\n`;
   prompt += `Question format (when you do ask): {"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}  -  4 options, 2-5 words each, ONE question per message.\n\n`;
+  prompt += `=== SCHEDULING / PUBLISHING POSTS ===\n`;
+  prompt += `You cannot schedule or publish posts yourself — scheduling is a UI action. When the user asks you to schedule or publish a post, point them to it: the Schedule button on the post's preview canvas (for the piece on screen), the Schedule button on a content plan card (bulk-schedules the whole plan), or the Content Calendar tab (reschedule, edit, or cancel anything). Never claim you scheduled something.\n\n`;
   prompt += `=== WHEN CREATING CONTENT ===\n`;
   prompt += `1. Detect the content type (carousel, reel, story, post, script, etc.).\n`;
   const usesPlanCarousel = platform.id === 'instagram' || platform.id === 'linkedin';
@@ -271,26 +272,16 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- Specify typography: "bold sans-serif text", "clean modern font", "large white text on dark background"\n`;
   prompt += `- NO cartoons, NO pixel art, NO clip-art, NO illustrations, NO stock photos\n`;
   if (platform.id === 'instagram') {
-    prompt += `- INSTAGRAM (single post / story): Image MUST be SQUARE (1:1). For carousels, do NOT call generate_image — use plan_carousel instead (the client builds the per-slide prompts from your locked design system).\n`;
-    prompt += `- The rules in this section apply to STORIES and other loose images. A single-image POST is rendered from a layout template instead — see SINGLE-IMAGE POST TEMPLATES below, which overrides everything here.\n`;
+    prompt += `- INSTAGRAM (single post): Image MUST be SQUARE (1:1). STORIES are vertical 9:16 portrait frames. For carousels, do NOT call generate_image — use plan_carousel instead (the client builds the per-slide prompts from your locked design system).\n`;
   } else if (platform.id === 'youtube') {
     prompt += `- YOUTUBE: Image MUST be LANDSCAPE (16:9). Thumbnail style  -  dramatic, high contrast, 3-4 words max in huge bold text.\n`;
   } else if (platform.id === 'tiktok') {
     prompt += `- TIKTOK: Image MUST be PORTRAIT (9:16). Bold centered text overlay, eye-catching at small size.\n`;
   } else if (platform.id === 'linkedin') {
     prompt += `- LINKEDIN (single text-post image): Image MUST be 3:4 PORTRAIT ratio. For carousels, do NOT call generate_image — use plan_carousel instead (the client builds the per-slide prompts from your locked design system).\n`;
-    prompt += `- The image that accompanies a LinkedIn post is rendered from a layout template — see SINGLE-IMAGE POST TEMPLATES below, which overrides everything here.\n`;
   }
   prompt += `- Always specify exact colors (e.g. "black background with white text and red accent")\n`;
   prompt += `- The text on the image should be the HOOK or KEY MESSAGE  -  not decorative\n\n`;
-
-  // Single-image POST templates — the deterministic layout system for
-  // IG/LI feed post images (founder request 2026-07-23). The catalog tells
-  // the model WHICH template and WHAT copy; the server owns the layout,
-  // spacing, brand colors, and typography (image-post-templates.js).
-  if (platform.id === 'instagram' || platform.id === 'linkedin') {
-    prompt += buildImagePostTemplateCatalog({ platform: platform.id }) + '\n\n';
-  }
 
   prompt += `=== TARGET PLATFORM: ${platform.name} ===\n`;
   prompt += (PLATFORM_GUIDANCE[platform.id] || `Tailor all content for ${platform.name}.`) + '\n\n';
