@@ -9,6 +9,7 @@ import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
 import { handleContentOrchestration } from '../agents/content/handler.js';
 import { buildCeoUnifiedSocialAddendum, runLinkedInTextPostPass, GENERATE_LINKEDIN_POST_TOOL, mapContentItemsToSocialRefs } from '../agents/content/ceo-adapter.js';
+import { LINKEDIN_CAROUSEL_CAPTION_PARAM, LINKEDIN_CAPTION_STANDARD_BLOCK, LINKEDIN_SLIDE_BODY_STANDARD_BLOCK } from '../agents/content/build-system-prompt.js';
 import { buildPlanModeDirective } from '../agents/content/plan-mode.js';
 import { PLAN_CAROUSEL_TOOL } from '../agents/plan-carousel-tool.js';
 import { COMPOSE_SINGLE_IMAGE_POST_TOOL, PLAN_PLATFORM_FORMATS } from '../agents/content-plan-tool.js';
@@ -85,7 +86,7 @@ CRITICAL RULES:
    - Question 4: What's the main CTA? Offer options relevant to THEIR actual offers/links/goals.
    NEVER fabricate product names, features, or services. If unsure, keep options generic ("Your main product", "Your latest offer") rather than guessing wrong.
 5. For simple stuff (emails, docs, code, reel scripts) just create_artifact directly.
-8. REELS / VIDEO SCRIPTS (THIS OVERRIDES EVERYTHING ABOVE): When the user asks to "make a reel", "create a reel", "write a reel script", "make a TikTok", "make a Short", or ANYTHING about short-form video content  -  you MUST use create_artifact IMMEDIATELY to write a VIDEO SCRIPT. Do NOT ask questions first. Do NOT use ask_user. Do NOT delegate to any agent. Do NOT generate images. Reels are NOT carousels, NOT stories, NOT slides. Just write the script as a clean, spoken script  -  the actual words they will say on camera, line by line. Do NOT use labels like [HOOK], [BRIDGE], [SCENE], [VISUAL], [VOICEOVER], [ON-SCREEN TEXT], or timestamps. Write it as a natural flowing script that the user can read straight to camera. Start with the hook line (the scroll-stopper), flow into the body, and end with a CTA if needed. Add a brief "Direction:" note at the end for suggested visuals and trending audio. Keep it punchy, under 60 seconds.
+8. REELS / VIDEO SCRIPTS (THIS OVERRIDES EVERYTHING ABOVE): When the user asks to "make a reel", "create a reel", "write a reel script", "make a TikTok", "make a Short", or ANYTHING about short-form video content  -  you MUST use create_artifact IMMEDIATELY to write a VIDEO SCRIPT. Do NOT ask questions first. Do NOT use ask_user. Do NOT delegate to any agent. Do NOT generate images. Reels are NOT carousels, NOT stories, NOT slides. Write the script EXACTLY per the SHORT-FORM VIDEO SCRIPT GUIDE below — full output format: scored HOOK OPTIONS, **HOOK** / **BODY** / **CTA** sections of pure spoken lines, then the PRODUCTION NOTES block. Never put bracket cues like [VISUAL], [B-ROLL], [TEXT ON SCREEN], [SCENE], or timestamps inside the spoken lines — production guidance lives ONLY in PRODUCTION NOTES. If reference videos are provided in your context, copy their structure and pacing beat-for-beat.
 6. For sending emails, use send_email. Confirm count first if more than 5 recipients.
 7. If the user asks to CHECK / READ / REVIEW / SUMMARIZE their emails or inbox, or asks what's new, or wants to find a specific email  -  call check_emails IMMEDIATELY with sensible defaults. DO NOT use ask_user to clarify first. DO NOT send them an email asking what they want. Just read the inbox, then summarize in plain talk (who, subject, one-line gist). Only ask follow-ups after you've already shown them what's there.
 
@@ -113,6 +114,7 @@ SOCIAL POST RULE (READ THIS BEFORE EVERY LinkedIn/IG/X/TikTok/Facebook REQUEST):
 - Platform mapping — pick from what the user said: "LinkedIn post" → platform:"linkedin". "Instagram post" → platform:"instagram". "Tweet / X post" → platform:"twitter". "TikTok caption" → platform:"tiktok". "Facebook post" → platform:"facebook".
 - Why this matters: the artifact panel renders content_post + platform="linkedin" as a LinkedIn feed card (the canvas the user expects). type:"html_template" renders as a full HTML page — a PDF-looking wall of styled HTML. Getting this wrong is a visible bug the user WILL complain about.
 - The content field for content_post is PLAIN TEXT — the exact post copy, with normal line breaks. Do NOT put HTML tags, style blocks, or html/body wrappers in it. Do NOT wrap it in markdown fences. Just the raw post text, ready to paste into LinkedIn / IG / etc.
+- POST WRITER STANDARD (single-image posts): the content field is a REAL POST, not an announcement or headline. Hook first line (specific claim / number / tension — earns the "...more" tap), then 2-5 short paragraphs developing ONE idea with at least one specific detail, then a platform-fitting engagement CTA. A one-or-two-line announcement ("X is now the number one Y") is a failure — if the copy is under 3 sentences, rewrite it as a real post. The image text (in generate_image) stays SHORT: one bold hook line ≤ 8 words. Spell every product/brand/person name EXACTLY as the user wrote it (Claude, ChatGPT, Gemini — never phoneticized) in both the post copy and the image prompt.
 ${SOCIAL_POST_DISCOVERY_PROMPT}
 
 === SCHEDULING / PUBLISHING POSTS ===
@@ -2226,6 +2228,23 @@ router.post('/api/content-orchestrate', async (req, res) => {
 
 const PLAN_ITEM_TEXT_FORMATS = new Set(['text_post', 'reel_script', 'youtube_script']);
 
+// Reference-video block for script generation — same copy-exact directive
+// the CEO chat prompt uses (see buildCeoSystemPrompt social block). Plan
+// items previously generated scripts with NO reference context at all
+// (founder 2026-07-24: outlier reference "not working at all") — the
+// transcripts were sitting in context.contentItems the whole time.
+function buildReferenceVideosBlock(contentItems = []) {
+  const withTranscript = (contentItems || []).filter((i) => i?.type === 'social' && i.transcript);
+  if (!withTranscript.length) return '';
+  let block = `\n\n=== REFERENCE VIDEOS — COPY THEIR EXACT STRUCTURE, TONE, PATTERN ===\n`;
+  block += `The user saved these proven videos as references. The reference is your PRIMARY template: mirror its structural beats one-for-one (hook style, pacing, reveal order, callbacks, ending), match its tone and energy, keep its signature phrasings where they fit — and swap ONLY the topic/details for the user's business. Writing a generic script while a reference transcript sits below is a failure.\n\n`;
+  withTranscript.forEach((item) => {
+    const m = item.metadata || {};
+    block += `--- "${m.title || item.url}" by ${m.uploader || 'unknown'} (${m.platform || 'unknown'}) ---\nTRANSCRIPT:\n${String(item.transcript).slice(0, 4000)}\n\n`;
+  });
+  return block;
+}
+
 function buildPlanItemSystemPrompt({ context, platform, format }) {
   let prompt = 'You are the user\'s ghostwriter. You write finished, ready-to-post content in their exact brand voice. You know their business inside out. Output ONLY the deliverable itself — no preamble, no "Here\'s your post", no meta commentary, and no markdown fences around plain-text posts.';
   prompt += GLOBAL_OUTPUT_RULES;
@@ -2238,12 +2257,17 @@ function buildPlanItemSystemPrompt({ context, platform, format }) {
     prompt += `\n\n=== DELIVERABLE: LINKEDIN TEXT POST ===\nPlain text, ready to paste into LinkedIn. The hook is the FIRST line, verbatim from the brief. Framework-heavy (numbered points, tight single-sentence lines) for educate/sell/engage angles; story-flow (personal narrative, single-line paragraphs, emotional pivot) for nurture angles. 150-300 words. End with the CTA from the brief. No HTML, no markdown headers.`;
   } else if (format === 'reel_script') {
     prompt += `\n\n=== DELIVERABLE: REEL SCRIPT ===\nA short-form video script written EXACTLY per the guide below (output format, word budget, hook craft, production notes). The brief's hook is your first hook candidate — beat it if you can. Default duration 45-60 seconds unless the brief specifies otherwise.\n${SHORT_FORM_SCRIPT_GUIDE}`;
+    prompt += buildReferenceVideosBlock(context.contentItems);
   } else if (format === 'youtube_script') {
     prompt += `\n\n=== DELIVERABLE: YOUTUBE SCRIPT ===\nA long-form YouTube script written EXACTLY per the guide below (markdown with payoff map, chapters, bridge ending). Default 8-10 minutes unless the brief specifies otherwise.\n${LONG_FORM_SCRIPT_GUIDE}`;
+    prompt += buildReferenceVideosBlock(context.contentItems);
   } else if (format === 'single_image') {
-    prompt += `\n\n=== DELIVERABLE: SINGLE-IMAGE POST ===\nCall compose_single_image_post with the finished post copy in the content field (plain text, hook as the first line, CTA at the end, platform-appropriate length) AND an actionable image_prompt (subject, composition, mood, style, brand-color hints, text overlay if any). The image_prompt must NEVER include a real person's name, ethnicity, or identity.`;
+    prompt += `\n\n=== DELIVERABLE: SINGLE-IMAGE POST ===\nCall compose_single_image_post with the finished post copy in the content field AND an actionable image_prompt (subject, composition, mood, style, brand-color hints, text overlay if any). The image_prompt must NEVER include a real person's name, ethnicity, or identity.\nPOST WRITER STANDARD for the content field: a REAL POST, not an announcement — hook first line (specific claim / number / tension), 2-5 short paragraphs developing ONE idea with at least one specific detail, engagement CTA at the end, platform-native voice. Under 3 sentences = under-delivered, rewrite. Image text overlay stays SHORT (one bold hook line ≤ 8 words) with every brand/product name spelled exactly.`;
   } else if (format === 'carousel') {
     prompt += `\n\n=== DELIVERABLE: CAROUSEL PLAN ===\nCall plan_carousel with EVERY required field filled. Platform-appropriate slide count (Instagram 5-9, LinkedIn 7-12). Slide 1 headline = the hook from the brief. Final slide = the CTA slide. designSystem anchored to the Brand DNA colors provided below.`;
+    if (platform === 'linkedin') {
+      prompt += `\nThe ${LINKEDIN_CAROUSEL_CAPTION_PARAM}\n\n${LINKEDIN_CAPTION_STANDARD_BLOCK}${LINKEDIN_SLIDE_BODY_STANDARD_BLOCK}`;
+    }
   }
 
   if (context.brandDna) prompt += '\n\n' + buildBrandContext(context.brandDna);

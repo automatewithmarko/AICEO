@@ -984,10 +984,20 @@ router.post('/api/generate/carousel', async (req, res) => {
     }
   }
 
-  // Generate ONE slide with the legacy retry policy: 3 attempts,
+  // Generate ONE slide with the legacy retry policy: 4 attempts,
   // escalating backoff, validity check on the returned base64. Returns
   // { image: {data, mimeType}, url } or throws the last error.
-  const MAX_ATTEMPTS = 3;
+  //
+  // Rate-limit handling (founder report 2026-07-24: parallel generation
+  // tripping provider 429s and failing slides): a 429 on ANY slide arms a
+  // shared cooldown gate — every worker waits it out before starting its
+  // next attempt, and the failing slide backs off much longer than the
+  // normal 1.5s ladder. Parallelism is preserved; the burst isn't.
+  const MAX_ATTEMPTS = 4;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let rateLimitUntil = 0;
+  const isRateLimited = (err) => err?.status === 429
+    || /\b429\b|rate.?limit|quota|capacity|resource.?exhausted|temporarily unavailable/i.test(err?.message || '');
   const renderSlide = async (idx) => {
     const slide = slideOverrides?.[idx] || plan.slides[idx];
     const prompt = buildCarouselSlidePrompt({
@@ -1031,6 +1041,10 @@ router.post('/api/generate/carousel', async (req, res) => {
         throw err;
       }
       try {
+        // Shared 429 cooldown: if another slide just got rate-limited,
+        // wait out the window instead of piling on and burning attempts.
+        const cool = rateLimitUntil - Date.now();
+        if (cool > 0) await sleep(cool);
         const result = await generateImageCore({
           userId,
           rawPrompt: prompt,
@@ -1042,7 +1056,9 @@ router.post('/api/generate/carousel', async (req, res) => {
         const d = result.body?.image?.data;
         const m = result.body?.image?.mimeType;
         if (!result.ok || !d || !m || typeof d !== 'string' || d.length <= 200) {
-          throw new Error(result.body?.error || `empty/invalid image response (dataLen=${d?.length || 0}, mime=${m || 'none'})`);
+          const e = new Error(result.body?.error || `empty/invalid image response (dataLen=${d?.length || 0}, mime=${m || 'none'})`);
+          e.status = result.status;
+          throw e;
         }
         const up = await uploadImageCore({
           base64: d,
@@ -1062,9 +1078,17 @@ router.post('/api/generate/carousel', async (req, res) => {
         return { image: { data: d, mimeType: m }, url: up.body.url };
       } catch (err) {
         lastErr = err;
-        console.warn(`[generate/carousel] slide ${idx + 1} attempt ${attempt}/${MAX_ATTEMPTS} failed: ${err.message}`);
+        const limited = isRateLimited(err);
+        console.warn(`[generate/carousel] slide ${idx + 1} attempt ${attempt}/${MAX_ATTEMPTS} failed${limited ? ' (RATE LIMITED)' : ''}: ${err.message}`);
         if (attempt < MAX_ATTEMPTS) {
-          await new Promise((r) => setTimeout(r, 1500 * attempt));
+          if (limited) {
+            // Provider quota window — back off hard and gate everyone.
+            const backoff = 8000 * attempt + Math.floor(Math.random() * 2000);
+            rateLimitUntil = Math.max(rateLimitUntil, Date.now() + backoff);
+            await sleep(backoff);
+          } else {
+            await sleep(1500 * attempt);
+          }
         }
       }
     }
@@ -1111,15 +1135,18 @@ router.post('/api/generate/carousel', async (req, res) => {
         }
       }
     };
-    // Full parallelism after the anchor (founder request 2026-07-24: all
-    // slides at once). The anchor slide still renders first (hookRef must
-    // exist before the rest start); after that every remaining slide gets
-    // its own worker. Cap at 8 as a safety valve against provider 429s —
-    // that covers the largest LinkedIn carousel (12 slides = anchor + 11,
-    // two waves at most) while a burst of parallel per-slide retries
-    // stays bounded.
-    const CONCURRENCY = Math.min(8, Math.max(queue.length, 1));
-    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    // Parallel after the anchor, but throttled: 8-wide bursts tripped
+    // provider 429s and failed slides outright (founder 2026-07-24), so
+    // cap at 4 concurrent and stagger worker starts by 500ms — the
+    // requests overlap (slides still generate in parallel) without
+    // landing on the provider in one synchronized burst. Combined with
+    // the shared 429 cooldown gate above, an 11-slide run degrades to
+    // slightly-slower instead of failing.
+    const CONCURRENCY = Math.min(4, Math.max(queue.length, 1));
+    await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => (async () => {
+      if (i > 0) await sleep(i * 500);
+      return worker();
+    })()));
   } catch (err) {
     console.error(`[generate/carousel] fatal: ${err.message}`);
     send({ type: 'error', error: err.message });

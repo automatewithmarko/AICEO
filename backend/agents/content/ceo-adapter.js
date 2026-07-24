@@ -17,6 +17,7 @@ import { executeCeoOrchestrator } from '../base-agent.js';
 import { buildLinkedInPostSystemPrompt } from './second-pass-prompts.js';
 import { SUBMIT_POST_TOOL, GENERATE_LINKEDIN_POST_TOOL, SUBMIT_POST_ADDENDUM } from './claude-protocol.js';
 import { LINKEDIN_CAROUSEL_PROMPT } from './linkedin-prompts.js';
+import { LINKEDIN_CAROUSEL_CAPTION_PARAM, LINKEDIN_CAPTION_STANDARD_BLOCK, LINKEDIN_SLIDE_BODY_STANDARD_BLOCK } from './build-system-prompt.js';
 import { CURATED_CAROUSEL_TEMPLATES } from './curated-carousel-templates.js';
 
 export { GENERATE_LINKEDIN_POST_TOOL };
@@ -55,12 +56,16 @@ export function buildCeoUnifiedSocialAddendum() {
   a += `   - Hook thinking to carry into your commitment message and the conversation brief: specificity beats cleverness ("I cut churn 62% in 90 days" beats "How to reduce churn"), contrarian and credibility-driven hooks win, question-hooks like "Are you making these mistakes?" are dead on LinkedIn. If the user saved a reference post/video, the writer will mirror it — do not fight that.\n`;
   a += `2. EDITS to a LinkedIn post already on screen are unchanged: small tweaks (shorten, change tone, new CTA, add image) keep using create_artifact / generate_image directly as described above. Only a brand-new post goes through generate_linkedin_post.\n`;
   a += `3. Every OTHER platform (Instagram, X, Facebook, TikTok) and every other content type (carousels, stories, reels, images) is unchanged — follow the rules above.\n`;
-  a += `4. LINKEDIN CAROUSELS: when you call plan_carousel with platform "linkedin", the caption field must meet the standard below — on LinkedIn the CAPTION IS THE POST (150-450 words carrying 90% of the value; slides are the visual summary). Apply these standards to the caption and slide copy you put in the plan:\n\n`;
+  a += `4. LINKEDIN CAROUSELS: when you call plan_carousel with platform "linkedin", the ${LINKEDIN_CAROUSEL_CAPTION_PARAM}\n`;
+  a += `Apply ALL THREE standards below to the caption and slide copy you put in the plan — they are the /Content quality bar and they override the tool schema's short caption description:\n\n`;
+  a += LINKEDIN_CAPTION_STANDARD_BLOCK;
+  a += LINKEDIN_SLIDE_BODY_STANDARD_BLOCK;
+
   a += `--- LINKEDIN CAROUSEL COPY STANDARDS (from the /Content strategist — apply when planning LinkedIn carousels) ---\n`;
   a += LINKEDIN_CAROUSEL_PROMPT;
   a += `\n--- END LINKEDIN CAROUSEL COPY STANDARDS ---\n`;
   a += `5. PREMADE CAROUSEL TEMPLATES: these curated visual templates exist — ${CURATED_CAROUSEL_TEMPLATES.map((t) => `"${t.name}" (id: ${t.id})`).join(', ')}. If the user names one (or asks for "a premade/template style"), set designSystem.templateId to that template's id in your plan_carousel call and plan only the slide CONTENT — the server substitutes the template's exact design system and layout, so any palette you provide will be overridden. If the user asks what templates exist, list the names.\n`;
-  a += `6. CAROUSEL COPY BUDGET (always, and doubly so with a premade template — they live on generous whitespace): headlines ≤ 8 words; body ≤ 2 short sentences (≈ 12-20 words total); ONE idea per slide — split dense points across two slides instead of packing one. Overstuffed slide copy renders as a cluttered, hard-to-scan image.\n`;
+  a += `6. SLIDE COPY BUDGET (SLIDES ONLY — this does NOT apply to the caption, which follows the LinkedIn caption standard above): headlines ≤ 8 words; slide body ≤ 2 short sentences (≈ 12-20 words total); ONE idea per slide — split dense points across two slides instead of packing one. Overstuffed slide copy renders as a cluttered, hard-to-scan image.\n`;
   return a;
 }
 

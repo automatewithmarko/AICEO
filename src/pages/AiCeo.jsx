@@ -3,7 +3,7 @@ import { useOutletContext, useParams, useNavigate } from 'react-router-dom';
 import { Send, Mic, Square, CircleStop, PanelRightOpen, FileText, Plus, Globe, X, ChevronRight, Search, PenLine, ArrowUp, History, Pencil, Trash2, Zap, Paperclip, Loader2, AlertCircle, CalendarDays } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide, generatePlanItem , getCuratedCarouselTemplates, findCuratedCarouselTemplate } from '../lib/api';
+import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide, generatePlanItem , getCuratedCarouselTemplates, findCuratedCarouselTemplate, backfillTranscripts } from '../lib/api';
 import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from '../lib/planRunner';
 import { sweepCarouselMessages, sweepCarouselHolder } from '../lib/carouselState';
 import CarouselPlanCard from '../components/social-canvas/CarouselPlanCard';
@@ -297,6 +297,10 @@ export default function AiCeo() {
   // Fetch real context data from APIs
   useEffect(() => {
     let cancelled = false;
+    // Heal saved references with transcript=null (server re-extracts up
+    // to 3 per call). CEO requests read content_items server-side, so a
+    // fire-and-forget is enough — the next generation sees the transcript.
+    backfillTranscripts();
     const fmt = (d) => { try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } };
     Promise.all([
       getTemplates('newsletter').catch(() => ({ templates: [] })),
@@ -2781,35 +2785,10 @@ export default function AiCeo() {
     };
     const updated = [...messages, userMsg];
 
-    // Carousel pre-open: Sonnet takes 15-30s to stream a plan_carousel
-    // tool call. During that time the canvas would otherwise be blank
-    // (or still showing the previous turn's artifact) and the user
-    // thinks the app is stuck. If this answer is "Carousel" (or the
-    // user typed something with carousel in it), open the panel with a
-    // "Building carousel plan…" placeholder immediately. plan_carousel
-    // firing later replaces the placeholder with the real plan card.
-    const answerLower = answer.trim().toLowerCase();
-    if (answerLower === 'carousel' || /\bcarousel\b/.test(answerLower)) {
-      // Detect platform from the FULL history so the placeholder chrome
-      // matches (LinkedIn preview vs Instagram preview).
-      const fullChatText = updated
-        .map((m) => String(m.content || m.displayText || ''))
-        .join(' ')
-        .toLowerCase();
-      const placeholderPlatform = /\blinkedin\b/i.test(fullChatText) ? 'linkedin' : 'instagram';
-      setArtifact({
-        id: `plan-pending-${Date.now()}`,
-        type: 'content_post',
-        title: `Building your ${placeholderPlatform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel plan…`,
-        content: '',
-        images: [],
-        agentSource: placeholderPlatform,
-        _planPending: true,
-      });
-      setPanelOpen(true);
-      if (isMobileRef.current) setMobileArtifactOpen(true);
-    }
-
+    // NOTE: no canvas pre-open here. Carousel plans render in CHAT; the
+    // canvas stays closed until the user approves the plan (founder
+    // 2026-07-24: the "Building your carousel plan…" placeholder card
+    // must not appear in canvas — plans are not final output).
     setMessages(updated);
     sendToAI(updated);
   }, [isGenerating, messages, sendToAI, selectedCtxItems, ceoContextCategories]);

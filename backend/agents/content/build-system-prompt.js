@@ -15,6 +15,63 @@
 import { LINKEDIN_CAROUSEL_PROMPT } from './linkedin-prompts.js';
 import { PLATFORM_GUIDANCE } from './platform-guidance.js';
 
+// LinkedIn carousel caption + slide-body standards — SHARED between the
+// /Content strategist prompt (below) and the AI CEO unified addendum
+// (ceo-adapter.js). Founder feedback 2026-07-24: CEO carousel captions
+// were IG-grade trailers while /Content wrote real 150-450 word posts —
+// the standards now live in ONE place so parity can't drift.
+export const LINKEDIN_CAROUSEL_CAPTION_PARAM = 'caption: THE MAIN CONTENT OF THE POST. The caption IS the value — 150-450 words by default (sweet spot 220-320) of a real, standalone LinkedIn post. Strong hook, 3-6 paragraphs with line breaks, at least one specific proof element (number / named client / timeline / framework), comment-triggering CTA. Slides are VISUAL SUPPORT for the caption, not the other way around. If a reader consumed ONLY the caption and never swiped, they must still walk away with the full insight. Do NOT write a 2-sentence trailer for the carousel. See the LINKEDIN CAROUSEL COPY STANDARD block below — that is the quality bar.';
+
+export const LINKEDIN_CAPTION_STANDARD_BLOCK = `=== LINKEDIN CAPTION STANDARD — CAPTION IS THE POST ===
+CORE PRINCIPLE: the caption carries the full value. Slides are the visual summary that makes the post pop in the feed — a reader should get 90% of the insight from the caption alone. Slides ENHANCE the caption, they do not REPLACE it.
+This flips the IG mental model. On IG the caption is a secondary layer supporting the images. On LinkedIn the caption IS the main content; the images exist to catch the scroll.
+
+FORMATTING RULE (critical — this is how LinkedIn text scans on mobile):
+- MAX 1-3 sentences per paragraph. Usually 1-2. Never more than 3.
+- Single-sentence paragraphs are POWERFUL. Use them freely — for the hook, for punchlines, for CTAs.
+- BLANK LINE between every paragraph. White space is oxygen on mobile.
+- Short sentences. Break long thoughts across lines.
+- Never a wall of text. If a paragraph runs past 3 sentences, split it.
+- Target: 6-10 paragraph breaks in a 250-word post.
+
+STRUCTURE (follow this exactly):
+- LINE 1 (hook): under 140 chars, its own paragraph. Starts with I / You / If / When / a quoted client line / a specific number. NOT a question like "Are you making these mistakes?" (that pattern is dead on LI).
+- Blank line.
+- CONTEXT / STAKES (1-2 short paragraphs): situation, why it matters, who's feeling it.
+- Blank line.
+- BODY (3-6 short paragraphs of 1-3 sentences each, BLANK LINE between each): the insight / framework / story. One idea per paragraph. The argument advances paragraph-by-paragraph, not all crammed in one block.
+- Blank line.
+- PROOF / SPECIFICITY: at least ONE specific element — a real number, named client (anonymized OK: "one B2B SaaS client"), concrete timeline ("last quarter", "in 6 weeks"), named framework/acronym, or genuine before/after. Its own paragraph for emphasis.
+- Blank line.
+- CTA (1-2 lines, its own paragraph): comment-triggering preferred (LinkedIn algorithm ranks comments highest). Examples: "Comment KEYWORD for the template", "Which slide hit hardest — drop a number", "Agree or disagree? Tell me below". Avoid "link in bio" (doesn't exist on LI) and "follow for more" (weak).
+LENGTH: 150-450 words, sweet spot 220-320. Under 150 you under-delivered; over 450 and the time-poor reader is gone.
+BAN LIST (instant rewrite if present): em dashes, hashtags (unless asked), rocket/target/fire emojis, "in today's competitive landscape", "leverage", "unlock", "game-changer", "dive in", "deep dive", "circle back", "Thanks for reading", "Hope this helps", "🚀 Excited to announce", numbered templates like "5 things every founder should know".
+WALL-OF-TEXT TEST: before submitting, count the line breaks in the caption. If your 250-word caption has fewer than 6 blank-line paragraph breaks, rewrite it. The caption must LOOK like a LinkedIn post on mobile, not an essay.
+THE TEST: if the caption were published WITHOUT any slides, would it still be a post worth reading? If no, rewrite until yes.
+
+`;
+
+export const LINKEDIN_SLIDE_BODY_STANDARD_BLOCK = `=== LINKEDIN SLIDE BODY STANDARD (applies to each slide's body field) ===
+Each slide's body must carry real, specific value with LinkedIn-caliber substance. But write it as SCANNABLE SENTENCES, not a paragraph. The body field should use \\n (line breaks) to separate thoughts — one idea per line, the way a tweet reads.
+
+FORMAT:
+- Break the copy into 3-5 short lines. Each line is one sentence or one short thought.
+- Use \\n between lines. Use \\n\\n (blank line) between groups of related lines.
+- NOT a paragraph. If the body reads as prose, rewrite it with line breaks.
+- Max ~12 words per line. If a line is longer, split it.
+- Specificity mandatory: at least one number, named tool, timeline, or framework per middle slide.
+
+GOOD slide body (scannable, line-broken — DO THIS):
+  "Most SaaS teams burn $30-50k on Facebook ads.\\nMeanwhile their landing page converts at 0.8%.\\n\\nThe fix isn't more spend.\\nIt's rewriting the hero with the CLEAR framework.\\n\\nOne client ran this last quarter.\\nCAC dropped from $420 to $180 in six weeks."
+
+BAD slide body (paragraph-style — NEVER do this):
+  "Most SaaS teams burn $30-50k on Facebook ads before noticing their landing page converts at 0.8%. The fix isn't more spend, it's rewriting the hero with the CLEAR framework. A client ran this last quarter and their CAC dropped from $420 to $180 in six weeks."
+
+BAD slide body (too thin — NEVER do this):
+  "Most teams waste budget on ads. Think before you spend."
+
+`;
+
 export
 function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext, carouselTemplates = [], existingPost = null, opts = {}) {
   let prompt = `You are a senior content strategist who creates content that actually performs on social media. You study what top creators and brands do  -  you understand hooks, retention, visual hierarchy, and what makes people stop scrolling.\n\n`;
@@ -99,7 +156,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       ? 'Tone: professional thought-leadership — substance and specificity win on LinkedIn. Hook formats: specificity ("I cut churn 62% in 90 days — here\'s exactly how"), contrarian ("Most SaaS founders are wrong about onboarding"), credibility-driven ("What I learned after 100 customer calls"). Avoid trendy/editorial language and emoji. Use LinkedIn\'s intent framework: educating (frameworks), nurturing (stories), soft-sell (client results), hard-sell (direct offer), engagement (contrarian).'
       : 'Tone: editorial/trend-aware. Hook formats: confession ("I did [unexpected thing]"), contrarian ("[belief] is a lie"), specificity ("[number] in [timeframe]"), curiosity gap. NEVER "Are you making these mistakes?" or "X tips for Y".';
     const captionGuidance = isLinkedin
-      ? 'caption: THE MAIN CONTENT OF THE POST. The caption IS the value — 150-450 words by default (sweet spot 220-320) of a real, standalone LinkedIn post. Strong hook, 3-6 paragraphs with line breaks, at least one specific proof element (number / named client / timeline / framework), comment-triggering CTA. Slides are VISUAL SUPPORT for the caption, not the other way around. If a reader consumed ONLY the caption and never swiped, they must still walk away with the full insight. Do NOT write a 2-sentence trailer for the carousel. See the LINKEDIN CAROUSEL COPY STANDARD block below — that is the quality bar.'
+      ? LINKEDIN_CAROUSEL_CAPTION_PARAM
       : 'caption: the IG caption the user will paste with the post.';
     const ctaGuidance = isLinkedin
       ? 'CTA slide ("Comment [keyword]" outperforms "link in bio" on LinkedIn — prefer comment CTAs)'
@@ -145,50 +202,8 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       // full LinkedIn carousel copy framework so Claude produces LI-quality
       // slides and a LI-quality caption, not an IG-grade summary.
       prompt += `\n=== LINKEDIN CAROUSEL COPY STANDARD (applies to every headline + body + caption) ===\n${LINKEDIN_CAROUSEL_PROMPT}\n\n`;
-      prompt += `=== LINKEDIN CAPTION STANDARD — CAPTION IS THE POST ===\n`;
-      prompt += `CORE PRINCIPLE: the caption carries the full value. Slides are the visual summary that makes the post pop in the feed — a reader should get 90% of the insight from the caption alone. Slides ENHANCE the caption, they do not REPLACE it.\n`;
-      prompt += `This flips the IG mental model. On IG the caption is a secondary layer supporting the images. On LinkedIn the caption IS the main content; the images exist to catch the scroll.\n`;
-      prompt += `\n`;
-      prompt += `FORMATTING RULE (critical — this is how LinkedIn text scans on mobile):\n`;
-      prompt += `- MAX 1-3 sentences per paragraph. Usually 1-2. Never more than 3.\n`;
-      prompt += `- Single-sentence paragraphs are POWERFUL. Use them freely — for the hook, for punchlines, for CTAs.\n`;
-      prompt += `- BLANK LINE between every paragraph. White space is oxygen on mobile.\n`;
-      prompt += `- Short sentences. Break long thoughts across lines.\n`;
-      prompt += `- Never a wall of text. If a paragraph runs past 3 sentences, split it.\n`;
-      prompt += `- Target: 6-10 paragraph breaks in a 250-word post.\n`;
-      prompt += `\n`;
-      prompt += `STRUCTURE (follow this exactly):\n`;
-      prompt += `- LINE 1 (hook): under 140 chars, its own paragraph. Starts with I / You / If / When / a quoted client line / a specific number. NOT a question like "Are you making these mistakes?" (that pattern is dead on LI).\n`;
-      prompt += `- Blank line.\n`;
-      prompt += `- CONTEXT / STAKES (1-2 short paragraphs): situation, why it matters, who's feeling it.\n`;
-      prompt += `- Blank line.\n`;
-      prompt += `- BODY (3-6 short paragraphs of 1-3 sentences each, BLANK LINE between each): the insight / framework / story. One idea per paragraph. The argument advances paragraph-by-paragraph, not all crammed in one block.\n`;
-      prompt += `- Blank line.\n`;
-      prompt += `- PROOF / SPECIFICITY: at least ONE specific element — a real number, named client (anonymized OK: "one B2B SaaS client"), concrete timeline ("last quarter", "in 6 weeks"), named framework/acronym, or genuine before/after. Its own paragraph for emphasis.\n`;
-      prompt += `- Blank line.\n`;
-      prompt += `- CTA (1-2 lines, its own paragraph): comment-triggering preferred (LinkedIn algorithm ranks comments highest). Examples: "Comment KEYWORD for the template", "Which slide hit hardest — drop a number", "Agree or disagree? Tell me below". Avoid "link in bio" (doesn't exist on LI) and "follow for more" (weak).\n`;
-      prompt += `LENGTH: 150-450 words, sweet spot 220-320. Under 150 you under-delivered; over 450 and the time-poor reader is gone.\n`;
-      prompt += `BAN LIST (instant rewrite if present): em dashes, hashtags (unless asked), rocket/target/fire emojis, "in today's competitive landscape", "leverage", "unlock", "game-changer", "dive in", "deep dive", "circle back", "Thanks for reading", "Hope this helps", "🚀 Excited to announce", numbered templates like "5 things every founder should know".\n`;
-      prompt += `WALL-OF-TEXT TEST: before submitting, count the line breaks in the caption. If your 250-word caption has fewer than 6 blank-line paragraph breaks, rewrite it. The caption must LOOK like a LinkedIn post on mobile, not an essay.\n`;
-      prompt += `THE TEST: if the caption were published WITHOUT any slides, would it still be a post worth reading? If no, rewrite until yes.\n\n`;
-      prompt += `=== LINKEDIN SLIDE BODY STANDARD (applies to each slide's body field) ===\n`;
-      prompt += `Each slide's body must carry real, specific value with LinkedIn-caliber substance. But write it as SCANNABLE SENTENCES, not a paragraph. The body field should use \\n (line breaks) to separate thoughts — one idea per line, the way a tweet reads.\n`;
-      prompt += `\n`;
-      prompt += `FORMAT:\n`;
-      prompt += `- Break the copy into 3-5 short lines. Each line is one sentence or one short thought.\n`;
-      prompt += `- Use \\n between lines. Use \\n\\n (blank line) between groups of related lines.\n`;
-      prompt += `- NOT a paragraph. If the body reads as prose, rewrite it with line breaks.\n`;
-      prompt += `- Max ~12 words per line. If a line is longer, split it.\n`;
-      prompt += `- Specificity mandatory: at least one number, named tool, timeline, or framework per middle slide.\n`;
-      prompt += `\n`;
-      prompt += `GOOD slide body (scannable, line-broken — DO THIS):\n`;
-      prompt += `  "Most SaaS teams burn $30-50k on Facebook ads.\\nMeanwhile their landing page converts at 0.8%.\\n\\nThe fix isn't more spend.\\nIt's rewriting the hero with the CLEAR framework.\\n\\nOne client ran this last quarter.\\nCAC dropped from $420 to $180 in six weeks."\n`;
-      prompt += `\n`;
-      prompt += `BAD slide body (paragraph-style — NEVER do this):\n`;
-      prompt += `  "Most SaaS teams burn $30-50k on Facebook ads before noticing their landing page converts at 0.8%. The fix isn't more spend, it's rewriting the hero with the CLEAR framework. A client ran this last quarter and their CAC dropped from $420 to $180 in six weeks."\n`;
-      prompt += `\n`;
-      prompt += `BAD slide body (too thin — NEVER do this):\n`;
-      prompt += `  "Most teams waste budget on ads. Think before you spend."\n\n`;
+      prompt += LINKEDIN_CAPTION_STANDARD_BLOCK;
+      prompt += LINKEDIN_SLIDE_BODY_STANDARD_BLOCK;
     }
   } else {
     prompt += `2. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
@@ -264,6 +279,17 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- Your text output = the caption the user posts. Your generate_image calls = the visuals. Keep them separate.\n`;
   prompt += `- No filler, no fluff, no "Let me know what you think!" unless it fits naturally\n`;
   prompt += `- NO hashtags unless the user explicitly asks for them\n\n`;
+
+  prompt += `=== SINGLE-IMAGE POST WRITER STANDARD (posts with ONE image) ===\n`;
+  prompt += `You are a POST WRITER. A single-image post has two separate deliverables — never confuse them:\n`;
+  prompt += `1. THE CAPTION — a complete, standalone post a skilled human creator would write:\n`;
+  prompt += `   - Hook first line that earns the "...more" tap: a specific claim, number, tension, or story open. NEVER a bare announcement.\n`;
+  prompt += `   - 2-5 short paragraphs developing ONE idea: context → the insight/value → why it matters to the reader.\n`;
+  prompt += `   - Platform-native voice (IG: casual-smart with line breaks; X: punchy; Facebook: conversational). At least one specific detail — a number, name, or timeframe.\n`;
+  prompt += `   - End with an engagement CTA that fits the platform (question, "save this", comment prompt).\n`;
+  prompt += `   - A one-or-two-line announcement ("X is now the number one Y") is NOT a post — it's a headline. If your caption is under 3 sentences you under-delivered; rewrite it as a real post.\n`;
+  prompt += `2. THE IMAGE TEXT (inside the generate_image prompt) — SHORT: one bold hook line ≤ 8 words, optionally a ≤ 6-word subline. The caption carries the substance; the image carries the stop-scroll moment.\n`;
+  prompt += `   - Spell every product, brand, and person name EXACTLY as the user wrote it (Claude, ChatGPT, Gemini — never phoneticized or approximated). Repeat the exact spelling in your image prompt so it renders correctly.\n\n`;
 
   prompt += `=== IMAGE GENERATION STANDARDS ===\n`;
   prompt += `When calling generate_image, your prompt MUST follow these rules:\n`;
@@ -434,7 +460,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       if (r.uploader) prompt += `Creator: ${r.uploader}\n`;
       if (r.description) prompt += `Description: ${r.description.slice(0, 1000)}\n`;
       if (r.duration) prompt += `Duration: ${r.duration}s\n`;
-      if (r.transcript) prompt += `Transcript:\n${r.transcript.slice(0, 3000)}\n`;
+      if (r.transcript) prompt += `Transcript (when the user asks for content "like this", this transcript is the structural template — see CONTEXT PRIORITY below):\n${r.transcript.slice(0, 6000)}\n`;
       prompt += '\n';
     });
     hasContext = true;

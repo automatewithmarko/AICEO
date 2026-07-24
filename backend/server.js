@@ -294,6 +294,60 @@ app.post('/api/content-items/from-outlier', requireAuth, async (req, res) => {
   }
 });
 
+// ─── Backfill missing transcripts on saved social references ───
+// Outliers saved before the extractor fallback (2026-07-24) — and any
+// save where extraction failed transiently — sit with transcript=null
+// forever, which silently disables the "copy this video's structure"
+// feature. The frontend fires this on Content/AI CEO mount; it re-runs
+// extraction for up to 3 null-transcript items per call (Apify/Whisper
+// can take ~1-2 min each) so stale rows heal over a few page loads.
+const transcriptBackfillInFlight = new Set();
+app.post('/api/content-items/backfill-transcripts', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+  if (transcriptBackfillInFlight.has(userId)) return res.json({ ok: true, running: true, updated: 0 });
+
+  const { data: items, error } = await supabase
+    .from('content_items')
+    .select('id, url, metadata')
+    .eq('user_id', userId)
+    .eq('type', 'social')
+    .is('transcript', null)
+    .order('created_at', { ascending: false })
+    .limit(3);
+  if (error) return res.status(500).json({ error: error.message });
+  if (!items?.length) return res.json({ ok: true, updated: 0 });
+
+  transcriptBackfillInFlight.add(userId);
+  try {
+    let updated = 0;
+    for (const item of items) {
+      if (!item.url) continue;
+      try {
+        const extracted = await extractFromUrl(item.url);
+        if (extracted?.transcript) {
+          const { error: upErr } = await supabase
+            .from('content_items')
+            .update({ transcript: extracted.transcript })
+            .eq('id', item.id)
+            .eq('user_id', userId);
+          if (!upErr) {
+            updated += 1;
+            console.log(`[transcript-backfill] recovered transcript for ${item.url} (${extracted.transcript.length} chars)`);
+          }
+        } else {
+          console.log(`[transcript-backfill] still no transcript for ${item.url}`);
+        }
+      } catch (e) {
+        console.log(`[transcript-backfill] failed for ${item.url}: ${e.message}`);
+      }
+    }
+    res.json({ ok: true, updated, scanned: items.length });
+  } finally {
+    transcriptBackfillInFlight.delete(userId);
+  }
+});
+
 // ─── Upload & Process endpoint ───
 // Accepts multipart/form-data with one or more files
 // Returns analysis results for each file

@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import DOMPurify from 'dompurify';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend, generateCarouselServerSide, generatePlanItem, getCuratedCarouselTemplates, findCuratedCarouselTemplate } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend, generateCarouselServerSide, generatePlanItem, getCuratedCarouselTemplates, findCuratedCarouselTemplate, backfillTranscripts } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import CarouselPlanCard from '../components/social-canvas/CarouselPlanCard';
@@ -3736,6 +3736,23 @@ export default function Content() {
         return [...prev, ...newFromDb];
       });
     }).catch((err) => { console.error('[Content] Failed to load content items:', err); });
+    // Heal references saved with transcript=null (extraction failed or
+    // predated the extractor fallback) — server re-extracts up to 3 per
+    // call. On success, patch the recovered transcripts into state so
+    // "write a script like this" works this session, not next.
+    backfillTranscripts().then((r) => {
+      if (cancelled || !r?.updated) return;
+      console.log(`[Content] Transcript backfill recovered ${r.updated} reference(s)`);
+      getContentItems().then(({ items }) => {
+        if (cancelled || !items?.length) return;
+        const byId = new Map(items.filter(i => i.type === 'social' && i.transcript).map(i => [i.id, i.transcript]));
+        setSocialUrls(prev => prev.map(s => (
+          s.dbId && byId.has(s.dbId) && !s.result?.transcript
+            ? { ...s, result: { ...(s.result || {}), transcript: byId.get(s.dbId) } }
+            : s
+        )));
+      }).catch(() => {});
+    });
     return () => { cancelled = true; };
   }, [user?.id]);
 

@@ -29,6 +29,13 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan, onStop
   const failed = plan.failedSlides || [];
   const hasFailed = failed.length > 0 && !plan.generating;
   const editable = !plan.approved; // Only editable BEFORE approval.
+  // Horizontal one-slide-at-a-time browsing (founder feedback round 2,
+  // 2026-07-24: slides must slide horizontally, not stack vertically —
+  // while keeping the clean bold-heading/plain-text single card).
+  const [activeSlide, setActiveSlide] = useState(0);
+  useEffect(() => {
+    if (activeSlide >= slides.length) setActiveSlide(Math.max(0, slides.length - 1));
+  }, [slides.length, activeSlide]);
   const [templates, setTemplates] = useState([]);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
@@ -101,6 +108,7 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan, onStop
     // Hook (0) and last (CTA) cannot be removed.
     if (idx === 0 || idx === slides.length - 1) return;
     onUpdatePlan({ ...plan, slides: slides.filter((_, i) => i !== idx) });
+    setActiveSlide((cur) => Math.max(0, cur >= idx ? cur - 1 : cur));
   };
   const insertSlideAfter = (idx) => {
     if (!editable || !onUpdatePlan) return;
@@ -114,6 +122,7 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan, onStop
     };
     const next = [...slides.slice(0, idx + 1), newSlide, ...slides.slice(idx + 1)];
     onUpdatePlan({ ...plan, slides: next });
+    setActiveSlide(idx + 1); // jump to the newly-inserted slide
   };
   const moveSlide = (from, to) => {
     if (!editable || !onUpdatePlan) return;
@@ -125,6 +134,7 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan, onStop
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
     onUpdatePlan({ ...plan, slides: next });
+    setActiveSlide(to); // follow the moved slide
   };
 
   return (
@@ -228,91 +238,126 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan, onStop
             </div>
           )}
         </div>
-        {/* All slides as a plain vertical list — bold headline + simple
-            body text per card, no per-field boxes, no marker syntax
-            (laymen readability, founder spec 2026-07-24). */}
-        <div className="content-carousel-plan-slide-list">
-          {slides.map((s, i) => {
-            const isHook = i === 0;
-            const isFinal = i === slides.length - 1;
-            const isLocked = isHook || isFinal;
-            const canMoveUp = editable && !isLocked && i > 1;
-            const canMoveDown = editable && !isLocked && i < slides.length - 2;
-            const canDelete = editable && !isLocked;
-            const canInsertAfter = editable && !isFinal;
-            return (
-              <div key={i} className="content-carousel-plan-slide-card">
-                <div className="content-carousel-plan-slide-card-head">
-                  <span className="content-carousel-plan-slide-num">{String(i + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}</span>
-                  <span className="content-carousel-plan-slide-type">{isHook ? 'HOOK' : isFinal ? 'CTA' : String(s.type || 'SLIDE').toUpperCase()}</span>
-                  {editable && (
-                    <div className="content-carousel-plan-slide-actions">
-                      {canMoveUp && (
-                        <button type="button" className="content-carousel-plan-slide-action" title="Move slide up" onClick={() => moveSlide(i, i - 1)}>
-                          <ChevronLeft size={12} style={{ transform: 'rotate(90deg)' }} />
-                        </button>
-                      )}
-                      {canMoveDown && (
-                        <button type="button" className="content-carousel-plan-slide-action" title="Move slide down" onClick={() => moveSlide(i, i + 1)}>
-                          <ChevronRight size={12} style={{ transform: 'rotate(90deg)' }} />
-                        </button>
-                      )}
-                      {canInsertAfter && (
-                        <button type="button" className="content-carousel-plan-slide-action" title="Insert slide after this one" onClick={() => insertSlideAfter(i)}>
-                          <Plus size={12} />
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button type="button" className="content-carousel-plan-slide-action content-carousel-plan-slide-action--danger" title="Delete slide" onClick={() => deleteSlide(i)}>
-                          <Trash2 size={12} />
-                        </button>
-                      )}
-                    </div>
+        {/* Horizontal one-slide-at-a-time browsing (arrows + dots) — each
+            slide is ONE clean card: bold headline + simple body text, no
+            per-field boxes, no marker syntax (founder spec 2026-07-24,
+            feedback round 2: horizontal, not a vertical stack). */}
+        <div className="content-carousel-plan-carousel">
+          <button
+            type="button"
+            className="content-carousel-plan-carousel-nav"
+            onClick={() => setActiveSlide((c) => Math.max(0, c - 1))}
+            disabled={activeSlide === 0}
+            aria-label="Previous slide"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <div className="content-carousel-plan-viewport">
+            {(() => {
+              const i = Math.min(activeSlide, slides.length - 1);
+              const s = slides[i];
+              if (!s) return null;
+              const isHook = i === 0;
+              const isFinal = i === slides.length - 1;
+              const isLocked = isHook || isFinal;
+              const canMoveLeft = editable && !isLocked && i > 1;
+              const canMoveRight = editable && !isLocked && i < slides.length - 2;
+              const canDelete = editable && !isLocked;
+              const canInsertAfter = editable && !isFinal;
+              return (
+                <div className="content-carousel-plan-slide-card">
+                  <div className="content-carousel-plan-slide-card-head">
+                    <span className="content-carousel-plan-slide-num">{String(i + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}</span>
+                    <span className="content-carousel-plan-slide-type">{isHook ? 'HOOK' : isFinal ? 'CTA' : String(s.type || 'SLIDE').toUpperCase()}</span>
+                    {editable && (
+                      <div className="content-carousel-plan-slide-actions">
+                        {canMoveLeft && (
+                          <button type="button" className="content-carousel-plan-slide-action" title="Move slide earlier" onClick={() => moveSlide(i, i - 1)}>
+                            <ChevronLeft size={12} />
+                          </button>
+                        )}
+                        {canMoveRight && (
+                          <button type="button" className="content-carousel-plan-slide-action" title="Move slide later" onClick={() => moveSlide(i, i + 1)}>
+                            <ChevronRight size={12} />
+                          </button>
+                        )}
+                        {canInsertAfter && (
+                          <button type="button" className="content-carousel-plan-slide-action" title="Insert slide after this one" onClick={() => insertSlideAfter(i)}>
+                            <Plus size={12} />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button type="button" className="content-carousel-plan-slide-action content-carousel-plan-slide-action--danger" title="Delete slide" onClick={() => deleteSlide(i)}>
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {(editable || s.badge) && (
+                    editable
+                      ? <input
+                          className="content-carousel-plan-slide-badge-input"
+                          value={stripMarkers(s.badge)}
+                          onChange={(e) => updateSlide(i, { badge: e.target.value })}
+                          placeholder="BADGE LABEL"
+                        />
+                      : <div className="content-carousel-plan-slide-badge">{stripMarkers(s.badge)}</div>
+                  )}
+                  {editable
+                    ? <textarea
+                        className="content-carousel-plan-slide-headline-input"
+                        value={stripMarkers(s.headline)}
+                        onChange={(e) => updateSlide(i, { headline: e.target.value })}
+                        placeholder="Headline"
+                        rows={2}
+                      />
+                    : <div className="content-carousel-plan-slide-headline">{stripMarkers(s.headline)}</div>
+                  }
+                  {editable
+                    ? <textarea
+                        className="content-carousel-plan-slide-body-input"
+                        value={stripMarkers(s.body)}
+                        onChange={(e) => updateSlide(i, { body: e.target.value })}
+                        placeholder="Body copy (2–4 lines)"
+                        rows={3}
+                      />
+                    : (s.body && <div className="content-carousel-plan-slide-body">{stripMarkers(s.body)}</div>)
+                  }
+                  {isFinal && (
+                    editable
+                      ? <input
+                          className="content-carousel-plan-slide-cta-input"
+                          value={stripMarkers(s.cta)}
+                          onChange={(e) => updateSlide(i, { cta: e.target.value })}
+                          placeholder="CTA button text"
+                        />
+                      : (s.cta && <div className="content-carousel-plan-slide-cta">CTA: {stripMarkers(s.cta)}</div>)
                   )}
                 </div>
-                {(editable || s.badge) && (
-                  editable
-                    ? <input
-                        className="content-carousel-plan-slide-badge-input"
-                        value={stripMarkers(s.badge)}
-                        onChange={(e) => updateSlide(i, { badge: e.target.value })}
-                        placeholder="BADGE LABEL"
-                      />
-                    : <div className="content-carousel-plan-slide-badge">{stripMarkers(s.badge)}</div>
-                )}
-                {editable
-                  ? <textarea
-                      className="content-carousel-plan-slide-headline-input"
-                      value={stripMarkers(s.headline)}
-                      onChange={(e) => updateSlide(i, { headline: e.target.value })}
-                      placeholder="Headline"
-                      rows={2}
-                    />
-                  : <div className="content-carousel-plan-slide-headline">{stripMarkers(s.headline)}</div>
-                }
-                {editable
-                  ? <textarea
-                      className="content-carousel-plan-slide-body-input"
-                      value={stripMarkers(s.body)}
-                      onChange={(e) => updateSlide(i, { body: e.target.value })}
-                      placeholder="Body copy (2–4 lines)"
-                      rows={3}
-                    />
-                  : (s.body && <div className="content-carousel-plan-slide-body">{stripMarkers(s.body)}</div>)
-                }
-                {isFinal && (
-                  editable
-                    ? <input
-                        className="content-carousel-plan-slide-cta-input"
-                        value={stripMarkers(s.cta)}
-                        onChange={(e) => updateSlide(i, { cta: e.target.value })}
-                        placeholder="CTA button text"
-                      />
-                    : (s.cta && <div className="content-carousel-plan-slide-cta">CTA: {stripMarkers(s.cta)}</div>)
-                )}
-              </div>
-            );
-          })}
+              );
+            })()}
+          </div>
+          <button
+            type="button"
+            className="content-carousel-plan-carousel-nav"
+            onClick={() => setActiveSlide((c) => Math.min(slides.length - 1, c + 1))}
+            disabled={activeSlide >= slides.length - 1}
+            aria-label="Next slide"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+        <div className="content-carousel-plan-dots">
+          {slides.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              className={`content-carousel-plan-dot${i === activeSlide ? ' content-carousel-plan-dot--active' : ''}`}
+              onClick={() => setActiveSlide(i)}
+              aria-label={`Go to slide ${i + 1}`}
+            />
+          ))}
         </div>
       </div>
       <div className="content-carousel-plan-section">
