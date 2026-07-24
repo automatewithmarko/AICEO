@@ -21,28 +21,23 @@ RULES (priority order):
 5. SOUND SPOKEN — grade 3-6 reading level, most sentences under 10 words, contractions, "you" every 2-3 sentences. Read-aloud natural.
 6. SPECIFICITY — at least 2 concrete numbers/stats and named real tools/brands/people from the user's actual business context. Never "someone", "things", "results".
 7. RE-HOOK — past 30s, plant a re-hook every 8-10 seconds ("but here's the part nobody talks about…") and a pattern interrupt at the 25-35s mark.
-8. VISUAL CHANGE every 2-3 seconds — script the cuts: [VISUAL: …] [B-ROLL: …] [CUT/ZOOM] [TEXT ON SCREEN: …]. The text overlay ADDS to the spoken line (stakes/contradiction), never transcribes it. The script must work with sound OFF.
+8. VISUAL CHANGE every 2-3 seconds — but NEVER write visual cues, bracket labels, or overlay markers inside the script ([VISUAL: …], [B-ROLL: …], [CUT/ZOOM], [TEXT ON SCREEN: …] are all BANNED — the script is ONLY the words spoken on camera). Plan the cuts and overlays mentally, then describe them in ONE short "Direction:" paragraph AFTER the script.
 9. CTA — if the user gave a CTA use it word-for-word at the end; otherwise ONE soft, value-tied spoken CTA and put the hard CTA in the caption (never a spoken "like and follow"). Platform bias: TikTok → comment-driving · Reels → "Save this / Send this to ___" · Shorts → loop ending · LinkedIn → "Follow for [niche] breakdowns".
 10. END ON PEAK EMOTION — last line surprises, twists, or calls back to the first line so the video loops. Never fade out flat, never "thanks for watching".
 
 BANNED WORDS: utilize, leverage, unlock, dive into, delve, crucial, comprehensive, robust, streamline, revolutionize, elevate, harness, optimize, empower, game-changing, cutting-edge, seamless, actionable, innovative, synergy, groundbreaking, transform, journey, landscape, realm, unpack, pivotal, navigate, foster, cultivate, embark, furthermore, moreover, subsequently.
 BANNED OPENERS/PHRASES: "In today's world", "Have you ever wondered", "Without further ado", "Hey guys", "Welcome back", "If you're like most people", "Now, I know what you're thinking", and the "It's not about X, it's about Y" rhetoric family.
 
-OUTPUT FORMAT (exactly this shape):
-**HOOK** (0-3s)
-[VISUAL: first-frame description] [TEXT ON SCREEN: overlay]
+OUTPUT FORMAT (exactly this shape — the script is ONLY the spoken words):
 <spoken hook — one line>
 
-**BODY**
-<one sentence per line, blank line between, [B-ROLL]/[CUT]/[TEXT ON SCREEN] cues at every visual change>
+<body: one spoken sentence per line, blank line between lines. NO labels, NO brackets, NO timestamps, NO [VISUAL]/[TEXT ON SCREEN]/[B-ROLL] cues, NO **HOOK**/**BODY**/**CTA** headers — a person reads this file on camera top to bottom.>
 
-**CTA**
-<the exact CTA>
+<the exact spoken CTA as the last line>
 
---- PRODUCTION NOTES ---
-Delivery marks ([pause]/[emphasis: word]), caption style (word-by-word karaoke, keywords highlighted), music style + volume, B-roll list with timestamps.
+Direction: <ONE short paragraph, plain prose: first-frame visual, where the cuts/B-roll land, what the text overlays say, caption style, music. This is the ONLY place production guidance may appear.>
 
-SILENT QUALITY CHECK before delivering: hook ≤12 words and scroll-stopping · word count within ±10% of the duration budget · ≥2 real numbers · but/therefore seams · no banned words · ending loops. If it fails, rewrite before delivering.`;
+SILENT QUALITY CHECK before delivering: hook ≤12 words and scroll-stopping · word count within ±10% of the duration budget · ≥2 real numbers · but/therefore seams · no banned words · ZERO bracket labels anywhere in the spoken script · ending loops. If it fails, rewrite before delivering.`;
 
 export const LONG_FORM_SCRIPT_GUIDE = `
 === LONG-FORM YOUTUBE SCRIPT GUIDE (5-30 min) ===
@@ -54,18 +49,39 @@ RULES (priority order):
 3. PAYOFFS FIRST — before writing setups, list every payoff and schedule them: small payoff by 0:90 (prove the video delivers) · medium every 2-3 min · second-biggest at the midpoint (kills the sag) · biggest at 80-90% of runtime. Never open a loop you won't honestly close.
 4. LOOP ENGINE — body = 5-7 Setup → Tension → Payoff loops (10-15 min). Tease the next segment BEFORE closing the current one; transitions are micro-hooks. Audit every seam: the connective must be "but" or "therefore", never "and then".
 5. INTRO FORMULA — pick per format: Cold Open (mid-action, then rewind) · PPP (Preview 0-10s / Proof 10-20s / Roadmap 20-30s, best loop teased last) — default for educational · Context/Stakes/Promise for essays · Misconception-First for teaching (open on the wrong belief, not the fact; confusion-then-resolution sticks).
-6. PATTERN INTERRUPT every 60-90 seconds — B-roll, on-screen text, angle/music change, story insert — written INTO the script. A re-engagement "wow" moment at ~3:00.
+6. PATTERN INTERRUPT every 60-90 seconds — B-roll, on-screen text, angle/music change, story insert — planned in the Direction notes, never as bracket cues inside the spoken lines. A re-engagement "wow" moment at ~3:00.
 7. SHOW BEFORE EXPLAIN — evidence first, explanation second; make the viewer a co-discoverer.
-8. CHAPTERS — write them in as micro-hooks ("The mistake that cost me $40K", never "Mistake #3"). First at 0:00, ≥3 chapters.
+8. CHAPTERS — write them as markdown ## headings phrased as micro-hooks ("The mistake that cost me $40K", never "Mistake #3" and never a [CHAPTER: …] bracket label). First at 0:00, ≥3 chapters.
 9. SUBSCRIBE ASK at 55-75% of runtime, right after a major payoff, worded as viewer benefit. Max 1-2 CTAs total.
 10. NO OUTRO — never "thanks for watching", never wrap-up language. Land the final payoff, then bridge: Link → Curiosity Gap → Promise into ONE specific named next video, plus an end-screen plan (2-3 elements).
 
 VOICE: short sentences, contractions, second person, one idea per sentence, read-aloud natural. No AI-cliché diction (unlock, game-changer, revolutionize, "in a world where", "you're not alone").
 
-OUTPUT FORMAT: markdown with # title, then a short PAYOFF MAP (timestamped), then [CHAPTER: hook-style title] sections with VO/CAM: spoken lines and [VISUAL: …] cues, ending with the bridge + end-screen plan.
+OUTPUT FORMAT: markdown with # title, then a short PAYOFF MAP (timestamped), then ## hook-style chapter headings whose content is ONLY the spoken lines (no VO/CAM prefixes, no [VISUAL]/[CHAPTER]/[B-ROLL] bracket cues, no per-line labels), ending with the bridge, then ONE "Direction:" section in plain prose covering visuals, B-roll, overlays, and the end-screen plan.
 
 SILENT QUALITY CHECK before delivering: first sentence echoes the title · payoff by 0:90 · midpoint payoff + fresh loop · but/therefore seams · word count matches runtime math · ending is a bridge, not a summary. If any answer is no — rewrite.`;
 
 // Compact router note for chat system prompts that can produce either form.
 export const SCRIPT_GUIDE_ROUTER = `
 When writing ANY video script: 15-90s social video (reel / short / TikTok / LinkedIn video) → follow the SHORT-FORM guide. YouTube long-form (5+ minutes) → follow the LONG-FORM guide.`;
+
+// Code-level enforcement (founder report 2026-07-24: bracket cues like
+// "[VISUAL: …] [TEXT ON SCREEN: …]" still leaked into delivered scripts
+// despite the prompt ban). Strips every production-label pattern from a
+// finished script before it reaches the user. Applied at all three sinks:
+// /Content submit_script, AI CEO markdown_doc artifacts, plan-item
+// scripts. The trailing "Direction:" prose section is left untouched.
+const SCRIPT_LABEL_RE = /\[\s*(VISUAL|B[- ]?ROLL|TEXT ON SCREEN|ON[- ]?SCREEN TEXT|CUT(?:\s*\/?\s*ZOOM)?|ZOOM|SCENE|CHAPTER|HOOK|BODY|CTA|VOICE\s*OVER|VOICEOVER|VO|CAM|SFX|MUSIC|SOUND|PAUSE|EMPHASIS|TRANSITION|OVERLAY)\b[^\]]*\][ \t]*:?/gi;
+const SCRIPT_HEADER_RE = /^\s*\*\*\s*(HOOK|BODY|CTA|FORESHADOW|RE-?HOOK)\s*\*\*\s*(\(.*?\))?\s*$/gim;
+
+export function scrubScriptLabels(text) {
+  if (!text) return text;
+  return String(text)
+    .replace(SCRIPT_LABEL_RE, '')
+    .replace(SCRIPT_HEADER_RE, '')
+    // Collapse the whitespace the removals leave behind.
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/^[ \t]+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}

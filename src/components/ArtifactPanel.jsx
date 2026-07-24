@@ -15,7 +15,7 @@ import { getIframeEditScript } from '../lib/iframeEditScript';
 import { getIframeImageScript } from '../lib/iframeImageScript';
 import './ArtifactPanel.css';
 
-export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, onApproveCarousel = null, onEditCarouselSlide = null, onRegenerateCarouselSlide = null, onDeleteCarouselSlide = null, onUpdateCarouselPlan = null, onRetryFailedSlides = null, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
+export default function ArtifactPanel({ artifact, emailAccounts: externalAccounts, onClose, onChatMessage, onContentChange, onArtifactChange, onApproveCarousel = null, onEditCarouselSlide = null, onRegenerateCarouselSlide = null, onDeleteCarouselSlide = null, onUpdateCarouselPlan = null, onRetryFailedSlides = null, onStopCarousel = null, sessionId = null, brandDna = null, user = null, isLinkedInConnected = false }) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
@@ -840,6 +840,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
                     onApprove={() => onApproveCarousel && onApproveCarousel()}
                     onRetryFailed={() => onRetryFailedSlides && onRetryFailedSlides()}
                     onUpdatePlan={onUpdateCarouselPlan}
+                    onStop={onStopCarousel}
                   />
                 );
               }

@@ -126,7 +126,7 @@ export const SUBMIT_SCRIPT_TOOL = {
       type: 'object',
       properties: {
         title: { type: 'string', description: 'Short title for the script card, e.g. "Reel: 3 automations that replaced my SDR team".' },
-        script: { type: 'string', description: 'The complete final script, following the VIDEO SCRIPT GUIDE in the system prompt EXACTLY — short-form: **HOOK** (with [VISUAL] + [TEXT ON SCREEN]) / **BODY** (one sentence per line with visual cues) / **CTA** / --- PRODUCTION NOTES ---; long-form YouTube: markdown with # title, payoff map, [CHAPTER] sections, bridge ending.' },
+        script: { type: 'string', description: 'The complete final script, following the VIDEO SCRIPT GUIDE in the system prompt EXACTLY. The script is ONLY the words spoken on camera — one sentence per line, NO bracket cues ([VISUAL], [TEXT ON SCREEN], [B-ROLL], [CHAPTER]…), NO **HOOK**/**BODY**/**CTA** headers, NO timestamps — plus ONE trailing "Direction:" prose paragraph for visuals/overlays/music. Long-form YouTube: markdown with # title, payoff map, ## hook-style chapter headings, bridge ending, then the Direction section.' },
       },
       required: ['title', 'script'],
     },

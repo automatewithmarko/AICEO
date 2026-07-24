@@ -1111,8 +1111,15 @@ router.post('/api/generate/carousel', async (req, res) => {
         }
       }
     };
-    const CONCURRENCY = 3;
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, Math.max(queue.length, 1)) }, worker));
+    // Full parallelism after the anchor (founder request 2026-07-24: all
+    // slides at once). The anchor slide still renders first (hookRef must
+    // exist before the rest start); after that every remaining slide gets
+    // its own worker. Cap at 8 as a safety valve against provider 429s —
+    // that covers the largest LinkedIn carousel (12 slides = anchor + 11,
+    // two waves at most) while a burst of parallel per-slide retries
+    // stays bounded.
+    const CONCURRENCY = Math.min(8, Math.max(queue.length, 1));
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
   } catch (err) {
     console.error(`[generate/carousel] fatal: ${err.message}`);
     send({ type: 'error', error: err.message });

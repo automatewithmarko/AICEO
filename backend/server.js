@@ -248,6 +248,20 @@ app.post('/api/content-items/from-outlier', requireAuth, async (req, res) => {
         console.log('[outlier-context] No captions for', video_id, e.message);
       }
     }
+    // Everything else (Instagram / TikTok / LinkedIn — and YouTube videos
+    // without captions): run the full extractor (yt-dlp audio + Whisper),
+    // the same pipeline /api/social/extract uses. Without this, non-YouTube
+    // outliers saved with transcript=null and the "copy this video's
+    // structure" feature silently had nothing to copy (founder report,
+    // 2026-07-24: NasDaily reference produced a generic script).
+    if (!transcript) {
+      try {
+        const extracted = await extractFromUrl(url);
+        if (extracted?.transcript) transcript = extracted.transcript;
+      } catch (e) {
+        console.log('[outlier-context] Extractor transcript failed for', url, e.message);
+      }
+    }
 
     const { data: saved, error: dbErr } = await supabase.from('content_items').insert({
       user_id: userId,

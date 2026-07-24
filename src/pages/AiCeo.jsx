@@ -146,7 +146,7 @@ export default function AiCeo() {
   // instead of individually generating posts. Handed to the backend so the
   // CEO orchestrator can suppress content-generation tools and produce a
   // schedule table.
-  const [planMode, setPlanMode] = useState(false);
+  const [planMode] = useState(false); // Plan-mode toggle removed 2026-07-24 — multi-day plans still work via chat ("plan my next 14 days")
   const [searchStatus, setSearchStatus] = useState(null); // null | 'searching' | 'writing'
   const [currentQuestion, setCurrentQuestion] = useState(null); // { question, options, multiSelect }
   const [customTyping, setCustomTyping] = useState(false);
@@ -159,6 +159,13 @@ export default function AiCeo() {
   // runner's message appends.
   const [activePlanRunMsgId, setActivePlanRunMsgId] = useState(null);
   const activePlanRunsRef = useRef(new Map()); // planMsgId -> { cancelled }
+  // Interactive carousel generation (approve / retry-failed) abort — the
+  // plan card's Stop button aborts the server-side SSE stream; finished
+  // slides stay, unrendered ones sweep into failedSlides (Regenerate).
+  const carouselAbortRef = useRef(null);
+  const handleStopCarouselGeneration = useCallback(() => {
+    try { carouselAbortRef.current?.abort(); } catch { /* already done */ }
+  }, []);
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [showSessions, setShowSessions] = useState(false);
@@ -2201,6 +2208,8 @@ export default function AiCeo() {
       // whole carousel with the locked design-system prompts, per-slide
       // 3-attempt retries and slide-1 visual anchoring. Slides stream
       // back as storage URLs.
+      const abortCtl = new AbortController();
+      carouselAbortRef.current = abortCtl;
       try {
         await generateCarouselServerSide({
           platform,
@@ -2226,11 +2235,13 @@ export default function AiCeo() {
               },
             } : prev);
           },
-        });
+        }, abortCtl.signal);
       } catch (err) {
-        console.error('[AiCeo] server-side carousel generation failed:', err);
+        if (err?.name === 'AbortError') console.warn('[AiCeo] carousel generation stopped by user');
+        else console.error('[AiCeo] server-side carousel generation failed:', err);
         setArtifact((prev) => prev ? { ...prev, pendingImages: 0 } : prev);
       }
+      carouselAbortRef.current = null;
       // Consistency sweep (parity with /Content): every slide index must
       // end up in images OR failedSlides — an interrupted run emits
       // neither for slides it never reached, which used to strand them
@@ -2297,6 +2308,8 @@ export default function AiCeo() {
       carouselPlan: { ...prev.carouselPlan, generating: true },
     } : prev);
 
+    const abortCtl = new AbortController();
+    carouselAbortRef.current = abortCtl;
     try {
       await generateCarouselServerSide({
         platform,
@@ -2320,10 +2333,12 @@ export default function AiCeo() {
           if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
           setArtifact((prev) => prev ? { ...prev, pendingImages: Math.max(0, (prev.pendingImages || 1) - 1) } : prev);
         },
-      });
+      }, abortCtl.signal);
     } catch (err) {
-      console.error('[AiCeo] server-side carousel retry failed:', err);
+      if (err?.name === 'AbortError') console.warn('[AiCeo] carousel retry stopped by user');
+      else console.error('[AiCeo] server-side carousel retry failed:', err);
     } finally {
+      carouselAbortRef.current = null;
       setArtifact((prev) => prev ? {
         ...prev,
         pendingImages: 0,
@@ -3051,13 +3066,6 @@ export default function AiCeo() {
                     >
                       <Globe size={13} /> Research
                     </button>
-                    <button
-                      className={`ceo-research-toggle ceo-plan-toggle ${planMode ? 'ceo-research-toggle--active ceo-plan-toggle--active' : ''}`}
-                      onClick={() => setPlanMode((v) => !v)}
-                      title="Plan a week or month of content in one session instead of generating individual pieces"
-                    >
-                      <CalendarDays size={13} /> Plan mode
-                    </button>
                     {selectedCtxItems.size > 0 && (
                       <div className="ceo-ctx-pills">
                         {getSelectedCtxDetails().map((item) => (
@@ -3481,13 +3489,6 @@ export default function AiCeo() {
                     >
                       <Globe size={13} /> Research
                     </button>
-                    <button
-                      className={`ceo-research-toggle ceo-plan-toggle ${planMode ? 'ceo-research-toggle--active ceo-plan-toggle--active' : ''}`}
-                      onClick={() => setPlanMode((v) => !v)}
-                      title="Plan a week or month of content in one session instead of generating individual pieces"
-                    >
-                      <CalendarDays size={13} /> Plan mode
-                    </button>
                     {selectedCtxItems.size > 0 && (
                       <div className="ceo-ctx-pills">
                         {getSelectedCtxDetails().map((item) => (
@@ -3650,6 +3651,7 @@ export default function AiCeo() {
               onDeleteCarouselSlide={handleDeleteCarouselSlide}
               onUpdateCarouselPlan={handleUpdateCarouselPlan}
               onRetryFailedSlides={handleRetryFailedCarouselSlides}
+              onStopCarousel={handleStopCarouselGeneration}
               sessionId={sessionId}
             />
           </div>
@@ -3682,6 +3684,7 @@ export default function AiCeo() {
             onApproveCarousel={handleApproveCarousel}
             onUpdateCarouselPlan={handleUpdateCarouselPlan}
             onRetryFailedSlides={handleRetryFailedCarouselSlides}
+            onStopCarousel={handleStopCarouselGeneration}
           />
         </div>
       )}

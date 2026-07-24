@@ -469,6 +469,30 @@
   line-height: 1.35;
 }
 
+.content-carousel-plan-generating-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.content-carousel-plan-generating-row .content-carousel-plan-approve {
+  flex: 1;
+}
+.content-carousel-plan-stop {
+  padding: 9px 16px;
+  border: 1px solid var(--border-medium, #d8d8e0);
+  border-radius: 50px;
+  background: var(--surface-primary, #fff);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-secondary, #555);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.content-carousel-plan-stop:hover {
+  border-color: var(--brand-red, #e63946);
+  color: var(--brand-red, #e63946);
+}
+
 /* Vertical all-slides list (replaced the one-at-a-time mini carousel) */
 .content-carousel-plan-slide-list {
   display: flex;

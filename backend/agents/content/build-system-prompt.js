@@ -70,6 +70,8 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- Only when a visual genuinely fits what you just discussed. If the conversation was about text copy alone, don't offer an image.\n`;
   prompt += `- Skip the offer if you already made the visual, or if the user declined once  -  don't keep re-offering.\n\n`;
   prompt += `Question format (when you do ask): {"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}  -  4 options, 2-5 words each, ONE question per message.\n\n`;
+  prompt += `=== SCHEDULING / PUBLISHING POSTS ===\n`;
+  prompt += `You cannot schedule or publish posts yourself — scheduling is a UI action. When the user asks you to schedule or publish a post, point them to it: the Schedule button on the post's preview canvas (for the piece on screen), the Schedule button on a content plan card (bulk-schedules the whole plan), or the Content Calendar tab (reschedule, edit, or cancel anything). Never claim you scheduled something.\n\n`;
   prompt += `=== WHEN CREATING CONTENT ===\n`;
   prompt += `1. Detect the content type (carousel, reel, story, post, script, etc.).\n`;
   const usesPlanCarousel = platform.id === 'instagram' || platform.id === 'linkedin';

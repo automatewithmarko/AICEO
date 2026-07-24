@@ -22,7 +22,7 @@ import './CarouselPlanCard.css';
 const stripMarkers = (t) => String(t || '').replace(/\{\{\/?accent\}\}/gi, '').replace(/\[\/?ACCENT\]/gi, '');
 
 export default
-function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
+function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan, onStop }) {
   const ds = plan.designSystem || {};
   const p = ds.palette || {};
   const slides = plan.slides || [];
@@ -377,8 +377,20 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan }) {
         </button>
       )}
       {plan.approved && plan.generating && (
-        <div className="content-carousel-plan-approve content-carousel-plan-approve--disabled">
-          Generating slides…
+        <div className="content-carousel-plan-generating-row">
+          <div className="content-carousel-plan-approve content-carousel-plan-approve--disabled">
+            Generating slides…
+          </div>
+          {onStop && (
+            <button
+              type="button"
+              className="content-carousel-plan-stop"
+              onClick={onStop}
+              title="Stop generating — finished slides stay; the rest get a Regenerate button"
+            >
+              Stop
+            </button>
+          )}
         </div>
       )}
       {hasFailed && (

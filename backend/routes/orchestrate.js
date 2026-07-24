@@ -12,7 +12,7 @@ import { buildCeoUnifiedSocialAddendum, runLinkedInTextPostPass, GENERATE_LINKED
 import { buildPlanModeDirective } from '../agents/content/plan-mode.js';
 import { PLAN_CAROUSEL_TOOL } from '../agents/plan-carousel-tool.js';
 import { COMPOSE_SINGLE_IMAGE_POST_TOOL, PLAN_PLATFORM_FORMATS } from '../agents/content-plan-tool.js';
-import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE, SCRIPT_GUIDE_ROUTER } from '../agents/content/video-script-guide.js';
+import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE, SCRIPT_GUIDE_ROUTER, scrubScriptLabels } from '../agents/content/video-script-guide.js';
 import { applyCuratedTemplateToPlanArgs } from '../agents/content/curated-carousel-templates.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
 import { extractFromUrl } from '../services/social.js';
@@ -114,6 +114,9 @@ SOCIAL POST RULE (READ THIS BEFORE EVERY LinkedIn/IG/X/TikTok/Facebook REQUEST):
 - Why this matters: the artifact panel renders content_post + platform="linkedin" as a LinkedIn feed card (the canvas the user expects). type:"html_template" renders as a full HTML page — a PDF-looking wall of styled HTML. Getting this wrong is a visible bug the user WILL complain about.
 - The content field for content_post is PLAIN TEXT — the exact post copy, with normal line breaks. Do NOT put HTML tags, style blocks, or html/body wrappers in it. Do NOT wrap it in markdown fences. Just the raw post text, ready to paste into LinkedIn / IG / etc.
 ${SOCIAL_POST_DISCOVERY_PROMPT}
+
+=== SCHEDULING / PUBLISHING POSTS ===
+You cannot schedule or publish posts yourself — scheduling is a UI action. When the user asks you to schedule, publish later, or queue a post, tell them exactly where to do it: the Schedule button on the post's preview canvas (for the piece on screen), the Schedule button on a content plan card (bulk-schedules the whole plan on a calendar), or the Content Calendar tab (see, reschedule, edit, or cancel anything). Never claim you scheduled something.
 
 === MULTI-DAY CONTENT PLAN RULE (overrides the discovery questions above) ===
 Trigger: the user asks to plan MULTIPLE days or pieces of content ("plan my next 14 days of content", "content for next week", "a month of posts", "what should I post this month" — any topic or goal).
@@ -540,14 +543,29 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
       });
     }
     if (social.length) {
-      prompt += `=== SOCIAL MEDIA REFERENCES ===\n`;
-      social.forEach(item => {
-        const m = item.metadata || {};
-        prompt += `- ${m.title || item.url} (${m.platform || 'unknown'})`;
-        if (item.transcript) prompt += `  -  transcript available`;
+      // References WITH a transcript are templates to copy, not trivia —
+      // inject the actual transcript plus the copy-structure directive
+      // (parity with /Content's OUTLIER TEMPLATES block; founder report
+      // 2026-07-24: a NasDaily reference produced a generic script because
+      // this block used to print only "transcript available").
+      const withTranscript = social.filter((i) => i.transcript);
+      const withoutTranscript = social.filter((i) => !i.transcript);
+      if (withTranscript.length) {
+        prompt += `=== REFERENCE VIDEOS — COPY THEIR EXACT STRUCTURE, TONE, PATTERN ===\n`;
+        prompt += `The user saved these proven videos as references. When they ask for a script or post "like" one of these, the reference is your PRIMARY template: mirror its structural beats one-for-one (hook style, pacing, reveal order, callbacks, ending), match its tone and energy, keep its signature phrasings where they fit — and swap ONLY the topic/details for the user's business. Writing a generic script while a reference transcript sits below is a failure.\n\n`;
+        withTranscript.forEach((item) => {
+          const m = item.metadata || {};
+          prompt += `--- "${m.title || item.url}" by ${m.uploader || 'unknown'} (${m.platform || 'unknown'}) ---\nTRANSCRIPT:\n${String(item.transcript).slice(0, 4000)}\n\n`;
+        });
+      }
+      if (withoutTranscript.length) {
+        prompt += `=== SOCIAL MEDIA REFERENCES (no transcript) ===\n`;
+        withoutTranscript.forEach(item => {
+          const m = item.metadata || {};
+          prompt += `- ${m.title || item.url} (${m.platform || 'unknown'})\n`;
+        });
         prompt += '\n';
-      });
-      prompt += '\n';
+      }
     }
   }
 
@@ -1608,6 +1626,12 @@ RULES:
               defaultTemplateId: context?.brandDna?.default_carousel_template_id || null,
             });
           }
+          // Video scripts ride create_artifact as markdown_doc — strip
+          // bracket production cues ([VISUAL: …], [TEXT ON SCREEN: …])
+          // the prompt bans but the model occasionally emits anyway.
+          if (call.name === 'create_artifact' && args.type === 'markdown_doc' && args.content) {
+            args.content = scrubScriptLabels(args.content);
+          }
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });
         } else if (call.name === 'generate_linkedin_post') {
           // Unified pipeline (Phase 4): run the shared two-phase LinkedIn
@@ -2343,7 +2367,12 @@ router.post('/api/orchestrate/plan-item', requireActiveAccount(), async (req, re
         messages,
         abortSignal: abortCtl.signal,
       });
-      const content = String(result?.content || '').trim();
+      let content = String(result?.content || '').trim();
+      // Scripts: strip bracket production cues the prompt bans but the
+      // model occasionally emits anyway ([VISUAL: …], [TEXT ON SCREEN: …]).
+      if (format === 'reel_script' || format === 'youtube_script') {
+        content = scrubScriptLabels(content);
+      }
       if (!content) throw new Error('Empty generation result');
       return res.json({ kind: 'text', title, platform, format, content });
     }

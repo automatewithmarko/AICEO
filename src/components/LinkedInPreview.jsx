@@ -12,6 +12,19 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
   useEffect(() => {
     setBrokenSlots(new Set());
   }, [images]);
+
+  // While carousel slides are generating, keep the SLIDES in view — the
+  // post text renders above the carousel, so without this the user stares
+  // at text and must scroll to see slides appear (founder, 2026-07-24).
+  const carouselAreaRef = useRef(null);
+  const wasGeneratingRef = useRef(false);
+  useEffect(() => {
+    const generating = (pendingImages || 0) > 0 || (plan?.generating === true);
+    if (generating && !wasGeneratingRef.current) {
+      carouselAreaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    wasGeneratingRef.current = generating;
+  }, [pendingImages, plan?.generating]);
   const [postState, setPostState] = useState('idle'); // idle | posting | posted | error
   const [postError, setPostError] = useState('');
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -300,7 +313,7 @@ export default function LinkedInPreview({ content, images, userName, userAvatar,
               a visible generating placeholder where the image will land
               instead of nothing (gpt-image-2 runs 1-3 minutes). */}
           {(isCarousel || hasImage || imagePending) && (
-            <div className="li-card-image">
+            <div className="li-card-image" ref={carouselAreaRef}>
               {isCarousel ? (
                 /* Carousel view — completed slides + pending/blank placeholders. */
                 <>
