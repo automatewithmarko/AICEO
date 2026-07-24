@@ -1,0 +1,85 @@
+/* Ported from BooSend app/globals.css — the React Flow chrome overrides that
+   give the builder its look: small white/black connection handles, dashed
+   pulsing edges, red edge hover. Everything is scoped under
+   .dm-builder-canvas (two-class specificity also wins over the ported
+   components' Tailwind !-utilities, same as BooSend's cascade). */
+
+.dm-builder-canvas .react-flow__handle {
+  width: 15px !important;
+  height: 15px !important;
+  background: white !important;
+  border: 2px solid black !important;
+  border-radius: 50% !important;
+  transition: all 0.2s ease !important;
+}
+
+.dm-builder-canvas .react-flow__handle:hover {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.dm-builder-canvas .react-flow__node {
+  cursor: grab !important;
+}
+
+.dm-builder-canvas .react-flow__node.dragging {
+  cursor: grabbing !important;
+}
+
+.dm-builder-canvas .react-flow__edge path {
+  stroke-width: 3px !important;
+  stroke-dasharray: 8, 4 !important;
+  animation: dmb-pulse-edge 2s ease-in-out infinite !important;
+  cursor: pointer !important;
+}
+
+.dm-builder-canvas .react-flow__edge:hover path:not(.edge-hover-area) {
+  stroke: #ef4444 !important;
+  stroke-width: 6px !important;
+}
+
+.dm-builder-canvas .react-flow__edge .react-flow__edge-path {
+  cursor: pointer !important;
+}
+
+.dm-builder-canvas .edge-hover-area {
+  cursor: pointer !important;
+  pointer-events: all !important;
+  stroke-dasharray: none !important;
+  animation: none !important;
+}
+
+.dm-builder-canvas .react-flow__connectionline {
+  stroke-width: 3px !important;
+  stroke-dasharray: 8, 4 !important;
+  animation: dmb-pulse-edge 2s ease-in-out infinite !important;
+}
+
+/* High-end Instagram button connectors (override global handle look) */
+.dm-builder-canvas .react-flow__handle.boosend-button-handle {
+  width: 16px !important;
+  height: 16px !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  transition: none !important;
+}
+
+.dm-builder-canvas .react-flow__handle.boosend-button-handle:hover {
+  width: 16px !important;
+  height: 16px !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+@keyframes dmb-pulse-edge {
+  0%, 100% {
+    opacity: 0.7;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    opacity: 1;
+    stroke-dashoffset: 12;
+  }
+}

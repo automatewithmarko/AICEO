@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { supabase } from '../services/storage.js';
 import { requireFeature } from '../middleware/gate.js';
+import { anthropicTarget, fetchWithMentorFallback } from '../agents/base-agent.js';
+import { SONNET_MODEL } from '../config/models.js';
 
 const router = Router();
 const BOOSEND_API = 'https://boosend-automation-api-production.up.railway.app';
@@ -132,6 +134,53 @@ router.post('/api/boosend/agent/build', async (req, res) => {
     } else {
       res.end();
     }
+  }
+});
+
+// ─── AI name for a freshly built automation ───
+// Small non-streaming completion, routed via the Mentor gateway when
+// configured (same anthropicTarget/fetchWithMentorFallback path as agents).
+router.post('/api/boosend/agent/name', async (req, res) => {
+  const { summary, trigger } = req.body || {};
+  if (!summary && !trigger) return res.status(400).json({ error: 'summary or trigger required' });
+
+  let target;
+  try { target = anthropicTarget(); }
+  catch (err) { return res.status(500).json({ error: err.message }); }
+
+  const buildInit = (t) => ({
+    method: 'POST',
+    headers: {
+      'x-api-key': t.key,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: SONNET_MODEL,
+      max_tokens: 30,
+      system: 'You name Instagram DM automations. Reply with ONLY the name: 2-5 words, Title Case, descriptive of trigger and outcome. No quotes, no punctuation, no explanations.',
+      messages: [{
+        role: 'user',
+        content: `Name this automation.\n${trigger ? `Trigger: ${trigger}\n` : ''}${summary ? `What it does: ${summary}` : ''}`,
+      }],
+    }),
+  });
+
+  try {
+    const r = await fetchWithMentorFallback(target, buildInit);
+    if (!r.ok) {
+      const errText = await r.text();
+      return res.status(502).json({ error: `name generation failed: ${errText.slice(0, 200)}` });
+    }
+    const data = await r.json();
+    const raw = (data?.content?.[0]?.text || '').trim().replace(/^["']|["']$/g, '');
+    // Defensive cleanup: single line, sane length
+    const name = raw.split('\n')[0].slice(0, 60).trim();
+    if (!name) return res.status(502).json({ error: 'empty name from model' });
+    res.json({ name });
+  } catch (err) {
+    console.error('[boosend] agent name error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

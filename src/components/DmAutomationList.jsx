@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getBoosendAutomations, getBoosendAutomation, getInstagramAccounts, activateBoosendAutomation, deactivateBoosendAutomation } from '../lib/api';
+import { getBoosendAutomations, getBoosendAutomation, getInstagramAccounts, activateBoosendAutomation, deactivateBoosendAutomation, updateBoosendAutomation } from '../lib/api';
 
 // ── SVG icons ──
 function SearchIcon() {
@@ -19,6 +19,10 @@ function PlusIcon() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>;
 }
 
+function PencilIcon() {
+  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>;
+}
+
 export default function DmAutomationList({ onSelect, onCreateNew }) {
   const [accounts, setAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
@@ -29,6 +33,23 @@ export default function DmAutomationList({ onSelect, onCreateNew }) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [toggleLoading, setToggleLoading] = useState(null);
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState('');
+
+  // Optimistic rename — revert on API failure.
+  const commitRename = async (a) => {
+    const name = renameDraft.trim();
+    setRenamingId(null);
+    if (!name || name === a.name) return;
+    const prevName = a.name;
+    setAutomations((prev) => prev.map((x) => (x.id === a.id ? { ...x, name } : x)));
+    try {
+      await updateBoosendAutomation(a.id, { name });
+    } catch (err) {
+      console.error('[DM List] rename failed:', err);
+      setAutomations((prev) => prev.map((x) => (x.id === a.id ? { ...x, name: prevName } : x)));
+    }
+  };
 
   // Fetch accounts on mount
   useEffect(() => {
@@ -206,7 +227,37 @@ export default function DmAutomationList({ onSelect, onCreateNew }) {
                   <img src="/boosend-logo.png" alt="" />
                 </div>
                 <div className="dma-card-info">
-                  <h3 className="dma-card-name">{a.name || 'Untitled'}</h3>
+                  {renamingId === a.id ? (
+                    <input
+                      className="dma-card-name"
+                      style={{ border: '1px solid #d1d5db', borderRadius: 6, padding: '2px 8px', font: 'inherit', outline: 'none', width: '100%', maxWidth: 260 }}
+                      value={renameDraft}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitRename(a);
+                        if (e.key === 'Escape') setRenamingId(null);
+                      }}
+                      onBlur={() => commitRename(a)}
+                    />
+                  ) : (
+                    <h3 className="dma-card-name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {a.name || 'Untitled'}
+                      <button
+                        type="button"
+                        title="Rename"
+                        style={{ background: 'none', border: 'none', padding: 2, cursor: 'pointer', color: '#9ca3af', display: 'inline-flex' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenamingId(a.id);
+                          setRenameDraft(a.name || '');
+                        }}
+                      >
+                        <PencilIcon />
+                      </button>
+                    </h3>
+                  )}
                   <span className="dma-card-date">
                     {a.created_at ? new Date(a.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
                   </span>
