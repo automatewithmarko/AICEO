@@ -578,6 +578,54 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
 }
 
 // Unified execute function
+// ── Cross-provider rescue for specialist text agents ──
+// streamAnthropic already fails over Mentor→direct-Anthropic for gateway
+// model-substitution and Mentor billing errors. But when BOTH Anthropic
+// routes are genuinely out of credits (or any other hard Claude failure),
+// it throws and the whole generation dies with a raw provider error — which
+// is exactly what the landing-page / story-sequence / newsletter generators
+// were doing (founder report 2026-07-24: "chat should at least not fail at
+// all, not in Marketing AI, not in Content, not in AI CEO").
+//
+// The AI CEO + Content CHAT orchestrators already degrade Claude→Grok on any
+// failure (executeCeoOrchestrator → executeCeoOrchestratorGrok). This gives
+// the SPECIALIST agents (landing page, squeeze page, newsletter, DM, story
+// sequence, lead magnet) — reached by both the Marketing AI direct-agent
+// path and the AI CEO delegate_to_agent path — the same safety net: on a
+// terminal Claude failure, regenerate with Grok (grok-4-1-fast-non-reasoning),
+// which is reachable via Mentor OR the direct xAI key.
+//
+// Safe to fall back even mid-stream: both streamers invoke onChunk with the
+// FULL cumulative content, so a partial Claude stream is simply overwritten
+// by Grok's cumulative output on the client (no concatenation). We never
+// fall back on a user abort (intentional cancel) or CONTEXT_EXCEEDED (a
+// prompt too big for Claude's 1M window won't fit Grok either — surface the
+// precise "start a fresh chat" guidance instead).
+async function streamAnthropicWithGrokFallback({ systemPrompt, messages, model, maxTokens, onChunk, onSearchStatus, abortSignal, streamIdleMs }) {
+  try {
+    return await streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs });
+  } catch (err) {
+    // Never fall back on a genuine caller cancel (client disconnect / stop
+    // button): abortSignal.aborted is set, and the fetch rejects with an
+    // AbortError. An internal idle-watchdog stall is a PLAIN Error (name
+    // 'Error') and DOES fall back — a stalled Claude should still try Grok.
+    if (abortSignal?.aborted || err?.name === 'AbortError') throw err;
+    if (err?.code === 'CONTEXT_EXCEEDED') throw err;
+    console.warn(`[agent] Claude generation failed (${err?.code || String(err?.message || '').slice(0, 160)}) — falling back to Grok so the request does not hard-fail`);
+    if (onSearchStatus) onSearchStatus('writing');
+    const result = await streamXai({
+      systemPrompt,
+      messages,
+      model: 'grok-4-1-fast-non-reasoning',
+      maxTokens,
+      onChunk,
+      abortSignal,
+      streamIdleMs,
+    });
+    return result?.content || '';
+  }
+}
+
 export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSearchStatus, searchMode, abortSignal }) {
   const systemPrompt = agent.systemPrompt;
   const model = agent.model;
@@ -623,7 +671,7 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
       }
     }
 
-    const content = await streamAnthropic({ systemPrompt, messages: enrichedMessages, model, maxTokens, onChunk, abortSignal, streamIdleMs });
+    const content = await streamAnthropicWithGrokFallback({ systemPrompt, messages: enrichedMessages, model, maxTokens, onChunk, onSearchStatus, abortSignal, streamIdleMs });
     return { content, toolCalls: [] };
   }
 
@@ -632,7 +680,7 @@ export async function executeAgent({ agent, messages, onChunk, onToolCalls, onSe
   }
 
   if (provider === 'anthropic') {
-    const content = await streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs });
+    const content = await streamAnthropicWithGrokFallback({ systemPrompt, messages, model, maxTokens, onChunk, onSearchStatus, abortSignal, streamIdleMs });
     return { content, toolCalls: [] };
   }
 
