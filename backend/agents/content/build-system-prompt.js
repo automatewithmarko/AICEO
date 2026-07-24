@@ -20,6 +20,18 @@ import { PLATFORM_GUIDANCE } from './platform-guidance.js';
 // (ceo-adapter.js). Founder feedback 2026-07-24: CEO carousel captions
 // were IG-grade trailers while /Content wrote real 150-450 word posts —
 // the standards now live in ONE place so parity can't drift.
+// Worked example for reference-video replication — the founder's exact
+// spec (2026-07-24): two near-identical scripts for different topics so
+// the model understands "like the reference" means replicating the
+// WORDING skeleton, not just the tone/energy/timeline.
+export const REFERENCE_REPLICATION_EXAMPLE = `
+WORKED EXAMPLE — what "write it like the reference" means:
+REFERENCE SCRIPT (topic: cold showers):
+"Nobody wants to hear this. But cold showers are free therapy. Every morning I stand under freezing water for 90 seconds. Not because I like it. Because my brain stops negotiating with hard things. Day 30: I stopped hitting snooze. Day 60: I stopped skipping workouts. The water didn't change. I did. Try it for one week. Comment ICE and I'll send you my routine."
+CORRECT output for the user's topic (morning walks) — SAME wording skeleton, only topic words swapped:
+"Nobody wants to hear this. But morning walks are free therapy. Every morning I walk twenty minutes before my phone turns on. Not because I like it. Because my brain stops negotiating with hard things. Day 30: I stopped doomscrolling at breakfast. Day 60: I stopped needing three coffees. The walk didn't change. I did. Try it for one week. Comment WALK and I'll send you my route."
+WRONG output — a brand-new script that merely "matches the energy": if your script would read as original writing rather than the reference with the topic swapped, you failed. Sentence count, sentence order, sentence LENGTHS, signature openers, the day-30/day-60 style beats, and the CTA shape all carry over verbatim; only the topic's nouns and verbs change.`;
+
 export const LINKEDIN_CAROUSEL_CAPTION_PARAM = 'caption: THE MAIN CONTENT OF THE POST. The caption IS the value — 150-450 words by default (sweet spot 220-320) of a real, standalone LinkedIn post. Strong hook, 3-6 paragraphs with line breaks, at least one specific proof element (number / named client / timeline / framework), comment-triggering CTA. Slides are VISUAL SUPPORT for the caption, not the other way around. If a reader consumed ONLY the caption and never swiped, they must still walk away with the full insight. Do NOT write a 2-sentence trailer for the carousel. See the LINKEDIN CAROUSEL COPY STANDARD block below — that is the quality bar.';
 
 export const LINKEDIN_CAPTION_STANDARD_BLOCK = `=== LINKEDIN CAPTION STANDARD — CAPTION IS THE POST ===
@@ -457,6 +469,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     prompt += `3. PRESERVE SIGNATURE PHRASES — copy verbatim any hook openers ("Here's the truth about…", "Nobody talks about…"), transition phrases, running metaphors, and CTA phrasings. Change only the nouns and verbs that carry the topic.\n`;
     prompt += `4. ONLY SWAP THE TOPIC — the subject matter changes to what the user asked about. Everything else — structure, voice, cadence, emotional beats — stays.\n`;
     prompt += `5. DO NOT SOFTEN OR "IMPROVE" — do not add hedges, safety disclaimers, brand-safe rewording, extra emojis, or generic marketing polish the original didn't have. If the original was raw, your output is raw.\n\n`;
+    prompt += `${REFERENCE_REPLICATION_EXAMPLE}\n\n`;
     prompt += `Concrete test: line up the original template and your output side by side. Line count, hook shape, CTA position, and voice should match. Only the topic differs. If a reader wouldn't recognise your output as clearly modelled on the original, you did it wrong.\n\n`;
     hasContext = true;
   }

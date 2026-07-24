@@ -9,7 +9,7 @@ import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
 import { handleContentOrchestration } from '../agents/content/handler.js';
 import { buildCeoUnifiedSocialAddendum, runLinkedInTextPostPass, GENERATE_LINKEDIN_POST_TOOL, mapContentItemsToSocialRefs } from '../agents/content/ceo-adapter.js';
-import { LINKEDIN_CAROUSEL_CAPTION_PARAM, LINKEDIN_CAPTION_STANDARD_BLOCK, LINKEDIN_SLIDE_BODY_STANDARD_BLOCK } from '../agents/content/build-system-prompt.js';
+import { LINKEDIN_CAROUSEL_CAPTION_PARAM, LINKEDIN_CAPTION_STANDARD_BLOCK, LINKEDIN_SLIDE_BODY_STANDARD_BLOCK, REFERENCE_REPLICATION_EXAMPLE } from '../agents/content/build-system-prompt.js';
 import { scrubAiDashes, scrubCarouselPlanDashes } from '../agents/content/claude-protocol.js';
 import { buildPlanModeDirective } from '../agents/content/plan-mode.js';
 import { PLAN_CAROUSEL_TOOL } from '../agents/plan-carousel-tool.js';
@@ -559,7 +559,7 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
       console.log(`[ceo-context] reference videos in prompt → with transcript: ${withTranscript.length ? withTranscript.map((i) => `"${String(i.metadata?.title || i.url || '').slice(0, 50)}" [${i.transcript.length} chars]`).join(' ; ') : 'none'} | without transcript: ${withoutTranscript.length}`);
       if (withTranscript.length) {
         prompt += `=== REFERENCE VIDEOS — COPY THEIR EXACT STRUCTURE, TONE, PATTERN ===\n`;
-        prompt += `The user saved these proven videos as references. When they ask for a script or post "like" one of these, the reference is your PRIMARY template: mirror its structural beats one-for-one (hook style, pacing, reveal order, callbacks, ending), match its tone and energy, keep its signature phrasings where they fit — and swap ONLY the topic/details for the user's business. Writing a generic script while a reference transcript sits below is a failure.\n\n`;
+        prompt += `The user saved these proven videos as references. When they ask for a script or post "like" one of these, the reference is your PRIMARY template: mirror its structural beats one-for-one (hook style, pacing, reveal order, callbacks, ending), match its tone and energy, keep its signature phrasings where they fit — and swap ONLY the topic/details for the user's business. Writing a generic script while a reference transcript sits below is a failure.\n${REFERENCE_REPLICATION_EXAMPLE}\n\n`;
         withTranscript.forEach((item) => {
           const m = item.metadata || {};
           prompt += `--- "${m.title || item.url}" by ${m.uploader || 'unknown'} (${m.platform || 'unknown'}) ---\nTRANSCRIPT:\n${String(item.transcript).slice(0, 4000)}\n\n`;
@@ -2248,7 +2248,7 @@ function buildReferenceVideosBlock(contentItems = []) {
   const withTranscript = (contentItems || []).filter((i) => i?.type === 'social' && i.transcript);
   if (!withTranscript.length) return '';
   let block = `\n\n=== REFERENCE VIDEOS — COPY THEIR EXACT STRUCTURE, TONE, PATTERN ===\n`;
-  block += `The user saved these proven videos as references. The reference is your PRIMARY template: mirror its structural beats one-for-one (hook style, pacing, reveal order, callbacks, ending), match its tone and energy, keep its signature phrasings where they fit — and swap ONLY the topic/details for the user's business. Writing a generic script while a reference transcript sits below is a failure.\n\n`;
+  block += `The user saved these proven videos as references. The reference is your PRIMARY template: mirror its structural beats one-for-one (hook style, pacing, reveal order, callbacks, ending), match its tone and energy, keep its signature phrasings where they fit — and swap ONLY the topic/details for the user's business. Writing a generic script while a reference transcript sits below is a failure.\n${REFERENCE_REPLICATION_EXAMPLE}\n\n`;
   withTranscript.forEach((item) => {
     const m = item.metadata || {};
     block += `--- "${m.title || item.url}" by ${m.uploader || 'unknown'} (${m.platform || 'unknown'}) ---\nTRANSCRIPT:\n${String(item.transcript).slice(0, 4000)}\n\n`;

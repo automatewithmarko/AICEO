@@ -14,6 +14,7 @@ import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from
 import { sweepCarouselMessages } from '../lib/carouselState';
 import { bulkSchedulePieces } from '../lib/planSchedule';
 import SchedulePlanModal from '../components/SchedulePlanModal';
+import { XPreview, YouTubePreview } from '../components/PlatformPreviews';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
 import ChatDropOverlay from '../components/ChatDropOverlay';
@@ -1690,7 +1691,7 @@ export default function Content() {
           // Also auto-open whenever a submit_text_post caption landed
           // this turn (image post on any non-LinkedIn pill) — the canvas
           // pairs the caption with the incoming image.
-          if (activePlatform.id === 'instagram' || textPostCalls.length > 0) {
+          if (['instagram', 'x', 'twitter', 'youtube'].includes(activePlatform.id) || textPostCalls.length > 0) {
             setLinkedinPreview(null);
             setScriptView(null);
             setCarouselSideView({ msgId: assistantMsgId });
@@ -5551,6 +5552,48 @@ export default function Content() {
                       caption={panelMsg.linkedinPost?.content || ''}
                     />
                   }
+                />
+              </div>
+            );
+          }
+          // X and YouTube get their OWN canvas chrome (founder feedback
+          // #3b) — routed here so the Instagram SocialPreview path below
+          // stays byte-identical for instagram/tiktok/facebook.
+          const pfCaption = panelMsg.socialPost?.caption || panelMsg.content || '';
+          if (panelMsg.platform === 'x' || panelMsg.platform === 'twitter') {
+            return (
+              <div className="content-main-preview">
+                <XPreview
+                  content={pfCaption}
+                  images={[...(panelMsg.images || [])].sort((a, b) => (a.idx || 0) - (b.idx || 0))}
+                  brandDna={brandDna}
+                  user={user}
+                  pendingImages={panelMsg.pendingImages || 0}
+                  onClose={() => setCarouselSideView(null)}
+                  onContentChange={(next) => {
+                    setMessages(prev => prev.map(m => (m.id === panelMsg.id
+                      ? (m.socialPost ? { ...m, socialPost: { ...m.socialPost, caption: next } } : { ...m, content: next })
+                      : m)));
+                  }}
+                />
+              </div>
+            );
+          }
+          if (panelMsg.platform === 'youtube') {
+            return (
+              <div className="content-main-preview">
+                <YouTubePreview
+                  content={pfCaption}
+                  images={[...(panelMsg.images || [])].sort((a, b) => (a.idx || 0) - (b.idx || 0))}
+                  brandDna={brandDna}
+                  user={user}
+                  pendingImages={panelMsg.pendingImages || 0}
+                  onClose={() => setCarouselSideView(null)}
+                  onContentChange={(next) => {
+                    setMessages(prev => prev.map(m => (m.id === panelMsg.id
+                      ? (m.socialPost ? { ...m, socialPost: { ...m.socialPost, caption: next } } : { ...m, content: next })
+                      : m)));
+                  }}
                 />
               </div>
             );

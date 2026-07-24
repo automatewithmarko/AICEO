@@ -1,0 +1,155 @@
+/* Shared shell for the X / YouTube canvas previews (PlatformPreviews.jsx).
+   Mirrors the IG side-panel layout (.content-ig-*) so the split-pane math
+   in Content.css applies unchanged. */
+.pfp-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fafafa;
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+}
+.pfp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: #fff;
+}
+.pfp-title { font-size: 13px; font-weight: 600; color: #333; }
+.pfp-close {
+  border: none;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px;
+  display: inline-flex;
+}
+.pfp-close:hover { background: #efefef; color: #262626; }
+.pfp-feed {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  -webkit-overflow-scrolling: touch;
+}
+.pfp-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #e2e2e2;
+  color: #555;
+  font-weight: 700;
+}
+.pfp-media-skeleton {
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 12px;
+  background: linear-gradient(100deg, #ececec 40%, #f7f7f7 50%, #ececec 60%);
+  background-size: 200% 100%;
+  animation: pfp-shimmer 1.4s infinite linear;
+}
+@keyframes pfp-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.pfp-more { margin-left: auto; color: #536471; font-size: 16px; }
+
+/* ── X (Twitter) card ── */
+.pfp-x-card {
+  width: 100%;
+  max-width: 480px;
+  background: #fff;
+  border: 1px solid #e1e8ed;
+  border-radius: 16px;
+  padding: 14px 16px;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+.pfp-x-head { display: flex; align-items: center; gap: 10px; }
+.pfp-x-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+.pfp-x-names { display: flex; flex-direction: column; line-height: 1.25; }
+.pfp-x-name { font-size: 14.5px; font-weight: 700; color: #0f1419; }
+.pfp-x-handle { font-size: 13px; color: #536471; }
+.pfp-x-text {
+  margin-top: 10px;
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: #0f1419;
+  white-space: pre-wrap;
+  outline: none;
+}
+.pfp-x-text[contenteditable="true"]:hover { background: #f7f9f9; border-radius: 6px; }
+.pfp-x-media {
+  margin-top: 12px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid #e1e8ed;
+  aspect-ratio: 16 / 9;
+}
+.pfp-x-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pfp-x-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+  color: #536471;
+  font-size: 12.5px;
+}
+.pfp-x-actions span { display: inline-flex; align-items: center; gap: 5px; }
+
+/* ── YouTube thumbnail card ── */
+.pfp-yt-card {
+  width: 100%;
+  max-width: 420px;
+  font-family: Roboto, -apple-system, "Segoe UI", Arial, sans-serif;
+}
+.pfp-yt-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+.pfp-yt-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pfp-yt-duration {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+.pfp-yt-meta { display: flex; gap: 12px; margin-top: 12px; }
+.pfp-yt-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.pfp-yt-text { min-width: 0; }
+.pfp-yt-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #0f0f0f;
+  outline: none;
+}
+.pfp-yt-title[contenteditable="true"]:hover { background: #f2f2f2; border-radius: 4px; }
+.pfp-yt-channel { margin-top: 4px; font-size: 13px; color: #606060; }
+.pfp-yt-stats { font-size: 13px; color: #606060; }
+.pfp-yt-desc {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #333;
+  background: #f2f2f2;
+  border-radius: 10px;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  cursor: pointer;
+}
