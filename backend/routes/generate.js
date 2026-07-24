@@ -68,7 +68,8 @@ const FACE_REALISM_RULES = `
 FACE REALISM — CRITICAL (applies to every human face in the image):
 - LIKENESS: the person must be INSTANTLY recognizable as the SAME person as in the reference photos — identical facial structure, nose, jawline, eye shape and spacing, eyebrows, hairline, hair color and texture, and exact skin tone. Do NOT idealize, slim, de-age, or "beautify" them. A generic attractive lookalike is a failure.
 - SKIN: real photographic skin texture — visible pores, fine lines, subtle natural blemishes, natural facial asymmetry. Skin must NEVER look airbrushed, waxy, plastic-smooth, or beauty-filtered. Over-smoothed "AI skin" is a failure; keep the texture you can see in the reference photos.
-- LIGHT: natural, believable lighting on the face with soft real shadows — not a flat, poreless studio glow.`;
+- LIGHT: natural, believable lighting on the face with soft real shadows — not a flat, poreless studio glow.
+- VARIETY — do NOT paste the reference photo: the reference carries the LIKENESS only, never the exact pose/crop. Re-stage the person naturally for THIS image: vary the camera angle (slight three-quarter, profile-ish, or straight-on), framing (waist-up, chest-up, or wider environmental shot), placement (left/right third — not always centered), gaze (into camera OR toward the content/off-frame), expression (engaged, thoughtful, mid-gesture — appropriate to the message), and posture (leaning in, arms crossed, gesturing while speaking). Keep it professional and natural — no awkward or theatrical poses. Reusing the reference photo's exact pose, crop, and expression every time makes the feed look like the same pasted cut-out, which is a failure.`;
 
 function sanitizeIdentityFromPrompt(text) {
   if (!text) return text;
@@ -1110,8 +1111,15 @@ router.post('/api/generate/carousel', async (req, res) => {
         }
       }
     };
-    const CONCURRENCY = 3;
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, Math.max(queue.length, 1)) }, worker));
+    // Full parallelism after the anchor (founder request 2026-07-24: all
+    // slides at once). The anchor slide still renders first (hookRef must
+    // exist before the rest start); after that every remaining slide gets
+    // its own worker. Cap at 8 as a safety valve against provider 429s —
+    // that covers the largest LinkedIn carousel (12 slides = anchor + 11,
+    // two waves at most) while a burst of parallel per-slide retries
+    // stays bounded.
+    const CONCURRENCY = Math.min(8, Math.max(queue.length, 1));
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
   } catch (err) {
     console.error(`[generate/carousel] fatal: ${err.message}`);
     send({ type: 'error', error: err.message });

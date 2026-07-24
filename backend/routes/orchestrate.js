@@ -8,14 +8,12 @@ import { supabase } from '../services/storage.js';
 import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
 import { handleContentOrchestration } from '../agents/content/handler.js';
-import { buildCeoUnifiedSocialAddendum, runLinkedInTextPostPass, GENERATE_LINKEDIN_POST_TOOL } from '../agents/content/ceo-adapter.js';
+import { buildCeoUnifiedSocialAddendum, runLinkedInTextPostPass, GENERATE_LINKEDIN_POST_TOOL, mapContentItemsToSocialRefs } from '../agents/content/ceo-adapter.js';
 import { buildPlanModeDirective } from '../agents/content/plan-mode.js';
 import { PLAN_CAROUSEL_TOOL } from '../agents/plan-carousel-tool.js';
 import { COMPOSE_SINGLE_IMAGE_POST_TOOL, PLAN_PLATFORM_FORMATS } from '../agents/content-plan-tool.js';
-import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE, SCRIPT_GUIDE_ROUTER } from '../agents/content/video-script-guide.js';
+import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE, SCRIPT_GUIDE_ROUTER, scrubScriptLabels } from '../agents/content/video-script-guide.js';
 import { applyCuratedTemplateToPlanArgs } from '../agents/content/curated-carousel-templates.js';
-import { applyImagePostTemplateToArgs, buildImagePostPrompt, getImagePostTemplate, pickImagePostTemplate, buildImagePostTemplateCatalog } from '../agents/content/image-post-templates.js';
-import { composeImagePostSpec } from '../agents/content/image-post-composer.js';
 import { sendEmailViaEdgeFunction, getUserEmailAccount } from '../services/email-sender.js';
 import { extractFromUrl } from '../services/social.js';
 import { requireActiveAccount } from '../middleware/gate.js';
@@ -117,6 +115,9 @@ SOCIAL POST RULE (READ THIS BEFORE EVERY LinkedIn/IG/X/TikTok/Facebook REQUEST):
 - The content field for content_post is PLAIN TEXT — the exact post copy, with normal line breaks. Do NOT put HTML tags, style blocks, or html/body wrappers in it. Do NOT wrap it in markdown fences. Just the raw post text, ready to paste into LinkedIn / IG / etc.
 ${SOCIAL_POST_DISCOVERY_PROMPT}
 
+=== SCHEDULING / PUBLISHING POSTS ===
+You cannot schedule or publish posts yourself — scheduling is a UI action. When the user asks you to schedule, publish later, or queue a post, tell them exactly where to do it: the Schedule button on the post's preview canvas (for the piece on screen), the Schedule button on a content plan card (bulk-schedules the whole plan on a calendar), or the Content Calendar tab (see, reschedule, edit, or cancel anything). Never claim you scheduled something.
+
 === MULTI-DAY CONTENT PLAN RULE (overrides the discovery questions above) ===
 Trigger: the user asks to plan MULTIPLE days or pieces of content ("plan my next 14 days of content", "content for next week", "a month of posts", "what should I post this month" — any topic or goal).
 1. Do NOT run the social-post discovery flow. No format question, no goal question, no angle question. You already know their brand.
@@ -133,7 +134,6 @@ check_emails: Read the user's inbox (or sent/drafts). Use whenever they ask abou
 generate_image: Create social graphics, thumbnails, cover images.
 CRITICAL — IMAGE INTEGRITY RULE: If you intend to give the user an image, you MUST call the generate_image tool. Never write "here's your image", "check the image panel", "I made you a graphic", "image generated", or any phrasing that implies an image exists, UNLESS you actually emitted a generate_image tool call in the same turn. If you can't or won't call the tool, say so plainly ("I can't generate that image right now"). Hallucinating a tool call is worse than refusing — the user sees text claiming success but no image, and trusts the product less.
 CRITICAL — IMAGE TIMING RULE: Your chat text appears BEFORE the image finishes rendering (generation takes 1-3 minutes). Even when you DID call generate_image, phrase it as in-progress — "Generating your image now — it'll appear in the canvas in a minute or two." NEVER past tense ("your image is ready", "I've created the image"): the user reads that while staring at a still-empty panel and thinks the product is broken.
-CRITICAL — POST IMAGES USE TEMPLATES: when the image IS the visual of an Instagram or LinkedIn feed post, call generate_image with purpose:"post_image", post_platform, post_template, and post_copy (see the SINGLE-IMAGE POST TEMPLATES section further down). The server then renders a designed, brand-colored layout — do NOT describe colors, fonts, or composition yourself for those. Every other image (story frames, YouTube thumbnails, plain images, editing an attached image) sets the matching purpose and uses a normal descriptive prompt.
 CRITICAL — IMAGE PROMPT IDENTITY RULE: The generate_image prompt argument must NEVER include the user's real name, ethnicity, nationality, or detailed physical description (e.g. "Bazil Sajjad, a young Pakistani man with short dark hair"). Google's image model blocks named-real-person requests. If the user/founder should appear in the image, just say "the founder" or "a person" — the attached reference photo already carries their likeness. Describe the SCENE, OUTFIT, POSE, MOOD, BACKGROUND, STYLE — never the person's identity.
 
 VIDEO/SOCIAL LINKS: When the user pastes a video or social media link, the system auto-extracts the transcript, metadata, and creator info and attaches it to the message. You'll see it as "EXTRACTED VIDEO CONTENT". Use that data to discuss, analyze, summarize, or repurpose the content. Don't ask the user what the video is about  -  you already have the transcript.
@@ -543,14 +543,29 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
       });
     }
     if (social.length) {
-      prompt += `=== SOCIAL MEDIA REFERENCES ===\n`;
-      social.forEach(item => {
-        const m = item.metadata || {};
-        prompt += `- ${m.title || item.url} (${m.platform || 'unknown'})`;
-        if (item.transcript) prompt += `  -  transcript available`;
+      // References WITH a transcript are templates to copy, not trivia —
+      // inject the actual transcript plus the copy-structure directive
+      // (parity with /Content's OUTLIER TEMPLATES block; founder report
+      // 2026-07-24: a NasDaily reference produced a generic script because
+      // this block used to print only "transcript available").
+      const withTranscript = social.filter((i) => i.transcript);
+      const withoutTranscript = social.filter((i) => !i.transcript);
+      if (withTranscript.length) {
+        prompt += `=== REFERENCE VIDEOS — COPY THEIR EXACT STRUCTURE, TONE, PATTERN ===\n`;
+        prompt += `The user saved these proven videos as references. When they ask for a script or post "like" one of these, the reference is your PRIMARY template: mirror its structural beats one-for-one (hook style, pacing, reveal order, callbacks, ending), match its tone and energy, keep its signature phrasings where they fit — and swap ONLY the topic/details for the user's business. Writing a generic script while a reference transcript sits below is a failure.\n\n`;
+        withTranscript.forEach((item) => {
+          const m = item.metadata || {};
+          prompt += `--- "${m.title || item.url}" by ${m.uploader || 'unknown'} (${m.platform || 'unknown'}) ---\nTRANSCRIPT:\n${String(item.transcript).slice(0, 4000)}\n\n`;
+        });
+      }
+      if (withoutTranscript.length) {
+        prompt += `=== SOCIAL MEDIA REFERENCES (no transcript) ===\n`;
+        withoutTranscript.forEach(item => {
+          const m = item.metadata || {};
+          prompt += `- ${m.title || item.url} (${m.platform || 'unknown'})\n`;
+        });
         prompt += '\n';
-      });
-      prompt += '\n';
+      }
     }
   }
 
@@ -1610,22 +1625,12 @@ RULES:
             applyCuratedTemplateToPlanArgs(args, {
               defaultTemplateId: context?.brandDna?.default_carousel_template_id || null,
             });
-          } else if (call.name === 'generate_image') {
-            // Single-image POST templates (same deterministic model as the
-            // carousel templates above): the model picks a template and
-            // writes the on-image copy, the server composes the layout.
-            // Story frames, thumbnails, plain images, edits: untouched.
-            await applyImagePostTemplateToArgs(args, {
-              platform: currentContentPost?.platform || null,
-              brandDna: context?.brandDna || null,
-              repair: ({ platform: p, brief }) => composeImagePostSpec({
-                platform: p,
-                brief,
-                brandDna: context?.brandDna || null,
-                userName: context?.ceoUserName || null,
-                abortSignal: context?.clientAbortSignal || null,
-              }),
-            });
+          }
+          // Video scripts ride create_artifact as markdown_doc — strip
+          // bracket production cues ([VISUAL: …], [TEXT ON SCREEN: …])
+          // the prompt bans but the model occasionally emits anyway.
+          if (call.name === 'create_artifact' && args.type === 'markdown_doc' && args.content) {
+            args.content = scrubScriptLabels(args.content);
           }
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });
         } else if (call.name === 'generate_linkedin_post') {
@@ -1643,6 +1648,10 @@ RULES:
               variation: args.variation === 'B' ? 'B' : 'A',
               userName: context.ceoUserName,
               brandDna: context.brandDna,
+              // Saved references (outlier videos/posts with transcripts)
+              // drive the writer's copy-this-template block — parity with
+              // /Content's uploaded references.
+              socialUrls: mapContentItemsToSocialRefs(context.contentItems),
             });
             if (postText) {
               sendSSE(res, {
@@ -2232,13 +2241,7 @@ function buildPlanItemSystemPrompt({ context, platform, format }) {
   } else if (format === 'youtube_script') {
     prompt += `\n\n=== DELIVERABLE: YOUTUBE SCRIPT ===\nA long-form YouTube script written EXACTLY per the guide below (markdown with payoff map, chapters, bridge ending). Default 8-10 minutes unless the brief specifies otherwise.\n${LONG_FORM_SCRIPT_GUIDE}`;
   } else if (format === 'single_image') {
-    const templated = platform === 'instagram' || platform === 'linkedin';
-    prompt += `\n\n=== DELIVERABLE: SINGLE-IMAGE POST ===\nCall compose_single_image_post with the finished post copy in the content field (plain text, hook as the first line, CTA at the end, platform-appropriate length)`;
-    if (templated) {
-      prompt += ` AND the image spec: image_template (one id from the list below) plus image_copy (only the fields that template uses — headline, kicker, support, items, metric_value, metric_label, attribution, cta, visual_subject). The server renders the layout, spacing, brand colors, and typography — you never describe visual design. Leave image_prompt empty.\n\n${buildImagePostTemplateCatalog({ platform, includeUsage: false })}`;
-    } else {
-      prompt += ` AND an actionable image_prompt (subject, composition, mood, style, brand-color hints, text overlay if any). The image_prompt must NEVER include a real person's name, ethnicity, or identity.`;
-    }
+    prompt += `\n\n=== DELIVERABLE: SINGLE-IMAGE POST ===\nCall compose_single_image_post with the finished post copy in the content field (plain text, hook as the first line, CTA at the end, platform-appropriate length) AND an actionable image_prompt (subject, composition, mood, style, brand-color hints, text overlay if any). The image_prompt must NEVER include a real person's name, ethnicity, or identity.`;
   } else if (format === 'carousel') {
     prompt += `\n\n=== DELIVERABLE: CAROUSEL PLAN ===\nCall plan_carousel with EVERY required field filled. Platform-appropriate slide count (Instagram 5-9, LinkedIn 7-12). Slide 1 headline = the hook from the brief. Final slide = the CTA slide. designSystem anchored to the Brand DNA colors provided below.`;
   }
@@ -2356,6 +2359,7 @@ router.post('/api/orchestrate/plan-item', requireActiveAccount(), async (req, re
         userName: userName || null,
         brandDna: context.brandDna,
         abortSignal: abortCtl.signal,
+        socialUrls: mapContentItemsToSocialRefs(context.contentItems),
       });
       const content = String(postText || '').trim();
       if (!content) throw new Error('Empty generation result');
@@ -2368,7 +2372,12 @@ router.post('/api/orchestrate/plan-item', requireActiveAccount(), async (req, re
         messages,
         abortSignal: abortCtl.signal,
       });
-      const content = String(result?.content || '').trim();
+      let content = String(result?.content || '').trim();
+      // Scripts: strip bracket production cues the prompt bans but the
+      // model occasionally emits anyway ([VISUAL: …], [TEXT ON SCREEN: …]).
+      if (format === 'reel_script' || format === 'youtube_script') {
+        content = scrubScriptLabels(content);
+      }
       if (!content) throw new Error('Empty generation result');
       return res.json({ kind: 'text', title, platform, format, content });
     }
@@ -2381,27 +2390,11 @@ router.post('/api/orchestrate/plan-item', requireActiveAccount(), async (req, re
         toolName: 'compose_single_image_post',
         abortSignal: abortCtl.signal,
       });
-      if (!args?.content) throw new Error('Model did not return post copy');
-      // Instagram / LinkedIn: compose the deterministic template prompt from
-      // the model's template choice + on-image copy (same enforcement as the
-      // interactive relays). Other platforms keep the free-form image_prompt.
-      let imagePrompt = String(args.image_prompt || '');
-      if (platform === 'instagram' || platform === 'linkedin') {
-        const copy = (args.image_copy && typeof args.image_copy === 'object') ? args.image_copy : null;
-        if (copy?.headline || copy?.metric_value) {
-          const template = getImagePostTemplate(args.image_template)
-            || pickImagePostTemplate({ platform, copy });
-          imagePrompt = buildImagePostPrompt({ template, platform, copy, brandDna: context.brandDna });
-          console.log(`[plan-item] image-post template=${template.id} platform=${platform} day=${item.day}`);
-        } else {
-          console.warn(`[plan-item] single_image day=${item.day}: no image_copy — falling back to the raw image_prompt`);
-        }
-      }
-      if (!imagePrompt) throw new Error('Model did not return an image spec');
+      if (!args?.content || !args?.image_prompt) throw new Error('Model did not return post copy + image prompt');
       return res.json({
         kind: 'single_image', title, platform, format,
         content: String(args.content),
-        image_prompt: imagePrompt,
+        image_prompt: String(args.image_prompt),
       });
     }
 
@@ -2439,54 +2432,6 @@ router.post('/api/orchestrate/plan-item', requireActiveAccount(), async (req, re
     }
     console.error('[plan-item] generation failed:', err?.message || err);
     if (!res.headersSent) res.status(500).json({ error: err?.message || 'Plan item generation failed' });
-  }
-});
-
-// ── POST /api/orchestrate/compose-image-post ──
-// Composes a templated image prompt for a post whose TEXT already exists —
-// the /Content LinkedIn "add an image to this post" button, where no model
-// is in the loop and the client used to hard-code a generic one-liner.
-// Reads the post text, picks the right support template, writes the
-// on-image copy, and returns the finished prompt for /api/generate/image.
-// Plain JSON, no SSE. Planning is free (docs/credits-policy.md) — the
-// billed part is the image render the client fires next.
-router.post('/api/orchestrate/compose-image-post', requireActiveAccount(), async (req, res) => {
-  const userId = req.user?.id;
-  const { platform: rawPlatform = 'linkedin', postText = '', userName = null } = req.body || {};
-  const platform = String(rawPlatform).toLowerCase() === 'instagram' ? 'instagram' : 'linkedin';
-  const brief = String(postText || '').trim();
-
-  if (!brief) return res.status(400).json({ error: 'postText required' });
-
-  const abortCtl = new AbortController();
-  res.on('close', () => { if (!res.writableEnded) abortCtl.abort(); });
-
-  try {
-    const context = await loadUserContext(userId);
-    const spec = await composeImagePostSpec({
-      platform,
-      brief,
-      brandDna: context.brandDna,
-      userName,
-      abortSignal: abortCtl.signal,
-    });
-    if (!spec?.copy?.headline && !spec?.copy?.metric_value) {
-      throw new Error('Composer did not return on-image copy');
-    }
-    const template = getImagePostTemplate(spec.template)
-      || pickImagePostTemplate({ platform, copy: spec.copy });
-    const prompt = buildImagePostPrompt({
-      template, platform, copy: spec.copy, brandDna: context.brandDna,
-    });
-    console.log(`[compose-image-post] template=${template.id} platform=${platform} userId=${userId}`);
-    return res.json({ prompt, templateId: template.id, templateName: template.name });
-  } catch (err) {
-    if (abortCtl.signal.aborted || err?.name === 'AbortError') {
-      try { if (!res.headersSent) res.status(499).end(); } catch { /* client gone */ }
-      return;
-    }
-    console.error('[compose-image-post] failed:', err?.message || err);
-    if (!res.headersSent) res.status(500).json({ error: err?.message || 'Compose failed' });
   }
 });
 

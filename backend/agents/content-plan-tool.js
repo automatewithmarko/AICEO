@@ -97,31 +97,12 @@ export const COMPOSE_SINGLE_IMAGE_POST_TOOL = {
           type: 'string',
           description: 'The exact post copy, plain text, hook as the first line. Ready to paste.',
         },
-        image_template: {
-          type: 'string',
-          description: 'REQUIRED on Instagram and LinkedIn: the id of the layout template whose "use when" matches this post, from the SINGLE-IMAGE POST TEMPLATES list in your instructions.',
-        },
-        image_copy: {
-          type: 'object',
-          description: 'REQUIRED on Instagram and LinkedIn: the exact words that appear ON the image. Fill ONLY the fields the chosen template uses, and respect the copy budget — the layout is built on whitespace.',
-          properties: {
-            kicker: { type: 'string', description: 'Short label above the headline (2-4 words).' },
-            headline: { type: 'string', description: 'The hero line — the one idea the image states. Under 12 words.' },
-            support: { type: 'string', description: 'Single supporting line. Under 12 words.' },
-            items: { type: 'array', items: { type: 'string' }, description: 'List rows for framework / checklist / flow / versus / before-after / case templates. Max 5, each under 7 words.' },
-            metric_value: { type: 'string', description: 'Hero number exactly as it should render, e.g. "$180", "62%", "3.2x".' },
-            metric_label: { type: 'string', description: 'One-line label under the metric.' },
-            attribution: { type: 'string', description: 'Attribution for quote/testimonial templates: name, then role or company.' },
-            cta: { type: 'string', description: 'Call to action for offer/announcement templates. Under 5 words.' },
-            visual_subject: { type: 'string', description: 'The photographic subject, for photo-led templates only. Never a real person\'s name, ethnicity, or physical description — say "the founder".' },
-          },
-        },
         image_prompt: {
           type: 'string',
-          description: 'Only for platforms WITHOUT a template system (X, Facebook): an actionable image description — subject, composition, mood, style, brand-color hints, text overlay if any. NEVER a real person\'s name, ethnicity, or identity.',
+          description: 'An actionable image description — subject, composition, mood, style, brand-color hints, text overlay if any. NEVER a real person\'s name, ethnicity, or identity.',
         },
       },
-      required: ['content'],
+      required: ['content', 'image_prompt'],
     },
   },
 };

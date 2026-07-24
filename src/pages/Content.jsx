@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import DOMPurify from 'dompurify';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend, generateCarouselServerSide, generatePlanItem, getCuratedCarouselTemplates, findCuratedCarouselTemplate, composeImagePost } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend, generateCarouselServerSide, generatePlanItem, getCuratedCarouselTemplates, findCuratedCarouselTemplate } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import CarouselPlanCard from '../components/social-canvas/CarouselPlanCard';
@@ -868,7 +868,7 @@ export default function Content() {
   // Plan Mode — user asks for content, AI produces a full weekly/monthly
   // content plan (topics, hooks, formats, dates) INSTEAD of running
   // generate_image / plan_carousel. Meant for weekend batch planning.
-  const [planMode, setPlanMode] = useState(false);
+  const [planMode] = useState(false); // Plan-mode toggle removed 2026-07-24 — multi-day plans still work via chat
   // Plan Mode canvas modal — pops when the user clicks "Open in canvas"
   // on a plan-artifact HTML block. Holds the HTML string being viewed +
   // edited so the modal survives message re-renders and cross-message
@@ -1638,7 +1638,12 @@ export default function Content() {
             setMessages((prev) => prev.map((m) => {
               if (m.id !== assistantMsgId || m.socialPost) return m;
               const caption = (m.content || '').trim();
-              return caption ? { ...m, socialPost: { caption } } : m;
+              // Never promote a conversational hand-off line ("I'll create
+              // that single-image Instagram post for you.") to the caption —
+              // that was the founder-reported caption bug. A real caption
+              // doesn't start with the assistant talking about itself.
+              const looksLikePreamble = /^(i'll|i will|i'm|i am|creating|generating|let me|here('s| is)|sure|okay|got it|on it)\b/i.test(caption) && caption.length < 200;
+              return caption && !looksLikePreamble ? { ...m, socialPost: { caption } } : m;
             }));
           }
           console.log(`🖼️ Generating ${imageCalls.length} image(s) in parallel`);
@@ -1692,6 +1697,18 @@ export default function Content() {
           // the slot — regen wins because it's a more specific signal.
           const isRegenerating = prevImages.length > 0;
           const imgArgs = isRegenerating ? null : await buildImageGenArgs();
+          // Story detection: the STORY FLOW instruction fires one
+          // generate_image per 9:16 frame (3-4 calls). Route those through
+          // the instagram_story config (9:16 portrait, 2K, story rules) —
+          // they used to render as SQUARE feed images because this always
+          // sent selectedPlatform='instagram' (founder report 2026-07-24:
+          // stories almost broken in /Content).
+          const looksLikeStoryTurn = activePlatform.id === 'instagram' && (
+            imageCalls.length >= 3 ||
+            imageCalls.some(({ prompt: p }) => /\bstory\b|\bstories\b|9:16|9x16|vertical portrait/i.test(p || ''))
+          );
+          const imageGenPlatform = looksLikeStoryTurn ? 'instagram_story' : selectedPlatform;
+          if (looksLikeStoryTurn) console.log(`[Content] story turn detected — generating ${imageCalls.length} frames at 9:16`);
           const results = await Promise.allSettled(
             imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
               console.log(`  🎨 [${idx + 1}/${imageCalls.length}] ${imgPrompt.slice(0, 80)}...`);
@@ -1714,7 +1731,7 @@ export default function Content() {
               const opts = (!isRegenerating && imgArgs.editUserImage)
                 ? { editUserImage: true }
                 : {};
-              const result = await generateImage(imgPrompt, selectedPlatform, brandImageData, refImages, opts);
+              const result = await generateImage(imgPrompt, imageGenPlatform, brandImageData, refImages, opts);
               // Update message as each image completes
               if (result.image) {
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
@@ -2489,6 +2506,10 @@ export default function Content() {
   // Fires slide 1 first → once it lands, passes its bytes as a reference image
   // for slides 2..N so NanoBanana visually anchors to the hook's palette and
   // typography beyond what the text prompt alone encodes.
+  const handleStopCarouselGeneration = useCallback(() => {
+    try { carouselAbortRef.current?.abort(); } catch { /* already done */ }
+  }, []);
+
   const handleCarouselApprove = useCallback(async (msgId) => {
     const msg = messages.find(m => m.id === msgId);
     if (!msg?.carouselPlan || msg.carouselPlan.approved) return;
@@ -2543,6 +2564,8 @@ export default function Content() {
       ));
     };
 
+    const abortCtl = new AbortController();
+    carouselAbortRef.current = abortCtl;
     try {
       {
         // Unified path (Phase 2): the backend renders the whole carousel —
@@ -2562,7 +2585,7 @@ export default function Content() {
             if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
             markSlideFailed(idx);
           },
-        });
+        }, abortCtl.signal);
       }
 
       // Consistency sweep: guarantee every slide index 0..N-1 is either in
@@ -2593,11 +2616,19 @@ export default function Content() {
         };
       }));
     } catch (err) {
-      console.error('Carousel generation failed:', err);
-      setMessages(prev => prev.map(m =>
-        m.id === msgId ? { ...m, pendingImages: 0, carouselPlan: { ...m.carouselPlan, generating: false, error: err.message || 'Generation failed' } } : m
-      ));
+      if (err?.name === 'AbortError') {
+        console.warn('[carousel] generation stopped by user');
+        setMessages(prev => prev.map(m =>
+          m.id === msgId ? { ...m, pendingImages: 0, carouselPlan: { ...m.carouselPlan, generating: false } } : m
+        ));
+      } else {
+        console.error('Carousel generation failed:', err);
+        setMessages(prev => prev.map(m =>
+          m.id === msgId ? { ...m, pendingImages: 0, carouselPlan: { ...m.carouselPlan, generating: false, error: err.message || 'Generation failed' } } : m
+        ));
+      }
     } finally {
+      carouselAbortRef.current = null;
       setIsGenerating(false);
       setActiveAssistantId(null);
     }
@@ -2682,6 +2713,8 @@ export default function Content() {
       // Anchor can be a storage URL (server slides) or extracted base64
       // (legacy data-URL slides / single-slide edits).
       const anchorUrl = existingImage?.src?.startsWith('http') ? existingImage.src : null;
+      const abortCtl = new AbortController();
+      carouselAbortRef.current = abortCtl;
       try {
         await generateCarouselServerSide({
           platform: platformId,
@@ -2697,10 +2730,15 @@ export default function Content() {
             if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
             retrySlideFailed(idx, error);
           },
-        });
+        }, abortCtl.signal);
       } catch (err) {
-        console.error('[carousel] server-side retry failed:', err);
-        failed.forEach((idx) => retrySlideFailed(idx, err));
+        if (err?.name === 'AbortError') console.warn('[carousel] retry stopped by user');
+        else {
+          console.error('[carousel] server-side retry failed:', err);
+          failed.forEach((idx) => retrySlideFailed(idx, err));
+        }
+      } finally {
+        carouselAbortRef.current = null;
       }
     }
 
@@ -2723,6 +2761,8 @@ export default function Content() {
   // becomes a /Content chat message (inline images/carousel/LinkedIn
   // preview instead of AI CEO's artifact chips).
   const activePlanRunsRef = useRef(new Map());
+  // Interactive carousel generation abort — the plan card's Stop button.
+  const carouselAbortRef = useRef(null);
   const [activePlanRunMsgId, setActivePlanRunMsgId] = useState(null);
 
   const handleStopPlanRun = useCallback((planMsgId) => {
@@ -3278,21 +3318,7 @@ export default function Content() {
     if (!livePreview || liGeneratingImage) return;
     setLiGeneratingImage(true);
     try {
-      // Compose the image from the single-image POST template system: the
-      // server reads the finished post, picks the layout template that
-      // supports it, writes the on-image copy, and returns a brand-colored
-      // layout prompt. Falls back to the legacy generic prompt if the
-      // compose call fails — the button must never dead-end.
-      let imgPrompt = `Professional LinkedIn post image. Clean, minimal design with authority. 3:4 portrait ratio. The image should complement this LinkedIn post: "${(postText || '').slice(0, 200)}". Use brand colors if available. Bold headline text, professional photography or clean graphic design. No cartoons, no clip-art.`;
-      try {
-        const composed = await composeImagePost({ platform: 'linkedin', postText: postText || '' });
-        if (composed?.prompt) {
-          imgPrompt = composed.prompt;
-          console.log(`[Content] LinkedIn image template: ${composed.templateName} (${composed.templateId})`);
-        }
-      } catch (composeErr) {
-        console.warn('[Content] compose-image-post failed, using the generic prompt:', composeErr?.message || composeErr);
-      }
+      const imgPrompt = `Professional LinkedIn post image. Clean, minimal design with authority. 3:4 portrait ratio. The image should complement this LinkedIn post: "${(postText || '').slice(0, 200)}". Use brand colors if available. Bold headline text, professional photography or clean graphic design. No cartoons, no clip-art.`;
       const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
       const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
       const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
@@ -4795,6 +4821,7 @@ export default function Content() {
                           onApprove={() => handleCarouselApprove(msg.id)}
                           onRetryFailed={() => handleRetryFailedSlides(msg.id)}
                           onUpdatePlan={(next) => handleUpdateCarouselPlan(msg.id, next)}
+                          onStop={handleStopCarouselGeneration}
                         />
                       )}
                       {/* In-chat content plan — the SAME card + runner the
@@ -5208,13 +5235,6 @@ export default function Content() {
                 title="Enable web research mode"
               >
                 <Globe size={13} /> Research
-              </button>
-              <button
-                className={`content-research-toggle content-plan-toggle ${planMode ? 'content-research-toggle--active content-plan-toggle--active' : ''}`}
-                onClick={() => setPlanMode((v) => !v)}
-                title="Plan a week or month of content in one session instead of generating individual posts"
-              >
-                <CalendarDays size={13} /> Plan mode
               </button>
               {contentSelectedCtx.size > 0 && (
                 <div className="content-ctx-pills">
