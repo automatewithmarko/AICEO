@@ -26,6 +26,9 @@ export async function transcribe(buffer, filename) {
     type: getMimeType(filename),
   });
 
+  // Platform policy: Mentor-first everywhere — but the gateway has no
+  // audio-transcription endpoint, so Whisper stays direct by necessity.
+  console.warn('[video/transcribe] ⚠️ DIRECT GROQ API (Whisper) — Mentor gateway has no audio transcription endpoint');
   const response = await groq.audio.transcriptions.create({
     model: 'whisper-large-v3',
     file,

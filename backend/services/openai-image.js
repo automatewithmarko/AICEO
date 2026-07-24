@@ -24,6 +24,7 @@
 
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
+import { MENTOR_BASE_URL } from '../agents/base-agent.js';
 
 const OPENAI_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
 // 150s default — gpt-image-2 at quality=high regularly needs >120s. The
@@ -49,7 +50,49 @@ function getClient() {
 }
 
 export function isOpenAIImageConfigured() {
-  return !!process.env.OPENAI_API_KEY;
+  // Mentor gateway proxies /api/v1/images/generations, so text-to-image
+  // works even without a direct OpenAI key.
+  return !!(process.env.OPENAI_API_KEY || process.env.MENTOR_API_KEY);
+}
+
+// Text-to-image through the Mentor gateway (platform policy: EVERYTHING
+// routes through Mentor; direct provider APIs are fallback only).
+// The gateway exposes /api/v1/images/generations (OpenAI protocol,
+// Bearer auth — live-verified 401-without-auth on 2026-07-24) but NOT
+// /api/v1/images/edits (404) — so reference-image generation cannot
+// route through Mentor and stays on the direct API by necessity.
+// Handles both b64_json and url response shapes.
+async function generateViaMentor({ prompt, size, quality, signal }) {
+  try {
+    const res = await fetch(`${MENTOR_BASE_URL}/api/v1/images/generations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.MENTOR_API_KEY}`,
+      },
+      body: JSON.stringify({ model: OPENAI_MODEL, prompt, size, quality, n: 1 }),
+      signal,
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.text()).slice(0, 200); } catch { /* drain failed */ }
+      return { ok: false, status: res.status, error: detail || `HTTP ${res.status}` };
+    }
+    const json = await res.json();
+    const item = json?.data?.[0];
+    let b64 = item?.b64_json || null;
+    if (!b64 && item?.url) {
+      const imgRes = await fetch(item.url, { signal });
+      if (imgRes.ok) b64 = Buffer.from(await imgRes.arrayBuffer()).toString('base64');
+    }
+    if (!b64) return { ok: false, error: 'mentor gateway returned no image data' };
+    console.log(`[openai-image] ✅ image generated via MENTOR gateway (${Math.round(b64.length / 1024)}KB base64)`);
+    return { ok: true, data: b64, mimeType: 'image/png' };
+  } catch (err) {
+    const isTimeout = err.name === 'AbortError' || /\baborted\b/i.test(err.message || '');
+    if (isTimeout) throw err; // caller's timeout — don't mask it as a gateway failure
+    return { ok: false, error: err.message || 'mentor gateway request failed' };
+  }
 }
 
 /**
@@ -89,20 +132,33 @@ function mapQuality(hint) {
  */
 export async function generateImageWithOpenAI({ prompt, referenceImages, aspectRatio, quality, timeoutMs }) {
   if (!prompt) return { ok: false, error: 'prompt is required' };
-  if (!process.env.OPENAI_API_KEY) {
-    return { ok: false, error: 'OPENAI_API_KEY not configured' };
-  }
 
   const size = mapAspectToSize(aspectRatio);
   const q = mapQuality(quality);
   const refs = Array.isArray(referenceImages) ? referenceImages.filter((r) => r?.data) : [];
+  const mentorAvailable = !!process.env.MENTOR_API_KEY;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs || OPENAI_TIMEOUT_MS);
 
-  const client = getClient();
-
   try {
+    // ── MENTOR FIRST (text-to-image only) ──
+    if (refs.length === 0 && mentorAvailable) {
+      const viaMentor = await generateViaMentor({ prompt, size, quality: q, signal: controller.signal });
+      if (viaMentor.ok) return viaMentor;
+      console.warn(`[openai-image] ⚠️ MENTOR gateway image generation failed (${viaMentor.status || 'n/a'}): ${viaMentor.error} — FALLING BACK TO DIRECT OPENAI API`);
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return { ok: false, error: mentorAvailable ? 'Mentor gateway failed and OPENAI_API_KEY not configured for direct fallback' : 'OPENAI_API_KEY not configured' };
+    }
+    if (refs.length > 0 && mentorAvailable) {
+      console.warn(`[openai-image] ⚠️ DIRECT OPENAI API (images/edits, ${refs.length} reference image${refs.length === 1 ? '' : 's'}) — Mentor gateway has no /images/edits endpoint, reference-image generation cannot route through Mentor`);
+    } else if (refs.length === 0 && !mentorAvailable) {
+      console.warn('[openai-image] ⚠️ DIRECT OPENAI API — MENTOR_API_KEY not configured');
+    }
+
+    const client = getClient();
     let response;
     if (refs.length > 0) {
       // Multi-reference edit path. gpt-image-1 accepts an array here.

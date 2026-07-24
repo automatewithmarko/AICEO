@@ -681,6 +681,11 @@ ${prompt}`;
       console.log('[generate/image] OpenAI unconfigured — using Gemini directly');
     }
 
+    // Platform policy: everything routes through the Mentor gateway,
+    // direct provider APIs are fallback only — and every direct use must
+    // be visible in the logs. Gemini generateContent (image models) has
+    // no Mentor proxy at all, so this entire path is inherently direct.
+    console.warn(`[generate/image] ⚠️ DIRECT GEMINI API in use — Mentor gateway does not proxy Gemini generateContent (image models); no gateway route exists for this call`);
     console.log(`[generate/image] Gemini fallback — Platform: ${platform || 'default'}, Model: ${model}, Parts: ${requestParts.length} (1 text + ${requestParts.length - 1} images), Prompt: ${prompt.slice(0, 120)}...`);
 
     // Build request body with imageConfig and optional thinking
