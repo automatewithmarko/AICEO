@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import DOMPurify from 'dompurify';
-import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend, generateCarouselServerSide, generatePlanItem, getCuratedCarouselTemplates, findCuratedCarouselTemplate, composeImagePost } from '../lib/api';
+import { uploadContextFiles, extractSocialUrls, getContentItems, deleteContentItem, getIntegrationContext, generateImage, uploadImageToStorage, getTemplates, getEmails, getSalesCalls, getProducts, getIntegrations, postToLinkedIn, schedulePost, createCalendarPost, publishCalendarPost, getCarouselTemplates, createCarouselTemplate, deleteCarouselTemplate, getLinkedInAuthUrl, streamFromBackend, generateCarouselServerSide, generatePlanItem, getCuratedCarouselTemplates, findCuratedCarouselTemplate } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { buildCarouselSlidePrompt } from '../lib/carouselGen';
 import CarouselPlanCard from '../components/social-canvas/CarouselPlanCard';
@@ -1638,7 +1638,12 @@ export default function Content() {
             setMessages((prev) => prev.map((m) => {
               if (m.id !== assistantMsgId || m.socialPost) return m;
               const caption = (m.content || '').trim();
-              return caption ? { ...m, socialPost: { caption } } : m;
+              // Never promote a conversational hand-off line ("I'll create
+              // that single-image Instagram post for you.") to the caption —
+              // that was the founder-reported caption bug. A real caption
+              // doesn't start with the assistant talking about itself.
+              const looksLikePreamble = /^(i'll|i will|i'm|i am|creating|generating|let me|here('s| is)|sure|okay|got it|on it)\b/i.test(caption) && caption.length < 200;
+              return caption && !looksLikePreamble ? { ...m, socialPost: { caption } } : m;
             }));
           }
           console.log(`🖼️ Generating ${imageCalls.length} image(s) in parallel`);
@@ -3278,21 +3283,7 @@ export default function Content() {
     if (!livePreview || liGeneratingImage) return;
     setLiGeneratingImage(true);
     try {
-      // Compose the image from the single-image POST template system: the
-      // server reads the finished post, picks the layout template that
-      // supports it, writes the on-image copy, and returns a brand-colored
-      // layout prompt. Falls back to the legacy generic prompt if the
-      // compose call fails — the button must never dead-end.
-      let imgPrompt = `Professional LinkedIn post image. Clean, minimal design with authority. 3:4 portrait ratio. The image should complement this LinkedIn post: "${(postText || '').slice(0, 200)}". Use brand colors if available. Bold headline text, professional photography or clean graphic design. No cartoons, no clip-art.`;
-      try {
-        const composed = await composeImagePost({ platform: 'linkedin', postText: postText || '' });
-        if (composed?.prompt) {
-          imgPrompt = composed.prompt;
-          console.log(`[Content] LinkedIn image template: ${composed.templateName} (${composed.templateId})`);
-        }
-      } catch (composeErr) {
-        console.warn('[Content] compose-image-post failed, using the generic prompt:', composeErr?.message || composeErr);
-      }
+      const imgPrompt = `Professional LinkedIn post image. Clean, minimal design with authority. 3:4 portrait ratio. The image should complement this LinkedIn post: "${(postText || '').slice(0, 200)}". Use brand colors if available. Bold headline text, professional photography or clean graphic design. No cartoons, no clip-art.`;
       const uploadedPhotoUrls = photos.filter(p => p.status === 'done' && (p.url || p.result?.url)).map(p => p.url || p.result?.url).filter(Boolean);
       const oneBrandPhoto = brandDna?.photo_urls?.length ? [brandDna.photo_urls[0]] : [];
       const allPhotoUrls = [...uploadedPhotoUrls, ...oneBrandPhoto];
