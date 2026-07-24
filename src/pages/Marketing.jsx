@@ -28,16 +28,22 @@ const HTML_TOOLS_WITH_SNAPSHOTS = new Set(['newsletter', 'landing', 'squeeze', '
 
 // ── DM automation builder policy ──
 // The BooSend builder LLM runs on the external boosend-automation-api
-// service; the only lever this repo has over its build decisions is the
-// message we send it. Without this policy it defaulted to AI-agent
-// builds for requests that are plain deterministic workflows (founder
-// finding 2026-07-20: story-comment "book" → follower check → DM with
-// button → ebook link came back as an AI agent). Prepended to EVERY
-// build request so the rule survives session context.
+// service (edge fn automation-agent-stream-v3); the only lever this repo
+// has over its build decisions is the message we send it.
+//
+// CRITICAL WORDING CONSTRAINT: v3 runs an intent regex over the WHOLE
+// incoming message — /\b(agent|assistant|chatbot|ai setter|...)\b/i —
+// and once it matches, the build is FORCED down the AI-agent path with a
+// 10-question intake interrogation (business type, tone, outcome…).
+// A previous version of this policy contained the words "ai agent" and
+// tripped that regex on every single request, which is exactly what it
+// was written to prevent. NEVER use the words "agent", "assistant", or
+// "chatbot" anywhere in this string. (The safe node-type names below —
+// ai, aiCondition, aiExtractor — do not match the regex.)
 const DM_BUILD_POLICY = `[Build policy — choose the SIMPLEST build type that satisfies the request]
 1. DEFAULT TO A DETERMINISTIC WORKFLOW made only of non-AI nodes: trigger (keyword detection), condition (field/operator branches like follower checks), instagram send-message (text + buttons), smartDelay, waitForReply, action, randomizer.
-2. Use AI nodes (ai agent, aiCondition, aiExtractor, chatgpt, grok, gemini) ONLY when the request genuinely needs free-form natural-language understanding or generation at runtime — e.g. answering open-ended product questions, conversational lead qualification, or intent detection the user explicitly asked for beyond a simple keyword.
-3. Decision test: if the request can be expressed as trigger → conditions → fixed messages/buttons/delays, it MUST be a plain workflow with ZERO AI nodes. A specific trigger word (e.g. comment "book") means KEYWORD detection, not AI intent recognition. Follower checks, link delivery, and "check again" buttons are condition + message nodes, never an agent.
+2. Add AI nodes (types: ai, aiCondition, aiExtractor, chatgpt, grok, gemini) ONLY when the request genuinely needs free-form natural-language understanding or generation at runtime — e.g. answering open-ended product questions, conversational lead qualification, or intent detection the user explicitly asked for beyond a simple keyword.
+3. Decision test: if the request can be expressed as trigger → conditions → fixed messages/buttons/delays, it MUST be a plain workflow with ZERO AI nodes. A specific trigger word (e.g. comment "book") means KEYWORD detection, not AI intent recognition. Follower checks, link delivery, and "check again" buttons are condition + message nodes, never AI steps.
 4. Keep the graph as small as the request allows — no extra nodes, branches, or AI steps the user did not ask for.
 5. QUESTIONS — build first, ask almost never. If the request describes the trigger, the conditions, and the messages, BUILD IMMEDIATELY with zero questions. Ask ONLY for a detail that is REQUIRED for the automation to function and cannot be defaulted or invented (e.g. the actual URL/link to send, or which Instagram account when several are connected). HARD LIMIT: at most 1-2 questions per build, one at a time. NEVER ask about goals, niche, business type, audience, tone, "what should happen next", or qualification criteria when the request already describes the behavior — infer them from the request and brand context. NEVER re-ask anything already answered in this conversation. For missing but non-critical details (button labels, message wording, wait behavior), choose a sensible default and mention it in the build summary instead of asking.`;
 
@@ -2303,7 +2309,12 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
             }
           }
           if (parts.length > 0) {
-            agentMessage = `[Brand context]\n${parts.join('\n')}\n\n[User request]\n${agentMessage}`;
+            // Brand copy (esp. sales/coaching docs) often contains the words
+            // "agent"/"assistant"/"chatbot", which trip v3's AI-build intent
+            // regex (see DM_BUILD_POLICY comment). Scrub them from INJECTED
+            // context only — the user's own words are never touched.
+            const brandBlock = parts.join('\n').replace(/\b(agent|assistant|chatbot)(s?)\b/gi, 'rep$2');
+            agentMessage = `[Brand context]\n${brandBlock}\n\n[User request]\n${agentMessage}`;
           }
         }
         // Workflow-vs-agent policy rides on every request (see const).
@@ -2311,7 +2322,11 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
         await streamBoosendAgentBuild({
           message: agentMessage,
           graph: currentGraph,
-          meta: dmSessionContext ? { sessionContext: dmSessionContext } : undefined,
+          // Seed __skipAiNode on the first turn: v3 honors it as "user opted
+          // out of AI nodes" and suppresses the unsolicited "would an AI
+          // conversation step help?" popup. It does NOT block AI builds the
+          // user explicitly asks for (their own words still trigger them).
+          meta: { sessionContext: dmSessionContext || { __skipAiNode: true } },
           signal: abortRef.current.signal,
           onData: () => {},
           onError: (errMsg) => {
