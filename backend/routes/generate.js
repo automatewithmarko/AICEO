@@ -664,15 +664,17 @@ ${prompt}`;
       .map((p) => p.inlineData);
 
     // Provider order (2026-07-26): Nano Banana 2 (via the Mentor gateway →
-    // AtlasCloud) goes FIRST for the aspect ratios Atlas renders correctly
-    // — 1:1, 9:16, 16:9 — with gpt-image-2 as the fallback. Verified: NB2
-    // matches gpt-image-2 quality on design-system slides, has the best
-    // face consistency off reference images, and runs on the client-owned
-    // gateway. 3:4 / 4:3 stay OpenAI-first because Atlas silently returns
-    // the wrong ratio for them (3:4→square, 4:3→16:9, measured) — flip
-    // them too once the gateway fixes ratio passthrough.
+    // AtlasCloud) goes FIRST, with gpt-image-2 as the fallback. Verified:
+    // NB2 matches gpt-image-2 quality on design-system slides, has the
+    // best face consistency off reference images, and runs on the
+    // client-owned gateway. Ratio passthrough for 3:4/4:3/4:5 was fixed
+    // gateway-side (commit 90df044 there) and re-verified against
+    // production the same day (3:4 → 896x1200, 4:3 → 1200x896), so
+    // LinkedIn's 3:4 surfaces are NB2-first too. The set below is every
+    // ratio PLATFORM_CONFIG uses; NB2 supports ten ratios total — extend
+    // when a new platform config appears.
     // Kill switch: IMAGE_PRIMARY=openai restores OpenAI-first everywhere.
-    const NB2_SAFE_ASPECTS = new Set(['1:1', '9:16', '16:9']);
+    const NB2_SAFE_ASPECTS = new Set(['1:1', '9:16', '16:9', '3:4', '4:3', '4:5']);
     const nb2First = process.env.IMAGE_PRIMARY !== 'openai'
       && !!process.env.MENTOR_API_KEY
       && NB2_SAFE_ASPECTS.has(pConfig.aspectRatio);
