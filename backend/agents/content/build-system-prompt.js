@@ -13,7 +13,8 @@
 // Content.jsx original was deleted; edit the prompt HERE only.
 
 import { LINKEDIN_CAROUSEL_PROMPT } from './linkedin-prompts.js';
-import { PLATFORM_GUIDANCE } from './platform-guidance.js';
+import { buildPlatformGuidance } from './platform-guidance.js';
+import { ALL_MODULES } from './intent-router.js';
 
 // LinkedIn carousel caption + slide-body standards — SHARED between the
 // /Content strategist prompt (below) and the AI CEO unified addendum
@@ -90,6 +91,10 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   // to clone the reference line-for-line, so it needs enough of the actual
   // wording — a bigger slice than the default "study the structure" cap.
   const refCap = opts?.replicationMode ? 12000 : 6000;
+  // Prompt modules (2026-07-25): intent-router.js decides which craft
+  // blocks this turn needs. Callers that don't pass modules get the full
+  // prompt — identical to pre-modularization output.
+  const m = opts?.modules || ALL_MODULES;
   let prompt = `You are a senior content strategist who creates content that actually performs on social media. You study what top creators and brands do  -  you understand hooks, retention, visual hierarchy, and what makes people stop scrolling.\n\n`;
   prompt += `You do NOT produce generic AI slop. No excessive emojis. No "Hey guys!" energy. No corporate marketing speak. No cartoonish or clip-art style visuals. You write like a real human who understands the platform.\n\n`;
   prompt += `=== ABSOLUTE OUTPUT RULES (NON-NEGOTIABLE) ===\n`;
@@ -106,6 +111,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `=== PLATFORM ENFORCEMENT ===\n`;
   prompt += `You are ONLY creating content for ${platform.name}. If the user asks for content for a different platform (e.g. "make a LinkedIn post" while on YouTube), politely tell them to switch to that platform's tab first. Do NOT generate content for other platforms.\n\n`;
 
+  if (m.planAware) {
   prompt += `=== PRIOR PLAN AWARENESS ===\n`;
   prompt += `Content plans can appear in conversation history two ways:\n`;
   prompt += `- NEW format: an assistant message describing a day-by-day plan (the client renders it as a plan card; history may carry a serialized "[CONTENT PLAN — …]" block with "Day N — <platform> <format>: <topic> | hook: …" lines).\n`;
@@ -118,6 +124,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `5. Do NOT type the plan row as prose in your chat text before generating. Just make the tool call.\n`;
   prompt += `If the user asks to generate ALL of a plan's content at once, tell them to press "Generate content" on the plan card — it runs the whole batch one piece at a time.\n`;
   prompt += `If no plan exists in history, ignore this section and follow normal generation flow.\n\n`;
+  } // end: prior plan awareness (only when a plan is actually in history)
 
   prompt += `=== WHEN TO ENGAGE (READ THIS FIRST) ===\n`;
   prompt += `Default posture: quiet, capable partner. React to what the user actually asked, nothing more. Do NOT push analysis, strategy ideas, or content pitches unprompted.\n\n`;
@@ -128,6 +135,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `    a) The ONLY question you may ever ask is the FORMAT question (see the platform's DISCOVERY section) — and only when the user's own words don't state the format. The platform is already fixed by this tab.\n`;
   prompt += `    b) Format stated ("carousel about car-wash offers", "text post on pricing") — generate IMMEDIATELY. Zero questions.\n`;
   prompt += `    c) Topic, angle, goal, tone, audience, hook: NEVER ask — decide them yourself from the user's message, brand DNA, products, and past content. If the user cared, they would have said it.\n`;
+  prompt += `    d) NEVER ask for a fact that is already in this prompt. ${brandDna ? 'The user\'s BRAND DNA is loaded below — you already know their brand, voice, colors, and business. Asking "what\'s your brand?" or "who\'s your audience?" when it\'s in this prompt is a bug, not diligence.' : 'This account has no brand DNA saved yet — if you genuinely have zero context for a topic, ONE short topic question is allowed; otherwise pick a strong topic yourself and state it in one line as you generate.'}\n`;
   prompt += `- If the user says "just generate", "skip questions", "go", or similar  -  generate immediately, no questions.\n\n`;
   prompt += `NEVER ask questions to probe intent when the user is just sharing context. NEVER ask a question just to have one.\n\n`;
   prompt += `=== OFFERING TO GENERATE VISUALS (end-of-turn nudge) ===\n`;
@@ -145,9 +153,13 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `Question format (when you do ask): {"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}  -  4 options, 2-5 words each, ONE question per message.\n\n`;
   prompt += `=== SCHEDULING / PUBLISHING POSTS ===\n`;
   prompt += `You cannot schedule or publish posts yourself — scheduling is a UI action. When the user asks you to schedule or publish a post, point them to it: the Schedule button on the post's preview canvas (for the piece on screen), the Schedule button on a content plan card (bulk-schedules the whole plan), or the Content Calendar tab (reschedule, edit, or cancel anything). Never claim you scheduled something.\n\n`;
+  const usesPlanCarousel = platform.id === 'instagram' || platform.id === 'linkedin';
+  // Legacy (non-IG/LI) carousels render each slide via generate_image, so
+  // a carousel turn on those platforms still needs the image standards.
+  const needsImageTool = m.image || (m.carousel && !usesPlanCarousel);
+  if (m.anyGen) {
   prompt += `=== WHEN CREATING CONTENT ===\n`;
   prompt += `1. Detect the content type (carousel, reel, story, post, script, etc.).\n`;
-  const usesPlanCarousel = platform.id === 'instagram' || platform.id === 'linkedin';
   if (usesPlanCarousel) {
     const isLinkedin = platform.id === 'linkedin';
     const platformUpper = isLinkedin ? 'LINKEDIN' : 'INSTAGRAM';
@@ -168,6 +180,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     }
     prompt += `Only route to plan_carousel when the user's request clearly points to a swipeable slide deck. Words that mean carousel: "carousel", "slides", "slide deck", "swipe post", "multi-slide". Words that DO NOT mean carousel: "reel", "video", "short", "story", "single post", "photo post". If the user's language is ambiguous, ASK a short JSON clarification before generating.\n\n`;
 
+    if (m.carousel) {
     const toneGuidance = isLinkedin
       ? 'Tone: professional thought-leadership — substance and specificity win on LinkedIn. Hook formats: specificity ("I cut churn 62% in 90 days — here\'s exactly how"), contrarian ("Most SaaS founders are wrong about onboarding"), credibility-driven ("What I learned after 100 customer calls"). Avoid trendy/editorial language and emoji. Use LinkedIn\'s intent framework: educating (frameworks), nurturing (stories), soft-sell (client results), hard-sell (direct offer), engagement (contrarian).'
       : 'Tone: editorial/trend-aware. Hook formats: confession ("I did [unexpected thing]"), contrarian ("[belief] is a lie"), specificity ("[number] in [timeframe]"), curiosity gap. NEVER "Are you making these mistakes?" or "X tips for Y".';
@@ -221,28 +234,42 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       prompt += LINKEDIN_CAPTION_STANDARD_BLOCK;
       prompt += LINKEDIN_SLIDE_BODY_STANDARD_BLOCK;
     }
-  } else {
+    } else {
+      // Mini-contract fallback: the full spec wasn't loaded this turn, but
+      // the tool schema exists — if the user pivots to a carousel anyway,
+      // this keeps the call well-formed until the next turn loads the spec.
+      prompt += `2. CAROUSELS: call plan_carousel ONCE with hook, angle, caption, slides ({type, badge, headline, body, visualElement, doNot} — slide 1 is the hook, last slide the CTA), and a designSystem anchored on the Brand DNA primary color. Mark exactly one {{accent}}word{{/accent}} per headline. Your text next to the call is ONE short hand-off line; the client renders an approval card.\n`;
+    } // end: m.carousel (plan_carousel spec + LinkedIn carousel standards)
+  } else if (needsImageTool) {
     prompt += `2. When generating final content, ALWAYS call generate_image for EVERY visual needed:\n`;
+    if (m.carousel) {
     prompt += `   - CAROUSEL: You MUST plan the FULL carousel as a STORYLINE before generating any slides. Follow this structure:\n`;
     prompt += `     a) First, decide the narrative arc: Hook → Context/Problem → Key Points (2-3 slides) → Proof/Example → CTA\n`;
     prompt += `     b) Each slide MUST advance the story  -  slide 2 builds on slide 1, slide 3 builds on slide 2, etc.\n`;
     prompt += `     c) Think of it like a mini-presentation: the viewer should NEED to swipe to get the full value\n`;
     prompt += `     d) Call generate_image SEPARATELY for EACH slide (5-7 slides)\n`;
+    }
   }
-  if (!usesPlanCarousel) {
+  if (!usesPlanCarousel && m.carousel) {
     prompt += `   - CAROUSEL LAYOUT STYLE: decide it YOURSELF from brand DNA and the topic (clean minimal / bold graphic / educational). Do NOT ask the user. Only include tweet-style profile elements if the user explicitly asked for tweet-style slides.\n`;
   }
+  if (m.image) {
   prompt += `   - SINGLE POST: Call generate_image once for the post image.\n`;
   prompt += `   - STORY FLOW: Call generate_image for each story frame (3-4 images).\n`;
   prompt += `   - YOUTUBE: Call generate_image for the thumbnail.\n`;
+  }
+  if (m.video) {
   prompt += `   - REEL / TIKTOK / VIDEO SCRIPT: Do NOT call generate_image. Do NOT call plan_carousel. Reels are short-form VIDEO — treating a reel like a slide-deck carousel is a bug. The script is the deliverable and it MUST follow the SHORT-FORM VIDEO SCRIPT GUIDE in this prompt EXACTLY: scored HOOK OPTIONS, **HOOK** (0-3s) / **BODY** / **CTA** sections of pure spoken lines (no bracket cues, no timestamps), then the --- PRODUCTION NOTES --- block. If a reference video transcript is in this prompt, copy its structure beat-for-beat.
 `;
+  }
+  if (needsImageTool) {
   prompt += `   You can make MULTIPLE generate_image calls in the same response. Each slide needs its own call.\n\n`;
+  }
 
   // Legacy Instagram carousel layout rules are now owned by plan_carousel +
   // buildCarouselSlidePrompt (design-system driven). Only emit these for
   // other platforms that still use the per-slide generate_image flow.
-  if (!usesPlanCarousel) {
+  if (!usesPlanCarousel && m.carousel) {
   prompt += `=== CAROUSEL SLIDE TYPES (CRITICAL  -  each slide type has a DIFFERENT layout) ===\n`;
   prompt += `Instagram carousels are NOT posters  -  they are informational content. Think tweet screenshots, not billboard ads.\n`;
   prompt += `There are 3 distinct slide types with different visual layouts:\n\n`;
@@ -297,6 +324,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `- No filler, no fluff, no "Let me know what you think!" unless it fits naturally\n`;
   prompt += `- NO hashtags unless the user explicitly asks for them\n\n`;
 
+  if (m.image) {
   prompt += `=== SINGLE-IMAGE POST WRITER STANDARD (posts with ONE image) ===\n`;
   prompt += `You are a POST WRITER. A single-image post has two separate deliverables — never confuse them:\n`;
   prompt += `1. THE CAPTION — a complete, standalone post a skilled human creator would write:\n`;
@@ -307,7 +335,9 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `   - A one-or-two-line announcement ("X is now the number one Y") is NOT a post — it's a headline. If your caption is under 3 sentences you under-delivered; rewrite it as a real post.\n`;
   prompt += `2. THE IMAGE TEXT (inside the generate_image prompt) — SHORT: one bold hook line ≤ 8 words, optionally a ≤ 6-word subline. The caption carries the substance; the image carries the stop-scroll moment.\n`;
   prompt += `   - Spell every product, brand, and person name EXACTLY as the user wrote it (Claude, ChatGPT, Gemini — never phoneticized or approximated). Repeat the exact spelling in your image prompt so it renders correctly.\n\n`;
+  } // end: m.image (single-image post writer standard)
 
+  if (needsImageTool) {
   prompt += `=== IMAGE GENERATION STANDARDS ===\n`;
   prompt += `When calling generate_image, your prompt MUST follow these rules:\n`;
   prompt += `- The image prompt must describe a REAL graphic design  -  the kind a professional designer would make in Figma\n`;
@@ -325,9 +355,11 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   }
   prompt += `- Always specify exact colors (e.g. "black background with white text and red accent")\n`;
   prompt += `- The text on the image should be the HOOK or KEY MESSAGE  -  not decorative\n\n`;
+  } // end: needsImageTool (image generation standards)
+  } // end: m.anyGen (the whole WHEN CREATING CONTENT craft section)
 
   prompt += `=== TARGET PLATFORM: ${platform.name} ===\n`;
-  prompt += (PLATFORM_GUIDANCE[platform.id] || `Tailor all content for ${platform.name}.`) + '\n\n';
+  prompt += (buildPlatformGuidance(platform.id, m) || `Tailor all content for ${platform.name}.`) + '\n\n';
 
   // LINKEDIN EDIT MODE — only when a LinkedIn text post is already on
   // screen. Tells the model to use edit markers (preserves preview state)
@@ -387,10 +419,14 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
         }
       }
     }
+    if (needsImageTool) {
     prompt += `\nCRITICAL: Every generate_image call MUST incorporate the user's brand identity. In your image prompts, explicitly instruct: "Use the brand colors [${brandDna.colors?.primary || ''}, ${brandDna.colors?.secondary || ''}] and use ${brandDna.main_font || 'the brand font'} typography."\n`;
     prompt += `- Do NOT mention "brand logo" in your image prompts unless the user specifically asks for it. Most social media content (thumbnails, carousels, posts) should NOT have a logo.\n`;
     prompt += `- ALWAYS instruct: "Use the person's face and likeness from the attached reference photos"  -  the person MUST appear in every image.\n`;
     prompt += `- When a person appears, ALSO instruct: "Real photographic skin texture with visible pores and natural imperfections  -  do not airbrush, smooth, or beautify the face; it must be instantly recognizable as the same person as the reference photos."\n\n`;
+    } else {
+    prompt += `\n`;
+    }
   }
 
   let hasContext = false;

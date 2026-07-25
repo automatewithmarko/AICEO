@@ -56,6 +56,7 @@ import {
 } from './claude-protocol.js';
 import { CREATE_CONTENT_PLAN_TOOL } from '../content-plan-tool.js';
 import { buildPlanModeDirective } from './plan-mode.js';
+import { detectContentModules } from './intent-router.js';
 import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE, scrubScriptLabels, buildReplicationDirective } from './video-script-guide.js';
 import { scrubAiDashes, scrubCarouselPlanDashes } from './claude-protocol.js';
 import { applyCuratedTemplateToPlanArgs } from './curated-carousel-templates.js';
@@ -249,23 +250,34 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
     console.log(`[content-context] REPLICATION MODE active (outlier=${hasOutlierRef} manual+intent=${hasManualRef && replicateIntent}) platform=${platform?.id}`);
   }
 
+  // Prompt-module routing (2026-07-25): only the craft guides this turn
+  // actually needs enter the prompt — pure keyword/state detection, no
+  // extra model call. Pure chat turns drop from ~27-78K chars to the core.
+  // Plan Mode gets NO generation modules: its toolset is restricted to
+  // ask_user + create_content_plan, so the craft guides were dead weight.
+  const modules = planMode
+    ? { carousel: false, video: false, image: false, liText: false, anyGen: false, planAware: true }
+    : detectContentModules({ messages, platform, photos, socialUrls, carouselTemplates, existingPost, replicationMode });
+  console.log(`[content-intent] modules → carousel=${modules.carousel} video=${modules.video} image=${modules.image} liText=${modules.liText} anyGen=${modules.anyGen} planAware=${modules.planAware}`);
+
   let systemPrompt;
   if (planMode) {
     systemPrompt = buildPlanModeDirective({ lockedPlatform: platform })
       + buildSystemPrompt(
           platform, photos, documents, socialUrls, brandDna,
-          integrationContext, carouselTemplates, existingPost, { planMode: false },
+          integrationContext, carouselTemplates, existingPost, { planMode: false, modules },
         )
       + recentContentBlock;
   } else {
     systemPrompt = buildSystemPrompt(
       platform, photos, documents, socialUrls, brandDna,
-      integrationContext, carouselTemplates, existingPost, { planMode: false, replicationMode },
+      integrationContext, carouselTemplates, existingPost, { planMode: false, replicationMode, modules },
     ) + recentContentBlock
       + buildClaudeChatProtocolAddendum({ isLinkedin, editModeActive, planPlatformId: platform?.id })
       // Craft guide for the submit_script tool — YouTube pill gets the
-      // long-form guide, every other pill's video is short-form.
-      + (platform?.id === 'youtube' ? LONG_FORM_SCRIPT_GUIDE : SHORT_FORM_SCRIPT_GUIDE)
+      // long-form guide, every other pill's video is short-form. Only
+      // attached when the turn is actually about video (module routing).
+      + (modules.video ? (platform?.id === 'youtube' ? LONG_FORM_SCRIPT_GUIDE : SHORT_FORM_SCRIPT_GUIDE) : '')
       // Replication Mode override — appended AFTER the guide so it wins on
       // recency: clone the reference line-for-line instead of writing a
       // fresh best-practices script.
