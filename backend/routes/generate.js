@@ -663,19 +663,18 @@ ${prompt}`;
       .filter((p) => p.inlineData?.data)
       .map((p) => p.inlineData);
 
-    // Provider order (2026-07-26): Nano Banana 2 (via the Mentor gateway →
-    // AtlasCloud) goes FIRST, with gpt-image-2 as the fallback. Verified:
-    // NB2 matches gpt-image-2 quality on design-system slides, has the
-    // best face consistency off reference images, and runs on the
-    // client-owned gateway. Ratio passthrough for 3:4/4:3/4:5 was fixed
-    // gateway-side (commit 90df044 there) and re-verified against
-    // production the same day (3:4 → 896x1200, 4:3 → 1200x896), so
-    // LinkedIn's 3:4 surfaces are NB2-first too. The set below is every
-    // ratio PLATFORM_CONFIG uses; NB2 supports ten ratios total — extend
-    // when a new platform config appears.
-    // Kill switch: IMAGE_PRIMARY=openai restores OpenAI-first everywhere.
+    // Provider order (founder decision 2026-07-26, after a brief NB2-first
+    // trial the same day): gpt-image-2 is PRIMARY — output quality wins
+    // even at higher latency — with Nano Banana 2 (Mentor gateway →
+    // AtlasCloud) as the fallback. Text-to-image gpt-image-2 calls route
+    // through the Mentor gateway (openai-image.js is Mentor-first);
+    // reference-image calls still go direct because the gateway 404s
+    // /api/v1/images/edits (re-checked 2026-07-26 — flip when that route
+    // lands). NB2 ratio support (all ten, incl. 3:4) verified in prod, so
+    // the fallback is ratio-safe everywhere PLATFORM_CONFIG goes.
+    // Switch: IMAGE_PRIMARY=nb2 re-enables the NB2-first trial order.
     const NB2_SAFE_ASPECTS = new Set(['1:1', '9:16', '16:9', '3:4', '4:3', '4:5']);
-    const nb2First = process.env.IMAGE_PRIMARY !== 'openai'
+    const nb2First = process.env.IMAGE_PRIMARY === 'nb2'
       && !!process.env.MENTOR_API_KEY
       && NB2_SAFE_ASPECTS.has(pConfig.aspectRatio);
 
