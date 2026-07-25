@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { beginRun, endRun, setPageMounted } from '../lib/generationTracker';
 import { Send, Image, FileText, Link2, ChevronRight, ChevronLeft, X, Plus, History, Loader, CircleStop, Download, Globe, Search, PenLine, ArrowUp, Pencil, Trash2, Zap, CalendarDays, RefreshCw, Maximize2, ExternalLink, Clapperboard } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1389,6 +1390,31 @@ export default function Content() {
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [messages, sessionId, selectedPlatform]);
 
+  // Patch ONE message inside a persisted content session directly in the
+  // DB — used by the generation tracker when a run finishes AFTER the
+  // user navigated away (this component unmounted, so setMessages +
+  // autosave can't capture the results). Appends the message if the
+  // autosave hadn't persisted it yet.
+  const patchContentSessionMessage = useCallback(async (sid, msgId, patchFn) => {
+    const { data, error } = await supabase
+      .from('content_sessions')
+      .select('messages')
+      .eq('id', sid)
+      .single();
+    if (error || !Array.isArray(data?.messages)) return;
+    let found = false;
+    const next = data.messages.map((m) => {
+      if (m.id !== msgId) return m;
+      found = true;
+      return { ...m, ...patchFn(m) };
+    });
+    if (!found) next.push({ id: msgId, role: 'assistant', content: '', images: [], ...patchFn({}) });
+    await supabase
+      .from('content_sessions')
+      .update({ messages: next, updated_at: new Date().toISOString() })
+      .eq('id', sid);
+  }, []);
+
   // Load a past session
   const loadSession = useCallback(async (id) => {
     const { data, error } = await supabase
@@ -1409,6 +1435,19 @@ export default function Content() {
     setShowSessions(false);
     setLinkedinPreview(null);
   }, []);
+
+  // Generation-tracker integration: report mount state (completions that
+  // land while we're unmounted go to the bell + direct-DB persistence),
+  // and honor ?session=<id> deep links from toasts/notifications.
+  useEffect(() => {
+    setPageMounted('content', true);
+    return () => setPageMounted('content', false);
+  }, []);
+  const routerLocation = useLocation();
+  useEffect(() => {
+    const sid = new URLSearchParams(routerLocation.search).get('session');
+    if (sid && sid !== sessionIdRef.current) loadSession(sid);
+  }, [routerLocation.search, loadSession]);
 
   // Start a fresh conversation
   const newConversation = useCallback(() => {
@@ -1784,6 +1823,15 @@ export default function Content() {
           );
           const imageGenPlatform = looksLikeStoryTurn ? 'instagram_story' : selectedPlatform;
           if (looksLikeStoryTurn) console.log(`[Content] story turn detected — generating ${imageCalls.length} frames at 9:16`);
+          // Generation tracker: image runs take 1-3 min each — the user can
+          // leave and get toasted/notified when the batch settles.
+          const imgRunId = beginRun({
+            kind: looksLikeStoryTurn ? 'story' : 'images',
+            tab: 'content',
+            title: looksLikeStoryTurn ? 'Story sequence' : `${activePlatform.name} post`,
+            deepLink: sessionIdRef.current ? `/content?session=${sessionIdRef.current}` : '/content',
+          });
+          const doneImagesForPersist = [];
           const results = await Promise.allSettled(
             imageCalls.map(async ({ prompt: imgPrompt }, idx) => {
               console.log(`  🎨 [${idx + 1}/${imageCalls.length}] ${imgPrompt.slice(0, 80)}...`);
@@ -1809,6 +1857,7 @@ export default function Content() {
               const result = await generateImage(imgPrompt, imageGenPlatform, brandImageData, refImages, opts);
               // Update message as each image completes
               if (result.image) {
+                doneImagesForPersist.push({ idx, data: result.image.data, mimeType: result.image.mimeType });
                 const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                 setMessages((prev) => prev.map((m) =>
                   m.id === assistantMsgId ? {
@@ -1828,6 +1877,31 @@ export default function Content() {
           ));
 
           const failed = results.filter(r => r.status === 'rejected');
+          // Tracker completion: when unmounted, upload the base64 results
+          // to storage ourselves (autosave can't) and patch the session.
+          {
+            const sid = sessionIdRef.current;
+            const persistPlatform = activePlatform.id;
+            endRun(imgRunId, {
+              ok: doneImagesForPersist.length > 0,
+              failedCount: failed.length,
+              persist: (sid && doneImagesForPersist.length) ? async () => {
+                const uploaded = (await Promise.all(doneImagesForPersist.map(async (im) => {
+                  try {
+                    const r = await uploadImageToStorage(im.data, im.mimeType);
+                    const url = r.url || r.publicUrl;
+                    return url ? { idx: im.idx, src: url } : null;
+                  } catch { return null; }
+                }))).filter(Boolean);
+                if (!uploaded.length) return;
+                await patchContentSessionMessage(sid, assistantMsgId, (m) => ({
+                  images: [...(m.images || []).filter((im) => !uploaded.some((u) => u.idx === im.idx) && !String(im.src || '').startsWith('data:')), ...uploaded],
+                  pendingImages: 0,
+                  platform: m.platform || persistPlatform,
+                }));
+              } : null,
+            });
+          }
           if (failed.length > 0) {
             console.warn(`⚠️ ${failed.length} image(s) failed`);
             // Surface it — a silent failure left the preview caption-only
@@ -2646,7 +2720,19 @@ export default function Content() {
     };
     const brandForPrompt = { name: brandDna?.brand_name || brandDna?.description?.split(/[.,]/)[0]?.trim() || '' };
 
+    // Generation tracker: the run keeps executing after the user
+    // navigates away (this closure outlives the component) — slides
+    // accumulate here so completion can toast + persist regardless.
+    const runId = beginRun({
+      kind: 'carousel',
+      tab: 'content',
+      title: `${platformId === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel`,
+      deepLink: sessionIdRef.current ? `/content?session=${sessionIdRef.current}` : '/content',
+    });
+    const doneSlides = [];
+
     const appendImage = (src, idx) => {
+      doneSlides.push({ src, idx });
       setMessages(prev => prev.map(m =>
         m.id === msgId ? {
           ...m,
@@ -2717,8 +2803,33 @@ export default function Content() {
       carouselAbortRef.current = null;
       setIsGenerating(false);
       setActiveAssistantId(null);
+      // Tracker completion: toast (+ bell & direct-DB persistence when the
+      // user navigated away mid-run). The hydrate sweep rebuilds
+      // failedSlides from image gaps on next load, so persistence only
+      // needs the finished slides + the approved plan.
+      const sid = sessionIdRef.current;
+      endRun(runId, {
+        ok: doneSlides.length > 0,
+        failedCount: Math.max(0, slides.length - doneSlides.length),
+        persist: sid ? async () => {
+          await patchContentSessionMessage(sid, msgId, (m) => ({
+            images: [...(m.images || []).filter((im) => !doneSlides.some((d) => d.idx === im.idx)), ...doneSlides],
+            content: m.content || plan.caption || '',
+            platform: m.platform || platformId,
+            carouselPlan: {
+              hook: plan.hook,
+              angle: plan.angle,
+              caption: plan.caption,
+              slides: plan.slides,
+              designSystem: plan.designSystem,
+              approved: true,
+              templateSaved: !!plan.templateSaved,
+            },
+          }));
+        } : null,
+      });
     }
-  }, [messages, photos, brandDna, generateSlideWithRetry, sweepUnrenderedSlides]);
+  }, [messages, photos, brandDna, generateSlideWithRetry, sweepUnrenderedSlides, patchContentSessionMessage]);
 
   // Manual retry for slides that exhausted automatic retries. User clicks
   // "Retry failed slide(s)" on the plan card and we re-fire only the
@@ -2778,8 +2889,18 @@ export default function Content() {
       } : m
     ));
 
+    // Generation tracker — retries are long runs too.
+    const retryRunId = beginRun({
+      kind: 'carousel',
+      tab: 'content',
+      title: `Carousel retry (${failed.length} slide${failed.length === 1 ? '' : 's'})`,
+      deepLink: sessionIdRef.current ? `/content?session=${sessionIdRef.current}` : '/content',
+    });
+    const retryDone = [];
+
     // Shared per-slide state updaters for both retry paths.
     const retrySlideDone = (idx, src) => {
+      retryDone.push({ src, idx });
       setMessages(prev => prev.map(m => {
         if (m.id !== msgId) return m;
         // Replace any existing entry for this idx (defensive) and
@@ -2846,7 +2967,19 @@ export default function Content() {
     ));
     setIsGenerating(false);
     setActiveAssistantId(null);
-  }, [messages, photos, brandDna, generateSlideWithRetry]);
+    {
+      const sid = sessionIdRef.current;
+      endRun(retryRunId, {
+        ok: retryDone.length > 0,
+        failedCount: Math.max(0, failed.length - retryDone.length),
+        persist: sid ? async () => {
+          await patchContentSessionMessage(sid, msgId, (m) => ({
+            images: [...(m.images || []).filter((im) => !retryDone.some((d) => d.idx === im.idx)), ...retryDone],
+          }));
+        } : null,
+      });
+    }
+  }, [messages, photos, brandDna, generateSlideWithRetry, patchContentSessionMessage]);
 
   // ── In-chat content plan runner ──
   // The SAME plan system the AI CEO uses: shared run loop + helpers in

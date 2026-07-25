@@ -1293,6 +1293,19 @@ export async function getNotifications() {
   return res.json();
 }
 
+// Create a bell notification (generation tracker: "your carousel is
+// ready" with a deep link back to the chat).
+export async function createNotification({ title, message, type = 'insight', actionUrl = null }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/notifications`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, message, type, action_url: actionUrl }),
+  });
+  if (!res.ok) throw new Error('Failed to create notification');
+  return res.json();
+}
+
 export async function markNotificationRead(id) {
   const headers = await getAuthHeaders();
   await fetch(`${API_URL}/api/notifications/${id}/read`, {
