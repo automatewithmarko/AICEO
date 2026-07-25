@@ -708,7 +708,6 @@ ${prompt}`;
     // direct provider APIs are fallback only — and every direct use must
     // be visible in the logs. Gemini generateContent (image models) has
     // no Mentor proxy at all, so this entire path is inherently direct.
-    console.warn(`[generate/image] ⚠️ DIRECT GEMINI API in use — Mentor gateway does not proxy Gemini generateContent (image models); no gateway route exists for this call`);
     console.log(`[generate/image] Gemini fallback — Platform: ${platform || 'default'}, Model: ${model}, Parts: ${requestParts.length} (1 text + ${requestParts.length - 1} images), Prompt: ${prompt.slice(0, 120)}...`);
 
     // Build request body with imageConfig and optional thinking
@@ -729,15 +728,47 @@ ${prompt}`;
       requestBody.tools = [{ google_search: {} }];
     }
 
-    const geminiRes = await fetch(
-      `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(timeout),
-        body: JSON.stringify(requestBody),
+    // Mentor gateway FIRST (verified 2026-07-26): the gateway's
+    // /api/v1beta/models/<model>:generateContent route proxies Gemini
+    // image models — multimodal parts included — and reroutes them to
+    // AtlasCloud's Nano Banana, so it works even while the direct Google
+    // account's prepay balance is empty (the exact outage of 07-25).
+    // Our 3.x model ids alias through unchanged. Bearer auth, not x-goog.
+    // Direct Google stays as the second attempt if the gateway is down.
+    let geminiRes = null;
+    const mentorKey = process.env.MENTOR_API_KEY;
+    if (mentorKey) {
+      try {
+        geminiRes = await fetch(
+          `https://platform.thementorprogram.xyz/api/v1beta/models/${model}:generateContent`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mentorKey}` },
+            signal: AbortSignal.timeout(timeout),
+            body: JSON.stringify(requestBody),
+          }
+        );
+        if (!geminiRes.ok) {
+          const gwErr = await geminiRes.clone().text().catch(() => '');
+          console.warn(`[generate/image] Mentor Gemini route failed (${geminiRes.status}): ${gwErr.slice(0, 160)} — falling back to direct Google`);
+          geminiRes = null;
+        }
+      } catch (gwErr) {
+        console.warn(`[generate/image] Mentor Gemini route unreachable: ${gwErr.message} — falling back to direct Google`);
+        geminiRes = null;
       }
-    );
+    }
+    if (!geminiRes) {
+      geminiRes = await fetch(
+        `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(timeout),
+          body: JSON.stringify(requestBody),
+        }
+      );
+    }
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
