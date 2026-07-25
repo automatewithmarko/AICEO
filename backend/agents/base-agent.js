@@ -1137,6 +1137,7 @@ function convertOpenAiHistoryToAnthropic(messages) {
 const PROTOCOL_FN_NAMES = [
   'ask_user', 'plan_carousel', 'delegate_to_agent', 'generate_image', 'create_artifact',
   'generate_linkedin_post', 'send_email', 'check_emails', 'create_form', 'push_notification', 'save_to_soul',
+  'get_business_data',
 ];
 const PROTOCOL_FN_RE = new RegExp(`\\b(${PROTOCOL_FN_NAMES.join('|')})\\s*\\(`);
 const AGENT_JSON_TYPE_RE = /"type"\s*:\s*"(newsletter|html|story_sequence|automation|lead_magnet_plan)"/;

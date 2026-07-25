@@ -69,7 +69,7 @@ async function getAuthHeaders() {
  * @param {AbortSignal} signal - Abort signal
  */
 export async function streamFromBackend(endpoint, body, callbacks = {}, signal) {
-  const { onTextDelta, onStatus, onAgentChunk, onAgentResult, onAgentStart, onToolCall, onSearchStatus, onFileUpdate, onEditSummary, onFileSaved, onAskUser, onError, onDone } = callbacks;
+  const { onTextDelta, onStatus, onAgentChunk, onAgentResult, onAgentStart, onToolCall, onSearchStatus, onFileUpdate, onEditSummary, onFileSaved, onAskUser, onActivity, onError, onDone } = callbacks;
   const headers = await getAuthHeaders();
 
   const res = await fetch(`${API_URL}${endpoint}`, {
@@ -171,6 +171,9 @@ export async function streamFromBackend(endpoint, body, callbacks = {}, signal) 
             break;
           case 'file_update':
             if (onFileUpdate) onFileUpdate(event.html);
+            break;
+          case 'activity':
+            if (onActivity) onActivity(event);
             break;
           case 'ask_user':
             console.log('[SSE] ask_user event received:', { question: event.question, options: event.options, multiSelect: event.multiSelect, hasCallback: !!onAskUser });

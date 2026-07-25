@@ -1996,6 +1996,19 @@ export default function AiCeo() {
             commitOwnedArtifact(assistantMsgId);
           }
         },
+        // Live activity trail — the "watch it work" checklist (founder
+        // ask 2026-07-26): each backend tool step lands here as
+        // start→done and renders inside the assistant bubble.
+        onActivity: ({ label, state, id }) => {
+          setMessages(prev => prev.map(m => {
+            if (m.id !== assistantMsgId) return m;
+            const acts = [...(m.activities || [])];
+            const k = acts.findIndex(a => a.id === id);
+            if (k >= 0) acts[k] = { ...acts[k], state };
+            else acts.push({ id, label, state });
+            return { ...m, activities: acts };
+          }));
+        },
         onAskUser: (question, options, multiSelect = false) => {
           console.log('[AiCeo] onAskUser fired:', { question, options, multiSelect, isGenerating });
           askUserFiredRef.current = true;
@@ -3542,6 +3555,18 @@ export default function AiCeo() {
                         : searchStatus === 'searching' ? 'ceo-research-card'
                         : 'ceo-thinking'
                       }>
+                        {Array.isArray(msg.activities) && msg.activities.length > 0 && (
+                          <div className="ceo-activity-trail">
+                            {msg.activities.map((a, ai) => (
+                              <div key={ai} className={`ceo-activity${a.state === 'done' ? ' ceo-activity--done' : ''}`}>
+                                {a.state === 'done'
+                                  ? <span className="ceo-activity-check">✓</span>
+                                  : <Loader2 size={11} className="ceo-activity-spin" />}
+                                <span>{a.label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {isPlanWorking ? (
                           <>
                             <div className="ceo-plan-working-header">
@@ -3604,6 +3629,18 @@ export default function AiCeo() {
                   return (
                     <div key={msg.id} className="ceo-msg-group">
                       <div className={`ceo-bubble ceo-bubble--assistant ${msg.hasArtifact ? 'ceo-bubble--has-artifact' : ''}`}>
+                        {Array.isArray(msg.activities) && msg.activities.length > 0 && (
+                          <div className="ceo-activity-trail">
+                            {msg.activities.map((a, ai) => (
+                              <div key={ai} className={`ceo-activity${a.state === 'done' ? ' ceo-activity--done' : ''}`}>
+                                {a.state === 'done'
+                                  ? <span className="ceo-activity-check">✓</span>
+                                  : <Loader2 size={11} className="ceo-activity-spin" />}
+                                <span>{a.label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {msg.content && (
                           <div className="ceo-markdown">
                             <ReactMarkdown

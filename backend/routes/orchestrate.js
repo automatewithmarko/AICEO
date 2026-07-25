@@ -84,6 +84,7 @@ CRITICAL RULES:
 5. For simple stuff (emails, docs, code, reel scripts) just create_artifact directly.
 6. For sending emails, use send_email. Confirm count first if more than 5 recipients.
 7. If the user asks to CHECK / READ / REVIEW / SUMMARIZE their emails or inbox, or asks what's new, or wants to find a specific email  -  call check_emails IMMEDIATELY with sensible defaults. DO NOT use ask_user to clarify first. DO NOT send them an email asking what they want. Just read the inbox, then summarize in plain talk (who, subject, one-line gist). Only ask follow-ups after you've already shown them what's there.
+10. WORK LIKE AN AGENT: when a turn needs specifics — product pricing/photos, contact emails, what's scheduled, past posts, meeting details, sales numbers — call get_business_data and LOOK IT UP instead of asking the user or answering from memory. Your context carries a snapshot (names and counts) so you know what exists; the tool has the details, live. Asking the user for data this tool can fetch is a bug.
 9. YOU MAKE THE STRATEGY CALLS. When the user asks what THEY should do ("what should I do about my business", "what's next", "you decide", "you know what to do") — that is a request for YOUR judgment, not a menu. Answer with a direct, opinionated recommendation: pick the ONE highest-leverage move from their actual data (brand DNA, products, contacts, sales, posting history), justify it in 2-3 sentences, name the concrete first step, and offer to start it now. Do NOT respond with an ask_user list of options — bouncing "What do you want to focus on first?" back at them is the opposite of being their CEO, and the founder has explicitly reported it as a failure. ask_user exists for facts only the user can know (a missing business detail, a preference between two FINISHED pieces of work) — never for handing strategy decisions back. If you genuinely see two equally strong moves, RECOMMEND one anyway and mention the runner-up in one sentence.`;
 
   if (m.marketingAsset) {
@@ -160,6 +161,8 @@ Single-piece requests ("write me a LinkedIn post") still use the discovery flow 
 send_email: Send an email from the user's connected account. Works for newsletters and plain text. NEVER use this to "check" emails  -  only for outbound sends.
 
 check_emails: Read the user's inbox (or sent/drafts). Use whenever they ask about their emails. Always call this directly, never ask them questions first.
+
+get_business_data: Live lookup of the user's data — products (full pricing/photos/checkout links), contacts, scheduled_posts, published_posts, sales, meetings (incl. transcripts), outliers, forms. Call it whenever specifics matter; never ask the user for anything it can fetch.
 
 generate_image: Create social graphics, thumbnails, cover images.
 CRITICAL — IMAGE INTEGRITY RULE: If you intend to give the user an image, you MUST call the generate_image tool. Never write "here's your image", "check the image panel", "I made you a graphic", "image generated", or any phrasing that implies an image exists, UNLESS you actually emitted a generate_image tool call in the same turn. If you can't or won't call the tool, say so plainly ("I can't generate that image right now"). Hallucinating a tool call is worse than refusing — the user sees text claiming success but no image, and trusts the product less.
@@ -622,100 +625,38 @@ NEVER SAVE: tasks, to-dos, what you generated for them, conversation summaries, 
       prompt += '\n';
     }
     if (salesData.calls?.length) {
-      // Show up to 5 calls with real content (summary + action items +
-      // transcript excerpt), then list the remainder as one-liners so the
-      // agent still knows they exist without blowing the token budget.
-      // Per-call transcript cap = 1500 chars → ~5 detailed calls × 1.5k
-      // ≈ 7.5k chars worst case, plus summaries. Fits every agent budget.
-      const TRANSCRIPT_CAP_PER_CALL = 1500;
-      const DETAIL_CALLS = 5;
-      const detail = salesData.calls.slice(0, DETAIL_CALLS);
-      const rest = salesData.calls.slice(DETAIL_CALLS, 10);
-      prompt += `=== MEETINGS THE USER ADDED TO CONTEXT (${salesData.calls.length}) ===\n`;
-      prompt += `These are meetings the user explicitly flagged as important. Reference specific things discussed when relevant.\n\n`;
-      detail.forEach((call) => {
+      // Snapshot-not-dump (2026-07-26): the newest meeting keeps its
+      // summary (it's usually why the user is here); everything else is
+      // title+date. Full summaries, action items, and transcripts come
+      // from get_business_data with what="meetings".
+      prompt += `=== MEETINGS THE USER ADDED TO CONTEXT (${salesData.calls.length}) — snapshot ===\n`;
+      salesData.calls.slice(0, 10).forEach((call, i) => {
         const dateStr = call.date || call.created_at?.slice(0, 10) || '';
-        prompt += `--- ${call.title || 'Meeting'}${dateStr ? ` (${dateStr})` : ''} ---\n`;
-        if (call.summary) {
-          prompt += `Summary: ${String(call.summary).slice(0, 500)}\n`;
-        }
-        if (Array.isArray(call.action_items) && call.action_items.length) {
-          const items = call.action_items
-            .map((a) => (typeof a === 'string' ? a : (a?.text || a?.title || '')))
-            .filter(Boolean)
-            .slice(0, 8);
-          if (items.length) prompt += `Action items:\n${items.map((t) => `  - ${t}`).join('\n')}\n`;
-        }
-        if (call.transcript) {
-          const excerpt = String(call.transcript).slice(0, TRANSCRIPT_CAP_PER_CALL);
-          const truncated = call.transcript.length > TRANSCRIPT_CAP_PER_CALL;
-          prompt += `Transcript${truncated ? ' (excerpt)' : ''}:\n${excerpt}${truncated ? '…' : ''}\n`;
-        }
-        prompt += '\n';
+        prompt += `- ${call.title || 'Meeting'}${dateStr ? ` (${dateStr})` : ''}${i === 0 && call.summary ? ` — ${String(call.summary).slice(0, 220)}` : ''}\n`;
       });
-      if (rest.length) {
-        prompt += `Other meetings in context (title only):\n`;
-        rest.forEach((call) => {
-          prompt += `  - ${call.title || 'Meeting'} (${call.date || call.created_at?.slice(0, 10) || ''})\n`;
-        });
-        prompt += '\n';
-      }
+      prompt += `For summaries, action items, and transcripts: call get_business_data with what="meetings".\n\n`;
     }
   }
 
+  // Snapshot-not-dump (2026-07-26, founder direction "everything should be
+  // tool calls"): the prompt carries enough to KNOW WHAT EXISTS — names,
+  // types, headline prices — so the CEO never asks the user for facts it
+  // has. Full descriptions, photo URLs, pricing tiers, and the contact
+  // list live behind get_business_data, fetched only when a turn needs
+  // them (and ALWAYS before delegating a marketing asset).
   if (products?.length) {
-    prompt += `=== PRODUCTS (${products.length}) ===\n`;
-    prompt += `Use these product assets (photos, descriptions, pricing, checkout links) when drafting landing pages, emails, social posts, or anything that markets the offer. Reference photo URLs directly in image slots. Use checkout URLs in CTAs.\n\n`;
-    products.forEach((p, idx) => {
-      prompt += `--- Product ${idx + 1}: ${p.name} ---\n`;
-      if (p.type) prompt += `Type: ${p.type}\n`;
-
-      // Pricing — show every tier, not just the first.
-      const priceLines = [];
-      if (Array.isArray(p.pricing_options) && p.pricing_options.length) {
-        p.pricing_options.forEach((opt) => {
-          const dollars = opt.price_cents != null ? (opt.price_cents / 100).toFixed(2) : null;
-          if (dollars != null) {
-            const mode = opt.price_mode === 'monthly' ? '/month' : ' one-time';
-            const line = `$${dollars}${mode}${opt.payment_link_url ? ` — checkout: ${opt.payment_link_url}` : ''}`;
-            priceLines.push(line);
-          }
-        });
-      } else if (p.price_cents != null) {
-        priceLines.push(`$${(p.price_cents / 100).toFixed(2)}`);
-      } else if (p.price != null) {
-        priceLines.push(`$${p.price}`);
-      }
-      if (priceLines.length === 1) prompt += `Price: ${priceLines[0]}\n`;
-      else if (priceLines.length > 1) prompt += `Pricing tiers:\n${priceLines.map((l) => `  - ${l}`).join('\n')}\n`;
-
-      if (p.payment_link_url && !priceLines.some((l) => l.includes(p.payment_link_url))) {
-        prompt += `Checkout URL: ${p.payment_link_url}\n`;
-      }
-
-      // Photos / images — real URLs, usable by marketing agents as <img src="...">.
-      const photoUrls = (Array.isArray(p.photos) ? p.photos : [])
-        .map((ph) => (typeof ph === 'string' ? ph : ph?.url))
-        .filter(Boolean);
-      if (p.image_url && !photoUrls.includes(p.image_url)) photoUrls.unshift(p.image_url);
-      if (photoUrls.length) {
-        prompt += `Photos (${photoUrls.length}):\n${photoUrls.map((u) => `  - ${u}`).join('\n')}\n`;
-      }
-
-      if (p.description) prompt += `Description: ${p.description.slice(0, 1200)}\n`;
-      prompt += '\n';
+    prompt += `=== PRODUCTS (${products.length}) — snapshot ===\n`;
+    products.slice(0, 15).forEach((p) => {
+      const topPrice = Array.isArray(p.pricing_options) && p.pricing_options.length && p.pricing_options[0].price_cents != null
+        ? `$${(p.pricing_options[0].price_cents / 100).toFixed(2)}${p.pricing_options[0].price_mode === 'monthly' ? '/mo' : ''}${p.pricing_options.length > 1 ? ` (+${p.pricing_options.length - 1} tiers)` : ''}`
+        : (p.price_cents != null ? `$${(p.price_cents / 100).toFixed(2)}` : (p.price != null ? `$${p.price}` : ''));
+      prompt += `- ${p.name} [${p.type || 'product'}]${topPrice ? ` — ${topPrice}` : ''}\n`;
     });
+    prompt += `For descriptions, full pricing tiers, checkout links, and photo URLs: call get_business_data with what="products". REQUIRED before delegating a landing page / newsletter so the task_description carries real asset URLs.\n\n`;
   }
 
   if (contacts?.length) {
-    prompt += `=== CONTACTS (${contacts.length}) ===\n`;
-    contacts.slice(0, 30).forEach(c => {
-      prompt += `- ${c.name || c.email}`;
-      if (c.company) prompt += ` @ ${c.company}`;
-      if (c.stage || c.status) prompt += ` [${c.stage || c.status}]`;
-      prompt += '\n';
-    });
-    prompt += '\n';
+    prompt += `=== CONTACTS ===\n${contacts.length} contacts on file. For names/emails/companies: call get_business_data with what="contacts" (never ask the user to list their own contacts).\n\n`;
   }
 
   if (outlierData) {
@@ -1673,6 +1614,28 @@ RULES:
     },
     onToolCalls: async (toolCalls) => {
       for (const call of toolCalls) {
+        // Visible activity trail (founder ask 2026-07-26: "show me what
+        // it's doing, like watching Claude Code work"). Every tool step
+        // gets a start/done event the client renders as a live checklist.
+        const activityLabel = (() => {
+          let a; try { a = JSON.parse(call.arguments); } catch { a = {}; }
+          switch (call.name) {
+            case 'get_business_data': return `Checking your ${String(a.what || 'business data').replace(/_/g, ' ')}`;
+            case 'check_emails': return `Reading your ${a.folder || 'inbox'}`;
+            case 'send_email': return 'Sending the email';
+            case 'create_form': return 'Creating the form';
+            case 'save_to_soul': return 'Noting that down about you';
+            case 'delegate_to_agent': return `Briefing the ${String(a.agent_name || 'specialist').replace(/-/g, ' ')} agent`;
+            case 'create_artifact': return 'Writing it up in the canvas';
+            case 'generate_image': return 'Generating the image';
+            case 'plan_carousel': return 'Planning the carousel';
+            case 'create_content_plan': return 'Building the content plan';
+            case 'generate_linkedin_post': return 'Writing the LinkedIn post';
+            default: return null;
+          }
+        })();
+        if (activityLabel) sendSSE(res, { type: 'activity', label: activityLabel, state: 'start', id: call.id || activityLabel });
+
         if (call.name === 'delegate_to_agent') {
           await handleAgentDelegation({ res, call, context, userId, currentHtml, currentAgent, priorMessages: enrichedMessages, sessionId, assistantMsgId });
         } else if (call.name === 'ask_user') {
@@ -1690,6 +1653,8 @@ RULES:
           await handleSendEmail({ res, call, userId });
         } else if (call.name === 'check_emails') {
           await handleCheckEmails({ res, call, userId });
+        } else if (call.name === 'get_business_data') {
+          await handleGetBusinessData({ res, call, userId });
         } else if (call.name === 'create_form') {
           await handleCreateForm({ res, call, userId });
         } else if (call.name === 'create_artifact' || call.name === 'generate_image' || call.name === 'plan_carousel' || call.name === 'create_content_plan') {
@@ -1756,6 +1721,8 @@ RULES:
             call.result = 'The post writer errored. Apologize in one sentence and offer to try again.';
           }
         }
+
+        if (activityLabel) sendSSE(res, { type: 'activity', label: activityLabel, state: 'done', id: call.id || activityLabel });
       }
     },
   });
@@ -2007,6 +1974,84 @@ async function handleCheckEmails({ res, call, userId }) {
   } catch (err) {
     console.error('[orchestrate] check_emails failed:', err.message);
     call.result = `Error reading inbox: ${err.message}. Tell the user something went wrong pulling their emails and suggest they check their email connection in Settings.`;
+  }
+}
+
+// ── get_business_data: on-demand reads for the agentic CEO ──
+// (founder direction 2026-07-26: "everything should be tool calls, like
+// you work"). The prompt carries a slim snapshot; specifics come from
+// here, live from the DB, only when a turn needs them.
+async function handleGetBusinessData({ res, call, userId }) {
+  let args;
+  try { args = JSON.parse(call.arguments); } catch { args = {}; }
+  const what = String(args.what || '');
+  const q = String(args.query || '').trim().toLowerCase();
+  const limit = Math.min(Math.max(parseInt(args.limit) || 20, 1), 50);
+  const match = (s) => !q || String(s || '').toLowerCase().includes(q);
+  console.log(`[orchestrate] get_business_data: what=${what} query="${q}" limit=${limit}`);
+  sendSSE(res, { type: 'status', text: 'Checking your business data...' });
+
+  try {
+    let out = '';
+    if (what === 'products') {
+      const { data } = await supabase.from('products').select('*').eq('user_id', userId).limit(50);
+      const rows = (data || []).filter((p) => match(p.name) || match(p.description)).slice(0, limit);
+      out = rows.length === 0 ? 'No products found.' : rows.map((p, i) => {
+        const prices = Array.isArray(p.pricing_options) && p.pricing_options.length
+          ? p.pricing_options.map((o) => `$${o.price_cents != null ? (o.price_cents / 100).toFixed(2) : '?'}${o.price_mode === 'monthly' ? '/mo' : ''}${o.payment_link_url ? ` (checkout: ${o.payment_link_url})` : ''}`).join(', ')
+          : (p.price_cents != null ? `$${(p.price_cents / 100).toFixed(2)}` : (p.price != null ? `$${p.price}` : 'no price'));
+        const photos = [...new Set([...(Array.isArray(p.photos) ? p.photos.map((ph) => (typeof ph === 'string' ? ph : ph?.url)) : []), p.image_url].filter(Boolean))];
+        return `${i + 1}. ${p.name} [${p.type || 'product'}] — ${prices}${p.payment_link_url ? `\n   Checkout: ${p.payment_link_url}` : ''}${photos.length ? `\n   Photos: ${photos.join(' | ')}` : ''}${p.description ? `\n   ${String(p.description).slice(0, 400)}` : ''}`;
+      }).join('\n');
+    } else if (what === 'contacts') {
+      const { data } = await supabase.from('contacts').select('name, email, company, business, phone, stage, status').eq('user_id', userId).limit(200);
+      const rows = (data || []).filter((c) => match(c.name) || match(c.email) || match(c.company) || match(c.business)).slice(0, limit);
+      out = rows.length === 0 ? 'No contacts found.' : rows.map((c) => `- ${c.name || 'Unknown'}${c.email ? ` <${c.email}>` : ''}${(c.company || c.business) ? ` @ ${c.company || c.business}` : ''}${(c.stage || c.status) ? ` [${c.stage || c.status}]` : ''}`).join('\n');
+    } else if (what === 'scheduled_posts') {
+      const { data } = await supabase.from('social_posts').select('platform, caption, content_type, scheduled_at, status').eq('user_id', userId).eq('status', 'scheduled').gt('scheduled_at', new Date().toISOString()).order('scheduled_at', { ascending: true }).limit(limit);
+      const rows = (data || []).filter((p) => match(p.caption));
+      out = rows.length === 0 ? 'Nothing scheduled on the calendar.' : rows.map((p) => `- [${p.platform}] ${String(p.scheduled_at).replace('T', ' ').slice(0, 16)} UTC${p.content_type ? ` (${p.content_type})` : ''}: "${String(p.caption || '').split('\n')[0].slice(0, 120)}"`).join('\n');
+    } else if (what === 'published_posts') {
+      const { data } = await supabase.from('social_posts').select('platform, caption, content_type, published_at, url').eq('user_id', userId).eq('status', 'published').order('published_at', { ascending: false }).limit(limit);
+      const rows = (data || []).filter((p) => match(p.caption));
+      const { data: profiles } = await supabase.from('integration_data').select('content').eq('user_id', userId).eq('data_type', 'content_profile');
+      out = [
+        rows.length ? `Published via AICEO (newest first):\n${rows.map((p) => `- [${p.platform}] ${String(p.published_at || '').slice(0, 10)}${p.content_type ? ` (${p.content_type})` : ''}: "${String(p.caption || '').split('\n')[0].slice(0, 120)}"${p.url ? ` ${p.url}` : ''}`).join('\n')}` : 'No posts published through AICEO yet.',
+        ...(profiles || []).map((r) => r.content).filter(Boolean),
+      ].join('\n\n');
+    } else if (what === 'sales') {
+      const { data: sales } = await supabase.from('sales').select('amount, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(limit);
+      const { data: payments } = await supabase.from('integration_data').select('title, content, metadata, synced_at').eq('user_id', userId).eq('data_type', 'payment').order('synced_at', { ascending: false }).limit(limit);
+      const salesLines = (sales || []).map((s) => `- $${s.amount} on ${String(s.created_at).slice(0, 10)}`);
+      const payLines = (payments || []).map((p) => `- ${p.title}${p.metadata?.created ? ` (${new Date(p.metadata.created * 1000).toISOString().slice(0, 10)})` : ''}`);
+      out = [
+        salesLines.length ? `Recorded sales:\n${salesLines.join('\n')}` : 'No rows in the sales table.',
+        payLines.length ? `Recent payments (from integrations):\n${payLines.join('\n')}` : 'No synced payments.',
+      ].join('\n\n');
+    } else if (what === 'meetings') {
+      const { data } = await supabase.from('sales_calls').select('title, date, created_at, summary, action_items, transcript').eq('user_id', userId).order('created_at', { ascending: false }).limit(50);
+      const rows = (data || []).filter((c) => match(c.title) || match(c.summary)).slice(0, limit);
+      out = rows.length === 0 ? 'No meetings in context.' : rows.map((c, i) => {
+        const items = (Array.isArray(c.action_items) ? c.action_items : []).map((a) => (typeof a === 'string' ? a : a?.text || a?.title || '')).filter(Boolean).slice(0, 6);
+        return `${i + 1}. ${c.title || 'Meeting'} (${c.date || String(c.created_at || '').slice(0, 10)})${c.summary ? `\n   Summary: ${String(c.summary).slice(0, 400)}` : ''}${items.length ? `\n   Action items: ${items.join('; ')}` : ''}${i === 0 && c.transcript ? `\n   Transcript excerpt:\n${String(c.transcript).slice(0, 2000)}` : ''}`;
+      }).join('\n\n');
+    } else if (what === 'outliers') {
+      const { data: creators } = await supabase.from('outlier_creators').select('username, display_name, platform, avg_views').eq('user_id', userId);
+      const { data: videos } = await supabase.from('outlier_videos').select('title, views_multiplier, view_count, outlier_creators!inner(display_name)').eq('user_id', userId).eq('is_outlier', true).order('views_multiplier', { ascending: false }).limit(limit);
+      out = [
+        creators?.length ? `Tracked creators:\n${creators.map((c) => `- ${c.display_name || c.username} (${c.platform}${c.avg_views ? `, avg ${Number(c.avg_views).toLocaleString()} views` : ''})`).join('\n')}` : 'No creators tracked.',
+        videos?.length ? `Top outlier videos:\n${videos.filter((v) => match(v.title)).map((v) => `- "${v.title}" by ${v.outlier_creators?.display_name || '?'} (${v.views_multiplier ? v.views_multiplier.toFixed(1) + 'x avg' : ''}${v.view_count ? `, ${Number(v.view_count).toLocaleString()} views` : ''})`).join('\n')}` : 'No outlier videos.',
+      ].join('\n\n');
+    } else if (what === 'forms') {
+      const { data } = await supabase.from('forms').select('title, slug, status, questions').eq('user_id', userId).order('updated_at', { ascending: false }).limit(limit);
+      out = (data || []).length === 0 ? 'No forms yet.' : data.map((f) => `- "${f.title}" (${f.status}, slug: ${f.slug}, ${Array.isArray(f.questions) ? f.questions.length : 0} questions)`).join('\n');
+    } else {
+      out = `Unknown dataset "${what}". Valid: products, contacts, scheduled_posts, published_posts, sales, meetings, outliers, forms.`;
+    }
+    call.result = `${what.toUpperCase()} (live from the database just now):\n${out}`;
+  } catch (err) {
+    console.error('[orchestrate] get_business_data failed:', err.message);
+    call.result = `Lookup failed: ${err.message}. Answer with what you have and mention the lookup hiccup.`;
   }
 }
 
