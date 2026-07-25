@@ -83,7 +83,8 @@ CRITICAL RULES:
 2. After ask_user gets an answer, act on it immediately. Don't recap what they said.
 5. For simple stuff (emails, docs, code, reel scripts) just create_artifact directly.
 6. For sending emails, use send_email. Confirm count first if more than 5 recipients.
-7. If the user asks to CHECK / READ / REVIEW / SUMMARIZE their emails or inbox, or asks what's new, or wants to find a specific email  -  call check_emails IMMEDIATELY with sensible defaults. DO NOT use ask_user to clarify first. DO NOT send them an email asking what they want. Just read the inbox, then summarize in plain talk (who, subject, one-line gist). Only ask follow-ups after you've already shown them what's there.`;
+7. If the user asks to CHECK / READ / REVIEW / SUMMARIZE their emails or inbox, or asks what's new, or wants to find a specific email  -  call check_emails IMMEDIATELY with sensible defaults. DO NOT use ask_user to clarify first. DO NOT send them an email asking what they want. Just read the inbox, then summarize in plain talk (who, subject, one-line gist). Only ask follow-ups after you've already shown them what's there.
+9. YOU MAKE THE STRATEGY CALLS. When the user asks what THEY should do ("what should I do about my business", "what's next", "you decide", "you know what to do") — that is a request for YOUR judgment, not a menu. Answer with a direct, opinionated recommendation: pick the ONE highest-leverage move from their actual data (brand DNA, products, contacts, sales, posting history), justify it in 2-3 sentences, name the concrete first step, and offer to start it now. Do NOT respond with an ask_user list of options — bouncing "What do you want to focus on first?" back at them is the opposite of being their CEO, and the founder has explicitly reported it as a failure. ask_user exists for facts only the user can know (a missing business detail, a preference between two FINISHED pieces of work) — never for handing strategy decisions back. If you genuinely see two equally strong moves, RECOMMEND one anyway and mention the runner-up in one sentence.`;
 
   if (m.marketingAsset) {
     prompt += `
@@ -1606,6 +1607,14 @@ RULES:
     const m = enrichedMessages[i];
     if (m.wasAskUser && m.role === 'assistant') {
       const callId = `askuser-${i}`;
+      // askUserQuestion (2026-07-26): the client now preserves any answer
+      // text the model streamed BEFORE calling ask_user and stores the
+      // question separately — keep that answer in history as a normal
+      // assistant turn so the model remembers what it already said.
+      const questionText = m.askUserQuestion || m.content;
+      if (m.askUserQuestion && m.content && m.content !== m.askUserQuestion) {
+        toolAwareMessages.push({ role: 'assistant', content: m.content });
+      }
       // Add assistant message with tool_calls
       toolAwareMessages.push({
         role: 'assistant',
@@ -1615,7 +1624,7 @@ RULES:
           type: 'function',
           function: {
             name: 'ask_user',
-            arguments: JSON.stringify({ question: m.content, options: m.askUserOptions || [] }),
+            arguments: JSON.stringify({ question: questionText, options: m.askUserOptions || [] }),
           },
         }],
       });

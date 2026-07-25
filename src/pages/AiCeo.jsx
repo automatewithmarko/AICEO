@@ -2003,10 +2003,28 @@ export default function AiCeo() {
           setMultiAnswers(new Set());
           setCustomTyping(false);
           setCustomText('');
-          // Save the question with ask_user metadata so the backend can reconstruct tool call format
-          setMessages(prev => prev.map(m =>
-            m.id === assistantMsgId ? { ...m, content: question, status: null, wasAskUser: true, askUserOptions: options, ...(multiSelect ? { askUserMultiSelect: true } : {}) } : m
-          ));
+          // Save the question with ask_user metadata so the backend can
+          // reconstruct the tool-call format. PRESERVE any answer the
+          // model already streamed — the old `content: question` replace
+          // ate a good in-progress answer and showed the question twice
+          // (bubble + popup): founder repro 2026-07-26 ("it was answering
+          // quite well, and then boom"). If the model typed the question
+          // as trailing text too (rule-1 violation), trim that duplicate.
+          setMessages(prev => prev.map(m => {
+            if (m.id !== assistantMsgId) return m;
+            let text = (m.content || '').trim();
+            const q = question.trim();
+            if (text.endsWith(q)) text = text.slice(0, text.length - q.length).trim();
+            return {
+              ...m,
+              content: text || question,
+              askUserQuestion: question,
+              status: null,
+              wasAskUser: true,
+              askUserOptions: options,
+              ...(multiSelect ? { askUserMultiSelect: true } : {}),
+            };
+          }));
         },
         // In-stream error (orchestrate caught it after SSE was opened so
         // streamFromBackend can't throw). Surface whatever friendly
