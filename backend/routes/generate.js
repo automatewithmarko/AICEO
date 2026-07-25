@@ -683,7 +683,14 @@ ${prompt}`;
         console.log('[generate/image] OpenAI unconfigured — skipping');
         return null;
       }
-      const fast = speedTier === 'fast';
+      // Quality tiers: 'quality' → always high (carousel hook — the cover).
+      // 'fast' → always medium. Default: refs-aware — measured across
+      // carousel slides AND tonight's CEO single-image runs (2026-07-25/26),
+      // q=high with 2+ reference images blows the 110s cap essentially
+      // every time, then the medium retry succeeds in ~50s. Starting at
+      // medium for ref-heavy requests turns a reliable ~3-minute cycle
+      // into ~60s with no visible quality loss.
+      const fast = speedTier === 'fast' || (speedTier !== 'quality' && openaiRefs.length >= 2);
       let openaiResult = await generateImageWithOpenAI({
         prompt: imagePrompt,
         referenceImages: openaiRefs,
@@ -1171,7 +1178,7 @@ router.post('/api/generate/carousel', async (req, res) => {
           // full quality; every other slide takes the fast tier — flat
           // design-system pages gain nothing visible from q=high and it
           // was costing 110s timeouts per slide (2026-07-26 timing).
-          speedTier: idx === 0 ? null : 'fast',
+          speedTier: idx === 0 ? 'quality' : 'fast',
         });
         const d = result.body?.image?.data;
         const m = result.body?.image?.mimeType;
