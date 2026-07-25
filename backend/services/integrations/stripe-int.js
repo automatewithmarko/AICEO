@@ -354,7 +354,14 @@ async function upsertProductFromStripe(stripeProduct, prices, paymentLinkIndex, 
 
   const options = prices.map(p => priceToOption(p, paymentLinkIndex));
   const first = options[0];
-  const productType = stripeProduct.metadata?.type || 'digital';
+  // products.type has a CHECK constraint — anything outside this list is
+  // rejected by Postgres, which used to kill EVERY catalog insert (the old
+  // 'digital' default wasn't in the constraint, so connected users synced
+  // payments fine but never got a single product). Normalize Stripe
+  // metadata.type case-insensitively; unknown/missing → 'Digital'.
+  const ALLOWED_TYPES = ['Coaching', 'Course', 'SAAS', 'LeadMagnet', 'Community', 'Digital'];
+  const metaType = String(stripeProduct.metadata?.type || '').trim();
+  const productType = ALLOWED_TYPES.find(t => t.toLowerCase() === metaType.toLowerCase()) || 'Digital';
 
   // Lookup by stripe_product_id within this user's products
   const { data: existing } = await supabase

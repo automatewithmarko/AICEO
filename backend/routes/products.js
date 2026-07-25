@@ -35,13 +35,15 @@ router.get('/api/products/imported', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.json({ products: [] });
 
+  // integration_data has no created_at/updated_at — synced_at is the only
+  // timestamp (ordering by created_at 500'd this endpoint on prod).
   const { data, error } = await supabase
     .from('integration_data')
     .select('*')
     .eq('user_id', userId)
     .eq('data_type', 'product')
     .in('provider', ['shopify', 'kajabi'])
-    .order('created_at', { ascending: false });
+    .order('synced_at', { ascending: false });
 
   if (error) return res.status(500).json({ error: error.message });
 
@@ -56,7 +58,7 @@ router.get('/api/products/imported', async (req, res) => {
     checkout_url: item.metadata?.checkout_url || null,
     external_id: item.external_id,
     metadata: item.metadata,
-    synced_at: item.updated_at || item.created_at,
+    synced_at: item.synced_at,
   }));
 
   res.json({ products });

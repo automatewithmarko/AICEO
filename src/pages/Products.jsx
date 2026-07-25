@@ -4,7 +4,7 @@ import { getProducts, getImportedProducts, createProduct, updateProduct as updat
 import './Pages.css';
 import './Products.css';
 
-const PRODUCT_TYPES = ['Coaching', 'Course', 'SAAS', 'LeadMagnet', 'Community'];
+const PRODUCT_TYPES = ['Coaching', 'Course', 'SAAS', 'LeadMagnet', 'Community', 'Digital'];
 const PRICE_MODES = ['One-time', 'Monthly'];
 
 export const INITIAL_PRODUCTS = [];
