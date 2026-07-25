@@ -171,7 +171,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   if (usesPlanCarousel) {
     const isLinkedin = platform.id === 'linkedin';
     const platformUpper = isLinkedin ? 'LINKEDIN' : 'INSTAGRAM';
-    const slideCountLabel = isLinkedin ? '7-12 slides (LinkedIn carousels perform best with 8-10 slides of real depth)' : '5-9 slides';
+    const slideCountLabel = isLinkedin ? '6-9 slides (sweet spot 6-8 — every slide must earn its place; the reference decks that perform are 6 pages of real substance, not 11 thin ones)' : '5-9 slides';
 
     // Route the request BEFORE picking a tool. Without this router Claude was
     // reading the strong "INSTAGRAM CAROUSELS use plan_carousel" block below

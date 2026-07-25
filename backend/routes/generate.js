@@ -425,7 +425,13 @@ async function getCachedBrandData(userId) {
 // so the model edits the user's image directly instead of
 // substituting the brand DNA face/scene. Brand logo + colors + font
 // are still applied — only the brand PHOTOS are suppressed.
-export async function generateImageCore({ userId, rawPrompt, platform, brandData, referenceImages, editUserImage }) {
+// speedTier 'fast' (2026-07-26, carousel latency fix): first OpenAI
+// attempt at quality=medium instead of high. Live timing on a 3-slide
+// LinkedIn run showed q=high with reference images sitting AT or OVER
+// the 110s cap (slides paying 110s timeout + ~50s medium retry each),
+// while medium reliably lands in ~40-60s with no visible quality loss on
+// flat design-system slides. Hook slides keep the default high tier.
+export async function generateImageCore({ userId, rawPrompt, platform, brandData, referenceImages, editUserImage, speedTier = null }) {
   if (!rawPrompt) {
     return { ok: false, status: 400, body: { error: 'prompt is required' } };
   }
@@ -658,17 +664,19 @@ ${prompt}`;
       .map((p) => p.inlineData);
 
     if (isOpenAIImageConfigured()) {
+      const fast = speedTier === 'fast';
       let openaiResult = await generateImageWithOpenAI({
         prompt: imagePrompt,
         referenceImages: openaiRefs,
         aspectRatio: pConfig.aspectRatio,
-        quality: 'high',
+        quality: fast ? 'medium' : 'high',
         // 110s first-attempt cap: live data (2026-07-20) shows q=high
         // with reference images either finishes well under this or blows
         // past 150s anyway — a tighter cap gets the medium retry (which
         // reliably succeeds in ~60s) started sooner, cutting the
-        // worst-case wait from ~240s to ~200s.
-        timeoutMs: 110_000,
+        // worst-case wait from ~240s to ~200s. Fast tier starts at
+        // medium, so 90s covers it comfortably.
+        timeoutMs: fast ? 90_000 : 110_000,
       });
       // One retry at quality=medium with a tighter cap before touching
       // Gemini: a high-quality render that blows the 150s window usually
@@ -1111,6 +1119,11 @@ router.post('/api/generate/carousel', async (req, res) => {
           brandData,
           referenceImages: refs,
           editUserImage,
+          // Hook slide (the cover + visual anchor for the set) renders at
+          // full quality; every other slide takes the fast tier — flat
+          // design-system pages gain nothing visible from q=high and it
+          // was costing 110s timeouts per slide (2026-07-26 timing).
+          speedTier: idx === 0 ? null : 'fast',
         });
         const d = result.body?.image?.data;
         const m = result.body?.image?.mimeType;

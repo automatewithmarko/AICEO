@@ -2336,7 +2336,7 @@ function buildPlanItemSystemPrompt({ context, platform, format }) {
   } else if (format === 'single_image') {
     prompt += `\n\n=== DELIVERABLE: SINGLE-IMAGE POST ===\nCall compose_single_image_post with the finished post copy in the content field AND an actionable image_prompt (subject, composition, mood, style, brand-color hints, text overlay if any). The image_prompt must NEVER include a real person's name, ethnicity, or identity.\nPOST WRITER STANDARD for the content field: a REAL POST, not an announcement — hook first line (specific claim / number / tension), 2-5 short paragraphs developing ONE idea with at least one specific detail, engagement CTA at the end, platform-native voice. Under 3 sentences = under-delivered, rewrite. Image text overlay stays SHORT (one bold hook line ≤ 8 words) with every brand/product name spelled exactly.`;
   } else if (format === 'carousel') {
-    prompt += `\n\n=== DELIVERABLE: CAROUSEL PLAN ===\nCall plan_carousel with EVERY required field filled. Platform-appropriate slide count (Instagram 5-9, LinkedIn 7-12). Slide 1 headline = the hook from the brief. Final slide = the CTA slide. designSystem anchored to the Brand DNA colors provided below.`;
+    prompt += `\n\n=== DELIVERABLE: CAROUSEL PLAN ===\nCall plan_carousel with EVERY required field filled. Platform-appropriate slide count (Instagram 5-9, LinkedIn 6-9). Slide 1 headline = the hook from the brief. Final slide = the CTA slide. designSystem anchored to the Brand DNA colors provided below.`;
     if (platform === 'linkedin') {
       prompt += `\nThe ${LINKEDIN_CAROUSEL_CAPTION_PARAM}\n\n${LINKEDIN_CAPTION_STANDARD_BLOCK}${LINKEDIN_SLIDE_BODY_STANDARD_BLOCK}`;
     }

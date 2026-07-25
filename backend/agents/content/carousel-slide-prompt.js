@@ -109,8 +109,8 @@ export const CAROUSEL_PLATFORM_CONFIG = {
     rightMarginPx: 100,
     moodReferences: 'a professional thought-leadership document — think Harvard Business Review cover, a Stripe engineering blog hero, or a Basecamp article header: confident, data-forward, restrained',
     ghostNumeralPx: 480,
-    defaultSlideCountLabel: '7-12',
-    slideCountGuidance: '7-12 slides is standard for LinkedIn — longer carousels perform because LI audiences expect depth and substance',
+    defaultSlideCountLabel: '6-9',
+    slideCountGuidance: '6-9 slides is the LinkedIn sweet spot — every slide earns its place with real substance; padded 11-slide decks lose swipers and take twice as long to render',
     toneNote: 'LinkedIn readers reward substance, specificity, and a professional tone — no trendy-design language, no emoji',
   },
 };

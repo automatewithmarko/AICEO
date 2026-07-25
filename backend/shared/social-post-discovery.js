@@ -46,7 +46,7 @@ Call create_artifact with type="content_post", platform=<network>, and content=<
 
 CAROUSELS (LinkedIn carousel / Instagram carousel) — CALL plan_carousel, NOT create_artifact + generate_image:
 For Instagram and LinkedIn carousels, use the plan_carousel tool. It takes hook + angle + caption + slides[] + designSystem. The client turns that plan into per-slide images using the exact same deterministic prompt builder /Content uses, so cohesion (same background, palette, typography, layout grid across every slide) is guaranteed. Do NOT call create_artifact + N generate_image for carousels — that path produces visually inconsistent slides and is only for stories / single posts.
-Slide counts: Instagram 5-9 slides, LinkedIn 7-12 slides.
+Slide counts: Instagram 5-9 slides, LinkedIn 6-9 slides.
 When you call plan_carousel, fill in EVERY required field:
 - hook: scroll-stopping slide-1 headline (confession, contrarian, specificity, or curiosity-gap — never "X tips for Y" or "Are you making these mistakes?").
 - angle: one-sentence strategic POV (why this framing, why now).
