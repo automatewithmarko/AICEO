@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import {
   ChevronUp,
   ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
   LogOut,
   Settings,
   User,
@@ -110,7 +112,7 @@ const navItems = [
   { label: 'Reviews', icon: ReviewsIcon, comingSoon: true },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ collapsed = false, onToggleCollapse }) {
   const { user, credits, logout, can, workspace, switchWorkspace } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -139,11 +141,24 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-top">
-        <div className="sidebar-logo">
-          <img src="/logo.png" alt="PuerlyPersonal" />
-        </div>
+      <div className="sidebar-logo">
+        {collapsed ? (
+          <img className="sidebar-logo-mark" src="/favicon.png" alt="PuerlyPersonal" />
+        ) : (
+          <img className="sidebar-logo-full" src="/logo.png" alt="PuerlyPersonal" />
+        )}
+        <button
+          type="button"
+          className="sidebar-collapse-btn"
+          onClick={onToggleCollapse}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
+        </button>
+      </div>
 
+      <div className="sidebar-top">
         <div className="sidebar-credits">
           <CreditsIcon size={16} />
           <span>{credits.toLocaleString()} credits</span>
@@ -154,7 +169,7 @@ export default function Sidebar() {
             item.children ? (
               <div key={item.label} className="sidebar-dropdown">
                 <div className={`sidebar-link sidebar-link--dropdown ${isDropdownActive(item) ? 'sidebar-link--active' : ''}`}>
-                  <NavLink to={item.children[0].to} className="sidebar-dropdown-link">
+                  <NavLink to={item.children[0].to} className="sidebar-dropdown-link" title={collapsed ? item.label : undefined}>
                     <item.icon size={20} />
                     <span>{item.label}</span>
                   </NavLink>
@@ -190,7 +205,7 @@ export default function Sidebar() {
                 key={item.label}
                 className="sidebar-link sidebar-link--disabled"
                 aria-disabled="true"
-                title="Coming soon"
+                title={collapsed ? `${item.label} (Coming soon)` : 'Coming soon'}
               >
                 <item.icon size={20} />
                 <span>{item.label}</span>
@@ -200,6 +215,7 @@ export default function Sidebar() {
               <NavLink
                 key={item.to}
                 to={item.to}
+                title={collapsed ? item.label : undefined}
                 className={({ isActive }) =>
                   `sidebar-link ${isActive ? 'sidebar-link--active' : ''}`
                 }

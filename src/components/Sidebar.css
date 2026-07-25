@@ -8,18 +8,38 @@
   border-right: 1px solid var(--border-light);
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
   z-index: 40;
+  transition: width 0.2s ease;
 }
 
+/* Fixed header (logo + collapse button) stays put; only .sidebar-top below
+   it scrolls. flex:1 + min-height:0 lets it fill the space between the header
+   and the pinned profile footer and scroll its overflow. */
 .sidebar-top {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  /* Hide the scrollbar but keep scrolling functional */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge/IE */
 }
 
 .sidebar-logo {
-  padding: 24px 24px 20px;
+  flex-shrink: 0;
+}
+
+.sidebar-top::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Edge */
+}
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 24px 20px 20px;
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -27,6 +47,32 @@
   height: 36px;
   width: auto;
   object-fit: contain;
+}
+
+.sidebar-logo-mark {
+  height: 34px !important;
+  width: 34px;
+}
+
+.sidebar-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.sidebar-collapse-btn:hover {
+  background: var(--bg-light);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
 }
 
 /* Credits */
@@ -330,6 +376,66 @@
 .profile-menu-item--danger:hover {
   background: var(--brand-red-light);
   color: var(--brand-red);
+}
+
+/* ── Collapsed state: icons only, labels hidden ── */
+.sidebar-collapsed .sidebar-logo {
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 12px 16px;
+}
+
+.sidebar-collapsed .sidebar-credits {
+  justify-content: center;
+  margin: 20px 12px 8px;
+  padding: 10px 0;
+}
+.sidebar-collapsed .sidebar-credits span {
+  display: none;
+}
+
+.sidebar-collapsed .sidebar-nav {
+  padding: 12px 10px;
+}
+
+.sidebar-collapsed .sidebar-link {
+  justify-content: center;
+  gap: 0;
+  padding: 11px 0;
+}
+
+/* Hide every text label (nav links, dropdown parents, coming-soon badges) */
+.sidebar-collapsed .sidebar-nav span,
+.sidebar-collapsed .sidebar-soon-badge {
+  display: none;
+}
+
+.sidebar-collapsed .sidebar-dropdown-link {
+  justify-content: center;
+  padding: 11px 0;
+}
+
+/* No room to expand nested items or show the chevron when collapsed —
+   the parent icon links straight to its first child instead. */
+.sidebar-collapsed .sidebar-dropdown-toggle,
+.sidebar-collapsed .sidebar-dropdown-items {
+  display: none;
+}
+
+.sidebar-collapsed .profile-trigger {
+  justify-content: center;
+  padding: 10px 0;
+}
+.sidebar-collapsed .profile-trigger-info,
+.sidebar-collapsed .profile-chevron {
+  display: none;
+}
+
+/* Pop the profile menu out to a readable width beyond the narrow rail. */
+.sidebar-collapsed .profile-menu {
+  left: 8px;
+  right: auto;
+  width: 248px;
 }
 
 /* Hide sidebar on mobile */
