@@ -1333,6 +1333,15 @@ server.on('upgrade', (req, socket, head) => {
 
 server.listen(PORT, () => {
   console.log(`AICEO backend running on port ${PORT}`);
-  startEmailSync();
-  startScheduledPostsDispatcher();
+  // Local/test instances (DISABLE_BACKGROUND_JOBS=1) must not run the
+  // singleton background workers: a second scheduled-posts dispatcher
+  // races prod on due posts (double-publish risk) and a second IMAP IDLE
+  // session attaches to real user inboxes. Off by default — prod behavior
+  // is unchanged unless the var is explicitly set.
+  if (process.env.DISABLE_BACKGROUND_JOBS === '1') {
+    console.log('[server] DISABLE_BACKGROUND_JOBS=1 — email sync + scheduled-posts dispatcher not started (test instance)');
+  } else {
+    startEmailSync();
+    startScheduledPostsDispatcher();
+  }
 });
