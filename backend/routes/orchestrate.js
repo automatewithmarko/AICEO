@@ -10,6 +10,7 @@ import { buildBrandContext, buildProductsContext } from '../agents/brand-context
 import { handleContentOrchestration } from '../agents/content/handler.js';
 import { buildCeoUnifiedSocialAddendum, runLinkedInTextPostPass, GENERATE_LINKEDIN_POST_TOOL, mapContentItemsToSocialRefs } from '../agents/content/ceo-adapter.js';
 import { detectCeoModules, ALL_CEO_MODULES } from '../agents/ceo-intent-router.js';
+import { getContentProfileBlock } from '../services/content-profile.js';
 import { LINKEDIN_CAROUSEL_CAPTION_PARAM, LINKEDIN_CAPTION_STANDARD_BLOCK, LINKEDIN_SLIDE_BODY_STANDARD_BLOCK, REFERENCE_REPLICATION_EXAMPLE } from '../agents/content/build-system-prompt.js';
 import { scrubAiDashes, scrubCarouselPlanDashes } from '../agents/content/claude-protocol.js';
 import { buildPlanModeDirective } from '../agents/content/plan-mode.js';
@@ -1462,6 +1463,20 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, plan
   console.log(`[ceo-intent] modules → video=${modules.video} social=${modules.social} linkedin=${modules.linkedin} marketing=${modules.marketingAsset} email=${modules.email} plan=${modules.plan}`);
 
   let systemPrompt = buildCeoSystemPrompt(context, modules);
+
+  // "How this user actually posts" — the auto-synced IG profile (BooSend)
+  // + AICEO-published post history. Founder repro 2026-07-25: the CEO
+  // told the client it had "no access to your posts" while this exact
+  // data sat in integration_data. Cached reads with a 1.5s race guard.
+  try {
+    const profileBlock = await Promise.race([
+      getContentProfileBlock(userId, null),
+      new Promise((resolve) => setTimeout(() => resolve(''), 1500)),
+    ]);
+    if (profileBlock) systemPrompt += profileBlock;
+  } catch (err) {
+    console.warn(`[content-profile] CEO block fetch failed: ${err.message}`);
+  }
 
   // Unified pipeline (Phase 4, unconditional since Phase 5): LinkedIn
   // text posts route through the shared two-phase writer

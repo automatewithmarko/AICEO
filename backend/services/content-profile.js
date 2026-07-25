@@ -78,7 +78,11 @@ function igProfileToText(p) {
   let s = `Instagram @${p.username} — last ${p.total} posts: ${p.counts.reel} reels (${pct(p.counts.reel)}%), ${p.counts.carousel} carousels (${pct(p.counts.carousel)}%), ${p.counts.image} single images (${pct(p.counts.image)}%)`;
   if (p.perWeek) s += `; ≈${p.perWeek} posts/week`;
   s += `; avg caption ${p.avgCaptionLen} chars; hashtags on ${p.hashtagPosts}/${p.total} posts.`;
-  if (p.recentCaptions.length) s += `\nRecent captions: ${p.recentCaptions.map((c) => `"${c}"`).join(' | ')}`;
+  if (p.lastPostAt) {
+    const d = new Date(p.lastPostAt);
+    if (!Number.isNaN(d.getTime())) s += ` Most recent post: ${d.toISOString().slice(0, 10)}.`;
+  }
+  if (p.recentCaptions.length) s += `\nRecent captions (newest first): ${p.recentCaptions.map((c) => `"${c}"`).join(' | ')}`;
   if (p.topPost?.caption) s += `\nTop performer: "${p.topPost.caption}" (${p.topPost.likes} likes, ${p.topPost.comments} comments)`;
   return s;
 }
@@ -161,6 +165,24 @@ async function linkedinProfileText(userId) {
   return s;
 }
 
+// Recent posts published THROUGH AICEO, all platforms, with dates — lets
+// the CEO answer "when was my last post" for anything shipped from here.
+async function aiceoPublishedPostsText(userId) {
+  const { data: posts } = await supabase
+    .from('social_posts')
+    .select('platform, caption, content_type, published_at')
+    .eq('user_id', userId)
+    .eq('status', 'published')
+    .order('published_at', { ascending: false })
+    .limit(8);
+  if (!posts?.length) return null;
+  const lines = posts.map((p) => {
+    const date = p.published_at ? String(p.published_at).slice(0, 10) : 'unknown date';
+    return `- [${p.platform || '?'}] ${date}${p.content_type ? ` (${p.content_type})` : ''}: "${firstLine(p.caption, 80)}"`;
+  });
+  return `Posts published through AICEO (newest first):\n${lines.join('\n')}`;
+}
+
 // ─── Prompt block ────────────────────────────────────────────────────────
 
 export async function getContentProfileBlock(userId, platformId = null) {
@@ -190,8 +212,17 @@ export async function getContentProfileBlock(userId, platformId = null) {
     } catch { /* derived signal only — never break the turn */ }
   }
 
+  // CEO surface (no platform pinned): include the cross-platform list of
+  // posts published through AICEO, with dates.
+  if (!platformId) {
+    try {
+      const published = await aiceoPublishedPostsText(userId);
+      if (published) parts.push(published);
+    } catch { /* derived signal only — never break the turn */ }
+  }
+
   if (!parts.length) return '';
-  return `\n\n=== HOW THIS USER ACTUALLY POSTS (auto-synced from connected accounts) ===\n`
+  return `\n\n=== HOW THIS USER ACTUALLY POSTS (auto-synced from their connected accounts — you DO have this visibility) ===\n`
     + parts.join('\n')
-    + `\nThis is the user's REAL posting baseline. When they don't specify a format or topic, default to the formats and topic lanes they already publish — do NOT ask.\n`;
+    + `\nUse this data confidently: you CAN tell the user what they post, how often, their recent captions, their top performer, and when their most recent post went out (refreshed roughly daily). Never claim you have "no access" to their posts while this block is present. When they don't specify a format or topic, default to the formats and topic lanes they already publish — do NOT ask.\n`;
 }
