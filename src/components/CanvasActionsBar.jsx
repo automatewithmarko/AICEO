@@ -365,7 +365,7 @@ export default function CanvasActionsBar({
               {schedState === 'error' && schedError && (
                 <div className="cab-schedule-error" role="alert">
                   <span>{schedError}</span>
-                  {/does not exist|missing permissions|cannot be loaded|invalid access token|expired|boosend|reconnect/i.test(schedError) && onConnect && (
+                  {/invalid access token|oauthexception|token (has )?expired|session has expired|permissions? (removed|revoked)|error validating access token|reconnect/i.test(schedError) && onConnect && (
                     <button
                       type="button"
                       className="cab-schedule-error-action"
@@ -400,14 +400,16 @@ export default function CanvasActionsBar({
                 <><Send size={14} /> Post to {platformLabel}</>
               )}
             </button>
-            {postState === 'error' && /does not exist|missing permissions|cannot be loaded|invalid access token|expired|boosend|reconnect/i.test(postError) && onConnect && (
+            {postState === 'error' && /invalid access token|oauthexception|token (has )?expired|session has expired|permissions? (removed|revoked)|error validating access token|reconnect/i.test(postError) && onConnect && (
               <button
                 type="button"
                 className="cab-btn cab-btn--connect"
                 onClick={() => onConnect?.()}
-                title={`Your ${platformLabel} token can't post to this account — reconnect to grant fresh permissions.`}
+                title={platform === 'instagram'
+                  ? 'Instagram is connected inside BooSend — reconnect it there, then update your BooSend API key in Settings if it changed.'
+                  : `Your ${platformLabel} token can't post to this account — reconnect to grant fresh permissions.`}
               >
-                <ExternalLink size={14} /> Reconnect {platformLabel}
+                <ExternalLink size={14} /> {platform === 'instagram' ? 'Fix in BooSend' : `Reconnect ${platformLabel}`}
               </button>
             )}
           </>

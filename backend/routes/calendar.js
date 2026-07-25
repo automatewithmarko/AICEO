@@ -113,39 +113,7 @@ async function fetchBoosendInstagramAccount(apiKey) {
   if (!bsRes.ok) return null;
   const data = await bsRes.json().catch(() => ({}));
   const acc = (data?.accounts || [])[0] || null;
-  if (acc) {
-    // BooSend has surfaced their own account UUID as `id`. Facebook's
-    // Graph error ("Object with ID '<uuid>' does not exist") means the
-    // publish endpoint has been forwarding that UUID directly to Meta.
-    // Log all fields so we can pick the Meta-facing one deterministically
-    // rather than guessing.
-    console.log('[boosend] IG account shape:', Object.keys(acc), acc);
-  }
   return acc;
-}
-
-// Pick the Meta-side Instagram business account id from BooSend's
-// account object. Confirmed shape from Railway logs:
-//   { id: '<boosend-uuid>', username, instagram_account_id: '17841…',
-//     profile_picture_url }
-// The Meta id lives in `instagram_account_id` (17-digit numeric). The
-// BooSend UUID in `id` is NOT accepted by the publish endpoint — it
-// gets forwarded straight to Meta as-is and Meta rejects it.
-function pickMetaInstagramId(acc) {
-  if (!acc) return null;
-  // Prefer numeric Meta ids. BooSend's `instagram_account_id` field
-  // holds the real Meta id, but if some tenant surfaces it under a
-  // different name we accept the well-known aliases too.
-  return (
-    acc.instagram_account_id ||
-    acc.instagram_business_account_id ||
-    acc.ig_business_id ||
-    acc.ig_user_id ||
-    acc.instagram_user_id ||
-    acc.meta_id ||
-    acc.instagram_id ||
-    null
-  );
 }
 
 // Publish an already-loaded social_posts row via the right provider.
@@ -221,70 +189,56 @@ export async function publishSocialPostRow(userId, post) {
       throw err;
     }
 
-    // Normalize IG post_type to what BooSend/Meta expect. `carousel` +
-    // 2+ images is a "carousel"; a `story` maps to "story"; anything
-    // else is a single-media post.
-    const inferredType = (post.content_type === 'carousel' || (post.media || []).length > 1)
-      ? 'carousel'
-      : post.content_type === 'story'
-        ? 'story'
-        : post.content_type === 'reel'
-          ? 'reel'
-          : 'single';
+    // BooSend's publish route (publishing.ts) contract, read from source:
+    //   - Each media_items entry MUST carry `type: 'IMAGE' | 'VIDEO'` —
+    //     that field alone decides whether Meta gets image_url or
+    //     video_url. Omitting it sends an empty container and Meta
+    //     answers "The parameter image_url is required".
+    //   - Omit instagram_account_id/access_token entirely: BooSend
+    //     auto-resolves the active account from the API key. Passing
+    //     its row UUID gets forwarded to Meta verbatim (rejected), and
+    //     passing the Meta id fails BooSend's own UUID lookup.
+    //   - Caption is only attached when post_type === 'single' (the
+    //     carousel branch adds it to the carousel container). A VIDEO
+    //     item always becomes a REELS container, so reels go out as
+    //     post_type 'single' too — that's what keeps their caption.
+    //   - There is no STORIES media_type anywhere in the route: stories
+    //     are unsupported upstream and would land on the feed grid.
+    if (post.content_type === 'story') {
+      const err = new Error("Instagram Stories can't be published through BooSend yet — its Meta publish route has no story support, so frames would land on the feed instead. Post them from the Instagram app for now.");
+      err.code = 'ig_story_unsupported';
+      throw err;
+    }
 
-    // Body shape confirmed from Railway logs:
-    //   - Omitting instagram_account_id → BooSend requires `image_url`
-    //     (singular, top-level) — the media_items shape is ignored on
-    //     that code path.
-    //   - Sending instagram_account_id as the BooSend UUID was
-    //     forwarded straight to Meta and rejected.
-    //   - Sending it as the Meta 17-digit ID got "No Instagram account
-    //     found. Connect one in BooSend first." (BooSend's DB lookup
-    //     didn't accept it there either).
-    // Best-known-working shape: pass BOTH image_url (first slide) at
-    // top level AND media_items (for the carousel case), and let
-    // BooSend resolve the account from the API key. First slide URL
-    // duplicates as image_url so BooSend's validator is happy.
-    const mediaItems = (post.media || []).map((m) => ({ url: m?.url })).filter((m) => m.url);
-    const firstUrl = mediaItems[0]?.url || null;
-    if (!firstUrl) {
+    const isVideoUrl = (url) => /\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(url);
+    const mediaItems = (post.media || [])
+      .filter((m) => m?.url)
+      .map((m) => ({
+        url: m.url,
+        type: String(m.type || '').toLowerCase() === 'video' || isVideoUrl(m.url) ? 'VIDEO' : 'IMAGE',
+      }));
+    if (!mediaItems.length) {
       const err = new Error('No image URL to publish. Attach at least one image before publishing.');
       err.code = 'ig_missing_image';
       throw err;
     }
 
-    // Build attempts. Every attempt now includes image_url + media_items
-    // so BooSend's validator sees a top-level image regardless of the
-    // account-lookup mode it takes.
-    const metaId = pickMetaInstagramId(igAccount);
-    const commonBody = {
-      image_url: firstUrl,
-      media_items: mediaItems,
-      caption: post.caption || '',
-      post_type: inferredType,
-    };
-    const attempts = [
-      { label: 'omit+image_url', body: commonBody },
-      ...(igAccount.id ? [{ label: 'boosend_uuid+image_url', body: { ...commonBody, instagram_account_id: igAccount.id } }] : []),
-      ...(metaId ? [{ label: 'meta_id+image_url', body: { ...commonBody, instagram_account_id: metaId } }] : []),
-    ];
+    const postType = mediaItems.length > 1 ? 'carousel' : 'single';
 
-    let bsData = {};
-    let bsRes;
-    let lastErrText = '';
-    for (const attempt of attempts) {
-      bsRes = await fetch(`${BOOSEND_API}/api/publishing/instagram/publish`, {
-        method: 'POST',
-        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify(attempt.body),
-      });
-      bsData = await bsRes.json().catch(() => ({}));
-      if (bsRes.ok) {
-        console.log(`[boosend] IG publish succeeded via ${attempt.label}`);
-        break;
-      }
-      lastErrText = bsData?.error || `HTTP ${bsRes.status}`;
-      console.warn(`[boosend] IG publish attempt "${attempt.label}" failed: ${lastErrText}`);
+    const bsRes = await fetch(`${BOOSEND_API}/api/publishing/instagram/publish`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        media_items: mediaItems,
+        caption: post.caption || '',
+        post_type: postType,
+      }),
+    });
+    const bsData = await bsRes.json().catch(() => ({}));
+    if (bsRes.ok) {
+      console.log(`[boosend] IG publish succeeded (${postType}, ${mediaItems.length} item(s)) for @${igAccount.username || 'unknown'}`);
+    } else {
+      console.warn(`[boosend] IG publish failed (${postType}, ${mediaItems.length} item(s)): ${bsData?.error || `HTTP ${bsRes.status}`}`);
     }
 
     if (!bsRes.ok) {

@@ -749,14 +749,14 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
           >
             <Send size={14} /> Post to Instagram
           </button>
-          {scheduleError && /does not exist|missing permissions|cannot be loaded|invalid access token|expired|boosend|reconnect/i.test(scheduleError) && (
+          {scheduleError && /invalid access token|oauthexception|token (has )?expired|session has expired|permissions? (removed|revoked)|error validating access token|boosend not connected|reconnect/i.test(scheduleError) && (
             <button
               type="button"
               className="li-toolbar-btn li-toolbar-btn--linkedin-connect"
               onClick={() => navigate('/settings', { state: { scrollTo: 'integrations', highlight: 'boosend' } })}
-              title="Instagram token can't post to this account — reconnect BooSend to grant fresh permissions"
+              title="Instagram is connected inside BooSend — reconnect it there, then update your BooSend API key in Settings if it changed."
             >
-              <ExternalLink size={14} /> Reconnect Instagram
+              <ExternalLink size={14} /> Fix in BooSend
             </button>
           )}
         </>

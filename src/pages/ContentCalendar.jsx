@@ -426,17 +426,18 @@ function PlatformPicker({ onPick }) {
 // ─── Scheduled post view (read-only) ───────────────────────────────────────
 
 // Classify a publish error string so the UI can offer the right recovery
-// action. IG/BooSend permission errors (usually "does not exist, cannot
-// be loaded due to missing permissions") mean the connected token no
-// longer authorizes the target account — reconnect BooSend. LinkedIn
-// expired-token errors mean re-run OAuth. Anything else falls through
-// to a plain retry.
+// action. Only genuine auth failures earn a reconnect CTA — Instagram
+// accounts are connected inside BooSend, not here, so offering
+// "Reconnect" for a malformed request or a BooSend outage is a dead
+// end. LinkedIn expired-token errors mean re-run OAuth. A missing
+// BooSend API key means connect BooSend in Settings. Anything else
+// falls through to a plain retry with the raw error visible.
 function classifyPublishError(text) {
   const s = String(text || '').toLowerCase();
   if (!s) return null;
   if (/linkedin.*expired|linkedin_token_expired|reconnect.*linkedin/.test(s)) return 'linkedin_expired';
-  if (/does not exist|cannot be loaded|missing permissions|does not support this operation|invalid access token|oauthexception|access_token|token has expired|session has expired|permissions? removed|instagram.*token/.test(s)) return 'instagram_reconnect';
-  if (/boosend/.test(s)) return 'instagram_reconnect';
+  if (/invalid access token|oauthexception|token has expired|session has expired|permissions? (removed|revoked)|error validating access token|instagram.*token/.test(s)) return 'instagram_reconnect';
+  if (/boosend not connected|connect in settings/.test(s)) return 'boosend_setup';
   return null;
 }
 
@@ -603,9 +604,9 @@ function ScheduledView({ post, onClose, onDelete, onPublish, onRetry, onReschedu
                   type="button"
                   className="cc-error-action-btn"
                   onClick={() => navigate('/settings', { state: { scrollTo: 'integrations', highlight: 'boosend' } })}
-                  title="Instagram's connected token can no longer post to this account. Reconnect BooSend to grant fresh permissions."
+                  title="Instagram is connected inside BooSend. Reconnect the account in the BooSend app, then update your BooSend API key in Settings if it changed."
                 >
-                  <ExternalLink size={12} /> Reconnect Instagram
+                  <ExternalLink size={12} /> Fix in BooSend
                 </button>
                 {onRetry && post.status === 'failed' && (
                   <button
@@ -621,6 +622,18 @@ function ScheduledView({ post, onClose, onDelete, onPublish, onRetry, onReschedu
                     <RefreshCw size={12} /> Try again
                   </button>
                 )}
+              </div>
+            )}
+            {kind === 'boosend_setup' && (
+              <div className="cc-publish-error-actions">
+                <button
+                  type="button"
+                  className="cc-error-action-btn"
+                  onClick={() => navigate('/settings', { state: { scrollTo: 'integrations', highlight: 'boosend' } })}
+                  title="Paste your BooSend API key in Settings → Integrations to enable Instagram publishing."
+                >
+                  <ExternalLink size={12} /> Connect BooSend in Settings
+                </button>
               </div>
             )}
             {kind === 'linkedin_expired' && (
