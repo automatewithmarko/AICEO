@@ -663,7 +663,25 @@ ${prompt}`;
       .filter((p) => p.inlineData?.data)
       .map((p) => p.inlineData);
 
-    if (isOpenAIImageConfigured()) {
+    // Provider order (2026-07-26): Nano Banana 2 (via the Mentor gateway →
+    // AtlasCloud) goes FIRST for the aspect ratios Atlas renders correctly
+    // — 1:1, 9:16, 16:9 — with gpt-image-2 as the fallback. Verified: NB2
+    // matches gpt-image-2 quality on design-system slides, has the best
+    // face consistency off reference images, and runs on the client-owned
+    // gateway. 3:4 / 4:3 stay OpenAI-first because Atlas silently returns
+    // the wrong ratio for them (3:4→square, 4:3→16:9, measured) — flip
+    // them too once the gateway fixes ratio passthrough.
+    // Kill switch: IMAGE_PRIMARY=openai restores OpenAI-first everywhere.
+    const NB2_SAFE_ASPECTS = new Set(['1:1', '9:16', '16:9']);
+    const nb2First = process.env.IMAGE_PRIMARY !== 'openai'
+      && !!process.env.MENTOR_API_KEY
+      && NB2_SAFE_ASPECTS.has(pConfig.aspectRatio);
+
+    const attemptOpenAI = async () => {
+      if (!isOpenAIImageConfigured()) {
+        console.log('[generate/image] OpenAI unconfigured — skipping');
+        return null;
+      }
       const fast = speedTier === 'fast';
       let openaiResult = await generateImageWithOpenAI({
         prompt: imagePrompt,
@@ -704,12 +722,17 @@ ${prompt}`;
           },
         };
       }
-      // Non-fatal — log and fall through to Gemini. We still surface
-      // OpenAI's error via the log so ops can tell whether the fallback
-      // is being hit because of a policy block, quota, or a code bug.
-      console.warn(`[generate/image] OpenAI failed (${openaiResult.status || 'n/a'}${openaiResult.timeout ? ' TIMEOUT' : ''}): ${openaiResult.error} — falling back to Gemini`);
+      // Non-fatal — log and let the caller try the other provider.
+      console.warn(`[generate/image] OpenAI failed (${openaiResult.status || 'n/a'}${openaiResult.timeout ? ' TIMEOUT' : ''}): ${openaiResult.error}`);
+      return null;
+    };
+
+    if (!nb2First) {
+      const viaOpenAI = await attemptOpenAI();
+      if (viaOpenAI) return viaOpenAI;
+      console.warn('[generate/image] falling back to Gemini/NB2');
     } else {
-      console.log('[generate/image] OpenAI unconfigured — using Gemini directly');
+      console.log(`[generate/image] NB2-first (aspect ${pConfig.aspectRatio}) — OpenAI is the fallback`);
     }
 
     // Platform policy: everything routes through the Mentor gateway,
@@ -767,20 +790,37 @@ ${prompt}`;
       }
     }
     if (!geminiRes) {
-      geminiRes = await fetch(
-        `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(timeout),
-          body: JSON.stringify(requestBody),
+      try {
+        geminiRes = await fetch(
+          `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(timeout),
+            body: JSON.stringify(requestBody),
+          }
+        );
+      } catch (err) {
+        // Both Gemini routes down (gateway + direct). NB2-first order
+        // still has OpenAI untried — use it instead of throwing.
+        if (nb2First) {
+          console.warn(`[generate/image] both Gemini routes failed (${err.message}) — trying OpenAI`);
+          const viaOpenAI = await attemptOpenAI();
+          if (viaOpenAI) return viaOpenAI;
         }
-      );
+        throw err;
+      }
     }
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
       console.log(`[generate/image] Gemini error: ${geminiRes.status} ${errText}`);
+      // NB2-first order: OpenAI hasn't been tried yet — do it now before
+      // giving up.
+      if (nb2First) {
+        const viaOpenAI = await attemptOpenAI();
+        if (viaOpenAI) return viaOpenAI;
+      }
       // Human-readable error for the chat UI — the raw provider JSON
       // (e.g. Gemini's "prepayment credits are depleted" blob) reads as
       // a broken product. Full detail stays in the log above.
@@ -827,6 +867,12 @@ ${prompt}`;
       console.warn(`  full response (first 1500 chars): ${JSON.stringify(result).slice(0, 1500)}`);
 
       const blockReason = promptFb?.blockReason;
+      // NB2-first order: a refusal/policy block here still leaves OpenAI
+      // untried — attempt it before surfacing the error.
+      if (nb2First) {
+        const viaOpenAI = await attemptOpenAI();
+        if (viaOpenAI) return viaOpenAI;
+      }
       const errMsg = blockReason
         ? `Image blocked by Gemini (${blockReason}). Try a different prompt or remove brand reference photos.`
         : `Gemini returned no image (finishReason: ${finishReason || 'none'}). Model may have refused.`;
