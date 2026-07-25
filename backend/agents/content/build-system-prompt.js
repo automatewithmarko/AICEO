@@ -86,6 +86,10 @@ BAD slide body (too thin — NEVER do this):
 
 export
 function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, integrationContext, carouselTemplates = [], existingPost = null, opts = {}) {
+  // Reference-transcript budget. Replication Mode (opts.replicationMode) has
+  // to clone the reference line-for-line, so it needs enough of the actual
+  // wording — a bigger slice than the default "study the structure" cap.
+  const refCap = opts?.replicationMode ? 12000 : 6000;
   let prompt = `You are a senior content strategist who creates content that actually performs on social media. You study what top creators and brands do  -  you understand hooks, retention, visual hierarchy, and what makes people stop scrolling.\n\n`;
   prompt += `You do NOT produce generic AI slop. No excessive emojis. No "Hey guys!" energy. No corporate marketing speak. No cartoonish or clip-art style visuals. You write like a real human who understands the platform.\n\n`;
   prompt += `=== ABSOLUTE OUTPUT RULES (NON-NEGOTIABLE) ===\n`;
@@ -459,7 +463,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       prompt += `Source URL: ${r.url || item.url}\n`;
       if (r.description) prompt += `Description: ${r.description.slice(0, 1000)}\n`;
       if (r.transcript) {
-        prompt += `Full script / caption:\n${r.transcript.slice(0, 6000)}\n`;
+        prompt += `Full script / caption:\n${r.transcript.slice(0, refCap)}\n`;
       }
       prompt += '\n';
     });
@@ -484,7 +488,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
       if (r.uploader) prompt += `Creator: ${r.uploader}\n`;
       if (r.description) prompt += `Description: ${r.description.slice(0, 1000)}\n`;
       if (r.duration) prompt += `Duration: ${r.duration}s\n`;
-      if (r.transcript) prompt += `Transcript (when the user asks for content "like this", this transcript is the structural template — see CONTEXT PRIORITY below):\n${r.transcript.slice(0, 6000)}\n`;
+      if (r.transcript) prompt += `Transcript (when the user asks for content "like this", this transcript is the structural template — see CONTEXT PRIORITY below):\n${r.transcript.slice(0, refCap)}\n`;
       prompt += '\n';
     });
     hasContext = true;

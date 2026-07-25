@@ -56,7 +56,7 @@ import {
 } from './claude-protocol.js';
 import { CREATE_CONTENT_PLAN_TOOL } from '../content-plan-tool.js';
 import { buildPlanModeDirective } from './plan-mode.js';
-import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE, scrubScriptLabels } from './video-script-guide.js';
+import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE, scrubScriptLabels, buildReplicationDirective } from './video-script-guide.js';
 import { scrubAiDashes, scrubCarouselPlanDashes } from './claude-protocol.js';
 import { applyCuratedTemplateToPlanArgs } from './curated-carousel-templates.js';
 
@@ -218,6 +218,37 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
   // platform question. The legacy inline-HTML plan flow is RETIRED
   // (founder direction 2026-07-17) — every platform pill has a
   // plan-format matrix entry now.
+  // ── Replication Mode detection (founder spec 2026-07-25) ──────────────
+  // The user wants an attached reference video reproduced 1:1 for a new
+  // topic ("verbatim, just switch the words"). Two triggers:
+  //   • Outlier-detector attachment → ALWAYS clone (attaching from the
+  //     detector IS the "use this as a template" signal).
+  //   • Manually-pasted link → clone ONLY when the user explicitly asks
+  //     ("like this", "same structure", "word for word", …). A plain topic
+  //     request over a pasted link still writes an original script.
+  // Requires a transcript to actually be present — nothing to clone without
+  // one. Applies to Instagram/TikTok (short) and YouTube (long) alike.
+  // "copy"/"mirror" are only a clone signal when they point AT the reference
+  // ("copy this", "mirror the script") — bare "write the copy" is normal
+  // content-tool speak and must NOT trigger. "clone/replicate/recreate" are
+  // unambiguous on their own.
+  const REPLICATE_INTENT_RE = /\b(?:just\s+)?(?:like|exactly like)\s+(?:this|that|it)(?:\s+one)?\b|\b(?:same|identical)\s+(?:script|structure|format|wording|layout|flow|beats?|template|thing|way)\b|\bword[\s-]?for[\s-]?word\b|\bverbatim\b|\b(?:clone|replicate|recreate)\b|\b(?:copy|mirror)\s+(?:this|that|it|the\s+(?:script|video|structure|reference|hook|format|wording))\b|\buse\s+(?:this|that|it)\s+as\s+(?:a\s+)?(?:template|reference|the template)\b|\bfollow\s+(?:its|the|this)\s+(?:structure|script|format)\b/i;
+  const lastUserContent = (messages || []).filter((m) => m?.role === 'user').pop()?.content;
+  const lastUserText = typeof lastUserContent === 'string'
+    ? lastUserContent
+    : Array.isArray(lastUserContent)
+      ? lastUserContent.map((c) => (typeof c === 'string' ? c : c?.text || '')).join(' ')
+      : String(lastUserContent || '');
+  const replicateIntent = REPLICATE_INTENT_RE.test(lastUserText);
+  const doneRefs = (socialUrls || []).filter((s) => s?.status === 'done' && s?.result?.transcript);
+  const isOutlierRef = (s) => s?.source === 'outlier-detector' || s?.result?.source === 'outlier-detector';
+  const hasOutlierRef = doneRefs.some(isOutlierRef);
+  const hasManualRef = doneRefs.some((s) => !isOutlierRef(s));
+  const replicationMode = !planMode && (hasOutlierRef || (hasManualRef && replicateIntent));
+  if (replicationMode) {
+    console.log(`[content-context] REPLICATION MODE active (outlier=${hasOutlierRef} manual+intent=${hasManualRef && replicateIntent}) platform=${platform?.id}`);
+  }
+
   let systemPrompt;
   if (planMode) {
     systemPrompt = buildPlanModeDirective({ lockedPlatform: platform })
@@ -229,12 +260,16 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
   } else {
     systemPrompt = buildSystemPrompt(
       platform, photos, documents, socialUrls, brandDna,
-      integrationContext, carouselTemplates, existingPost, { planMode: false },
+      integrationContext, carouselTemplates, existingPost, { planMode: false, replicationMode },
     ) + recentContentBlock
       + buildClaudeChatProtocolAddendum({ isLinkedin, editModeActive, planPlatformId: platform?.id })
       // Craft guide for the submit_script tool — YouTube pill gets the
       // long-form guide, every other pill's video is short-form.
-      + (platform?.id === 'youtube' ? LONG_FORM_SCRIPT_GUIDE : SHORT_FORM_SCRIPT_GUIDE);
+      + (platform?.id === 'youtube' ? LONG_FORM_SCRIPT_GUIDE : SHORT_FORM_SCRIPT_GUIDE)
+      // Replication Mode override — appended AFTER the guide so it wins on
+      // recency: clone the reference line-for-line instead of writing a
+      // fresh best-practices script.
+      + (replicationMode ? buildReplicationDirective({ isLongForm: platform?.id === 'youtube' }) : '');
   }
 
   // Toolsets: plan mode = [ask_user, create_content_plan] (same
