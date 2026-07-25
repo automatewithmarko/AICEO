@@ -2552,6 +2552,36 @@ export default function Content() {
     try { carouselAbortRef.current?.abort(); } catch { /* already done */ }
   }, []);
 
+  // Shared end-of-run sweep for carousel generation: every slide index
+  // that has no image lands in failedSlides so the plan card's "Retry
+  // failed slides" button lights up — regardless of HOW the run ended
+  // (success, Stop button, stream death, thrown error).
+  const sweepUnrenderedSlides = useCallback((msgId, slideCount, planCaption, errorMsg = null) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id !== msgId) return m;
+      const presentIdx = new Set((m.images || []).map(img => img.idx));
+      const failedSet = new Set(m.carouselPlan?.failedSlides || []);
+      const recovered = [];
+      for (let i = 0; i < slideCount; i++) {
+        if (!presentIdx.has(i) && !failedSet.has(i)) recovered.push(i);
+      }
+      const mergedFailed = [...(m.carouselPlan?.failedSlides || []), ...recovered].sort((a, b) => a - b);
+      if (recovered.length) console.warn(`[carousel] sweep marked unrendered slides as failed: ${recovered.map(i => i + 1).join(', ')}`);
+      return {
+        ...m,
+        pendingImages: 0,
+        carouselPlan: {
+          ...m.carouselPlan,
+          generating: false,
+          failedSlides: mergedFailed,
+          ...(errorMsg ? { error: errorMsg } : {}),
+        },
+        // If Claude included a caption in the plan, surface it as the message body.
+        content: m.content || planCaption || '',
+      };
+    }));
+  }, []);
+
   const handleCarouselApprove = useCallback(async (msgId) => {
     const msg = messages.find(m => m.id === msgId);
     if (!msg?.carouselPlan || msg.carouselPlan.approved) return;
@@ -2635,46 +2665,27 @@ export default function Content() {
       // promise dropped, etc.) it ends up in neither — sweep it into
       // failedSlides so the user sees the retry button instead of a missing
       // slide with no explanation.
-      setMessages(prev => prev.map(m => {
-        if (m.id !== msgId) return m;
-        const presentIdx = new Set((m.images || []).map(img => img.idx));
-        const failedSet = new Set(m.carouselPlan?.failedSlides || []);
-        const recovered = [];
-        for (let i = 0; i < slides.length; i++) {
-          if (!presentIdx.has(i) && !failedSet.has(i)) recovered.push(i);
-        }
-        const mergedFailed = [...(m.carouselPlan?.failedSlides || []), ...recovered].sort((a, b) => a - b);
-        if (recovered.length) console.warn(`[carousel] consistency sweep recovered missing slides: ${recovered.map(i => i + 1).join(', ')}`);
-        return {
-          ...m,
-          pendingImages: 0,
-          carouselPlan: {
-            ...m.carouselPlan,
-            generating: false,
-            failedSlides: mergedFailed,
-          },
-          // If Claude included a caption in the plan, surface it as the message body.
-          content: m.content || plan.caption || '',
-        };
-      }));
+      sweepUnrenderedSlides(msgId, slides.length, plan.caption);
     } catch (err) {
+      // Every failure exit runs the SAME sweep as the success path
+      // (founder bug 2026-07-25: a mid-run stream death set generating
+      // false + an error label but never marked the missing slides as
+      // failed — no failedSlides meant NO "Retry failed slides" button,
+      // a dead end). Stop-button path likewise: its tooltip promises
+      // "the rest get a Regenerate button", which only the sweep delivers.
       if (err?.name === 'AbortError') {
         console.warn('[carousel] generation stopped by user');
-        setMessages(prev => prev.map(m =>
-          m.id === msgId ? { ...m, pendingImages: 0, carouselPlan: { ...m.carouselPlan, generating: false } } : m
-        ));
+        sweepUnrenderedSlides(msgId, slides.length, plan.caption);
       } else {
         console.error('Carousel generation failed:', err);
-        setMessages(prev => prev.map(m =>
-          m.id === msgId ? { ...m, pendingImages: 0, carouselPlan: { ...m.carouselPlan, generating: false, error: err.message || 'Generation failed' } } : m
-        ));
+        sweepUnrenderedSlides(msgId, slides.length, plan.caption, err.message || 'Generation failed');
       }
     } finally {
       carouselAbortRef.current = null;
       setIsGenerating(false);
       setActiveAssistantId(null);
     }
-  }, [messages, photos, brandDna, generateSlideWithRetry]);
+  }, [messages, photos, brandDna, generateSlideWithRetry, sweepUnrenderedSlides]);
 
   // Manual retry for slides that exhausted automatic retries. User clicks
   // "Retry failed slide(s)" on the plan card and we re-fire only the
