@@ -99,7 +99,7 @@ CRITICAL RULES:
    NEVER fabricate product names, features, or services. If unsure, keep options generic ("Your main product", "Your latest offer") rather than guessing wrong.`;
   }
   prompt += `
-8. REELS / VIDEO SCRIPTS (THIS OVERRIDES EVERYTHING ABOVE): When the user asks to "make a reel", "create a reel", "write a reel script", "make a TikTok", "make a Short", or ANYTHING about short-form video content  -  you MUST use create_artifact IMMEDIATELY to write a VIDEO SCRIPT. Do NOT ask questions first. Do NOT use ask_user. Do NOT delegate to any agent. Do NOT generate images. Reels are NOT carousels, NOT stories, NOT slides.${m.video ? ` Write the script EXACTLY per the SHORT-FORM VIDEO SCRIPT GUIDE below — full output format: scored HOOK OPTIONS, **HOOK** / **BODY** / **CTA** sections of pure spoken lines, then the PRODUCTION NOTES block. Never put bracket cues like [VISUAL], [B-ROLL], [TEXT ON SCREEN], [SCENE], or timestamps inside the spoken lines — production guidance lives ONLY in PRODUCTION NOTES. If reference videos are provided in your context, copy their structure and pacing beat-for-beat.` : ''}
+8. REELS / VIDEO SCRIPTS (THIS OVERRIDES EVERYTHING ABOVE): When the user asks to "make a reel", "create a reel", "write a reel script", "make a TikTok", "make a Short", or ANYTHING about short-form video content  -  you MUST use create_artifact IMMEDIATELY to write a VIDEO SCRIPT, with type "markdown_doc" (it renders as a script document). NEVER type "content_post" for a script — that renders as a social post card, which is wrong for a script (founder-reported bug). Do NOT ask questions first. Do NOT use ask_user. Do NOT delegate to any agent. Do NOT generate images. Reels are NOT carousels, NOT stories, NOT slides.${m.video ? ` Write the script EXACTLY per the SHORT-FORM VIDEO SCRIPT GUIDE below — full output format: scored HOOK OPTIONS, **HOOK** / **BODY** / **CTA** sections of pure spoken lines, then the PRODUCTION NOTES block. Never put bracket cues like [VISUAL], [B-ROLL], [TEXT ON SCREEN], [SCENE], or timestamps inside the spoken lines — production guidance lives ONLY in PRODUCTION NOTES. If reference videos are provided in your context, copy their structure and pacing beat-for-beat.` : ''}
 
 YOUR TOOLS:
 
@@ -1668,6 +1668,17 @@ RULES:
               defaultTemplateId: context?.brandDna?.default_carousel_template_id || null,
             });
             scrubCarouselPlanDashes(args);
+          }
+          // Deterministic script-type coercion (founder bug 2026-07-26:
+          // a reel script arrived as type "content_post" and rendered as
+          // an Instagram post card). If the content is unmistakably a
+          // video script — scored hook options / **HOOK** sections /
+          // PRODUCTION NOTES — force markdown_doc regardless of what
+          // type the model picked.
+          if (call.name === 'create_artifact' && args.type === 'content_post' && args.content
+              && /HOOK OPTIONS|\*\*HOOK\*\*|PRODUCTION NOTES/i.test(args.content)) {
+            console.warn('[orchestrate] create_artifact: script content typed as content_post — coercing to markdown_doc');
+            args.type = 'markdown_doc';
           }
           // Video scripts ride create_artifact as markdown_doc — strip
           // bracket production cues ([VISUAL: …], [TEXT ON SCREEN: …])
