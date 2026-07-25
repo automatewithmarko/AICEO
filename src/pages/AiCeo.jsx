@@ -2409,17 +2409,39 @@ export default function AiCeo() {
     // restore this carousel's artifact from its message snapshot first.
     let current = artifactRef.current;
     if (msgId && current?._assistantMsgId !== msgId) {
-      // AWAIT the setState pass-through: in React 18 the updater does NOT
-      // run synchronously inside a click handler, so the old code read
-      // `snap` while it was still null and silently returned — the
-      // founder's "Retry 7 slides button does nothing" bug (2026-07-26,
-      // reproduced after a page refresh when the canvas isn't bound to
-      // the failed carousel).
-      const snap = await new Promise((resolve) => {
-        setMessages((prev) => { resolve(prev.find((m) => m.id === msgId)?.artifact || null); return prev; });
+      // AWAIT the setState pass-through: in React 18 the updater is not
+      // guaranteed to run synchronously inside a click handler, so the
+      // old code read its result while still null and silently returned —
+      // the founder's "Retry 7 slides button does nothing" bug
+      // (2026-07-26, after a page refresh unbinds the canvas).
+      const planMsg = await new Promise((resolve) => {
+        setMessages((prev) => { resolve(prev.find((m) => m.id === msgId) || null); return prev; });
       });
+      const snap = planMsg?.artifact || null;
       if (snap?.carouselPlan) {
         current = { ...snap, _assistantMsgId: msgId };
+      } else if (planMsg?.carouselPlan) {
+        // Post-2026-07-24 shape: the plan lives on the CHAT message (the
+        // in-chat approval card), not on an artifact snapshot. Rebuild
+        // the canvas artifact from the message the same way
+        // handleApproveCarousel does — the old handler only knew the
+        // artifact shape and no-op'd on these messages.
+        const plan = planMsg.carouselPlan;
+        const platform = planMsg.carouselPlatform === 'linkedin' ? 'linkedin' : 'instagram';
+        current = {
+          id: Date.now(),
+          type: 'content_post',
+          title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel: ${(plan.hook || '').slice(0, 60)}`,
+          content: plan.caption || '',
+          images: planMsg.images || [],
+          totalSlides: (plan.slides || []).length,
+          pendingImages: 0,
+          carouselPlan: plan,
+          agentSource: platform,
+          _assistantMsgId: msgId,
+        };
+      }
+      if (current?._assistantMsgId === msgId) {
         setArtifact(current);
         setPanelOpen(true);
       }
@@ -2456,6 +2478,15 @@ export default function AiCeo() {
       streaming: true,
       carouselPlan: { ...prev.carouselPlan, generating: true },
     } : prev);
+    // Mirror onto the chat card too — it renders msg.carouselPlan, and
+    // without this it sits frozen on "N slides failed" during the retry.
+    if (targetMsgId) {
+      setMessages((prev) => prev.map((m) =>
+        m.id === targetMsgId && m.carouselPlan
+          ? { ...m, carouselPlan: { ...m.carouselPlan, generating: true } }
+          : m
+      ));
+    }
 
     const abortCtl = new AbortController();
     carouselAbortRef.current = abortCtl;
