@@ -2409,8 +2409,15 @@ export default function AiCeo() {
     // restore this carousel's artifact from its message snapshot first.
     let current = artifactRef.current;
     if (msgId && current?._assistantMsgId !== msgId) {
-      let snap = null;
-      setMessages((prev) => { snap = prev.find((m) => m.id === msgId)?.artifact || null; return prev; });
+      // AWAIT the setState pass-through: in React 18 the updater does NOT
+      // run synchronously inside a click handler, so the old code read
+      // `snap` while it was still null and silently returned — the
+      // founder's "Retry 7 slides button does nothing" bug (2026-07-26,
+      // reproduced after a page refresh when the canvas isn't bound to
+      // the failed carousel).
+      const snap = await new Promise((resolve) => {
+        setMessages((prev) => { resolve(prev.find((m) => m.id === msgId)?.artifact || null); return prev; });
+      });
       if (snap?.carouselPlan) {
         current = { ...snap, _assistantMsgId: msgId };
         setArtifact(current);
@@ -2419,8 +2426,18 @@ export default function AiCeo() {
     }
     const targetMsgId = msgId || current?._assistantMsgId || null;
     const plan = current?.carouselPlan;
-    const failed = plan?.failedSlides || [];
-    if (!plan || failed.length === 0) return;
+    // Defensive: if failedSlides is stale/empty, derive it from the image
+    // gaps — a retry click on a card that VISIBLY shows failures must
+    // never silently no-op again.
+    let failed = plan?.failedSlides || [];
+    if (plan && failed.length === 0 && Array.isArray(plan.slides)) {
+      const present = new Set((current.images || []).filter((im) => im?.src).map((im, i) => (Number.isInteger(im.idx) ? im.idx : i)));
+      failed = plan.slides.map((_, i) => i).filter((i) => !present.has(i) && plan.slides[i]?.blank !== true);
+    }
+    if (!plan || failed.length === 0) {
+      console.warn(`[carousel] retry clicked but no plan/failed slides resolved (msgId=${msgId}, canvasMsg=${artifactRef.current?._assistantMsgId})`);
+      return;
+    }
     const platform = current.agentSource === 'linkedin' ? 'linkedin' : 'instagram';
     const brandName = brandDna?.brand_name || user?.name || '';
 

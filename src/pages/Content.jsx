@@ -2727,8 +2727,17 @@ export default function Content() {
     const msg = messages.find(m => m.id === msgId);
     if (!msg?.carouselPlan) return;
     const plan = msg.carouselPlan;
-    const failed = plan.failedSlides || [];
-    if (!failed.length) return;
+    // Defensive: derive failures from image gaps when failedSlides is
+    // stale/empty — a visible Retry button must never silently no-op.
+    let failed = plan.failedSlides || [];
+    if (!failed.length && Array.isArray(plan.slides)) {
+      const present = new Set((msg.images || []).filter((im) => im?.src).map((im, i) => (Number.isInteger(im.idx) ? im.idx : i)));
+      failed = plan.slides.map((_, i) => i).filter((i) => !present.has(i));
+    }
+    if (!failed.length) {
+      console.warn(`[carousel] retry clicked but no failed slides resolved (msgId=${msgId})`);
+      return;
+    }
     const platformId = msg.platform || 'instagram';
 
     const slides = plan.slides || [];
