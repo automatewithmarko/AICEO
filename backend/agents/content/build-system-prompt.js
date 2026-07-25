@@ -346,12 +346,21 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   } // end: m.image (single-image post writer standard)
 
   if (needsImageTool) {
-  prompt += `=== IMAGE GENERATION STANDARDS ===\n`;
-  prompt += `When calling generate_image, your prompt MUST follow these rules:\n`;
-  prompt += `- The image prompt must describe a REAL graphic design  -  the kind a professional designer would make in Figma\n`;
-  prompt += `- Include ACTUAL TEXT to render on the image  -  bold headline text, hook text, key phrases. This text IS the content.\n`;
-  prompt += `- Specify typography: "bold sans-serif text", "clean modern font", "large white text on dark background"\n`;
-  prompt += `- NO cartoons, NO pixel art, NO clip-art, NO illustrations, NO stock photos\n`;
+  prompt += `=== IMAGE CREATIVE DIRECTION (single posts & stories) ===\n`;
+  prompt += `You are the art director, not a template machine. Every generate_image prompt starts with a CONCEPT chosen from the archetypes below — consecutive posts must NOT look the same.\n\n`;
+  prompt += `ARCHETYPES (pick ONE per image, by the post's emotional intent):\n`;
+  prompt += `1. DESIGNED GRAPHIC — Figma-quality layout, bold headline text as the visual centerpiece. Best for: frameworks, stats, announcements, listicle hooks.\n`;
+  prompt += `2. PHOTOGRAPHIC SCENE — the person IN a real environment doing something that tells the story: sitting on a desk holding a hand-written sign, taping a poster to a wall, standing arms-crossed in front of a whiteboard. Text appears IN the scene (on the sign/whiteboard/laptop screen), not overlaid. Best for: personal moments, comebacks, commitments, behind-the-scenes.\n`;
+  prompt += `3. CANDID LIFESTYLE — documentary-style shot mid-action (working late, coffee in hand, walking, laughing off-camera), little or no text, caption carries the message. Best for: authenticity, story posts, day-in-the-life.\n`;
+  prompt += `4. DRAMATIC PORTRAIT — close-up of the person, strong directional light, one short punch line of text (≤5 words) or none. Best for: bold claims, contrarian takes, identity statements.\n`;
+  prompt += `5. OBJECT METAPHOR — a single striking object that embodies the idea (alarm clock at 5am, torn calendar page, chess piece, two doors), minimal text. Best for: concepts, decisions, mindset posts.\n\n`;
+  prompt += `RULES:\n`;
+  prompt += `- CHOOSE BY INTENT, THEN ROTATE: match the archetype to the post's emotion. If conversation history shows your previous image used one archetype, pick a DIFFERENT one now unless the user asked for consistency.\n`;
+  prompt += `- USER'S SCENE WINS: if the user describes a visual idea ("me holding a poster", "sitting on a table") that IS the concept — build the prompt around exactly their scene and skip archetype selection. Never flatten their idea back into a text graphic.\n`;
+  prompt += `- Describe the concept cinematically in the prompt: setting, pose/action, camera angle, lighting, mood — not just "background + text".\n`;
+  prompt += `- Text on image: DESIGNED GRAPHIC gets a bold hook line (≤8 words); scene/portrait archetypes keep text short and diegetic (on a physical sign/screen) or none. The caption carries the substance either way.\n`;
+  prompt += `- Typography, when used: specify it ("bold sans-serif", "hand-written marker on cardboard", "neon sign lettering").\n`;
+  prompt += `- NO cartoons, NO pixel art, NO clip-art, NO illustrations, NO generic stock-photo clichés (handshakes, suited people pointing at charts).\n`;
   if (platform.id === 'instagram') {
     prompt += `- INSTAGRAM (single post): Image MUST be SQUARE (1:1). STORIES are vertical 9:16 portrait frames. For carousels, do NOT call generate_image — use plan_carousel instead (the client builds the per-slide prompts from your locked design system).\n`;
   } else if (platform.id === 'youtube') {
@@ -361,8 +370,8 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   } else if (platform.id === 'linkedin') {
     prompt += `- LINKEDIN (single text-post image): Image MUST be 3:4 PORTRAIT ratio. For carousels, do NOT call generate_image — use plan_carousel instead (the client builds the per-slide prompts from your locked design system).\n`;
   }
-  prompt += `- Always specify exact colors (e.g. "black background with white text and red accent")\n`;
-  prompt += `- The text on the image should be the HOOK or KEY MESSAGE  -  not decorative\n\n`;
+  prompt += `- Always specify exact colors — anchor on the brand palette for DESIGNED GRAPHIC; for photographic archetypes use the brand colors as accents in the scene (clothing, props, lighting), never as flat overlays.\n`;
+  prompt += `- When text appears on the image it is the HOOK or KEY MESSAGE, never decorative filler.\n\n`;
   } // end: needsImageTool (image generation standards)
   } // end: m.anyGen (the whole WHEN CREATING CONTENT craft section)
 
@@ -430,7 +439,7 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
     if (needsImageTool) {
     prompt += `\nCRITICAL: Every generate_image call MUST incorporate the user's brand identity. In your image prompts, explicitly instruct: "Use the brand colors [${brandDna.colors?.primary || ''}, ${brandDna.colors?.secondary || ''}] and use ${brandDna.main_font || 'the brand font'} typography."\n`;
     prompt += `- Do NOT mention "brand logo" in your image prompts unless the user specifically asks for it. Most social media content (thumbnails, carousels, posts) should NOT have a logo.\n`;
-    prompt += `- ALWAYS instruct: "Use the person's face and likeness from the attached reference photos"  -  the person MUST appear in every image.\n`;
+    prompt += `- DEFAULT to featuring the person: instruct "Use the person's face and likeness from the attached reference photos" in every image that includes a person. Only the OBJECT METAPHOR archetype (and a user's explicit "no face" request) may omit them — never two personless posts in a row.\n`;
     prompt += `- When a person appears, ALSO instruct: "Real photographic skin texture with visible pores and natural imperfections  -  do not airbrush, smooth, or beautify the face; it must be instantly recognizable as the same person as the reference photos."\n\n`;
     } else {
     prompt += `\n`;
