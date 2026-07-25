@@ -39,7 +39,7 @@
 //                   because ArtifactPanel has its own.
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, ChevronLeft, ChevronRight, Pencil, RefreshCw, Maximize2, Download, Heart, MessageCircle, Send, Bookmark, Loader, Check } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Pencil, RefreshCw, Maximize2, Download, Heart, MessageCircle, Send, Bookmark, Loader, Check, ThumbsUp, Share2, Repeat2, BarChart2, Globe } from 'lucide-react';
 import './SocialPreview.css';
 
 // True when a keydown originated inside a text-entry element — global
@@ -204,9 +204,17 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
   }, [totalSlots, onClose]);
 
   if (!msg) return null;
-  const isLinkedin = msg.platform === 'linkedin';
-  const panelClass = `content-ig-preview${isLinkedin ? ' content-ig-preview--linkedin' : ''}`;
-  const previewLabel = isLinkedin ? 'LinkedIn preview' : 'Instagram preview';
+  // Per-platform chrome (founder bug 2026-07-25: Facebook posts opened in
+  // Instagram chrome — everything non-LinkedIn fell through to IG).
+  const rawPlatform = msg.platform === 'twitter' ? 'x' : msg.platform;
+  const platformId = ['instagram', 'linkedin', 'facebook', 'x', 'tiktok', 'youtube'].includes(rawPlatform) ? rawPlatform : 'instagram';
+  const isLinkedin = platformId === 'linkedin';
+  const isFacebook = platformId === 'facebook';
+  const isX = platformId === 'x';
+  const isTiktok = platformId === 'tiktok';
+  const isYoutube = platformId === 'youtube';
+  const panelClass = `content-ig-preview content-ig-preview--${platformId}`;
+  const previewLabel = `${{ instagram: 'Instagram', linkedin: 'LinkedIn', facebook: 'Facebook', x: 'X', tiktok: 'TikTok', youtube: 'YouTube' }[platformId]} preview`;
 
   // Distinguish "actively waiting for images" from "this post simply has
   // no image". The skeleton (spinner + 'Preparing…') is appropriate for
@@ -260,7 +268,7 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
   const caption = captionText;
   // LinkedIn captions usually aren't truncated aggressively on feed; IG
   // folds at ~125 chars. Different fold per platform keeps the preview honest.
-  const CAPTION_FOLD = isLinkedin ? 210 : 125;
+  const CAPTION_FOLD = isLinkedin ? 210 : isX ? 280 : isFacebook ? 320 : isTiktok ? 90 : 125;
   const captionIsLong = caption.length > CAPTION_FOLD;
   const captionDisplay = captionIsLong && !captionExpanded ? caption.slice(0, CAPTION_FOLD).trimEnd() + '…' : caption;
 
@@ -274,6 +282,43 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
   // Media renders whenever there's at least one slot — an arrived image
   // OR a still-generating slide (which shows its placeholder).
   const hasMedia = totalSlots > 0;
+
+  // Shared editable-caption renderer for the newer platform branches
+  // (FB / X / TikTok / YouTube). IG and LinkedIn keep their original
+  // inline markup untouched. Only ONE branch renders at a time, so the
+  // single captionRef stays unambiguous.
+  const renderEditableCaption = (bodyClass, moreClass, moreLabel) => (
+    onContentChange ? (
+      <>
+        <div
+          className={`${bodyClass} content-caption-editable`}
+          ref={captionRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={handleCaptionInput}
+          onBlur={handleCaptionInput}
+          spellCheck
+        />
+        {(captionDirty || captionSaved) && (
+          <div className="content-caption-save-row">
+            <span className={`content-caption-save-status${captionSaved ? ' content-caption-save-status--ok' : ''}`}>
+              {captionSaved ? 'Saved' : 'Unsaved edits'}
+            </span>
+            <button type="button" className="content-caption-save-btn" onClick={saveCaption} disabled={!captionDirty}>
+              {captionSaved ? <><Check size={12} /> Saved</> : 'Save'}
+            </button>
+          </div>
+        )}
+      </>
+    ) : (
+      <span className={bodyClass}>
+        {captionDisplay}
+        {captionIsLong && !captionExpanded && (
+          <button className={moreClass} onClick={() => setCaptionExpanded(true)}>{moreLabel}</button>
+        )}
+      </span>
+    )
+  );
 
   return (
     <div className={panelClass} role="dialog" aria-label={previewLabel}>
@@ -303,6 +348,53 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
                 </div>
                 <span className="content-ig-more-menu">⋯</span>
               </>
+            ) : isFacebook ? (
+              <>
+                {avatarUrl
+                  ? <img src={avatarUrl} alt="" className="content-fb-avatar" onError={(e) => { e.target.style.display = 'none'; }} />
+                  : <div className="content-fb-avatar content-ig-avatar--fallback">{displayName.charAt(0).toUpperCase()}</div>
+                }
+                <div className="content-fb-names">
+                  <div className="content-fb-name">{displayName}</div>
+                  <div className="content-fb-sub">Just now · <Globe size={11} /></div>
+                </div>
+                <span className="content-ig-more-menu">⋯</span>
+              </>
+            ) : isX ? (
+              <>
+                {avatarUrl
+                  ? <img src={avatarUrl} alt="" className="content-x-avatar" onError={(e) => { e.target.style.display = 'none'; }} />
+                  : <div className="content-x-avatar content-ig-avatar--fallback">{displayName.charAt(0).toUpperCase()}</div>
+                }
+                <div className="content-x-names">
+                  <span className="content-x-name">{displayName}</span>
+                  <span className="content-x-handle">@{username} · now</span>
+                </div>
+                <span className="content-ig-more-menu">⋯</span>
+              </>
+            ) : isTiktok ? (
+              <>
+                {avatarUrl
+                  ? <img src={avatarUrl} alt="" className="content-x-avatar" onError={(e) => { e.target.style.display = 'none'; }} />
+                  : <div className="content-x-avatar content-ig-avatar--fallback">{username.charAt(0).toUpperCase()}</div>
+                }
+                <span className="content-ig-username">@{username}</span>
+                <span className="content-ig-dot-sep">·</span>
+                <span className="content-tt-follow">Follow</span>
+                <span className="content-ig-more-menu">⋯</span>
+              </>
+            ) : isYoutube ? (
+              <>
+                {avatarUrl
+                  ? <img src={avatarUrl} alt="" className="content-x-avatar" onError={(e) => { e.target.style.display = 'none'; }} />
+                  : <div className="content-x-avatar content-ig-avatar--fallback">{displayName.charAt(0).toUpperCase()}</div>
+                }
+                <div className="content-x-names">
+                  <span className="content-x-name">{displayName}</span>
+                  <span className="content-x-handle">Just now</span>
+                </div>
+                <span className="content-ig-more-menu">⋯</span>
+              </>
             ) : (
               <>
                 <div className="content-ig-avatar-ring">
@@ -318,6 +410,13 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
               </>
             )}
           </div>
+
+          {/* Facebook & X put the post text ABOVE the media */}
+          {(isFacebook || isX) && (
+            <div className={isFacebook ? 'content-fb-caption' : 'content-x-caption'}>
+              {renderEditableCaption(isFacebook ? 'content-fb-caption-body' : 'content-x-caption-body', 'content-li-more-link', '…see more')}
+            </div>
+          )}
 
           {/* Media — aspect swaps per platform. Text-only posts (e.g.
               AICEO Instagram drafts created via create_artifact with
@@ -467,6 +566,15 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
                 <Loader size={24} className="cs-spinner" />
               </div>
             )}
+            {/* TikTok right-side action rail — overlaid on the video frame */}
+            {isTiktok && current && (
+              <div className="content-tt-rail">
+                <span className="content-tt-rail-item"><Heart size={24} fill="#fff" strokeWidth={0} /><em>{dummyCounts.likes.toLocaleString()}</em></span>
+                <span className="content-tt-rail-item"><MessageCircle size={24} fill="#fff" strokeWidth={0} /><em>{dummyCounts.comments}</em></span>
+                <span className="content-tt-rail-item"><Bookmark size={24} fill="#fff" strokeWidth={0} /><em>{dummyCounts.saves}</em></span>
+                <span className="content-tt-rail-item"><Share2 size={24} strokeWidth={2} /><em>{dummyCounts.shares}</em></span>
+              </div>
+            )}
           </div>
           )}
 
@@ -567,6 +675,46 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
                 <div className="content-li-comment-input">
                   <span className="content-li-comment-placeholder">Add a comment...</span>
                 </div>
+              </div>
+            </>
+          ) : isFacebook ? (
+            <>
+              <div className="content-fb-meta">
+                <span className="content-fb-meta-likes"><span className="content-fb-like-badge"><ThumbsUp size={10} strokeWidth={2.5} /></span> {dummyCounts.likes.toLocaleString()}</span>
+                <span>{dummyCounts.comments} comments · {dummyCounts.shares} shares</span>
+              </div>
+              <div className="content-li-divider" />
+              <div className="content-fb-actions">
+                <button className="content-fb-action" type="button"><ThumbsUp size={18} /> Like</button>
+                <button className="content-fb-action" type="button"><MessageCircle size={18} /> Comment</button>
+                <button className="content-fb-action" type="button"><Share2 size={18} /> Share</button>
+              </div>
+            </>
+          ) : isX ? (
+            <div className="content-x-actions">
+              <span className="content-x-action"><MessageCircle size={17} /> {dummyCounts.comments}</span>
+              <span className="content-x-action"><Repeat2 size={18} /> {dummyCounts.shares}</span>
+              <span className="content-x-action content-x-action--like"><Heart size={17} /> {dummyCounts.likes.toLocaleString()}</span>
+              <span className="content-x-action"><BarChart2 size={17} /> {(dummyCounts.likes * 37).toLocaleString()}</span>
+              <span className="content-x-action"><Bookmark size={17} /></span>
+              <span className="content-x-action"><Share2 size={16} /></span>
+            </div>
+          ) : isTiktok ? (
+            <div className="content-tt-caption">
+              <span className="content-ig-caption-username">@{username}</span>
+              {renderEditableCaption('content-ig-caption-body', 'content-ig-more-link', 'more')}
+            </div>
+          ) : isYoutube ? (
+            <>
+              <div className="content-yt-title">{(caption.split('\n').find((l) => l.trim()) || 'Untitled video').slice(0, 100)}</div>
+              <div className="content-yt-meta">{(dummyCounts.likes * 21).toLocaleString()} views · Just now</div>
+              <div className="content-yt-actions">
+                <span className="content-yt-action"><ThumbsUp size={17} /> {dummyCounts.likes.toLocaleString()}</span>
+                <span className="content-yt-action"><MessageCircle size={17} /> {dummyCounts.comments}</span>
+                <span className="content-yt-action"><Share2 size={16} /> Share</span>
+              </div>
+              <div className="content-yt-desc">
+                {renderEditableCaption('content-yt-desc-body', 'content-li-more-link', '…more')}
               </div>
             </>
           ) : (

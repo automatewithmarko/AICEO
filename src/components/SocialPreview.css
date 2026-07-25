@@ -869,3 +869,83 @@
   scrollbar-color: var(--border-light) transparent;
 }
 
+
+/* ═══ Per-platform chrome (2026-07-25): Facebook / X / TikTok / YouTube.
+   Previously every non-LinkedIn platform rendered in Instagram chrome. ═══ */
+
+/* — Facebook — */
+.content-fb-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  object-fit: cover; flex-shrink: 0;
+}
+.content-fb-names { flex: 1; min-width: 0; margin-left: 10px; }
+.content-fb-name { font-size: 14px; font-weight: 600; color: #050505; line-height: 1.2; }
+.content-fb-sub { font-size: 12px; color: #65676b; display: flex; align-items: center; gap: 3px; }
+.content-fb-caption { padding: 4px 14px 10px; }
+.content-fb-caption-body { font-size: 14.5px; line-height: 1.35; color: #050505; white-space: pre-wrap; word-break: break-word; display: block; }
+.content-fb-meta {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 14px; font-size: 13px; color: #65676b;
+}
+.content-fb-meta-likes { display: flex; align-items: center; gap: 5px; }
+.content-fb-like-badge {
+  width: 18px; height: 18px; border-radius: 50%; background: #1877f2;
+  color: #fff; display: inline-flex; align-items: center; justify-content: center;
+}
+.content-fb-actions { display: flex; padding: 2px 8px 6px; }
+.content-fb-action {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px;
+  background: none; border: none; padding: 8px 0; border-radius: 6px;
+  font-size: 14px; font-weight: 600; color: #65676b; cursor: pointer;
+}
+.content-fb-action:hover { background: #f2f2f2; }
+.content-ig-preview--facebook .content-ig-media { aspect-ratio: auto; min-height: 180px; }
+
+/* — X / Twitter — */
+.content-x-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  object-fit: cover; flex-shrink: 0;
+}
+.content-x-names { flex: 1; min-width: 0; margin-left: 10px; display: flex; flex-direction: column; }
+.content-x-name { font-size: 14.5px; font-weight: 700; color: #0f1419; line-height: 1.2; }
+.content-x-handle { font-size: 13px; color: #536471; }
+.content-x-caption { padding: 2px 14px 10px; }
+.content-x-caption-body { font-size: 14.5px; line-height: 1.4; color: #0f1419; white-space: pre-wrap; word-break: break-word; display: block; }
+.content-ig-preview--x .content-ig-media {
+  aspect-ratio: auto; min-height: 180px;
+  border-radius: 16px; margin: 0 14px 4px; width: calc(100% - 28px);
+  border: 1px solid #e1e8ed;
+}
+.content-x-actions {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 22px 12px; color: #536471; font-size: 12.5px;
+}
+.content-x-action { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.content-x-action:hover { color: #1d9bf0; }
+.content-x-action--like:hover { color: #f91880; }
+
+/* — TikTok — */
+.content-ig-preview--tiktok .content-ig-media { aspect-ratio: 9 / 16; }
+.content-ig-preview--tiktok .content-ig-post { max-width: 340px; }
+.content-tt-follow {
+  font-size: 12.5px; font-weight: 700; color: #fe2c55;
+  border: 1px solid #fe2c55; border-radius: 4px; padding: 1px 10px; margin-left: 6px;
+}
+.content-tt-rail {
+  position: absolute; right: 8px; bottom: 14px; z-index: 3;
+  display: flex; flex-direction: column; gap: 14px; align-items: center;
+  color: #fff; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.55));
+}
+.content-tt-rail-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.content-tt-rail-item em { font-style: normal; font-size: 11.5px; font-weight: 600; }
+.content-tt-caption { padding: 10px 14px 12px; display: block; }
+.content-tt-caption .content-ig-caption-username { margin-right: 6px; }
+
+/* — YouTube — */
+.content-ig-preview--youtube .content-ig-media { aspect-ratio: 16 / 9; }
+.content-yt-title { padding: 10px 14px 2px; font-size: 15px; font-weight: 600; color: #0f0f0f; line-height: 1.3; }
+.content-yt-meta { padding: 0 14px 8px; font-size: 12.5px; color: #606060; }
+.content-yt-actions { display: flex; gap: 18px; padding: 0 14px 10px; color: #0f0f0f; font-size: 13px; font-weight: 500; }
+.content-yt-action { display: inline-flex; align-items: center; gap: 6px; }
+.content-yt-desc { padding: 8px 14px 12px; background: #f2f2f2; margin: 0 10px 12px; border-radius: 10px; }
+.content-yt-desc-body { font-size: 13px; line-height: 1.4; color: #0f0f0f; white-space: pre-wrap; word-break: break-word; display: block; }
