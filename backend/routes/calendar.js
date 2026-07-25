@@ -28,22 +28,29 @@ router.post('/api/calendar/posts', requireFeature('content_calendar'), async (re
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
-  const { platform, caption, content_type, scheduled_at, media, status } = req.body;
+  const { platform, caption, content_type, scheduled_at, media, status, ig_account_id } = req.body;
   if (!platform || !caption) return res.status(400).json({ error: 'platform and caption required' });
 
-  const { data, error } = await supabase
-    .from('social_posts')
-    .insert({
-      user_id: userId,
-      platform,
-      caption,
-      content_type: content_type || null,
-      scheduled_at: scheduled_at || null,
-      media: media || [],
-      status: status || 'draft',
-    })
-    .select()
-    .single();
+  const row = {
+    user_id: userId,
+    platform,
+    caption,
+    content_type: content_type || null,
+    scheduled_at: scheduled_at || null,
+    media: media || [],
+    status: status || 'draft',
+  };
+  // BooSend account (row UUID) chosen for Instagram publishing. Optional —
+  // when absent, BooSend auto-resolves the user's first active account.
+  if (platform === 'instagram' && ig_account_id) row.ig_account_id = ig_account_id;
+
+  let { data, error } = await supabase.from('social_posts').insert(row).select().single();
+  if (error && row.ig_account_id && /ig_account_id/.test(error.message || '')) {
+    // Live DB predates the ig_account_id column — save the post anyway
+    // (publish falls back to BooSend's default account).
+    delete row.ig_account_id;
+    ({ data, error } = await supabase.from('social_posts').insert(row).select().single());
+  }
 
   if (error) return res.status(500).json({ error: error.message });
   res.json({ post: data });
@@ -54,21 +61,32 @@ router.put('/api/calendar/posts/:id', async (req, res) => {
   const userId = req.user.id;
   if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
 
-  const { caption, scheduled_at, media, status, content_type } = req.body;
+  const { caption, scheduled_at, media, status, content_type, ig_account_id } = req.body;
   const updates = {};
   if (caption !== undefined) updates.caption = caption;
   if (scheduled_at !== undefined) updates.scheduled_at = scheduled_at;
   if (media !== undefined) updates.media = media;
   if (status !== undefined) updates.status = status;
   if (content_type !== undefined) updates.content_type = content_type;
+  if (ig_account_id !== undefined) updates.ig_account_id = ig_account_id;
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('social_posts')
     .update(updates)
     .eq('id', req.params.id)
     .eq('user_id', userId)
     .select()
     .single();
+  if (error && 'ig_account_id' in updates && /ig_account_id/.test(error.message || '')) {
+    delete updates.ig_account_id;
+    ({ data, error } = await supabase
+      .from('social_posts')
+      .update(updates)
+      .eq('id', req.params.id)
+      .eq('user_id', userId)
+      .select()
+      .single());
+  }
 
   if (error) return res.status(500).json({ error: error.message });
   res.json({ post: data });
@@ -105,15 +123,22 @@ async function resolveBoosendKey(userId) {
   return data?.api_key || null;
 }
 
-async function fetchBoosendInstagramAccount(apiKey) {
+// preferredId: BooSend account row UUID the post was pinned to. Falls back
+// to the first connected account when absent or no longer connected.
+async function fetchBoosendInstagramAccount(apiKey, preferredId) {
   const url = new URL('/api/publishing/instagram/accounts', BOOSEND_API);
   const bsRes = await fetch(url.toString(), {
     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
   });
   if (!bsRes.ok) return null;
   const data = await bsRes.json().catch(() => ({}));
-  const acc = (data?.accounts || [])[0] || null;
-  return acc;
+  const accounts = data?.accounts || [];
+  if (preferredId) {
+    const match = accounts.find((a) => a.id === preferredId);
+    if (match) return match;
+    console.warn(`[boosend] pinned IG account ${preferredId} no longer connected — falling back to default`);
+  }
+  return accounts[0] || null;
 }
 
 // Publish an already-loaded social_posts row via the right provider.
@@ -182,7 +207,7 @@ export async function publishSocialPostRow(userId, post) {
       throw err;
     }
 
-    const igAccount = await fetchBoosendInstagramAccount(apiKey);
+    const igAccount = await fetchBoosendInstagramAccount(apiKey, post.ig_account_id || null);
     if (!igAccount) {
       const err = new Error('No Instagram account connected via BooSend.');
       err.code = 'ig_account_missing';
@@ -225,14 +250,20 @@ export async function publishSocialPostRow(userId, post) {
 
     const postType = mediaItems.length > 1 ? 'carousel' : 'single';
 
+    const publishBody = {
+      media_items: mediaItems,
+      caption: post.caption || '',
+      post_type: postType,
+    };
+    // Pin the post to its chosen account (BooSend row UUID — BooSend's
+    // auto-resolve looks the row up and swaps in the Meta id + token).
+    // Unpinned posts omit the field: BooSend uses the first active account.
+    if (post.ig_account_id && igAccount?.id) publishBody.instagram_account_id = igAccount.id;
+
     const bsRes = await fetch(`${BOOSEND_API}/api/publishing/instagram/publish`, {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        media_items: mediaItems,
-        caption: post.caption || '',
-        post_type: postType,
-      }),
+      body: JSON.stringify(publishBody),
     });
     const bsData = await bsRes.json().catch(() => ({}));
     if (bsRes.ok) {

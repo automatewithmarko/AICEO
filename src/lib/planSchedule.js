@@ -67,7 +67,7 @@ export function buildDefaultAssignments(items, startYMD) {
 // assignments: [{ index, date: 'YYYY-MM-DD' }]
 // time: 'HH:MM' local wall-clock, encoded to UTC ISO like every existing
 //       schedule flow (new Date(y,m,d,hh,mm) → toISOString()).
-export async function bulkSchedulePieces({ entries, assignments, time, onProgress }) {
+export async function bulkSchedulePieces({ entries, assignments, time, igAccountId, onProgress }) {
   const byIndex = new Map((entries || []).map((e) => [e.index, e]));
   const scheduled = [];
   const failed = [];
@@ -114,6 +114,7 @@ export async function bulkSchedulePieces({ entries, assignments, time, onProgres
         scheduled_at: dt.toISOString(),
         media,
         status: 'scheduled',
+        ig_account_id: piece.platform === 'instagram' ? igAccountId : undefined,
       });
       scheduled.push({ index: a.index, scheduledAt: dt.toISOString(), postId: post?.id });
     } catch (err) {

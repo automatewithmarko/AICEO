@@ -14,6 +14,7 @@ import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from
 import { sweepCarouselMessages } from '../lib/carouselState';
 import { bulkSchedulePieces } from '../lib/planSchedule';
 import SchedulePlanModal from '../components/SchedulePlanModal';
+import IgAccountPicker from '../components/IgAccountPicker';
 import { XPreview, YouTubePreview } from '../components/PlatformPreviews';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
@@ -546,6 +547,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
   const [scheduling, setScheduling] = useState(false);
   const [scheduleStatus, setScheduleStatus] = useState(null); // 'saved' | 'published' | null
   const [scheduleError, setScheduleError] = useState(''); // last publish/schedule error text, shown inline
+  const [igAccountId, setIgAccountId] = useState(null); // BooSend account to post from (multi-account workspaces)
 
   // Upload any data-URL slides to storage and return the media array
   // ready for social_posts.
@@ -586,6 +588,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
         scheduled_at: mode === 'scheduled' ? new Date(scheduleWhen).toISOString() : null,
         media,
         status: mode === 'scheduled' ? 'scheduled' : 'draft',
+        ig_account_id: platform === 'instagram' ? igAccountId : undefined,
       });
       if (mode === 'publish') {
         // Fire the BooSend → Instagram publish pipeline on the saved row.
@@ -741,6 +744,7 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
           platform publish pipeline. */}
       {platform === 'instagram' && (
         <>
+          <IgAccountPicker value={igAccountId} onChange={setIgAccountId} className="li-toolbar-ig-picker" label="" />
           <button
             type="button"
             className="li-toolbar-btn li-toolbar-btn--instagram"
@@ -783,6 +787,9 @@ function CarouselActionsBar({ msgId, plan, images, onOpenSidePreview, platform =
                 onChange={(e) => setScheduleWhen(e.target.value)}
                 disabled={scheduling}
               />
+              {platform === 'instagram' && (
+                <IgAccountPicker value={igAccountId} onChange={setIgAccountId} className="content-template-modal-ig-picker" />
+              )}
               <div className="content-template-modal-hint">
                 "Publish now" posts immediately via your connected {platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} account. "Schedule" pins it to the chosen date. "Save as draft" parks it in the Content Calendar for later.
               </div>
@@ -3098,7 +3105,7 @@ export default function Content() {
     setPlanSchedule({ planMsgId, plan, entries });
   }, []);
 
-  const handleConfirmPlanSchedule = useCallback(async (assignments, time) => {
+  const handleConfirmPlanSchedule = useCallback(async (assignments, time, igAccountId) => {
     const ctx = planSchedule;
     if (!ctx || planScheduleBusy) return;
     setPlanScheduleBusy(true);
@@ -3107,6 +3114,7 @@ export default function Content() {
         entries: ctx.entries,
         assignments,
         time,
+        igAccountId,
         onProgress: (n, total) => setPlanScheduleProgress(`Scheduling ${n}/${total}…`),
       });
       // Stamp scheduledAt on the plan rows (persists with the session).

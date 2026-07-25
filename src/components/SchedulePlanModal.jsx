@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { X, CalendarClock, ChevronLeft, ChevronRight, GripVertical, Check, Loader2, AlertCircle } from 'lucide-react';
 import { toLocalYMD, parseYMD, addDays, defaultStartDate, buildDefaultAssignments } from '../lib/planSchedule';
+import IgAccountPicker from './IgAccountPicker';
 import './SchedulePlanModal.css';
 
 // Bulk-schedule preview for a generated content plan (founder spec,
@@ -91,11 +92,16 @@ export default function SchedulePlanModal({ planTitle, items = [], entries = [],
     setDragIndex(null);
   };
 
+  // BooSend IG account the plan's Instagram pieces publish from
+  // (multi-account workspaces — picker hidden otherwise).
+  const [igAccountId, setIgAccountId] = useState(null);
+  const hasInstagram = schedulable.some((e) => e.platform === 'instagram');
+
   const confirm = () => {
     const list = schedulable
       .map((e) => ({ index: e.index, date: assignments[e.index] }))
       .filter((a) => !!a.date);
-    onConfirm(list, time);
+    onConfirm(list, time, igAccountId);
   };
 
   return (
@@ -213,6 +219,9 @@ export default function SchedulePlanModal({ planTitle, items = [], entries = [],
         )}
 
         <div className="spm-footer">
+          {hasInstagram && (
+            <IgAccountPicker value={igAccountId} onChange={setIgAccountId} className="spm-ig-picker" label="Instagram account" />
+          )}
           <span className="spm-footer-note">
             {busy ? progress : `Posts go out at ${time} — reschedule or edit any of them in the Calendar tab.`}
           </span>

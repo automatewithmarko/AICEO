@@ -20,6 +20,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Upload, CalendarClock, Send, Loader, Check, X, ExternalLink, Download } from 'lucide-react';
+import IgAccountPicker from './IgAccountPicker';
 import './CanvasActionsBar.css';
 
 const PLATFORM_LABEL = {
@@ -54,6 +55,9 @@ export default function CanvasActionsBar({
   const [schedError, setSchedError] = useState('');
   const [postState, setPostState] = useState('idle'); // idle|posting|posted|error
   const [postError, setPostError] = useState('');
+  // BooSend IG account the post/schedule goes out from (multi-account
+  // workspaces only — IgAccountPicker stays hidden with 0-1 accounts).
+  const [igAccountId, setIgAccountId] = useState(null);
   const [downloadState, setDownloadState] = useState('idle'); // idle|downloading|done|error
 
   // Close popover on outside click / scroll / resize (same pattern as
@@ -97,7 +101,7 @@ export default function CanvasActionsBar({
     setSchedState('saving');
     setSchedError('');
     try {
-      await onSchedule({ text, images, date: schedDate, time: schedTime, platform });
+      await onSchedule({ text, images, date: schedDate, time: schedTime, platform, igAccountId });
       setSchedState('saved');
       setTimeout(() => {
         setScheduleOpen(false);
@@ -248,7 +252,7 @@ export default function CanvasActionsBar({
     setPostState('posting');
     setPostError('');
     try {
-      await onPostToPlatform({ text, images });
+      await onPostToPlatform({ text, images, igAccountId });
       setPostState('posted');
     } catch (err) {
       setPostState('error');
@@ -347,6 +351,9 @@ export default function CanvasActionsBar({
                   onChange={(e) => setSchedTime(e.target.value)}
                 />
               </label>
+              {platform === 'instagram' && (
+                <IgAccountPicker value={igAccountId} onChange={setIgAccountId} className="cab-schedule-ig-picker" label="Account" />
+              )}
               <button
                 className="cab-btn cab-btn--primary cab-schedule-confirm"
                 onClick={handleSchedule}
@@ -385,6 +392,9 @@ export default function CanvasActionsBar({
       {onPostToPlatform && !streaming && (
         isConnected ? (
           <>
+            {platform === 'instagram' && (
+              <IgAccountPicker value={igAccountId} onChange={setIgAccountId} className="cab-ig-picker" label="" />
+            )}
             <button
               className={`cab-btn cab-btn--${platform}`}
               onClick={handlePost}

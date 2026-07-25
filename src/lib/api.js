@@ -1512,7 +1512,7 @@ export async function postToLinkedIn(text, imageOrImages) {
 // pick them up. The old /api/social-posts/schedule route never existed
 // and every schedule attempt silently 404'd.
 
-export async function schedulePost({ platform, caption, scheduledAt, thumbnailUrl, images, contentType }) {
+export async function schedulePost({ platform, caption, scheduledAt, thumbnailUrl, images, contentType, igAccountId }) {
   const headers = await getAuthHeaders();
   const media = Array.isArray(images) && images.length
     ? images.map((im) => ({ type: 'image', url: im.src || im.url }))
@@ -1529,6 +1529,7 @@ export async function schedulePost({ platform, caption, scheduledAt, thumbnailUr
       scheduled_at: scheduledAt,
       media,
       status: 'scheduled',
+      ig_account_id: platform === 'instagram' ? igAccountId : undefined,
     }),
   });
   if (!res.ok) {
@@ -1547,12 +1548,12 @@ export async function getCalendarPosts() {
   return res.json();
 }
 
-export async function createCalendarPost({ platform, caption, content_type, scheduled_at, media, status }) {
+export async function createCalendarPost({ platform, caption, content_type, scheduled_at, media, status, ig_account_id }) {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/calendar/posts`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ platform, caption, content_type, scheduled_at, media, status }),
+    body: JSON.stringify({ platform, caption, content_type, scheduled_at, media, status, ig_account_id }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Failed to create post' }));

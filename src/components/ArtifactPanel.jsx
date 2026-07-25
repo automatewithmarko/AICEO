@@ -46,7 +46,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
     return () => { cancelled = true; };
   }, []);
 
-  const handleCanvasPostToInstagram = async ({ text, images: imgs, connect, reconnect }) => {
+  const handleCanvasPostToInstagram = async ({ text, images: imgs, connect, reconnect, igAccountId }) => {
     if (connect || reconnect) {
       // Instagram publishing runs through BooSend. When the token no
       // longer authorizes the target account (Meta "does not exist,
@@ -108,6 +108,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
       scheduled_at: null,
       media: publicUrls.map((url) => ({ type: 'image', url })),
       status: 'draft',
+      ig_account_id: igAccountId,
     });
     await publishCalendarPost(post.id);
   };
@@ -141,7 +142,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
       : [];
     await postToLinkedIn(text, orderedImgs);
   };
-  const handleCanvasSchedule = async ({ text, images: imgs, date, time, platform }) => {
+  const handleCanvasSchedule = async ({ text, images: imgs, date, time, platform, igAccountId }) => {
     // Build the ISO string from a real Date so the user's local timezone
     // is preserved. The previous `${date}T${time}:00` shape had no offset,
     // which Supabase interpreted as UTC — scheduled posts were firing at
@@ -156,6 +157,7 @@ export default function ArtifactPanel({ artifact, emailAccounts: externalAccount
       scheduledAt,
       images: imgs,
       contentType: (imgs?.length || 0) > 1 ? 'carousel' : (imgs?.length ? 'image' : 'text'),
+      igAccountId,
     });
   };
   const handleCanvasUploadImages = async (files) => {

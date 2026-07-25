@@ -185,6 +185,9 @@ export default function ContentCalendar() {
       : null;
 
     try {
+      // Pin IG posts to the account chosen in the composer preview header —
+      // a BooSend workspace can hold several Instagram accounts.
+      const igAccountId = draft.platform === 'instagram' ? (selectedIgAccount?.id || undefined) : undefined;
       if (modal?.editId) {
         const { post } = await updateCalendarPost(modal.editId, {
           caption: draft.content,
@@ -192,6 +195,7 @@ export default function ContentCalendar() {
           content_type: draft.igType || null,
           media: draft.media || [],
           status: draft.status || 'scheduled',
+          ig_account_id: igAccountId,
         });
         setPosts((prev) => prev.map((p) => p.id === modal.editId ? dbToLocal(post) : p));
       } else {
@@ -202,6 +206,7 @@ export default function ContentCalendar() {
           scheduled_at: scheduledAt,
           media: draft.media || [],
           status: draft.status || 'scheduled',
+          ig_account_id: igAccountId,
         });
         setPosts((prev) => [...prev, dbToLocal(post)]);
       }
