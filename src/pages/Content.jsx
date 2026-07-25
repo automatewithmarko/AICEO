@@ -1525,7 +1525,40 @@ export default function Content() {
     try {
       const abort = new AbortController();
       abortRef.current = abort;
-      const apiMessages = chatHistory.map((m) => ({ role: m.role, content: m.content }));
+      // History enrichment (founder bug 2026-07-25: "it feels like it has
+      // no conversation context"): generated deliverables live on the
+      // message/canvas (socialPost, carouselPlan, scriptDoc, linkedinPost),
+      // NOT in the chat text — the assistant bubble is just "Here's your
+      // post coming through". Mapping only {role, content} meant the model
+      // never saw the post it had just written, so feedback turns
+      // ("the post is bleh, make it creative") read as brand-new requests
+      // and it re-asked the format question. Append compact deliverable
+      // blocks to each assistant message so the model knows exactly what
+      // is on the user's screen.
+      const apiMessages = chatHistory.map((m) => {
+        let content = m.content || '';
+        if (m.role === 'assistant') {
+          const extras = [];
+          if (m.socialPost?.caption) {
+            extras.push(`[POST ON CANVAS — the caption you generated, currently on the user's screen]\n${String(m.socialPost.caption).slice(0, 1500)}`);
+          }
+          if (m.linkedinPost?.content && !(m.linkedinPost.totalSlides > 0)) {
+            extras.push(`[LINKEDIN POST ON CANVAS]\n${String(m.linkedinPost.content).slice(0, 1500)}`);
+          }
+          if (m.carouselPlan?.hook) {
+            const slideLine = (m.carouselPlan.slides || []).map((s, i) => `${i + 1}. ${s.headline || ''}`).join(' | ');
+            extras.push(`[CAROUSEL PLAN ON CANVAS — hook: "${m.carouselPlan.hook}"; slides: ${slideLine.slice(0, 600)}]`);
+          }
+          if (m.scriptDoc?.content) {
+            extras.push(`[VIDEO SCRIPT ON CANVAS — "${m.scriptDoc.title || 'script'}"]\n${String(m.scriptDoc.content).slice(0, 1200)}`);
+          }
+          if (m.images?.length) {
+            extras.push(`[${m.images.length} generated image(s) attached to this post]`);
+          }
+          if (extras.length) content = `${content}\n\n${extras.join('\n\n')}`.trim();
+        }
+        return { role: m.role, content };
+      });
       // Pass the existing LinkedIn preview state so the backend prompt can
       // swap into EDIT MODE (preserves images & post text instead of
       // wiping). The prompt itself is assembled server-side from the

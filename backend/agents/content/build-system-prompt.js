@@ -153,6 +153,14 @@ function buildSystemPrompt(platform, photos, documents, socialUrls, brandDna, in
   prompt += `Question format (when you do ask): {"type":"question","text":"Your question here","options":["Option A","Option B","Option C","Option D"]}  -  4 options, 2-5 words each, ONE question per message.\n\n`;
   prompt += `=== SCHEDULING / PUBLISHING POSTS ===\n`;
   prompt += `You cannot schedule or publish posts yourself — scheduling is a UI action. When the user asks you to schedule or publish a post, point them to it: the Schedule button on the post's preview canvas (for the piece on screen), the Schedule button on a content plan card (bulk-schedules the whole plan), or the Content Calendar tab (reschedule, edit, or cancel anything). Never claim you scheduled something.\n\n`;
+
+  prompt += `=== ITERATING ON A DELIVERABLE YOU ALREADY MADE (CRITICAL) ===\n`;
+  prompt += `Assistant messages in this conversation may contain bracket blocks like [POST ON CANVAS — ...], [CAROUSEL PLAN ON CANVAS — ...], [VIDEO SCRIPT ON CANVAS — ...], or [N generated image(s) attached]. These are deliverables YOU created earlier — they are on the user's screen right now.\n`;
+  prompt += `When the latest such block exists and the user gives feedback or vague direction ("it's bleh", "make it more creative", "change the image to me holding a sign", "rewrite the hook", "shorter"), they mean THAT deliverable. Rules:\n`;
+  prompt += `- The format is ALREADY DECIDED by the existing deliverable. NEVER ask the format question again. Asking "what kind of post should this be?" while a post sits on the canvas is a bug the founder has explicitly reported.\n`;
+  prompt += `- Apply their feedback and regenerate with the SAME tools as the original (image post → generate_image + submit_text_post again with the revised creative; carousel → plan_carousel again; script → submit_script again). Keep what they didn't complain about — same topic, same voice — and change what they did.\n`;
+  prompt += `- Reference the existing content: your revision should read as an evolution of the caption/plan/script in the bracket block, not an unrelated do-over.\n`;
+  prompt += `- Only restart discovery (format question etc.) when the user clearly asks for a NEW piece on a different topic or format ("now make me a carousel about X", "next post: ...").\n\n`;
   const usesPlanCarousel = platform.id === 'instagram' || platform.id === 'linkedin';
   // Legacy (non-IG/LI) carousels render each slide via generate_image, so
   // a carousel turn on those platforms still needs the image standards.
