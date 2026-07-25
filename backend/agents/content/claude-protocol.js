@@ -139,6 +139,41 @@ export const SUBMIT_SCRIPT_TOOL = {
 // instagram did not open in canvas in /content". LinkedIn text posts
 // have their own two-pass writer (generate_linkedin_post/submit_post);
 // this covers every other pill (Instagram, Facebook, X, TikTok).
+
+// Code-level em/en dash removal (founder, non-negotiable, 2026-07-24):
+// prompts already ban them, but the model still slips them in and they
+// read as an instant AI-tell. Numeric ranges keep a plain hyphen;
+// bullet-style leading dashes become "- "; dangling line-end dashes end
+// the sentence; every other em/en dash becomes ", ".
+export function scrubAiDashes(text) {
+  if (!text) return text;
+  return String(text)
+    .replace(/(\d)[ 	]*[–—][ 	]*(?=\d)/g, '$1-')
+    .replace(/^[ 	]*[–—][ 	]*/gm, '- ')
+    .replace(/[ 	]*[–—][ 	]*$/gm, '.')
+    .replace(/[ 	]*[–—][ 	]*/g, ', ')
+    .replace(/,[ 	]*,/g, ',')
+    .replace(/,[ 	]*\./g, '.');
+}
+
+// Applies the dash scrub to every copy field of a plan_carousel args
+// object in place (caption, hook, angle, slide headline/body/cta/badge).
+export function scrubCarouselPlanDashes(args) {
+  if (!args || typeof args !== 'object') return args;
+  for (const k of ['caption', 'hook', 'angle']) {
+    if (typeof args[k] === 'string') args[k] = scrubAiDashes(args[k]);
+  }
+  if (Array.isArray(args.slides)) {
+    for (const s of args.slides) {
+      if (!s || typeof s !== 'object') continue;
+      for (const k of ['headline', 'body', 'cta', 'badge']) {
+        if (typeof s[k] === 'string') s[k] = scrubAiDashes(s[k]);
+      }
+    }
+  }
+  return args;
+}
+
 export const SUBMIT_TEXT_POST_TOOL = {
   type: 'function',
   function: {

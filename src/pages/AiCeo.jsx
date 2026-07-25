@@ -149,6 +149,21 @@ export default function AiCeo() {
   // schedule table.
   const [planMode] = useState(false); // Plan-mode toggle removed 2026-07-24 — multi-day plans still work via chat ("plan my next 14 days")
   const [searchStatus, setSearchStatus] = useState(null); // null | 'searching' | 'writing'
+  // Rotating engagement labels for long statuses (carousel/content plan)
+  // — founder feedback #3.
+  const [statusTick, setStatusTick] = useState(0);
+  useEffect(() => {
+    if (!isGenerating) return undefined;
+    const t = setInterval(() => setStatusTick((x) => x + 1), 2400);
+    return () => clearInterval(t);
+  }, [isGenerating]);
+  const displayStatus = (st) => {
+    if (/carousel plan/i.test(st || '')) {
+      const labels = ['Planning your carousel', 'Drafting the hook', 'Writing slide headlines', 'Locking brand colors + typography', 'Writing your caption'];
+      return labels[statusTick % labels.length];
+    }
+    return st;
+  };
   const [currentQuestion, setCurrentQuestion] = useState(null); // { question, options, multiSelect }
   const [customTyping, setCustomTyping] = useState(false);
   const [customText, setCustomText] = useState('');
@@ -3374,7 +3389,7 @@ export default function AiCeo() {
                             <span className="ceo-research-label">Composing response with research<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></span>
                           </>
                         ) : msg.status ? (
-                          <span className="ceo-thinking-text">{msg.status}<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></span>
+                          <span className="ceo-thinking-text">{displayStatus(msg.status)}<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></span>
                         ) : (
                           <span className="ceo-thinking-text">thinking<span className="ceo-dots"><span>.</span><span>.</span><span>.</span></span></span>
                         )}

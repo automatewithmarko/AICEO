@@ -3,6 +3,13 @@
   overflow: hidden;
 }
 
+/* Collapsed sidebar: shrink the reserved width so pages reclaim it. Both
+   .layout-body (margin) and .sidebar (width) read --sidebar-width, and CSS
+   custom properties inherit through the DOM to the fixed sidebar. */
+.layout.sidebar-collapsed {
+  --sidebar-width: 76px;
+}
+
 .layout-body {
   margin-left: var(--sidebar-width);
   height: 100vh;
@@ -10,6 +17,7 @@
   flex-direction: column;
   background: var(--bg-white);
   overflow-x: hidden;
+  transition: margin-left 0.2s ease;
 }
 
 .layout-main {

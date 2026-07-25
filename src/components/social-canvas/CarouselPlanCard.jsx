@@ -155,7 +155,7 @@ function CarouselPlanCard({ plan, onApprove, onRetryFailed, onUpdatePlan, onStop
               onClick={() => { setTemplatesOpen(v => !v); if (!templatesOpen) loadTemplates(); }}
               title="Apply a saved design system"
             >
-              Load template ▾
+              Use template ▾
             </button>
             {templatesOpen && (
               <div className="content-carousel-plan-templates-pop" onClick={(e) => e.stopPropagation()}>

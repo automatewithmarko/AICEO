@@ -14,6 +14,7 @@ import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from
 import { sweepCarouselMessages } from '../lib/carouselState';
 import { bulkSchedulePieces } from '../lib/planSchedule';
 import SchedulePlanModal from '../components/SchedulePlanModal';
+import { XPreview, YouTubePreview } from '../components/PlatformPreviews';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
 import ChatDropOverlay from '../components/ChatDropOverlay';
@@ -890,6 +891,26 @@ export default function Content() {
   const [planCanvasHtml, setPlanCanvasHtml] = useState(null);
   const [planCanvasMsgId, setPlanCanvasMsgId] = useState(null);
   const [searchStatus, setSearchStatus] = useState(null);
+  // Rotating engagement labels while a long tool-arg stream runs (founder
+  // feedback #3: keep the user engaged during plan generation — and show
+  // ONE status node, never thinking + status stacked).
+  const [statusTick, setStatusTick] = useState(0);
+  useEffect(() => {
+    if (!searchStatus || ['searching', 'writing'].includes(searchStatus)) return undefined;
+    const t = setInterval(() => setStatusTick((x) => x + 1), 2400);
+    return () => clearInterval(t);
+  }, [searchStatus]);
+  const displayStatus = (st) => {
+    if (/carousel plan/i.test(st || '')) {
+      const labels = ['Planning your carousel', 'Drafting the hook', 'Writing slide headlines', 'Locking brand colors + typography', 'Writing your caption'];
+      return labels[statusTick % labels.length];
+    }
+    if (/content plan/i.test(st || '')) {
+      const labels = ['Building your content plan', 'Mapping the week', 'Rotating formats + angles', 'Writing hooks'];
+      return labels[statusTick % labels.length];
+    }
+    return st;
+  };
   const [contentCtxMenuOpen, setContentCtxMenuOpen] = useState(false);
   const [contentHoveredCat, setContentHoveredCat] = useState(null);
   const [currentQuestion, setCurrentQuestion] = useState(null);
@@ -1670,7 +1691,7 @@ export default function Content() {
           // Also auto-open whenever a submit_text_post caption landed
           // this turn (image post on any non-LinkedIn pill) — the canvas
           // pairs the caption with the incoming image.
-          if (activePlatform.id === 'instagram' || textPostCalls.length > 0) {
+          if (['instagram', 'x', 'twitter', 'youtube'].includes(activePlatform.id) || textPostCalls.length > 0) {
             setLinkedinPreview(null);
             setScriptView(null);
             setCarouselSideView({ msgId: assistantMsgId });
@@ -4734,6 +4755,8 @@ export default function Content() {
                               <><Search size={14} /> Searching the web<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
                             ) : searchStatus === 'writing' ? (
                               <><PenLine size={14} /> Writing response<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
+                            ) : searchStatus ? (
+                              <><PenLine size={14} /> {displayStatus(searchStatus)}<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
                             ) : (
                               <>thinking<span className="content-dots"><span>.</span><span>.</span><span>.</span></span></>
                             )
@@ -5175,12 +5198,12 @@ export default function Content() {
                   emits these as SSE status events (handler.js
                   onToolStart). The 'searching'/'writing' enums belong to
                   the legacy thinking indicator above, not here. */}
-              {isGenerating && searchStatus && !['searching', 'writing'].includes(searchStatus) && (
+              {isGenerating && searchStatus && !['searching', 'writing'].includes(searchStatus) && messages.some((m) => m.id === activeAssistantId && (m.content || m.carouselPlan || m.contentPlan)) && (
                 <div className="content-assistant-row">
                   <img src="/favicon.png" alt="" className="content-assistant-avatar" />
                   <div className="content-thinking">
                     <span className="content-thinking-text">
-                      <PenLine size={14} /> {searchStatus}<span className="content-dots"><span>.</span><span>.</span><span>.</span></span>
+                      <PenLine size={14} /> {displayStatus(searchStatus)}<span className="content-dots"><span>.</span><span>.</span><span>.</span></span>
                     </span>
                   </div>
                 </div>
@@ -5529,6 +5552,48 @@ export default function Content() {
                       caption={panelMsg.linkedinPost?.content || ''}
                     />
                   }
+                />
+              </div>
+            );
+          }
+          // X and YouTube get their OWN canvas chrome (founder feedback
+          // #3b) — routed here so the Instagram SocialPreview path below
+          // stays byte-identical for instagram/tiktok/facebook.
+          const pfCaption = panelMsg.socialPost?.caption || panelMsg.content || '';
+          if (panelMsg.platform === 'x' || panelMsg.platform === 'twitter') {
+            return (
+              <div className="content-main-preview">
+                <XPreview
+                  content={pfCaption}
+                  images={[...(panelMsg.images || [])].sort((a, b) => (a.idx || 0) - (b.idx || 0))}
+                  brandDna={brandDna}
+                  user={user}
+                  pendingImages={panelMsg.pendingImages || 0}
+                  onClose={() => setCarouselSideView(null)}
+                  onContentChange={(next) => {
+                    setMessages(prev => prev.map(m => (m.id === panelMsg.id
+                      ? (m.socialPost ? { ...m, socialPost: { ...m.socialPost, caption: next } } : { ...m, content: next })
+                      : m)));
+                  }}
+                />
+              </div>
+            );
+          }
+          if (panelMsg.platform === 'youtube') {
+            return (
+              <div className="content-main-preview">
+                <YouTubePreview
+                  content={pfCaption}
+                  images={[...(panelMsg.images || [])].sort((a, b) => (a.idx || 0) - (b.idx || 0))}
+                  brandDna={brandDna}
+                  user={user}
+                  pendingImages={panelMsg.pendingImages || 0}
+                  onClose={() => setCarouselSideView(null)}
+                  onContentChange={(next) => {
+                    setMessages(prev => prev.map(m => (m.id === panelMsg.id
+                      ? (m.socialPost ? { ...m, socialPost: { ...m.socialPost, caption: next } } : { ...m, content: next })
+                      : m)));
+                  }}
                 />
               </div>
             );
