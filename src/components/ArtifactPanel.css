@@ -251,7 +251,11 @@
 
 .ap-body {
   flex: 1;
-  overflow: hidden;
+  /* auto, not hidden: renderers without an internal scroll region
+     (scripts/markdown, long posts) were clipping at the bottom with no
+     way to scroll (founder feedback #3). Renderers that manage their own
+     scrolling are height:100% and never overflow this container. */
+  overflow-y: auto;
   min-height: 0;
   position: relative;
 }

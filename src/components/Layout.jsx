@@ -179,6 +179,21 @@ export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { workspace, can } = useAuth();
+
+  // Collapsible sidebar. Collapsed → sidebar shrinks to icons only and the
+  // page content reclaims the width (via the --sidebar-width override on
+  // .layout.sidebar-collapsed). Preference persists across sessions.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('sidebarCollapsed') === '1'; } catch { return false; }
+  });
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem('sidebarCollapsed', next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
   const touchRef = useRef({ startX: 0, startY: 0, swiping: false });
   const [slideDir, setSlideDir] = useState(null); // 'left' or 'right'
   const prevPath = useRef(location.pathname);
@@ -319,8 +334,8 @@ export default function Layout() {
   };
 
   return (
-    <div className="layout">
-      <Sidebar />
+    <div className={`layout ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+      <Sidebar collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />
       <CreditPill />
       <MobileProfileButton />
       <NotificationBell />

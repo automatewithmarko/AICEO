@@ -11,6 +11,11 @@ const execFileAsync = promisify(execFile);
 const YTDLP_BIN = process.env.YTDLP_PATH || 'yt-dlp';
 const APIFY_TOKEN = process.env.APIFY_TOKEN;
 const APIFY_LINKEDIN_ACTOR = process.env.APIFY_LINKEDIN_ACTOR || 'apimaestro~linkedin-post-detail';
+// Dedicated IG-reel transcript actor. Runs Whisper ASR on Apify's own infra,
+// so it does NOT depend on this container reaching api.groq.com / api.openai.com
+// (2026-07-25: that egress was failing with "Connection error" in Railway).
+// Replaces the removed bulletproof/instagram-transcript-extractor (now 404).
+const APIFY_IG_TRANSCRIPT_ACTOR = process.env.APIFY_IG_TRANSCRIPT_ACTOR || 'apple_yang~instagram-transcripts-scraper';
 
 function isYouTube(url) {
   return /youtube\.com|youtu\.be/i.test(url);
@@ -101,12 +106,28 @@ async function extractInstagramApify(url) {
       console.log(`[social] Got transcript directly from Apify (${result.transcript.length} chars)`);
     }
 
-    // If no transcript yet, try Whisper with audioUrl/videoUrl
+    // Primary transcript source: dedicated Apify transcript actor. It does the
+    // ASR on Apify's infra, so it works even when this container can't reach
+    // the Whisper API directly. Tried FIRST — the Railway-side Whisper path
+    // below is now only a last resort.
+    if (!result.transcript) {
+      const tx = await transcribeViaApifyActor(url);
+      if (tx?.text) {
+        result.transcript = tx.text;
+        result.language = tx.language || result.language;
+        result.source = 'apify_transcript_actor';
+        console.log(`[social] Transcript via Apify actor (${tx.text.length} chars)`);
+      }
+    }
+
+    // Last resort: download the media and transcribe with Whisper from this
+    // container. Kept for when the actor is unavailable; may fail if egress to
+    // the Whisper API is blocked (see APIFY_IG_TRANSCRIPT_ACTOR note above).
     if (!result.transcript) {
       const mediaUrl = item.audioUrl || item.videoUrl;
       if (mediaUrl) {
         try {
-          console.log(`[social] Transcribing via Whisper (${item.audioUrl ? 'audio' : 'video'} URL)...`);
+          console.log(`[social] Fallback: transcribing via Whisper (${item.audioUrl ? 'audio' : 'video'} URL)...`);
           const whisperResult = await transcribeFromVideoUrl(mediaUrl);
           if (whisperResult) {
             result.transcript = whisperResult.text;
@@ -118,38 +139,6 @@ async function extractInstagramApify(url) {
         }
       } else {
         console.log('[social] No audioUrl or videoUrl from Apify — cannot transcribe with Whisper');
-      }
-    }
-
-    // Fallback: use dedicated transcript extractor actor
-    if (!result.transcript) {
-      try {
-        console.log('[social] Trying fallback transcript extractor (bulletproof/instagram-transcript-extractor)...');
-        const txRes = await fetch(
-          `https://api.apify.com/v2/acts/bulletproof~instagram-transcript-extractor/run-sync-get-dataset-items?token=${APIFY_TOKEN}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ urls: [url] }),
-            signal: AbortSignal.timeout(120000),
-          }
-        );
-        if (txRes.ok) {
-          const txItems = await txRes.json();
-          const tx = txItems?.[0];
-          const fullText = tx?.fullTranscript || tx?.transcript || (Array.isArray(tx?.segments) ? tx.segments.map(s => s.text).join(' ') : null);
-          if (fullText) {
-            result.transcript = fullText;
-            result.source = 'bulletproof_transcript';
-            console.log(`[social] Fallback transcript extracted (${fullText.length} chars)`);
-          } else {
-            console.log('[social] Fallback extractor returned no transcript');
-          }
-        } else {
-          console.log(`[social] Fallback extractor failed: ${txRes.status}`);
-        }
-      } catch (txErr) {
-        console.log(`[social] Fallback transcript extractor error: ${txErr.message?.slice(0, 100)}`);
       }
     }
 
@@ -275,6 +264,46 @@ async function extractLinkedInApify(url) {
       source: 'error',
       error: err.message,
     };
+  }
+}
+
+// Dedicated Apify transcript actor for a single IG reel. Returns
+// { text, language, segments } or null. ASR happens on Apify's side, so this
+// path is independent of this container's outbound Whisper connectivity.
+async function transcribeViaApifyActor(url) {
+  // The actor only resolves the plural /reels/ path; the app often stores the
+  // singular /reel/ form, which returns zero items. Normalize before calling.
+  const reelUrl = url.replace(/\/reel\/([^/?#]+)/i, '/reels/$1');
+  try {
+    const res = await fetch(
+      `https://api.apify.com/v2/acts/${APIFY_IG_TRANSCRIPT_ACTOR}/run-sync-get-dataset-items?token=${APIFY_TOKEN}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoUrl: reelUrl }),
+        signal: AbortSignal.timeout(120000),
+      }
+    );
+    if (!res.ok) {
+      console.log(`[social] Apify transcript actor failed: ${res.status}`);
+      return null;
+    }
+    const items = await res.json();
+    const it = items?.[0];
+    if (!it) {
+      console.log('[social] Apify transcript actor returned no items');
+      return null;
+    }
+    const text = (typeof it.text === 'string' && it.text.trim())
+      || (Array.isArray(it.segments) ? it.segments.map((s) => s.text).join(' ').trim() : '');
+    if (!text) {
+      console.log(`[social] Apify transcript actor returned no text${it.errMsg ? ` (${String(it.errMsg).slice(0, 80)})` : ''}`);
+      return null;
+    }
+    return { text, language: it.language || null, segments: it.segments || null };
+  } catch (err) {
+    console.log(`[social] Apify transcript actor error: ${err.message?.slice(0, 100)}`);
+    return null;
   }
 }
 

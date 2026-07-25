@@ -126,6 +126,43 @@ QUALITY CHECKLIST (silent, before answering): first sentence echoes the title ·
 export const SCRIPT_GUIDE_ROUTER = `
 When writing ANY video script: 15-90s social video (reel / short / TikTok / LinkedIn video) → follow the SHORT-FORM guide. YouTube long-form (5+ minutes) → follow the LONG-FORM guide.`;
 
+// Replication Mode directive — appended LAST, AFTER the short/long-form
+// guide, when the user wants an attached reference reproduced 1:1 for a new
+// topic (founder spec 2026-07-25: "verbatim script top to bottom, exactly
+// 100% like the first video, just switch the words"). It deliberately
+// OVERRIDES the guide's hook-audition / word-budget / structure-pick /
+// banned-word machinery and the top em-dash & hashtag bans — those are what
+// turn a clone into a fresh "matches the energy" script, the exact failure
+// the founder reported. Placed after the guide so recency is on its side.
+// Applies to reels / shorts / TikTok (short) and YouTube (long) alike.
+export function buildReplicationDirective({ isLongForm = false } = {}) {
+  return `
+
+=== REPLICATION MODE (ACTIVE — READ LAST, OVERRIDES THE VIDEO SCRIPT GUIDE ABOVE) ===
+A reference script/transcript is attached above (the OUTLIER TEMPLATES or SOCIAL MEDIA LINKS block). The user wants THAT script rebuilt for their OWN topic. This is a 1:1 structural clone — NOT an original script. Wherever this conflicts with the VIDEO SCRIPT GUIDE, the submit_script format notes, or the ABSOLUTE OUTPUT RULES at the top of this prompt, THIS SECTION WINS.
+
+WHAT "CLONE" MEANS (do all of it):
+- Reproduce the reference TOP TO BOTTOM, line for line and sentence for sentence. Same number of lines. Same sentence order. Same sentence lengths. Same paragraph breaks. Same rhythm.
+- Change ONLY the topic-carrying words — the nouns, verbs, numbers, and proper names — so the script is about the user's subject. Every structural and stylistic element stays identical.
+- Keep every signature phrase, hook opener, transition, aside, and CTA shape. Reword only the part of each that names the OLD topic.
+- Keep the reference's exact punctuation, casing, and formatting — INCLUDING em dashes, hashtags, emojis, and slang if the reference used them. The em-dash ban, hashtag ban, and opener bans elsewhere in this prompt DO NOT apply to a clone.
+- Match the reference's length exactly. IGNORE the word-budget / duration targets in the script guide.
+
+DO NOT:
+- Do NOT run the HOOK AUDITION and do NOT output a "HOOK OPTIONS (scored)" list. There is exactly ONE hook: the reference's hook with the topic swapped.
+- Do NOT pick a new structure, re-pace, tighten, expand, "improve", or add polish the reference did not have.
+- Do NOT apply the banned-words list to the reference's own wording.
+- Do NOT add a "--- PRODUCTION NOTES ---" block${isLongForm ? ', TITLE OPTIONS, THUMBNAIL CONCEPT, or PAYOFF MAP' : ''}. The deliverable is the cloned script and nothing else.
+
+WORKED EXAMPLE (this is the ENTIRE job, applied to EVERY line — not just the hook):
+Reference hook: "This country has 12,000 people, and no one has to work a job at all."
+User's topic: Claude Code replacing the developers at their company.
+Correct clone: "This AI has built over 1 million apps, and not a single person had to write code."
+Same sentence shape, same clause order, same cadence — only the nouns and numbers changed. Now do exactly that for line 2, line 3, and every line through the CTA.
+
+OUTPUT: call submit_script. The script field contains ONLY the cloned script${isLongForm ? " (reproduce the reference's own chapters/sections; if it is one continuous monologue, keep it continuous)" : ', inside **HOOK** / **BODY** / **CTA** headers, each holding the cloned spoken lines'}. Nothing before it, nothing after it. Side-by-side, the reference and your output should match position-for-position with only the topic changed. If your output reads as a new script that merely echoes the reference's vibe, you failed.`;
+}
+
 // Code-level enforcement (founder report 2026-07-24: bracket cues like
 // "[VISUAL: …] [TEXT ON SCREEN: …]" leaked into delivered scripts despite
 // the prompt ban). Strips production bracket-labels from the SPOKEN part

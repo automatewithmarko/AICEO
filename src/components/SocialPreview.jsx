@@ -76,6 +76,31 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
   const plan = msg?.carouselPlan || {};
   const planSlideCount = plan.slides?.length || 0;
   const pendingCount = msg?.pendingImages || 0;
+  // Keep the generating media area in view (founder feedback #3: the
+  // canvas must scroll down to where image generation is in progress) —
+  // mirrors LinkedInPreview's scroll-to-slides. Settle retries cover the
+  // panel's opening animation; per-slide nudges use block:'nearest'.
+  const mediaAreaRef = useRef(null);
+  const wasGeneratingRef = useRef(false);
+  useEffect(() => {
+    const generating = pendingCount > 0;
+    const started = generating && !wasGeneratingRef.current;
+    wasGeneratingRef.current = generating;
+    if (!started) return undefined;
+    const go = () => mediaAreaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    go();
+    const t1 = setTimeout(go, 450);
+    const t2 = setTimeout(go, 1100);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [pendingCount]);
+  const prevImgCountRef = useRef(0);
+  useEffect(() => {
+    const count = (msg?.images || []).filter(Boolean).length;
+    if (count > prevImgCountRef.current && pendingCount > 0) {
+      mediaAreaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    prevImgCountRef.current = count;
+  }, [msg?.images, pendingCount]);
   const totalSlots = Math.max(planSlideCount, images.length, pendingCount > 0 ? images.length + pendingCount : 0);
   const imageForSlot = (slot) => images.find((img, i) => (Number.isInteger(img.idx) ? img.idx : i) === slot) || null;
   const [idx, setIdx] = useState(0);
@@ -215,7 +240,7 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
               </div>
               <span className="content-ig-username">preparing post…</span>
             </div>
-            <div className="content-ig-media content-ig-media--skeleton">
+            <div className="content-ig-media content-ig-media--skeleton" ref={mediaAreaRef}>
               <Loader size={24} className="cs-spinner" />
               <div className="content-ig-skeleton-label">
                 {planSlideCount > 0 ? `Rendering 0 / ${planSlideCount} slides…` : 'Preparing…'}
@@ -299,7 +324,7 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
               no image generation) skip this block entirely so the user
               sees the caption + actions instead of a stuck spinner. */}
           {hasMedia && (
-          <div className="content-ig-media">
+          <div className="content-ig-media" ref={mediaAreaRef}>
             {msg?.editingIdx === idx ? (
               /* Single-slide regenerate in flight — image models can take
                  1-3 minutes; without this the click looked like it did

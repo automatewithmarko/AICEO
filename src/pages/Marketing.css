@@ -3583,9 +3583,9 @@
   align-items: center;
   gap: 4px;
   padding: 6px 12px;
-  border: 1px solid var(--border-light, #e5e5e5);
-  background: #fff;
-  color: var(--text-muted, #666);
+  border: 1px solid #E91A44;
+  background: #E91A44; /* brand pink — founder feedback #3 */
+  color: #fff;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 500;
@@ -3594,10 +3594,10 @@
   transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 .mkt-new-convo:hover {
-  color: var(--text-primary, #1a1a1a);
-  border-color: var(--text-muted, #888);
-  background: var(--surface-secondary, #fafafa);
-  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.1);
+  color: #fff;
+  border-color: #c8143a;
+  background: #c8143a;
+  box-shadow: 0 2px 14px rgba(233, 26, 68, 0.3);
 }
 
 .mkt-sessions-backdrop {

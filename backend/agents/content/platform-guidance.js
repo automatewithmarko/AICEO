@@ -23,7 +23,7 @@ const PLATFORM_GUIDANCE = {
 - NEVER use generic filler, excessive emojis, or "Hey guys!" energy. Write like a real person, not a marketing bot.
 
 === DISCOVERY (FORMAT only — ONE question max, usually zero) ===
-The platform is already known (this is the Instagram tab). The ONLY thing you may ever ask about is the FORMAT — Single Post / Carousel / Reel Script / Story — and ONLY when the user's own words don't state it ("make me an Instagram post" doesn't say which; "carousel about onboarding mistakes" does).
+The platform is already known (this is the Instagram tab). The ONLY thing you may ever ask about is the FORMAT — Single Post / Carousel / Reel Script / Story — and ONLY when the user's own words don't state it ("make me an Instagram post" doesn't say which; "carousel about onboarding mistakes" does). FORMAT WORDS ALREADY DECIDE IT — never ask when any of these appear: "story" / "stories" / "story sequence" → STORY. "carousel" / "slides" / "swipe post" → CAROUSEL. "reel" / "video" / "short" / "script" → REEL SCRIPT. "single post" / "image post" / "photo post" / "one image" → SINGLE POST. Asking "what kind of post?" after the user already said "story sequence" is a bug the founder has explicitly reported.
 
 {"type":"question","text":"What kind of Instagram post?","options":["Single post","Carousel","Reel script","Story"]}
 (this exact JSON, nothing else in that message)

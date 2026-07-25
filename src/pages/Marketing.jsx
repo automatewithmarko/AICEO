@@ -3480,14 +3480,18 @@ function ToolTab({ config, activeTool, brandDna, urlSessionId, onActiveBriefChan
       >
         <History size={16} />
       </button>
-      <button
-        type="button"
-        className="mkt-new-convo"
-        onClick={newConversation}
-        title="Start a new conversation"
-      >
-        <Plus size={14} /> New chat
-      </button>
+      {/* DM Automation: one automation = one chat — no New chat there
+          (founder feedback #3). */}
+      {activeTool !== 'dm' && (
+        <button
+          type="button"
+          className="mkt-new-convo"
+          onClick={newConversation}
+          title="Start a new conversation"
+        >
+          <Plus size={14} /> New chat
+        </button>
+      )}
     </div>
 
     <div className="mkt-split" ref={splitRef}>
