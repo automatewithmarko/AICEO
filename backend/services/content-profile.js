@@ -165,6 +165,28 @@ async function linkedinProfileText(userId) {
   return s;
 }
 
+// Upcoming scheduled posts (the content calendar) — lets both chats
+// answer "what do I have scheduled?" and plan around existing slots
+// instead of double-booking days (founder ask 2026-07-26).
+async function scheduledPostsText(userId, platformId = null) {
+  let q = supabase
+    .from('social_posts')
+    .select('platform, caption, content_type, scheduled_at')
+    .eq('user_id', userId)
+    .eq('status', 'scheduled')
+    .gt('scheduled_at', new Date().toISOString())
+    .order('scheduled_at', { ascending: true })
+    .limit(10);
+  if (platformId) q = q.eq('platform', platformId);
+  const { data: posts } = await q;
+  if (!posts?.length) return null;
+  const lines = posts.map((p) => {
+    const when = p.scheduled_at ? String(p.scheduled_at).replace('T', ' ').slice(0, 16) + ' UTC' : '?';
+    return `- [${p.platform || '?'}] ${when}${p.content_type ? ` (${p.content_type})` : ''}: "${firstLine(p.caption, 70)}"`;
+  });
+  return `UPCOMING SCHEDULED POSTS (${posts.length} on the calendar — do not double-book these slots; reference them when planning):\n${lines.join('\n')}`;
+}
+
 // Recent posts published THROUGH AICEO, all platforms, with dates — lets
 // the CEO answer "when was my last post" for anything shipped from here.
 async function aiceoPublishedPostsText(userId) {
@@ -221,8 +243,15 @@ export async function getContentProfileBlock(userId, platformId = null) {
     } catch { /* derived signal only — never break the turn */ }
   }
 
+  // Upcoming calendar — platform-scoped on /Content, everything for the
+  // CEO. Both chats can now answer "what do I have scheduled?".
+  try {
+    const upcoming = await scheduledPostsText(userId, platformId);
+    if (upcoming) parts.push(upcoming);
+  } catch { /* derived signal only — never break the turn */ }
+
   if (!parts.length) return '';
   return `\n\n=== HOW THIS USER ACTUALLY POSTS (auto-synced from their connected accounts — you DO have this visibility) ===\n`
     + parts.join('\n')
-    + `\nUse this data confidently: you CAN tell the user what they post, how often, their recent captions, their top performer, and when their most recent post went out (refreshed roughly daily). Never claim you have "no access" to their posts while this block is present. When they don't specify a format or topic, default to the formats and topic lanes they already publish — do NOT ask.\n`;
+    + `\nUse this data confidently: you CAN tell the user what they post, how often, their recent captions, their top performer, when their most recent post went out (refreshed roughly daily), and what's scheduled on their content calendar. Never claim you have "no access" to their posts or schedule while this block is present. When they don't specify a format or topic, default to the formats and topic lanes they already publish — do NOT ask.\n`;
 }
