@@ -1157,6 +1157,7 @@ router.post('/api/generate/carousel', async (req, res) => {
         // Shared 429 cooldown: if another slide just got rate-limited,
         // wait out the window instead of piling on and burning attempts.
         const cool = rateLimitUntil - Date.now();
+        if (cool > 3000) console.log(`[generate/carousel] slide ${idx + 1} waiting ${(cool / 1000).toFixed(1)}s on shared rate-limit gate (parallelism collapsed to sequential by provider 429s)`);
         if (cool > 0) await sleep(cool);
         const result = await generateImageCore({
           userId,
