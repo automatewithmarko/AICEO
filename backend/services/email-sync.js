@@ -159,6 +159,7 @@ async function startIdleConnection(account) {
 
   const client = createClient(account);
   let destroyed = false;
+  let reconnectScheduled = false;
 
   const cleanup = () => {
     destroyed = true;
@@ -166,7 +167,29 @@ async function startIdleConnection(account) {
     try { client.close(); } catch {}
   };
 
+  const scheduleReconnect = (delay) => {
+    if (reconnectScheduled) return;
+    reconnectScheduled = true;
+    cleanup();
+    setTimeout(() => reconnectAccount(account), delay);
+  };
+
   activeConnections.set(account.id, { client, destroy: cleanup });
+
+  // Attach the error handler BEFORE connect(): ImapFlow emits 'error' on
+  // its socket at any moment, and an 'error' event with no listener
+  // crashes the whole Node process. The old code registered this handler
+  // only after connect()+initial fetch+mailboxOpen resolved, so a socket
+  // error during that window (observed 2026-07-25: EHOSTUNREACH during a
+  // reconnect storm) took the entire backend down mid-request.
+  client.on('error', (err) => {
+    if (destroyed) {
+      console.log(`[email-idle] ${account.email} error after close (ignored): ${err.message}`);
+      return;
+    }
+    console.log(`[email-idle] ${account.email} error: ${err.message}`);
+    scheduleReconnect(RECONNECT_DELAY);
+  });
 
   try {
     await client.connect();
@@ -194,22 +217,12 @@ async function startIdleConnection(account) {
     client.on('close', () => {
       if (destroyed) return;
       console.log(`[email-idle] ${account.email}: connection closed, reconnecting...`);
-      cleanup();
-      setTimeout(() => reconnectAccount(account), RECONNECT_DELAY);
-    });
-
-    // Handle errors
-    client.on('error', (err) => {
-      if (destroyed) return;
-      console.log(`[email-idle] ${account.email} error: ${err.message}`);
-      cleanup();
-      setTimeout(() => reconnectAccount(account), RECONNECT_DELAY);
+      scheduleReconnect(RECONNECT_DELAY);
     });
 
   } catch (err) {
     console.log(`[email-idle] Failed to connect ${account.email}: ${err.message}`);
-    cleanup();
-    setTimeout(() => reconnectAccount(account), RECONNECT_DELAY * 2);
+    scheduleReconnect(RECONNECT_DELAY * 2);
   }
 }
 

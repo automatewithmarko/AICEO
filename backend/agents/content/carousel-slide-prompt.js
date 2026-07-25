@@ -136,22 +136,9 @@ export function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total
   const totalNum = String(total).padStart(2, '0');
   const isFinal = index === total - 1;
   const isHook = index === 0;
-  const isMiddle = !isHook && !isFinal;
-  // Subtle founder presence on middle slides (founder request
-  // 2026-07-20): hook + CTA carry the prominent founder visuals; exactly
-  // ONE middle slide (TWO when the deck is 9+ slides) gets a quiet
-  // founder byline chip so the person threads through the whole set.
-  const founderMiddleIdxs = (() => {
-    if (total < 5) return new Set();
-    const center = Math.floor((total - 1) / 2);
-    const set = new Set([center]);
-    if (total >= 9) {
-      const late = Math.floor(((total - 1) * 3) / 4);
-      if (late !== center && late > 0 && late < total - 1) set.add(late);
-    }
-    return set;
-  })();
-  const isFounderByline = isMiddle && founderMiddleIdxs.has(index);
+  // Founder presence now comes from the PROFILE HEADER rendered on EVERY
+  // slide (2026-07-25, modeled on the client's reference decks) — the old
+  // one-middle-slide byline-chip rotation is superseded.
 
   const { cleaned: headlineClean, accentWords } = extractAccent(slide.headline);
   // Same universal marker-stripper we apply to the headline via
@@ -183,7 +170,7 @@ export function buildCarouselSlidePrompt({ designSystem: ds, slide, index, total
     `Headline color: ${p.textPrimary || '#ffffff'} (primary text). Body color: ${p.textMuted || '#b5b9c4'} (muted text).`,
     `Accent gradient: smooth two-stop gradient from ${p.gradientStart || p.accentPrimary || '#ffb75a'} to ${p.gradientEnd || p.accentPrimary || '#e5a82c'}, applied ONLY to the accent word(s) in the headline. Never apply the gradient to any other text.`,
     `Badge pill: rounded pill with a thin 1px border in the primary text color at about 20 percent opacity, transparent or very dark fill, uppercase label, wide letter-spacing.`,
-    `Branding strip at the top: ${brandName ? `the brand wordmark "${brandName}" rendered as clean text in the muted text color, small (~18 pixels tall), top-left at 48 pixels from the edges. No hex codes, no size labels — just the word "${brandName}".` : `no wordmark — leave the top-left empty.`}`,
+    `PROFILE HEADER at the top-left of EVERY slide (48px from the edges) — the strongest consistency anchor in the set, identical on every slide like the poster's byline on a social feed: a circular founder headshot about 70px diameter (cropped from the attached founder reference photos — exact likeness, natural photographic skin texture, thin light ring border)${brandName ? `, and to its right the name "${brandName}" in bold primary text (~24px)` : ''}. If NO founder reference photo is attached to this request, render ${brandName ? `only the "${brandName}" wordmark as clean text in the muted color` : 'nothing'} in that spot — never invent a face.`,
     `Slide counter at the top-right: the literal text "${slideNum} / ${totalNum}" in a monospaced font, muted text color at ~40 percent opacity, 48 pixels from the edges.`,
     `Color lock: use only these colors — background ${p.background || '#0f1115'}, primary text ${p.textPrimary || '#ffffff'}, muted text ${p.textMuted || '#b5b9c4'}, accent ${p.accentPrimary || '#e5a82c'}, gradient pair ${p.gradientStart || ''} to ${p.gradientEnd || ''}, glow ${p.glow || p.accentPrimary || '#e5a82c'}. Do not introduce any other color.`,
     ds.mood ? `Overall mood: ${sanitizeStyleText(ds.mood)}.` : '',
@@ -244,7 +231,7 @@ The reader swipes and NOTHING shifts vertically except the content itself. Same 
   } else if (isHook) {
     layoutNotes = `LAYOUT — OPENING SPREAD (slide 01): visually the richest slide in the set, but it follows the SAME vertical grid as the others so the swipe reads as aligned. The headline lands at the 28% top anchor. The hero visual (founder portrait / card stack / product mockup) sits BEHIND or BESIDE the text grid — not above it pushing the headline down. Think of it as the cover of ${cfg.moodReferences}: compositional depth through layering, not by moving the text lines around.${verticalGrid}`;
     textContent = [
-      brandName ? `  • Top-left wordmark (at y ≈ 8%, x = 48px): "${brandName}"` : `  • Top-left (y ≈ 8%): nothing`,
+      `  • Top-left: the PROFILE HEADER described in VISUAL STYLE (same as every slide).`,
       `  • Top-right slide counter (at y ≈ 8%, x = right - 48px): "${slideNum} / ${totalNum}"`,
       badgeText ? `  • Badge pill (at y ≈ 18%, x = ${cfg.leftMarginPx}px): "${badgeText}"` : '',
       `  • Headline (top edge at y ≈ 28%, display size ${cfg.headlineHookPx}px, weight 700, tight leading 1.0, left-aligned): "${headlineClean}"`,
@@ -258,7 +245,7 @@ The reader swipes and NOTHING shifts vertically except the content itself. Same 
   } else if (isFinal) {
     layoutNotes = `LAYOUT — CLOSING SPREAD (final slide): minimal and confident, same vertical grid as every other slide. Most zones are intentionally EMPTY — the power is in the restraint. Badge + CTA headline + CTA button sit where the body copy would normally go on a middle slide.${verticalGrid}`;
     textContent = [
-      brandName ? `  • Top-left wordmark (at y ≈ 8%, x = 48px): "${brandName}"` : `  • Top-left (y ≈ 8%): nothing`,
+      `  • Top-left: the PROFILE HEADER described in VISUAL STYLE (same as every slide).`,
       `  • Top-right slide counter (at y ≈ 8%, x = right - 48px): "${slideNum} / ${totalNum}"`,
       `  • Badge pill (at y ≈ 18%, CENTERED horizontally for this slide type): "${(badgeText || 'ONE LAST THING')}"`,
       `  • CTA headline (top edge at y ≈ 28%, centered horizontally, ${cfg.headlineFinalPx}px, weight 700, max 3 lines): "${headlineClean}"`,
@@ -269,24 +256,35 @@ The reader swipes and NOTHING shifts vertically except the content itself. Same 
       `  • Footer (at y ≈ 92%, centered, muted at 50% opacity, 11px): "save for later"`,
     ].filter(Boolean).join('\n');
   } else {
-    layoutNotes = `LAYOUT — EDITORIAL CHAPTER PAGE (middle slide): typography-led ${platform === 'linkedin' ? 'document' : 'magazine'} spread. Left-aligned, three text zones, same vertical grid as hook and CTA. The only non-text element is a large ghosted slide-index numeral behind the text.${verticalGrid}`;
+    // Middle slides carry a REAL supporting graphic (founder standard
+    // 2026-07-25, modeled on the client's reference decks): headline +
+    // short body up top, one illustrated element in the lower third that
+    // visualizes the slide's point. The old "typography-led chapter page"
+    // (ghost numeral as the only non-text element, planner visual ignored)
+    // is exactly what the founder reported as "no graphics, just plain
+    // text" — and slide 1 being rich while middles were bare is what made
+    // the set read as inconsistent.
+    const graphicBrief = sanitizeStyleText(slide.visualElement?.description) || '';
+    layoutNotes = `LAYOUT — CONTENT PAGE (middle slide): headline-led ${platform === 'linkedin' ? 'document' : 'magazine'} page WITH a supporting graphic. Text zones share the same top anchors as every other slide; the lower third belongs to ONE illustrated element that makes the slide's point visual. Same background system, same header, same accents as slide 01 — a reader flipping through must instantly see one designed document.${verticalGrid}
+MIDDLE-SLIDE OVERRIDE of the grid above: body copy sits directly under the headline (top edge y ≈ 48%, bottom edge by y ≈ 60%); the zone from y ≈ 62% to y ≈ 88% is the SUPPORTING GRAPHIC ZONE.`;
     textContent = [
-      brandName ? `  • Top-left wordmark (at y ≈ 8%, x = 48px): "${brandName}"` : `  • Top-left (y ≈ 8%): nothing`,
+      `  • Top-left: the PROFILE HEADER described in VISUAL STYLE (same as every slide).`,
       `  • Top-right slide counter (at y ≈ 8%, x = right - 48px): "${slideNum} / ${totalNum}"`,
-      `  • Chapter mark (at y ≈ 14%, x = ${cfg.leftMarginPx}px, small accent-color monospaced text with a thin 56px horizontal rule to its right): "${chapterNum}"`,
-      badgeText ? `  • Badge pill (at y ≈ 18%, immediately to the right of the chapter rule): "${badgeText}"` : '',
+      badgeText ? `  • Badge pill (at y ≈ 18%, x = ${cfg.leftMarginPx}px, SOLID accent-color fill with white/primary uppercase label — a bold step-label chip, not a ghost outline): "${badgeText}"` : `  • Chapter mark (at y ≈ 18%, x = ${cfg.leftMarginPx}px, small accent-color monospaced text): "${chapterNum}"`,
       `  • Display headline (top edge at y ≈ 28%, ${cfg.headlineMiddlePx}px, weight 700, tight leading 1.02, left-aligned at ${cfg.leftMarginPx}px, preserve line breaks): "${headlineClean}"`,
       `    ${accentPhrase}`,
-      bodyClean ? `  • Hairline rule (at y ≈ 66%, thin 40px line in muted color at ~30% opacity, aligned to left margin) then body copy directly below (top edge y ≈ 70%, bottom edge by y ≈ 82%, ${cfg.bodyPx}px, muted color, weight 400, leading 1.5, left-aligned, readable column width, max 3 lines): "${bodyClean}"` : '',
+      bodyClean ? `  • Body copy (top edge y ≈ 48%, bottom edge by y ≈ 60%, ${cfg.bodyPx}px, muted color, weight 400, leading 1.5, left-aligned, readable column width, max 3 lines — if the copy is a list, render it as bullets with small accent-color dots): "${bodyClean}"` : '',
+      ``,
+      `SUPPORTING GRAPHIC (y ≈ 62% to 88% — the visual proof of this slide's point, REQUIRED on every middle slide):`,
+      graphicBrief
+        ? `  ${graphicBrief}`
+        : `  Design ONE fitting element yourself from the slide's content: a clean UI-mockup card, a small file/folder-tree card, a mini flow diagram, or a stat block — whichever best visualizes the headline.`,
+      `  Render it as a flat, premium product-illustration: light/white rounded-corner card surface(s) (or the design system's card style) that pop against the background, subtle soft shadow, tiny realistic UI details (icons, short labels, buttons) in the locked palette with accent-color highlights. Any words ON the graphic must be real short labels related to the content (2-4 words max each) — never lorem ipsum, never gibberish glyphs. It may sit right-aligned beside the body copy or as a full-width band, but it must NEVER overlap or crowd the headline/body text zones — keep at least 48px clearance.`,
+      `  Style guardrails: crisp vector/UI illustration in the locked palette — never clip-art, never cartoon characters, never a stock photo, never emoji. Think of the illustrated cards in a premium SaaS landing page.`,
+      ``,
       `  • Bottom-right hint pill (at y ≈ 92%, x = right - 48px): "Keep swiping →"`,
-      isFounderByline
-        ? `  • FOUNDER FEATURE (this slide only — slightly more prominent than the other middle slides): a circular founder portrait about 140px diameter at the footer row (y ≈ 92%, x = left margin), cropped from the attached founder reference photo — exact likeness, natural photographic skin texture, never airbrushed. Noticeable but still secondary to the typography; it must not compete with the headline or shift any anchor point. If NO founder reference photo is attached to this request, OMIT this element entirely — never invent a face.`
-        : `  • FOUNDER PROFILE CHIP (very subtle — same spot on EVERY middle slide so the swipe reads consistent): a small circular founder avatar, about 64px diameter, at the footer row (y ≈ 92%, x = left margin), cropped from the attached founder reference photo — exact likeness, natural photographic skin texture. A quiet profile-picture byline, like the poster's avatar on a social feed — never a hero portrait. If NO founder reference photo is attached to this request, OMIT this element entirely — never invent a face.`,
       ``,
-      `EDITORIAL ANCHOR (with the founder avatar, the only non-text elements on this slide): a single ghosted slide-index numeral "${ghostNumeral}" rendered very large (around ${cfg.ghostNumeralPx}px tall), heavy weight, in the accent color at only 6–8 percent opacity, positioned in the top-right area so it bleeds partially off the right edge of the canvas. It sits BEHIND the main text as a typographic flourish — no outline, no shadow, no other decoration. This exact motif repeats on every middle slide to create rhythm.`,
-      ``,
-      `CRAFT NOTES: breathe. Every middle slide uses the same vertical anchors so the swipe reads as aligned. Feel of ${cfg.moodReferences}, not an infographic. No icons, no illustrations, no cards, no diagrams, no emoji. ${cfg.toneNote}.`,
-      (slide.visualElement?.description ? `(Planner hint — use ONLY for body phrasing if useful, ignore any visual suggestion: ${sanitizeStyleText(slide.visualElement.description)})` : ''),
+      `CRAFT NOTES: breathe — the graphic is ONE element, not a collage; the headline stays the hero. Every middle slide uses the same header, anchors, background treatment, and card style so the swipe reads as pages of one document. Feel of ${cfg.moodReferences} crossed with a premium SaaS landing page. ${cfg.toneNote}.`,
     ].filter(Boolean).join('\n');
   }
 
@@ -308,13 +306,13 @@ The reader swipes and NOTHING shifts vertically except the content itself. Same 
     : ['stock photography', 'clipart', 'cartoon illustration', 'gradient-rainbow color bars', 'Instagram UI chrome']
   ).map(s => `no ${s}`);
 
-  const doNotExtra = isMiddle
+  const doNotExtra = (!isHook && !isFinal)
     ? [
-      'no card stack, chat UI, node diagram, UI mockup, or any compositional card',
-      'no icon set, sticker, or emoji',
-      'no illustration or graphic filling more than 10% of the canvas',
+      'no sticker-sheet icon sets or emoji',
+      'no more than ONE supporting graphic element on the slide — a collage is a failed render',
+      'no graphic overlapping or crowding the headline/body text zones',
       'no small cramped copy — if it does not breathe, the layout is wrong',
-      'no centered alignment — editorial pages are left-aligned with a defined column',
+      'no centered alignment for the text zones — editorial pages are left-aligned with a defined column',
     ]
     : [];
 
