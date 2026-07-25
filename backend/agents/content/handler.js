@@ -57,6 +57,7 @@ import {
 import { CREATE_CONTENT_PLAN_TOOL } from '../content-plan-tool.js';
 import { buildPlanModeDirective } from './plan-mode.js';
 import { detectContentModules } from './intent-router.js';
+import { getContentProfileBlock } from '../../services/content-profile.js';
 import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE, scrubScriptLabels, buildReplicationDirective } from './video-script-guide.js';
 import { scrubAiDashes, scrubCarouselPlanDashes } from './claude-protocol.js';
 import { applyCuratedTemplateToPlanArgs } from './curated-carousel-templates.js';
@@ -260,6 +261,20 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
     : detectContentModules({ messages, platform, photos, socialUrls, carouselTemplates, existingPost, replicationMode });
   console.log(`[content-intent] modules → carousel=${modules.carousel} video=${modules.video} image=${modules.image} liText=${modules.liText} anyGen=${modules.anyGen} planAware=${modules.planAware}`);
 
+  // "How this user actually posts" — auto-synced from BooSend (IG media)
+  // and AICEO-published LinkedIn posts, so the model picks formats/topics
+  // from the user's real posting record instead of asking. Cached reads
+  // only; a hard 1.5s race means a slow DB can never delay the turn.
+  let profileBlock = '';
+  try {
+    profileBlock = await Promise.race([
+      getContentProfileBlock(userId, platform?.id),
+      new Promise((resolve) => setTimeout(() => resolve(''), 1500)),
+    ]) || '';
+  } catch (err) {
+    console.warn(`[content-profile] block fetch failed: ${err.message}`);
+  }
+
   let systemPrompt;
   if (planMode) {
     systemPrompt = buildPlanModeDirective({ lockedPlatform: platform })
@@ -267,12 +282,14 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
           platform, photos, documents, socialUrls, brandDna,
           integrationContext, carouselTemplates, existingPost, { planMode: false, modules },
         )
-      + recentContentBlock;
+      + recentContentBlock
+      + profileBlock;
   } else {
     systemPrompt = buildSystemPrompt(
       platform, photos, documents, socialUrls, brandDna,
       integrationContext, carouselTemplates, existingPost, { planMode: false, replicationMode, modules },
     ) + recentContentBlock
+      + profileBlock
       + buildClaudeChatProtocolAddendum({ isLinkedin, editModeActive, planPlatformId: platform?.id })
       // Craft guide for the submit_script tool — YouTube pill gets the
       // long-form guide, every other pill's video is short-form. Only
