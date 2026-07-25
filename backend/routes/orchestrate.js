@@ -9,6 +9,7 @@ import { saveFile, getFile, updateFile } from '../services/file-store.js';
 import { buildBrandContext, buildProductsContext } from '../agents/brand-context.js';
 import { handleContentOrchestration } from '../agents/content/handler.js';
 import { buildCeoUnifiedSocialAddendum, runLinkedInTextPostPass, GENERATE_LINKEDIN_POST_TOOL, mapContentItemsToSocialRefs } from '../agents/content/ceo-adapter.js';
+import { detectCeoModules, ALL_CEO_MODULES } from '../agents/ceo-intent-router.js';
 import { LINKEDIN_CAROUSEL_CAPTION_PARAM, LINKEDIN_CAPTION_STANDARD_BLOCK, LINKEDIN_SLIDE_BODY_STANDARD_BLOCK, REFERENCE_REPLICATION_EXAMPLE } from '../agents/content/build-system-prompt.js';
 import { scrubAiDashes, scrubCarouselPlanDashes } from '../agents/content/claude-protocol.js';
 import { buildPlanModeDirective } from '../agents/content/plan-mode.js';
@@ -63,7 +64,8 @@ The "brief" field is saved as the user's active campaign brief so other Marketin
 const GLOBAL_OUTPUT_RULES = GLOBAL_STYLE_RULES + BRIEF_CAPTURE_RULES;
 
 // ── CEO System Prompt Builder ──
-function buildCeoSystemPrompt(context) {
+function buildCeoSystemPrompt(context, modules = ALL_CEO_MODULES) {
+  const m = modules || ALL_CEO_MODULES;
   let prompt = `You are the user's AI CEO. Their business partner. You run their business alongside them, you know their numbers, their brand, their audience. You're not a bot. You talk like a real person who genuinely gives a shit about their success.
 
 HOW YOU TALK:
@@ -78,6 +80,12 @@ HOW YOU TALK:
 CRITICAL RULES:
 1. When you need to ask the user something, ALWAYS use the ask_user tool. This shows a popup with clickable options. NEVER type questions in your text response. If you already asked via ask_user, do NOT repeat the question in text.
 2. After ask_user gets an answer, act on it immediately. Don't recap what they said.
+5. For simple stuff (emails, docs, code, reel scripts) just create_artifact directly.
+6. For sending emails, use send_email. Confirm count first if more than 5 recipients.
+7. If the user asks to CHECK / READ / REVIEW / SUMMARIZE their emails or inbox, or asks what's new, or wants to find a specific email  -  call check_emails IMMEDIATELY with sensible defaults. DO NOT use ask_user to clarify first. DO NOT send them an email asking what they want. Just read the inbox, then summarize in plain talk (who, subject, one-line gist). Only ask follow-ups after you've already shown them what's there.`;
+
+  if (m.marketingAsset) {
+    prompt += `
 3. When creating ONLY these specific marketing assets: newsletter, landing page, squeeze page, lead magnet, DM automation  -  you MUST ask exactly 4 questions using ask_user before delegating. Ask ONE question at a time. NEVER skip questions. NEVER delegate until all 4 are answered. Never make these yourself via create_artifact.
    IMPORTANT: Reels, TikToks, Shorts, video scripts, and story sequences are NOT in this list. Do NOT do the 4-question flow for video content.
 4. The 4 questions MUST be grounded in the user's ACTUAL business, products, and audience. NEVER invent product names, services, or topics the user hasn't mentioned. Use what you know from their brand DNA, products, and previous conversations.
@@ -85,11 +93,10 @@ CRITICAL RULES:
    - Question 2: Who's the audience? Offer segments based on THEIR actual customer base.
    - Question 3: What tone? (e.g., "Authority/Hormozi style", "Witty/Morning Brew style", "Wisdom/James Clear style", "Growth/Sahil Bloom style")
    - Question 4: What's the main CTA? Offer options relevant to THEIR actual offers/links/goals.
-   NEVER fabricate product names, features, or services. If unsure, keep options generic ("Your main product", "Your latest offer") rather than guessing wrong.
-5. For simple stuff (emails, docs, code, reel scripts) just create_artifact directly.
-8. REELS / VIDEO SCRIPTS (THIS OVERRIDES EVERYTHING ABOVE): When the user asks to "make a reel", "create a reel", "write a reel script", "make a TikTok", "make a Short", or ANYTHING about short-form video content  -  you MUST use create_artifact IMMEDIATELY to write a VIDEO SCRIPT. Do NOT ask questions first. Do NOT use ask_user. Do NOT delegate to any agent. Do NOT generate images. Reels are NOT carousels, NOT stories, NOT slides. Write the script EXACTLY per the SHORT-FORM VIDEO SCRIPT GUIDE below — full output format: scored HOOK OPTIONS, **HOOK** / **BODY** / **CTA** sections of pure spoken lines, then the PRODUCTION NOTES block. Never put bracket cues like [VISUAL], [B-ROLL], [TEXT ON SCREEN], [SCENE], or timestamps inside the spoken lines — production guidance lives ONLY in PRODUCTION NOTES. If reference videos are provided in your context, copy their structure and pacing beat-for-beat.
-6. For sending emails, use send_email. Confirm count first if more than 5 recipients.
-7. If the user asks to CHECK / READ / REVIEW / SUMMARIZE their emails or inbox, or asks what's new, or wants to find a specific email  -  call check_emails IMMEDIATELY with sensible defaults. DO NOT use ask_user to clarify first. DO NOT send them an email asking what they want. Just read the inbox, then summarize in plain talk (who, subject, one-line gist). Only ask follow-ups after you've already shown them what's there.
+   NEVER fabricate product names, features, or services. If unsure, keep options generic ("Your main product", "Your latest offer") rather than guessing wrong.`;
+  }
+  prompt += `
+8. REELS / VIDEO SCRIPTS (THIS OVERRIDES EVERYTHING ABOVE): When the user asks to "make a reel", "create a reel", "write a reel script", "make a TikTok", "make a Short", or ANYTHING about short-form video content  -  you MUST use create_artifact IMMEDIATELY to write a VIDEO SCRIPT. Do NOT ask questions first. Do NOT use ask_user. Do NOT delegate to any agent. Do NOT generate images. Reels are NOT carousels, NOT stories, NOT slides.${m.video ? ` Write the script EXACTLY per the SHORT-FORM VIDEO SCRIPT GUIDE below — full output format: scored HOOK OPTIONS, **HOOK** / **BODY** / **CTA** sections of pure spoken lines, then the PRODUCTION NOTES block. Never put bracket cues like [VISUAL], [B-ROLL], [TEXT ON SCREEN], [SCENE], or timestamps inside the spoken lines — production guidance lives ONLY in PRODUCTION NOTES. If reference videos are provided in your context, copy their structure and pacing beat-for-beat.` : ''}
 
 YOUR TOOLS:
 
@@ -104,10 +111,19 @@ Pack the task_description with everything: topic, audience, tone, products, CTA,
 
 ask_user: Ask a question with clickable options. Use this instead of typing questions. Keep it tight, 3-5 options max.
 
-create_artifact: Make content directly in the canvas (emails, posts, code, docs, REEL/VIDEO SCRIPTS). NOT for newsletters/landing pages/etc. When user asks for a reel or short-form video, write a script here.
+create_artifact: Make content directly in the canvas (emails, posts, code, docs, REEL/VIDEO SCRIPTS). NOT for newsletters/landing pages/etc. When user asks for a reel or short-form video, write a script here.`;
+
+  // Video-script craft guides (13.5K chars) — only when the turn is
+  // actually about video content (prompt modularization, 2026-07-25).
+  if (m.video) {
+    prompt += `
 ${SCRIPT_GUIDE_ROUTER}
 ${SHORT_FORM_SCRIPT_GUIDE}
-${LONG_FORM_SCRIPT_GUIDE}
+${LONG_FORM_SCRIPT_GUIDE}`;
+  }
+
+  if (m.social) {
+  prompt += `
 
 SOCIAL POST RULE (READ THIS BEFORE EVERY LinkedIn/IG/X/TikTok/Facebook REQUEST):
 - ANY social media post = create_artifact with type:"content_post" AND platform:"<network>". This is the ONLY correct combination.
@@ -116,10 +132,16 @@ SOCIAL POST RULE (READ THIS BEFORE EVERY LinkedIn/IG/X/TikTok/Facebook REQUEST):
 - Why this matters: the artifact panel renders content_post + platform="linkedin" as a LinkedIn feed card (the canvas the user expects). type:"html_template" renders as a full HTML page — a PDF-looking wall of styled HTML. Getting this wrong is a visible bug the user WILL complain about.
 - The content field for content_post is PLAIN TEXT — the exact post copy, with normal line breaks. Do NOT put HTML tags, style blocks, or html/body wrappers in it. Do NOT wrap it in markdown fences. Just the raw post text, ready to paste into LinkedIn / IG / etc.
 - POST WRITER STANDARD (single-image posts): the content field is a REAL POST, not an announcement or headline. Hook first line (specific claim / number / tension — earns the "...more" tap), then 2-5 short paragraphs developing ONE idea with at least one specific detail, then a platform-fitting engagement CTA. A one-or-two-line announcement ("X is now the number one Y") is a failure — if the copy is under 3 sentences, rewrite it as a real post. The image text (in generate_image) stays SHORT: one bold hook line ≤ 8 words. Spell every product/brand/person name EXACTLY as the user wrote it (Claude, ChatGPT, Gemini — never phoneticized) in both the post copy and the image prompt.
-${SOCIAL_POST_DISCOVERY_PROMPT}
+${SOCIAL_POST_DISCOVERY_PROMPT}`;
+  } // end m.social (social post rule + discovery)
+
+  prompt += `
 
 === SCHEDULING / PUBLISHING POSTS ===
-You cannot schedule or publish posts yourself — scheduling is a UI action. When the user asks you to schedule, publish later, or queue a post, tell them exactly where to do it: the Schedule button on the post's preview canvas (for the piece on screen), the Schedule button on a content plan card (bulk-schedules the whole plan on a calendar), or the Content Calendar tab (see, reschedule, edit, or cancel anything). Never claim you scheduled something.
+You cannot schedule or publish posts yourself — scheduling is a UI action. When the user asks you to schedule, publish later, or queue a post, tell them exactly where to do it: the Schedule button on the post's preview canvas (for the piece on screen), the Schedule button on a content plan card (bulk-schedules the whole plan on a calendar), or the Content Calendar tab (see, reschedule, edit, or cancel anything). Never claim you scheduled something.`;
+
+  if (m.plan || m.social) {
+  prompt += `
 
 === MULTI-DAY CONTENT PLAN RULE (overrides the discovery questions above) ===
 Trigger: the user asks to plan MULTIPLE days or pieces of content ("plan my next 14 days of content", "content for next week", "a month of posts", "what should I post this month" — any topic or goal).
@@ -128,7 +150,10 @@ Trigger: the user asks to plan MULTIPLE days or pieces of content ("plan my next
 3. Then IMMEDIATELY call create_content_plan. Formats per platform: linkedin → text_post | single_image | carousel; instagram → single_image | carousel | reel_script; x → text_post | single_image; youtube → youtube_script. Rotate formats (never more than 2 consecutive items with the same format on the same platform); one piece per day unless told otherwise; timeframe from the request (default 7 days, cap 31); hard-sell CTAs at most 1 in 3.
 4. NEVER produce a plan via create_artifact (no html_template plan pages, no markdown_doc plans) and NEVER type the plan out as chat prose. One short intro sentence max — the client renders the day-by-day list from the tool payload.
 5. After the plan lands the client shows a "Generate content" button — the user generates the pieces from there, one at a time. Do not generate them yourself, do not delegate.
-Single-piece requests ("write me a LinkedIn post") still use the discovery flow above.
+Single-piece requests ("write me a LinkedIn post") still use the discovery flow above.`;
+  } // end m.plan || m.social (multi-day plan rule)
+
+  prompt += `
 
 send_email: Send an email from the user's connected account. Works for newsletters and plain text. NEVER use this to "check" emails  -  only for outbound sends.
 
@@ -145,8 +170,9 @@ save_to_soul: Save personal insights about the user (who they are, how they comm
 
 push_notification: Flag something important for the user's notification bell.`;
 
-  // Inject contacts with actual emails so CEO can send to them
-  const contactsList = context.contacts || [];
+  // Inject contacts with actual emails so CEO can send to them —
+  // only on email-intent turns (up to 40 lines of names+addresses).
+  const contactsList = m.email ? (context.contacts || []) : [];
   if (contactsList.length > 0) {
     const withEmail = contactsList.filter(c => c.email);
     if (withEmail.length > 0) {
@@ -159,9 +185,9 @@ push_notification: Flag something important for the user's notification bell.`;
     }
   }
 
-  // Inject form embedding guidance. Always present so CEO can offer to create
-  // a form on the fly when the user has none.
-  {
+  // Inject form embedding guidance — only when a marketing-asset flow
+  // (landing/squeeze/newsletter/lead magnet) is in play this turn.
+  if (m.marketingAsset) {
     const formsList = context.forms || [];
     const published = formsList.filter(f => f.status === 'published');
     const drafts = formsList.filter(f => f.status === 'draft');
@@ -196,6 +222,9 @@ If the user picks "No, just use a CTA button" -> delegate without a form.
   }
 
   // ── Landing / squeeze page: explicit style choice + asset gathering ──
+  // Marketing-asset module only — this interview flow + delegation spec
+  // is ~12K chars and irrelevant to chat/content turns.
+  if (m.marketingAsset) {
   prompt += `
 
 === LANDING / SQUEEZE PAGE FLOW (overrides rule 3 for landing/squeeze pages) ===
@@ -414,6 +443,7 @@ If EMBED FORM was selected, append "EMBED FORM: slug=<slug>, title=<title>" as t
 - If the user says "just generate it" at any point, stop asking and delegate with whatever you have (missing fields become placeholders).
 - When showing the asset-gathering prompt, lead with WHY those assets matter — remember, our users might not know, and your job is to teach them what good pages need.
 `;
+  } // end m.marketingAsset (landing/squeeze flow + delegation spec)
 
 
   // ── SOUL FILE  -  who this person is ──
@@ -1420,15 +1450,26 @@ async function enrichMessagesWithVideoContext(messages, userId, res) {
 
 // ── CEO Orchestration ──
 async function handleCeoOrchestration({ res, messages, context, searchMode, planMode = false, userId, currentHtml, currentAgent, currentContentPost, sessionId = null, assistantMsgId = null }) {
-  let systemPrompt = buildCeoSystemPrompt(context);
+  // Prompt-module routing (2026-07-25): only the guide blocks this turn
+  // needs enter the prompt — pure keyword/state detection, no extra model
+  // call. "hello" drops from ~77K chars to the core. Plan mode keeps only
+  // plan-relevant modules (its toolset is restricted anyway); an on-screen
+  // artifact keeps the social module warm for edit turns.
+  const modules = planMode
+    ? { video: false, social: true, linkedin: false, marketingAsset: false, email: false, plan: true, anyGen: true }
+    : detectCeoModules({ messages, context });
+  if (currentContentPost) { modules.social = true; modules.anyGen = true; }
+  console.log(`[ceo-intent] modules → video=${modules.video} social=${modules.social} linkedin=${modules.linkedin} marketing=${modules.marketingAsset} email=${modules.email} plan=${modules.plan}`);
+
+  let systemPrompt = buildCeoSystemPrompt(context, modules);
 
   // Unified pipeline (Phase 4, unconditional since Phase 5): LinkedIn
   // text posts route through the shared two-phase writer
   // (generate_linkedin_post tool → variation prompt pass), and LinkedIn
   // carousel plans get /Content's caption standards. Appended AFTER the
   // full CEO prompt so it wins; plan mode strips generation tools anyway
-  // so it's skipped there.
-  if (!planMode) {
+  // so it's skipped there. ~20K chars — LinkedIn-intent turns only.
+  if (!planMode && modules.linkedin) {
     systemPrompt += buildCeoUnifiedSocialAddendum();
   }
 
@@ -1452,8 +1493,13 @@ async function handleCeoOrchestration({ res, messages, context, searchMode, plan
   // an earlier plan artifact in this conversation and references a
   // specific piece from it ("generate Monday's carousel"), use its row
   // as the source-of-truth brief instead of asking new scoping
-  // questions or making up a generic version.
-  if (!planMode) {
+  // questions or making up a generic version. Only attached when a plan
+  // actually appears in history (prompt modularization, 2026-07-25).
+  const historyHasPlan = (messages || []).some((msg) => {
+    const t = typeof msg?.content === 'string' ? msg.content : '';
+    return t.includes('[CONTENT PLAN') || t.includes('Content Plan —');
+  });
+  if (!planMode && historyHasPlan) {
     systemPrompt += `
 
 === PRIOR PLAN AWARENESS ===
