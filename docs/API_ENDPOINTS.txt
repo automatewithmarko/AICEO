@@ -1,0 +1,172 @@
+========================================================================
+ POWER BRICKS SUPER API - ENDPOINT LIST
+ Base URL: https://platform.thementorprogram.xyz
+========================================================================
+
+AUTH (all endpoints except /health):
+  Header:  Authorization: Bearer mnt_your_key
+  Also accepted:  x-api-key: mnt_your_key   or   ?key=mnt_your_key
+  Content-Type: application/json
+
+
+------------------------------------------------------------------------
+ SYSTEM
+------------------------------------------------------------------------
+GET   https://platform.thementorprogram.xyz/health
+GET   https://platform.thementorprogram.xyz/api/v1/models
+
+
+------------------------------------------------------------------------
+ TEXT  (chat / conversation / generation)
+------------------------------------------------------------------------
+POST  https://platform.thementorprogram.xyz/api/v1/chat/completions
+POST  https://platform.thementorprogram.xyz/api/v1/messages
+POST  https://platform.thementorprogram.xyz/api/v1/responses
+
+Body (chat/completions): { "model": "...", "messages": [...], "max_tokens": 300, "stream": false }
+Body (messages):         { "model": "...", "max_tokens": 300, "messages": [...], "system": "..." }
+Models: openai/gpt-5, openai/gpt-5-mini, openai/gpt-5-nano, openai/gpt-4.1,
+        openai/gpt-4.1-mini, openai/gpt-4.1-nano, openai/gpt-4o, openai/gpt-4o-mini,
+        openai/gpt-4-turbo, xai/grok-4, xai/grok-4-fast, grok-4-1-fast-non-reasoning,
+        anthropic/claude-opus-4-6, anthropic/claude-sonnet-4-6, anthropic/claude-haiku-4-5,
+        anthropic/claude-sonnet-4-5, claude-sonnet-4-20250514, google/gemini-2.5-pro,
+        google/gemini-2.5-flash, atlas/anthropic/claude-opus-4.8, atlas/google/gemini-3.5-flash,
+        atlas/deepseek-ai/deepseek-v4-pro, atlas/deepseek-ai/deepseek-v4-flash,
+        atlas/qwen/qwen3-max-2026-01-23, atlas/qwen/qwen3.6-plus,
+        atlas/minimaxai/minimax-m3, atlas/minimaxai/minimax-m2.1
+
+
+------------------------------------------------------------------------
+ CODING  (same endpoints as TEXT, code-tuned models)
+------------------------------------------------------------------------
+POST  https://platform.thementorprogram.xyz/api/v1/chat/completions
+POST  https://platform.thementorprogram.xyz/api/v1/messages
+
+Models: anthropic/claude-opus-4-6, anthropic/claude-sonnet-4-6, anthropic/claude-opus-4,
+        anthropic/claude-sonnet-4-5, moonshot/kimi-k2.6, xai/grok-code-fast-1
+
+
+------------------------------------------------------------------------
+ IMAGE  (text-to-image / image-to-image)
+------------------------------------------------------------------------
+POST  https://platform.thementorprogram.xyz/api/v1/images/generations
+POST  https://platform.thementorprogram.xyz/api/v1beta/models/{model}:generateContent
+      e.g. https://platform.thementorprogram.xyz/api/v1beta/models/gemini-2.5-flash-image:generateContent
+
+Body (images/generations): { "model": "...", "prompt": "...", "n": 1, "size": "1024x1024" }
+Response: { "data": [{ "url": "..." }] }   (some models return b64_json)
+
+Reference image (image-to-image / edit) - optional:
+  "image":  { "mimeType": "image/png", "data": "<base64, NO data: prefix>" }   (single)
+  "images": [ { "mimeType": "image/png", "data": "<base64>" }, ... ]           (multiple)
+
+  Models that accept reference images, and how many:
+    google/gemini-2.5-flash-image                       up to 14  (same model)
+    gemini-3-pro-image-preview                          up to 14  (same model)
+    atlas/bytedance/seedream-v4.5/edit                  up to 10
+    atlas/bytedance/seedream-v5.0-lite/edit-sequential  up to 10
+    atlas/qwen/qwen-image-2.0/edit                      up to 3
+    flux/<model>   (direct BFL provider, not atlas/*)   first ref only
+
+  Easier: POST /api/v1/images/edits instead (see IMAGE EDIT below). It picks
+  the right slug for you and errors loudly on models that can't edit.
+
+  IMPORTANT - use the /edit slug for atlas models. The atlas text-to-image
+  slugs (bytedance/seedream-v4.5, bytedance/seedream-v5.0-lite/sequential,
+  qwen/qwen-image-2.0/text-to-image) declare no reference field, and
+  AtlasCloud drops unknown fields silently - refs sent there are ignored
+  with no error and you get a plain text-to-image result. Google is the
+  exception: it takes refs inline on the base model, no slug swap needed.
+
+  Ignored by: openai/*, xai/*, replicate/*, atlas/black-forest-labs/*,
+  atlas/stabilityai/*.
+
+  Request body cap is 25 MB. Base64 inflates ~33%, so keep reference images
+  under ~18 MB of raw bytes per request or the gateway returns 413.
+
+Example (image-to-image):
+  curl https://platform.thementorprogram.xyz/api/v1/images/generations \
+    -H "Authorization: Bearer mnt_your_key" \
+    -H "Content-Type: application/json" \
+    -d '{ "model": "google/gemini-2.5-flash-image",
+          "prompt": "make the jacket red",
+          "image": { "mimeType": "image/png", "data": "iVBORw0KGgo..." } }'
+
+Models: google/gemini-2.5-flash-image, gemini-3-pro-image-preview,
+        atlas/black-forest-labs/flux-1.1-pro, atlas/black-forest-labs/flux-dev,
+        atlas/bytedance/seedream-v4.5, atlas/bytedance/seedream-v5.0-lite/sequential,
+        atlas/qwen/qwen-image-2.0/text-to-image,
+        atlas/stabilityai/stable-diffusion-3.5-large/text-to-image
+
+
+------------------------------------------------------------------------
+ IMAGE EDIT  (you supply an image, the model edits inside it)
+------------------------------------------------------------------------
+POST  https://platform.thementorprogram.xyz/api/v1/images/edits
+POST  https://platform.thementorprogram.xyz/api/v1/images/edit    (alias)
+
+Use this instead of images/generations when you already have an image and
+want it changed. The input image is REQUIRED, and the gateway swaps to the
+model's edit variant for you - so you name the model you know
+("atlas/bytedance/seedream-v4.5") and it calls ".../seedream-v4.5/edit".
+A model that cannot edit returns 400 here, rather than silently returning
+an unedited picture the way images/generations does.
+
+Body: { "model": "...", "prompt": "what to change",
+        "image":  "<base64>" | "data:image/png;base64,..." | { "mimeType": "...", "data": "..." },
+        "images": [ ... ],          (optional - multiple inputs, where supported)
+        "mask":   <same shapes>,    (optional - inpainting; see table below)
+        "n": 1, "size": "1024x1024", "aspect_ratio": "1:1",
+        "strength": 0.8 }           (optional - how far to deviate, model-specific)
+
+Also accepts multipart/form-data with `image`/`mask` file parts, so the
+OpenAI SDK's images.edit() works against this endpoint unchanged.
+
+Response: { "data": [{ "b64_json": "..." }], "model": "<slug actually called>" }
+          (url instead of b64_json on atlas/flux; "model" shows the edit swap)
+
+Name this model                                  Mask?  Multi-image?
+  google/gemini-2.5-flash-image                   no     yes (up to 14)
+  gemini-3-pro-image-preview                      no     yes (up to 14)
+  atlas/bytedance/seedream-v4.5                   no     yes (up to 10)
+  atlas/bytedance/seedream-v5.0-lite/sequential   no     yes (up to 10)
+  atlas/qwen/qwen-image-2.0/text-to-image         no     yes (up to 3)
+  openai/gpt-image-1                              yes    yes
+  flux/<model>                                    fill   first image only
+Gemini has no mask concept - describe the region to change in the prompt.
+
+Image URLs are not accepted as input; inline the bytes as base64. Same
+25 MB body cap as images/generations.
+
+Example:
+  curl https://platform.thementorprogram.xyz/api/v1/images/edits \
+    -H "Authorization: Bearer mnt_your_key" \
+    -F "model=openai/gpt-image-1" \
+    -F "prompt=paint a white star in the centre" \
+    -F "image=@photo.png"
+
+
+------------------------------------------------------------------------
+ VIDEO  (text-to-video, asynchronous)
+------------------------------------------------------------------------
+POST  https://platform.thementorprogram.xyz/api/v1/videos/generations
+
+Body: { "model": "...", "prompt": "...", "duration": 5 }
+Response: HTTP 202 -> { "id": "...", "status": "queued", "provider": "...", "poll_url": "https://..." }
+Then GET the returned poll_url until the video is ready.
+(Atlas models return status:"completed" with an "output" URL in the first response.)
+Models: google/veo-3, google/veo-2, atlas/bytedance/seedance-2.0/text-to-video,
+        atlas/kwaivgi/kling-v3.0-std/text-to-video, atlas/runwayml/gen-4-turbo/text-to-video,
+        atlas/google/veo3.1-lite/text-to-video, atlas/alibaba/wan-2.7/text-to-video,
+        atlas/luma/ray-3/text-to-video, atlas/minimax/hailuo-2.3/t2v-pro
+
+
+------------------------------------------------------------------------
+ NOTES
+------------------------------------------------------------------------
+- Streaming: chat/completions and messages support "stream": true (SSE). Image/video do not.
+- Errors: JSON { "error": { "message": "..." } }.
+  401 = bad/missing key, 402 = out of credits or over monthly budget,
+  413 = request body over 25 MB (usually oversized base64 reference images).
+- /api/v1/messages fallback chain: Anthropic -> Gemini (gemini-3.6-flash) -> OpenAI.
+========================================================================
