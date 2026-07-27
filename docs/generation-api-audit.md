@@ -1,6 +1,6 @@
 # Generation API Usage Audit — Mentor gateway vs direct provider APIs
 
-**Date:** 2026-07-24
+**Date:** 2026-07-24 · **Last updated:** 2026-07-24 (post-merge: Mentor-first images, 429 throttle, ref sanitization, Whisper failover, Apify transcript actor, direct-call log markers)
 **Scope:** every content-generation endpoint (text/LLM + image) across the Marketing AI, AI CEO, and Content tabs.
 **Why:** live failures — images failing with `429`, and landing pages failing with "Anthropic credits have been depleted." This report maps which API each path uses (the **Mentor gateway** vs **direct** Anthropic / OpenAI / Gemini), the primary model, and the fallback chain, so it's clear where each error comes from and which lever fixes it.
 
@@ -99,9 +99,21 @@ Two HTTP entry points funnel into one core function `generateImageCore` (`backen
 3. **Gemini** `gemini-3.1-flash-image-preview` (or `-pro-` for story/tiktok) — **always direct** (`generate.js:707-712`), 90s fast / 120s pro.
 
 **Error handling:**
-- OpenAI 429/400 → `openai-image.js:227` captures `status`; falls through to Gemini (not surfaced unless Gemini also fails).
-- Gemini 429 (`RESOURCE_EXHAUSTED` / "prepayment credits are depleted") → raw body logged (`generate.js:744`), user sees `"Image generation is temporarily unavailable (provider capacity)..."` (`:748-749`).
-- Carousel route: `isRateLimited` (`generate.js:1027-1028`) arms a shared cooldown gate on any slide 429 so parallel workers back off; concurrency capped at 4, up to 4 attempts/slide.
+- OpenAI 429/400 → `openai-image.js` captures `status`; falls through to Gemini (not surfaced unless Gemini also fails).
+- Gemini 429 (`RESOURCE_EXHAUSTED` / "prepayment credits are depleted") → raw body logged, user sees `"Image generation is temporarily unavailable (provider capacity)..."`.
+- Carousel route: `isRateLimited` arms a shared cooldown gate on any slide 429 so parallel workers back off; concurrency capped at 4 with 500ms staggered worker starts; up to 4 attempts/slide (429s back off 8s+ escalating with jitter, other errors 1.5s×attempt).
+
+**Reference-image hardening (2026-07-24, after the poisoned-ref incident):**
+- Every fetched reference (brand logo/photos/anchor slides) is sanitized through **sharp** in `fetchImageAsBase64` (`generate.js`): decode-validate, downscale to ≤2048px, re-encode (PNG if alpha, else JPEG q92). An undecodable file is **dropped with a log**, not passed through. One corrupt brand photo used to 400 every OpenAI edits call and cascade the whole carousel onto Gemini, which then 429'd under the parallel burst.
+- If OpenAI still rejects a specific reference (`400 "Invalid image file or mode for image N"`), `openai-image.js` drops that ref and **retries the edits call once** before falling to Gemini.
+
+**Observability contract — every direct (non-Mentor) provider call announces itself in the logs:**
+- `⚠️ DIRECT OPENAI API (images/edits, N reference images)` — forced direct, Mentor has no `/images/edits`.
+- `⚠️ DIRECT OPENAI API — MENTOR_API_KEY not configured` — text-to-image with no gateway key.
+- `⚠️ MENTOR gateway image generation failed (...) — FALLING BACK TO DIRECT OPENAI API`.
+- `⚠️ DIRECT GEMINI API in use` — the whole Gemini path is inherently direct (no Mentor proxy).
+- `⚠️ DIRECT GROQ API (Whisper)` — no Mentor audio endpoint.
+Grep `railway logs` for `DIRECT` to see exactly which calls bypassed the gateway and why.
 
 ---
 
@@ -130,7 +142,8 @@ Two HTTP entry points funnel into one core function `generateImageCore` (`backen
 - `routes/email.js` — AI email drafting via `anthropicTarget()` (Mentor→direct), `claude-sonnet-4-6`.
 - `routes/sales.js` — sales insights/chat via OpenAI SDK pointed at Mentor `/api/v1` (or direct `api.x.ai/v1`), Grok `grok-4-1-fast-non-reasoning`.
 - `routes/stagedemo.js` — OpenAI **Realtime voice** (`gpt-realtime-2`), direct `OPENAI_API_KEY`.
-- `services/video.js` — transcription via **Groq** (`GROQ_API_KEY`) with a direct OpenAI `whisper-1` fallback.
+- `services/video.js` — transcription via **Groq** (`GROQ_API_KEY`) with a direct OpenAI `whisper-1` failover (added 2026-07-24 after the shared Groq key went 401-invalid on BOTH Railway environments — replace it when convenient, Groq is faster/cheaper).
+- **IG reel transcript chain** (`services/social.js`): Apify reel scraper's own transcript → dedicated **Apify transcript actor** (`APIFY_IG_TRANSCRIPT_ACTOR`, default `apple_yang~instagram-transcripts-scraper` — ASR runs on Apify's infra, the default workhorse) → container-side Whisper (Groq→OpenAI) as last resort. `POST /api/content-items/backfill-transcripts` re-runs this chain for saved references stuck with `transcript=null` (fired automatically on Content/AI CEO tab mount, max 3 rows per call).
 
 ---
 
@@ -164,7 +177,7 @@ Two HTTP entry points funnel into one core function `generateImageCore` (`backen
 ## Appendix — effective chains at a glance
 
 **Text (landing page / specialist agent):**
-`Mentor(Anthropic claude-sonnet-4-6)` → *(billing/5xx/substitution)* → `direct Anthropic claude-sonnet-4-6` → ✗ (no Grok). 
+`Mentor(Anthropic claude-sonnet-4-6)` → *(billing/5xx/substitution)* → `direct Anthropic claude-sonnet-4-6` → `Grok grok-4-1-fast-non-reasoning` (since 2026-07-24, `streamAnthropicWithGrokFallback`; only the artifact-EDIT tool loop still lacks Grok).
 
 **Text (AI CEO brain):**
 `Mentor(Anthropic claude-sonnet-4-6)` → `direct Anthropic claude-sonnet-4-6` → `Grok grok-4-1-fast-non-reasoning` (Mentor→direct xAI).
