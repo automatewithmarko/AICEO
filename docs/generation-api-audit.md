@@ -28,7 +28,7 @@ Generation splits cleanly into two independently-routed subsystems:
 | Primary route | **Mentor gateway** (`/api/v1/messages`) | **Mentor gateway** for no-reference requests; **direct OpenAI** for reference-image requests |
 | Fallback 1 | **direct Anthropic** (`api.anthropic.com`) | direct OpenAI, `quality=medium` retry |
 | Fallback 2 | **xAI Grok** `grok-4-1-fast-non-reasoning` — **CEO orchestrator only** | **direct Gemini** `gemini-3.1-flash-image-preview` / `-pro-` |
-| Gateway proxies it? | Yes (Anthropic + xAI) | Partly (OpenAI generations only; **never Gemini**, **never OpenAI edits**) |
+| Gateway proxies it? | Yes (Anthropic + xAI) | Partly (generations endpoint + a Gemini-wire endpoint we don't use yet; **never OpenAI edits**) |
 
 **Model constants:**
 - `SONNET_MODEL = 'claude-sonnet-4-6'` — `backend/config/models.js:11` (the *only* exported constant; no OPUS/HAIKU).
@@ -40,13 +40,16 @@ Generation splits cleanly into two independently-routed subsystems:
 
 ## 2. The Mentor gateway
 
-**What it is:** a multi-provider proxy at `https://platform.thementorprogram.xyz` (`MENTOR_BASE_URL`, `base-agent.js:14`) that exposes Anthropic-, xAI-, and OpenAI-wire-compatible endpoints under `/api/v1/*`. `/api/v1/messages` is documented as a "pure passthrough to api.anthropic.com" (`base-agent.js:3-10`). All routing logic lives in `backend/agents/base-agent.js` — there is no separate `mentor.js`.
+**What it is:** a multi-provider proxy at `https://platform.thementorprogram.xyz` (`MENTOR_BASE_URL`, `base-agent.js:14`) — the "Power Bricks Super API". **Official endpoint list: `docs/API_ENDPOINTS.txt`** (auth, model roster, request/response shapes). It exposes Anthropic-, xAI-, OpenAI-, and Gemini-wire-compatible endpoints. `/api/v1/messages` is documented as a "pure passthrough to api.anthropic.com" (`base-agent.js:3-10`). All routing logic lives in `backend/agents/base-agent.js` — there is no separate `mentor.js`.
 
-**Endpoints it fronts:**
-- Anthropic: `${MENTOR_BASE_URL}/api/v1/messages` (`base-agent.js:27`)
-- xAI chat: `${MENTOR_BASE_URL}/api/v1/chat/completions` (`base-agent.js:52`)
-- xAI responses (web search): `${MENTOR_BASE_URL}/api/v1/responses` (`base-agent.js:68`)
-- OpenAI images: `${MENTOR_BASE_URL}/api/v1/images/generations` (`services/openai-image.js:67`)
+**Endpoints it fronts (per `docs/API_ENDPOINTS.txt` — what OUR code uses marked ✓):**
+- ✓ Anthropic: `${MENTOR_BASE_URL}/api/v1/messages` (`base-agent.js:27`)
+- ✓ xAI chat: `${MENTOR_BASE_URL}/api/v1/chat/completions` (`base-agent.js:52`)
+- ✓ xAI responses (web search): `${MENTOR_BASE_URL}/api/v1/responses` (`base-agent.js:68`)
+- ✓ Images (OpenAI-wire): `${MENTOR_BASE_URL}/api/v1/images/generations` (`services/openai-image.js:67`). **Caveat:** the official model list for this endpoint is Gemini/Flux/Seedream/SD-class — `gpt-image-2` is NOT listed, so our Mentor-first call may be rejected upstream and fall to direct OpenAI (which the code handles + logs). If Mentor image billing matters, switch the Mentor hop's `model` to a listed one (e.g. `google/gemini-2.5-flash-image`).
+- ✗ **Gemini-wire generateContent**: `${MENTOR_BASE_URL}/api/v1beta/models/{model}:generateContent` — the gateway DOES proxy Gemini-protocol image gen. **Our `generate.js` still calls `generativelanguage.googleapis.com` directly** (predates this doc); migrating the Gemini fallback to this endpoint would put the whole image chain behind Mentor billing. Adoption candidate.
+- ✗ Video (async): `${MENTOR_BASE_URL}/api/v1/videos/generations` (Veo/Kling/Runway/etc., 202 + poll_url) — unused by the platform today.
+- Auth: `Authorization: Bearer mnt_…` (also `x-api-key` or `?key=`). `401` bad key · `402` out of credits/over budget. Streaming only on chat/messages.
 
 **Route selection (Mentor vs direct)** — the `*Target()` builders in `base-agent.js`:
 - `anthropicTarget()` (`21-44`): default = **Mentor primary, direct Anthropic fallback**. `ANTHROPIC_PREFER_DIRECT==='true'` flips to **direct primary, Mentor fallback**. No `MENTOR_API_KEY` → direct only.
@@ -54,7 +57,7 @@ Generation splits cleanly into two independently-routed subsystems:
 
 **Transport guard** — `fetchWithMentorFallback()` (`base-agent.js:85-106`): runs the primary, retries the fallback **only on 5xx or network throw**. A **4xx is a real error and never falls back**; **aborts** (cancel/timeout) are re-thrown, never retried.
 
-**Silent-model-substitution guard** (the known incident where Mentor served `"claude-sonnet-4-6 (via gemini-2.5-flash fallback)"`):
+**Silent-model-substitution guard** (the known incident where Mentor served `"claude-sonnet-4-6 (via gemini-2.5-flash fallback)"`). Per `docs/API_ENDPOINTS.txt` this is the gateway's *documented* `/api/v1/messages` fallback chain (Anthropic → Gemini `gemini-3.6-flash` → OpenAI) — not a bug on their side. We still reject it deliberately: substituted models break the native tool protocol (pseudo tool-calls as chat text). The guard:
 - `isSubstitutedModel()` (`158-163`), `gatewaySubstitutionError()` (`165-170`) throw `code='GATEWAY_SUBSTITUTED'`.
 - Detected on the first stream event (`message_start`) in `streamAnthropicCore` (`331-334`) and `streamAnthropicWithToolsCore` (`1573-1576`), and on the `model` field in `executeAnthropicWithTools` (`712-724`).
 - `throwAnthropicApiError()` (`180-189`) also maps a **Mentor 400/402 billing/credit** error to `GATEWAY_SUBSTITUTED` (`servedBy:'mentor-billing-error'`) so a depleted Mentor account reroutes to a direct key instead of failing outright.
@@ -62,7 +65,7 @@ Generation splits cleanly into two independently-routed subsystems:
 **When the code bypasses Mentor and calls a provider SDK directly:**
 - `ANTHROPIC_PREFER_DIRECT=true`, or no `MENTOR_API_KEY` set.
 - The `preferDirect` rescue after two Mentor substitutions (`base-agent.js:231, 238, 847-863, 1485`).
-- **Gemini image generation is always direct** — no Mentor proxy exists (`generate.js:711`).
+- **Gemini image generation is direct today** (`generate.js`) — the gateway's `/api/v1beta/models/{model}:generateContent` proxy exists but is not yet adopted (see §2).
 - **OpenAI `/images/edits`** (reference-image requests) — Mentor has no edits endpoint, so it's forced direct (`openai-image.js:156`).
 
 ---
