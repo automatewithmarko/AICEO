@@ -27,6 +27,9 @@ import { toFile } from 'openai/uploads';
 import { MENTOR_BASE_URL } from '../agents/base-agent.js';
 
 const OPENAI_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
+// Gateway model ids carry a provider prefix (docs/API_ENDPOINTS.txt):
+// bare 'gpt-image-2' is not on the roster, 'openai/gpt-image-2' is.
+const MENTOR_IMAGE_MODEL = OPENAI_MODEL.includes('/') ? OPENAI_MODEL : `openai/${OPENAI_MODEL}`;
 // 150s default — gpt-image-2 at quality=high regularly needs >120s. The
 // caller retries once at quality=medium with a shorter cap, then falls
 // to Gemini; the whole chain must fit the frontend's 300s client cap.
@@ -37,6 +40,22 @@ const OPENAI_TIMEOUT_MS = 150_000;
 // ~4-6k characters. OpenAI silently truncates past its limit but returns
 // a valid image, so we don't pre-truncate — surfacing the truncation via
 // a warning would only alarm without helping the caller.
+
+// OpenAI SDK pointed at the Mentor gateway — /api/v1/images/edits accepts
+// the SDK's multipart images.edit() unchanged (docs/API_ENDPOINTS.txt),
+// and since the 2026-07-27 gateway update it serves openai/gpt-image-2
+// with mask + up to 16 refs. Platform policy: Mentor first, direct as
+// fallback only.
+let _mentorClient = null;
+function getMentorClient() {
+  if (!_mentorClient) {
+    _mentorClient = new OpenAI({
+      apiKey: process.env.MENTOR_API_KEY,
+      baseURL: `${MENTOR_BASE_URL}/api/v1`,
+    });
+  }
+  return _mentorClient;
+}
 
 let _client = null;
 function getClient() {
@@ -57,10 +76,9 @@ export function isOpenAIImageConfigured() {
 
 // Text-to-image through the Mentor gateway (platform policy: EVERYTHING
 // routes through Mentor; direct provider APIs are fallback only).
-// The gateway exposes /api/v1/images/generations (OpenAI protocol,
-// Bearer auth — live-verified 401-without-auth on 2026-07-24) but NOT
-// /api/v1/images/edits (404) — so reference-image generation cannot
-// route through Mentor and stays on the direct API by necessity.
+// /api/v1/images/generations, OpenAI protocol, Bearer auth. Reference
+// requests route through the gateway too since 2026-07-27 (its edits
+// endpoint serves openai/gpt-image-2 — see getMentorClient above).
 // Handles both b64_json and url response shapes.
 async function generateViaMentor({ prompt, size, quality, signal }) {
   try {
@@ -70,7 +88,7 @@ async function generateViaMentor({ prompt, size, quality, signal }) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${process.env.MENTOR_API_KEY}`,
       },
-      body: JSON.stringify({ model: OPENAI_MODEL, prompt, size, quality, n: 1 }),
+      body: JSON.stringify({ model: MENTOR_IMAGE_MODEL, prompt, size, quality, n: 1 }),
       signal,
     });
     if (!res.ok) {
@@ -153,7 +171,7 @@ export async function generateImageWithOpenAI({ prompt, referenceImages, aspectR
       return { ok: false, error: mentorAvailable ? 'Mentor gateway failed and OPENAI_API_KEY not configured for direct fallback' : 'OPENAI_API_KEY not configured' };
     }
     if (refs.length > 0 && mentorAvailable) {
-      console.warn(`[openai-image] ⚠️ DIRECT OPENAI API (images/edits, ${refs.length} reference image${refs.length === 1 ? '' : 's'}) — Mentor gateway has no /images/edits endpoint, reference-image generation cannot route through Mentor`);
+      console.warn(`[openai-image] ⚠️ reference request (${refs.length} ref image${refs.length === 1 ? '' : 's'}) — Mentor gateway tried first, DIRECT OPENAI API is the fallback`);
     } else if (refs.length === 0 && !mentorAvailable) {
       console.warn('[openai-image] ⚠️ DIRECT OPENAI API — MENTOR_API_KEY not configured');
     }
@@ -172,6 +190,23 @@ export async function generateImageWithOpenAI({ prompt, referenceImages, aspectR
       );
       console.log(`[openai-image] edits size=${size} q=${q} refs=${images.length} promptChars=${prompt.length}`);
       const editParams = { model: OPENAI_MODEL, image: images, prompt, size, quality: q, n: 1 };
+      // ── MENTOR FIRST (since 2026-07-27 the gateway serves gpt-image-2
+      // edits — reference requests no longer need the direct API) ──
+      if (mentorAvailable) {
+        try {
+          response = await getMentorClient().images.edit(
+            { ...editParams, model: MENTOR_IMAGE_MODEL },
+            { signal: controller.signal },
+          );
+          console.log('[openai-image] ✅ edits served via MENTOR gateway');
+        } catch (err) {
+          const isAbort = err.name === 'AbortError' || err.name === 'APIUserAbortError' || /aborted/i.test(err.message || '');
+          if (isAbort) throw err; // caller timeout — don't mask as gateway failure
+          console.warn(`[openai-image] ⚠️ MENTOR gateway edits failed (${err.status || 'n/a'}): ${(err.error?.message || err.message || '').slice(0, 160)} — FALLING BACK TO DIRECT OPENAI API`);
+          response = null;
+        }
+      }
+      if (!response) {
       try {
         response = await client.images.edit(editParams, { signal: controller.signal });
       } catch (err) {
@@ -191,6 +226,7 @@ export async function generateImageWithOpenAI({ prompt, referenceImages, aspectR
           throw err;
         }
       }
+      }
     } else {
       console.log(`[openai-image] generations size=${size} q=${q} refs=0 promptChars=${prompt.length}`);
       response = await client.images.generate(
@@ -208,7 +244,14 @@ export async function generateImageWithOpenAI({ prompt, referenceImages, aspectR
     // gpt-image-1 always returns b64_json (there's no URL mode). We keep
     // the mimeType 'image/png' because that's what the model produces
     // regardless of quality.
-    const data = response?.data?.[0]?.b64_json;
+    let data = response?.data?.[0]?.b64_json;
+    if (!data && response?.data?.[0]?.url) {
+      // Gateway may return a URL instead of b64 — inline it.
+      try {
+        const imgRes = await fetch(response.data[0].url, { signal: controller.signal });
+        if (imgRes.ok) data = Buffer.from(await imgRes.arrayBuffer()).toString('base64');
+      } catch { /* fall through to the no-data handling */ }
+    }
     if (!data) {
       // Extremely rare — 200 with empty data. Treat as failure so the
       // caller can fall through to Gemini rather than serve a broken

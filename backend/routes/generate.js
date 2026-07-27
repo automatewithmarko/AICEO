@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
+import { MENTOR_BASE_URL } from '../agents/base-agent.js';
 import { requireCredits } from '../middleware/gate.js';
 import { generateImageWithOpenAI, isOpenAIImageConfigured } from '../services/openai-image.js';
 import { deductCredits, hasCredits } from '../services/credits.js';
@@ -704,11 +705,6 @@ ${prompt}`;
       console.log('[generate/image] OpenAI unconfigured — using Gemini directly');
     }
 
-    // Platform policy: everything routes through the Mentor gateway,
-    // direct provider APIs are fallback only — and every direct use must
-    // be visible in the logs. Gemini generateContent (image models) has
-    // no Mentor proxy at all, so this entire path is inherently direct.
-    console.warn(`[generate/image] ⚠️ DIRECT GEMINI API in use — Mentor gateway does not proxy Gemini generateContent (image models); no gateway route exists for this call`);
     console.log(`[generate/image] Gemini fallback — Platform: ${platform || 'default'}, Model: ${model}, Parts: ${requestParts.length} (1 text + ${requestParts.length - 1} images), Prompt: ${prompt.slice(0, 120)}...`);
 
     // Build request body with imageConfig and optional thinking
@@ -729,15 +725,52 @@ ${prompt}`;
       requestBody.tools = [{ google_search: {} }];
     }
 
-    const geminiRes = await fetch(
-      `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(timeout),
-        body: JSON.stringify(requestBody),
+    // Mentor first (platform policy — direct APIs are fallback only):
+    // the gateway proxies Gemini-wire generateContent at
+    // /api/v1beta/models/{model}:generateContent (docs/API_ENDPOINTS.txt,
+    // Bearer auth). Any gateway failure falls to direct Google, loudly.
+    let geminiRes = null;
+    if (process.env.MENTOR_API_KEY) {
+      try {
+        geminiRes = await fetch(
+          `${MENTOR_BASE_URL}/api/v1beta/models/${model}:generateContent`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${process.env.MENTOR_API_KEY}`,
+            },
+            signal: AbortSignal.timeout(timeout),
+            body: JSON.stringify(requestBody),
+          }
+        );
+        if (geminiRes.ok) {
+          console.log('[generate/image] ✅ Gemini served via MENTOR gateway');
+        } else {
+          let detail = '';
+          try { detail = (await geminiRes.text()).slice(0, 200); } catch { /* drain failed */ }
+          console.warn(`[generate/image] ⚠️ MENTOR gateway Gemini failed (${geminiRes.status}): ${detail} — FALLING BACK TO DIRECT GEMINI API`);
+          geminiRes = null;
+        }
+      } catch (err) {
+        if (err.name === 'AbortError' || err.name === 'TimeoutError') throw err; // real timeout — don't double the wait on direct
+        console.warn(`[generate/image] ⚠️ MENTOR gateway Gemini network error: ${err.message} — FALLING BACK TO DIRECT GEMINI API`);
+        geminiRes = null;
       }
-    );
+    } else {
+      console.warn('[generate/image] ⚠️ DIRECT GEMINI API — MENTOR_API_KEY not configured');
+    }
+    if (!geminiRes) {
+      geminiRes = await fetch(
+        `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(timeout),
+          body: JSON.stringify(requestBody),
+        }
+      );
+    }
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
