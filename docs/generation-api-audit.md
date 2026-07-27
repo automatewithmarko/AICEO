@@ -1,6 +1,6 @@
 # Generation API Usage Audit — Mentor gateway vs direct provider APIs
 
-**Date:** 2026-07-24 · **Last updated:** 2026-07-24 (post-merge: Mentor-first images, 429 throttle, ref sanitization, Whisper failover, Apify transcript actor, direct-call log markers)
+**Date:** 2026-07-24 · **Last updated:** 2026-07-27 (gateway now serves gpt-image-2 on generations AND edits — full-Mentor image routing possible with zero quality tradeoff, adoption pending)
 **Scope:** every content-generation endpoint (text/LLM + image) across the Marketing AI, AI CEO, and Content tabs.
 **Why:** live failures — images failing with `429`, and landing pages failing with "Anthropic credits have been depleted." This report maps which API each path uses (the **Mentor gateway** vs **direct** Anthropic / OpenAI / Gemini), the primary model, and the fallback chain, so it's clear where each error comes from and which lever fixes it.
 
@@ -28,7 +28,7 @@ Generation splits cleanly into two independently-routed subsystems:
 | Primary route | **Mentor gateway** (`/api/v1/messages`) | **Mentor gateway** for no-reference requests; **direct OpenAI** for reference-image requests |
 | Fallback 1 | **direct Anthropic** (`api.anthropic.com`) | direct OpenAI, `quality=medium` retry |
 | Fallback 2 | **xAI Grok** `grok-4-1-fast-non-reasoning` — **CEO orchestrator only** | **direct Gemini** `gemini-3.1-flash-image-preview` / `-pro-` |
-| Gateway proxies it? | Yes (Anthropic + xAI) | Yes in principle (generations + NEW edits endpoint + Gemini-wire) — but our edits path stays direct for gpt-image-2 quality (see §2) |
+| Gateway proxies it? | Yes (Anthropic + xAI) | **Yes, fully** since the 2026-07-27 gateway update — generations + edits + Gemini-wire, `gpt-image-2` served on all (see §2). Our code still calls OpenAI direct for reference requests; adoption is now a pure routing change with no quality tradeoff |
 
 **Model constants:**
 - `SONNET_MODEL = 'claude-sonnet-4-6'` — `backend/config/models.js:11` (the *only* exported constant; no OPUS/HAIKU).
@@ -46,8 +46,8 @@ Generation splits cleanly into two independently-routed subsystems:
 - ✓ Anthropic: `${MENTOR_BASE_URL}/api/v1/messages` (`base-agent.js:27`)
 - ✓ xAI chat: `${MENTOR_BASE_URL}/api/v1/chat/completions` (`base-agent.js:52`)
 - ✓ xAI responses (web search): `${MENTOR_BASE_URL}/api/v1/responses` (`base-agent.js:68`)
-- ✓ Images (OpenAI-wire): `${MENTOR_BASE_URL}/api/v1/images/generations` (`services/openai-image.js:67`). **Caveat:** the official model list for this endpoint is Gemini/Flux/Seedream/SD-class — `gpt-image-2` is NOT listed, so our Mentor-first call may be rejected upstream and fall to direct OpenAI (which the code handles + logs). If Mentor image billing matters, switch the Mentor hop's `model` to a listed one (e.g. `google/gemini-2.5-flash-image`).
-- ✗ **Images/edits (NEW — added by the gateway team 2026-07-24, later revision of the endpoint doc):** `${MENTOR_BASE_URL}/api/v1/images/edits` — reference-image editing THROUGH Mentor is now possible. Accepts multipart form-data compatible with the OpenAI SDK's `images.edit()` unchanged; input image required; auto-swaps to each model's edit variant; 400s loudly on non-edit models. Roster: `openai/gpt-image-1` (mask + multi-image), Gemini image models (up to 14 refs), seedream (10), qwen (3). **NOT adopted yet** — our edits path still goes direct because the gateway offers `gpt-image-1`, not the `gpt-image-2` we upgraded to for hands/text quality (founder decision needed: Mentor billing vs gpt-image-2 quality). 25 MB body cap (413 above it) — our sharp downscale to ≤2048px keeps refs well under.
+- ✓ Images (OpenAI-wire): `${MENTOR_BASE_URL}/api/v1/images/generations` (`services/openai-image.js:67`). **Since the 2026-07-27 gateway update `openai/gpt-image-2` IS on this endpoint's roster** (send `model: "openai/gpt-image-2"` — note the `openai/` prefix; our Mentor hop currently sends bare `gpt-image-2`, worth aligning). The endpoint also takes inline reference images (`image`/`images`, gpt-image-2 up to 16) and auto-switches to OpenAI's edit endpoint when refs are attached.
+- ✗ **Images/edits (NEW — added by the gateway team 2026-07-24, later revision of the endpoint doc):** `${MENTOR_BASE_URL}/api/v1/images/edits` — reference-image editing THROUGH Mentor is now possible. Accepts multipart form-data compatible with the OpenAI SDK's `images.edit()` unchanged; input image required; auto-swaps to each model's edit variant; 400s loudly on non-edit models. Roster (2026-07-27 update): **`openai/gpt-image-2` (mask + up to 16 refs)**, `gpt-image-1`, Gemini image models (14 refs), seedream (10), qwen (3). The old blocker is gone — the gateway now serves the exact model we run, so routing reference requests through Mentor costs NO quality. **Still not adopted in code** (openai-image.js calls OpenAI direct for refs); flipping the SDK baseURL to `${MENTOR_BASE_URL}/api/v1` with model `openai/gpt-image-2` is the whole change. 25 MB body cap (413 above it) — our sharp downscale to ≤2048px keeps refs well under.
 - ✗ **Gemini-wire generateContent**: `${MENTOR_BASE_URL}/api/v1beta/models/{model}:generateContent` — the gateway DOES proxy Gemini-protocol image gen. **Our `generate.js` still calls `generativelanguage.googleapis.com` directly** (predates this doc); migrating the Gemini fallback to this endpoint would put the whole image chain behind Mentor billing. Adoption candidate.
 - ✗ Video (async): `${MENTOR_BASE_URL}/api/v1/videos/generations` (Veo/Kling/Runway/etc., 202 + poll_url) — unused by the platform today.
 - Auth: `Authorization: Bearer mnt_…` (also `x-api-key` or `?key=`). `401` bad key · `402` out of credits/over budget. Streaming only on chat/messages.
@@ -58,7 +58,7 @@ Generation splits cleanly into two independently-routed subsystems:
 
 **Transport guard** — `fetchWithMentorFallback()` (`base-agent.js:85-106`): runs the primary, retries the fallback **only on 5xx or network throw**. A **4xx is a real error and never falls back**; **aborts** (cancel/timeout) are re-thrown, never retried.
 
-**Silent-model-substitution guard** (the known incident where Mentor served `"claude-sonnet-4-6 (via gemini-2.5-flash fallback)"`). Per `docs/API_ENDPOINTS.txt` this is the gateway's *documented* `/api/v1/messages` fallback chain (Anthropic → Gemini `gemini-3.6-flash` → OpenAI) — not a bug on their side. We still reject it deliberately: substituted models break the native tool protocol (pseudo tool-calls as chat text). The guard:
+**Silent-model-substitution guard** (the known incident where Mentor served `"claude-sonnet-4-6 (via gemini-2.5-flash fallback)"`). Per `docs/API_ENDPOINTS.txt` this is the gateway's *documented* `/api/v1/messages` fallback chain (Anthropic → Gemini `gemini-3.6-flash` → OpenAI) — not a bug on their side. We still reject it deliberately: substituted models break the native tool protocol (pseudo tool-calls as chat text). Fallback-leg details (2026-07-27 doc): the OpenAI leg runs `gpt-5.5` (`gpt-5.4-mini` for Haiku-tier), overridable via the gateway's `OPENAI_FALLBACK_MODEL`; GPT-5 models reject `temperature`≠1 and `stop_sequences`, silently dropped on that leg. The guard:
 - `isSubstitutedModel()` (`158-163`), `gatewaySubstitutionError()` (`165-170`) throw `code='GATEWAY_SUBSTITUTED'`.
 - Detected on the first stream event (`message_start`) in `streamAnthropicCore` (`331-334`) and `streamAnthropicWithToolsCore` (`1573-1576`), and on the `model` field in `executeAnthropicWithTools` (`712-724`).
 - `throwAnthropicApiError()` (`180-189`) also maps a **Mentor 400/402 billing/credit** error to `GATEWAY_SUBSTITUTED` (`servedBy:'mentor-billing-error'`) so a depleted Mentor account reroutes to a direct key instead of failing outright.
@@ -67,7 +67,7 @@ Generation splits cleanly into two independently-routed subsystems:
 - `ANTHROPIC_PREFER_DIRECT=true`, or no `MENTOR_API_KEY` set.
 - The `preferDirect` rescue after two Mentor substitutions (`base-agent.js:231, 238, 847-863, 1485`).
 - **Gemini image generation is direct today** (`generate.js`) — the gateway's `/api/v1beta/models/{model}:generateContent` proxy exists but is not yet adopted (see §2).
-- **OpenAI `/images/edits`** (reference-image requests) — direct today for `gpt-image-2` (the gateway's new edits endpoint serves `gpt-image-1`/Gemini-class instead; adoption pending a quality call — see §2).
+- **OpenAI `/images/edits`** (reference-image requests) — direct today by code history only; since 2026-07-27 the gateway serves `openai/gpt-image-2` edits with mask + 16 refs, so this bypass is no longer forced (see §2).
 
 ---
 

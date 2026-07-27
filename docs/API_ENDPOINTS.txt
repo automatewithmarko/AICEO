@@ -63,6 +63,7 @@ Reference image (image-to-image / edit) - optional:
   Models that accept reference images, and how many:
     google/gemini-2.5-flash-image                       up to 14  (same model)
     gemini-3-pro-image-preview                          up to 14  (same model)
+    openai/gpt-image-2                                  up to 16  (same model)
     atlas/bytedance/seedream-v4.5/edit                  up to 10
     atlas/bytedance/seedream-v5.0-lite/edit-sequential  up to 10
     atlas/qwen/qwen-image-2.0/edit                      up to 3
@@ -78,8 +79,9 @@ Reference image (image-to-image / edit) - optional:
   with no error and you get a plain text-to-image result. Google is the
   exception: it takes refs inline on the base model, no slug swap needed.
 
-  Ignored by: openai/*, xai/*, replicate/*, atlas/black-forest-labs/*,
-  atlas/stabilityai/*.
+  Ignored by: xai/*, replicate/*, atlas/black-forest-labs/*, atlas/stabilityai/*.
+  (openai/gpt-image-* DO accept references — the gateway switches to OpenAI's
+  images.edit endpoint automatically when you attach any.)
 
   Request body cap is 25 MB. Base64 inflates ~33%, so keep reference images
   under ~18 MB of raw bytes per request or the gateway returns 413.
@@ -93,6 +95,7 @@ Example (image-to-image):
           "image": { "mimeType": "image/png", "data": "iVBORw0KGgo..." } }'
 
 Models: google/gemini-2.5-flash-image, gemini-3-pro-image-preview,
+        openai/gpt-image-2,
         atlas/black-forest-labs/flux-1.1-pro, atlas/black-forest-labs/flux-dev,
         atlas/bytedance/seedream-v4.5, atlas/bytedance/seedream-v5.0-lite/sequential,
         atlas/qwen/qwen-image-2.0/text-to-image,
@@ -131,6 +134,7 @@ Name this model                                  Mask?  Multi-image?
   atlas/bytedance/seedream-v4.5                   no     yes (up to 10)
   atlas/bytedance/seedream-v5.0-lite/sequential   no     yes (up to 10)
   atlas/qwen/qwen-image-2.0/text-to-image         no     yes (up to 3)
+  openai/gpt-image-2                              yes    yes (up to 16)
   openai/gpt-image-1                              yes    yes
   flux/<model>                                    fill   first image only
 Gemini has no mask concept - describe the region to change in the prompt.
@@ -169,4 +173,8 @@ Models: google/veo-3, google/veo-2, atlas/bytedance/seedance-2.0/text-to-video,
   401 = bad/missing key, 402 = out of credits or over monthly budget,
   413 = request body over 25 MB (usually oversized base64 reference images).
 - /api/v1/messages fallback chain: Anthropic -> Gemini (gemini-3.6-flash) -> OpenAI.
+  The OpenAI leg uses gpt-5.5, or gpt-5.4-mini for Haiku-tier requests.
+  Override with OPENAI_FALLBACK_MODEL. Note that GPT-5 models reject
+  temperature (other than 1) and stop_sequences, so those are dropped on the
+  fallback leg only.
 ========================================================================
