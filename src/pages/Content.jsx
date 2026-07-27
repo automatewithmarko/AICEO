@@ -15,7 +15,6 @@ import { sweepCarouselMessages } from '../lib/carouselState';
 import { bulkSchedulePieces } from '../lib/planSchedule';
 import SchedulePlanModal from '../components/SchedulePlanModal';
 import IgAccountPicker from '../components/IgAccountPicker';
-import { XPreview, YouTubePreview } from '../components/PlatformPreviews';
 import { useAuth } from '../context/AuthContext';
 import LinkedInPreview from '../components/LinkedInPreview';
 import ChatDropOverlay from '../components/ChatDropOverlay';
@@ -5571,48 +5570,6 @@ export default function Content() {
                       caption={panelMsg.linkedinPost?.content || ''}
                     />
                   }
-                />
-              </div>
-            );
-          }
-          // X and YouTube get their OWN canvas chrome (founder feedback
-          // #3b) — routed here so the Instagram SocialPreview path below
-          // stays byte-identical for instagram/tiktok/facebook.
-          const pfCaption = panelMsg.socialPost?.caption || panelMsg.content || '';
-          if (panelMsg.platform === 'x' || panelMsg.platform === 'twitter') {
-            return (
-              <div className="content-main-preview">
-                <XPreview
-                  content={pfCaption}
-                  images={[...(panelMsg.images || [])].sort((a, b) => (a.idx || 0) - (b.idx || 0))}
-                  brandDna={brandDna}
-                  user={user}
-                  pendingImages={panelMsg.pendingImages || 0}
-                  onClose={() => setCarouselSideView(null)}
-                  onContentChange={(next) => {
-                    setMessages(prev => prev.map(m => (m.id === panelMsg.id
-                      ? (m.socialPost ? { ...m, socialPost: { ...m.socialPost, caption: next } } : { ...m, content: next })
-                      : m)));
-                  }}
-                />
-              </div>
-            );
-          }
-          if (panelMsg.platform === 'youtube') {
-            return (
-              <div className="content-main-preview">
-                <YouTubePreview
-                  content={pfCaption}
-                  images={[...(panelMsg.images || [])].sort((a, b) => (a.idx || 0) - (b.idx || 0))}
-                  brandDna={brandDna}
-                  user={user}
-                  pendingImages={panelMsg.pendingImages || 0}
-                  onClose={() => setCarouselSideView(null)}
-                  onContentChange={(next) => {
-                    setMessages(prev => prev.map(m => (m.id === panelMsg.id
-                      ? (m.socialPost ? { ...m, socialPost: { ...m.socialPost, caption: next } } : { ...m, content: next })
-                      : m)));
-                  }}
                 />
               </div>
             );
