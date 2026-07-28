@@ -875,7 +875,7 @@ export default function AiCeo() {
     }
     // Sweep interrupted carousels: stale pending/generating flags off,
     // never-arrived slides into failedSlides so the retry UI lights up.
-    setMessages(sweepCarouselMessages(loadedMessages));
+    setMessages(sweepCarouselMessages(loadedMessages, data.artifact || null));
     setCurrentQuestion(null);
     if (data.artifact) {
       setArtifact(sweepCarouselHolder(data.artifact));
