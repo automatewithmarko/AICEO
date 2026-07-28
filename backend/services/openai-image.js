@@ -135,7 +135,10 @@ function mapAspectToSize(aspectRatio) {
  */
 function mapQuality(hint) {
   if (hint === 'low' || hint === 'medium' || hint === 'high' || hint === 'auto') return hint;
-  return 'high';
+  // Benchmark 2026-07-28: medium == high visually on real platform
+  // prompts at identical latency — high is the exception now, not the
+  // default. OPENAI_IMAGE_QUALITY overrides for callers that pass no hint.
+  return process.env.OPENAI_IMAGE_QUALITY || 'medium';
 }
 
 /**

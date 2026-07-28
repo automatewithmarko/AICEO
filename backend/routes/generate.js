@@ -674,7 +674,15 @@ ${prompt}`;
     // the fallback is ratio-safe everywhere PLATFORM_CONFIG goes.
     // Switch: IMAGE_PRIMARY=nb2 re-enables the NB2-first trial order.
     const NB2_SAFE_ASPECTS = new Set(['1:1', '9:16', '16:9', '3:4', '4:3', '4:5']);
-    const nb2First = process.env.IMAGE_PRIMARY === 'nb2'
+    // HYBRID (benchmark docs/image-model-benchmark/results.md, 2026-07-28):
+    // middle carousel slides (speedTier 'fast', flat design-system work)
+    // go NB2-2K FIRST — ~2x faster than any gpt2 tier at 9/10 quality —
+    // with gpt2-medium as the fallback. Hook/CTA slides, single images,
+    // and reference-heavy photo work stay gpt2-first (fidelity king).
+    // IMAGE_PRIMARY=nb2 still forces NB2-first for everything;
+    // IMAGE_PRIMARY=openai disables the hybrid and forces gpt2-first.
+    const nb2First = (process.env.IMAGE_PRIMARY === 'nb2'
+        || (speedTier === 'fast' && process.env.IMAGE_PRIMARY !== 'openai'))
       && !!process.env.MENTOR_API_KEY
       && NB2_SAFE_ASPECTS.has(pConfig.aspectRatio);
 
@@ -691,18 +699,22 @@ ${prompt}`;
       // medium for ref-heavy requests turns a reliable ~3-minute cycle
       // into ~60s with no visible quality loss.
       const fast = speedTier === 'fast' || (speedTier !== 'quality' && openaiRefs.length >= 2);
+      // Benchmark 2026-07-28 (round 2): medium is visually identical to
+      // high on heavy platform prompts at the same latency — high now
+      // costs money for nothing. OPENAI_IMAGE_QUALITY=high restores it.
+      const topQuality = process.env.OPENAI_IMAGE_QUALITY || 'medium';
       let openaiResult = await generateImageWithOpenAI({
         prompt: imagePrompt,
         referenceImages: openaiRefs,
         aspectRatio: pConfig.aspectRatio,
-        quality: fast ? 'medium' : 'high',
+        quality: fast ? 'medium' : topQuality,
         // 110s first-attempt cap: live data (2026-07-20) shows q=high
         // with reference images either finishes well under this or blows
         // past 150s anyway — a tighter cap gets the medium retry (which
         // reliably succeeds in ~60s) started sooner, cutting the
         // worst-case wait from ~240s to ~200s. Fast tier starts at
         // medium, so 90s covers it comfortably.
-        timeoutMs: fast ? 90_000 : 110_000,
+        timeoutMs: (fast || topQuality !== 'high') ? 90_000 : 110_000,
       });
       // One retry at quality=medium with a tighter cap before touching
       // Gemini: a high-quality render that blows the 150s window usually
@@ -756,7 +768,9 @@ ${prompt}`;
         responseModalities: ['TEXT', 'IMAGE'],
         imageConfig: {
           aspectRatio: pConfig.aspectRatio,
-          imageSize: pConfig.imageSize,
+          // 2K pinned for the flash/NB2 model: benchmark 2026-07-28 shows
+          // 2K is FASTER (25-36s vs 49-60s) and crisper than 1K on Atlas.
+          imageSize: model === GEMINI_MODEL_FAST ? '2K' : pConfig.imageSize,
         },
       },
     };
