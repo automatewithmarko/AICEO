@@ -3550,7 +3550,9 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* flex-start, not space-between: New chat sits NEXT TO the history
+     icon on the left (founder 2026-07-28), not pushed to the far right */
+  justify-content: flex-start;
   gap: 8px;
   padding: 10px 16px;
   background: #fff;
