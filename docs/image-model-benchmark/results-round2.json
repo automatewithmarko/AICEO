@@ -1,0 +1,92 @@
+[
+  {
+    "variant": "gpt2-high",
+    "model": "openai/gpt-image-2",
+    "prompt": "slide_heavy",
+    "seconds": 48,
+    "kb": 1068,
+    "file": "r2_gpt2-high__slide_heavy.png",
+    "ok": true
+  },
+  {
+    "variant": "gpt2-high",
+    "model": "openai/gpt-image-2",
+    "prompt": "post_mixed",
+    "seconds": 80.5,
+    "kb": 1233,
+    "file": "r2_gpt2-high__post_mixed.png",
+    "ok": true
+  },
+  {
+    "variant": "gpt2-medium",
+    "model": "openai/gpt-image-2",
+    "prompt": "slide_heavy",
+    "seconds": 50.5,
+    "kb": 999,
+    "file": "r2_gpt2-medium__slide_heavy.png",
+    "ok": true
+  },
+  {
+    "variant": "gpt2-medium",
+    "model": "openai/gpt-image-2",
+    "prompt": "post_mixed",
+    "seconds": 80.1,
+    "kb": 1261,
+    "file": "r2_gpt2-medium__post_mixed.png",
+    "ok": true
+  },
+  {
+    "variant": "gpt2-auto",
+    "model": "openai/gpt-image-2",
+    "prompt": "slide_heavy",
+    "seconds": 60.1,
+    "kb": 1070,
+    "file": "r2_gpt2-auto__slide_heavy.png",
+    "ok": true
+  },
+  {
+    "variant": "gpt2-auto",
+    "model": "openai/gpt-image-2",
+    "prompt": "post_mixed",
+    "seconds": 84.1,
+    "kb": 1225,
+    "file": "r2_gpt2-auto__post_mixed.png",
+    "ok": true
+  },
+  {
+    "variant": "nb2-1K",
+    "model": "gemini-3.1-flash-image-preview",
+    "prompt": "slide_heavy",
+    "seconds": 49,
+    "kb": 1029,
+    "file": "r2_nb2-1K__slide_heavy.png",
+    "ok": true
+  },
+  {
+    "variant": "nb2-1K",
+    "model": "gemini-3.1-flash-image-preview",
+    "prompt": "post_mixed",
+    "seconds": 60,
+    "kb": 1103,
+    "file": "r2_nb2-1K__post_mixed.png",
+    "ok": true
+  },
+  {
+    "variant": "nb2-2K",
+    "model": "gemini-3.1-flash-image-preview",
+    "prompt": "slide_heavy",
+    "seconds": 24.9,
+    "kb": 1021,
+    "file": "r2_nb2-2K__slide_heavy.png",
+    "ok": true
+  },
+  {
+    "variant": "nb2-2K",
+    "model": "gemini-3.1-flash-image-preview",
+    "prompt": "post_mixed",
+    "seconds": 35.8,
+    "kb": 1124,
+    "file": "r2_nb2-2K__post_mixed.png",
+    "ok": true
+  }
+]
