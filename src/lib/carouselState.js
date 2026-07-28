@@ -18,25 +18,42 @@
 // pendingImages }: a /Content message, an AI CEO artifact, or an AI CEO
 // per-message artifact snapshot. Returns the same reference when nothing
 // needed fixing.
-export function sweepCarouselHolder(holder) {
+//
+// imagesOverride (founder bug 2026-07-28): AI CEO messages carry the
+// plan on the MESSAGE but the rendered slides on the message's ARTIFACT
+// snapshot — sweeping the message against its own (empty) images array
+// marked every slide failed on reload while the canvas + PDF were fine.
+// The caller passes the artifact's images so completion is judged where
+// the slides actually live.
+export function sweepCarouselHolder(holder, imagesOverride = null) {
   const cp = holder?.carouselPlan;
   const slides = cp?.slides;
   // Only approved plans have ever started generating — sweeping an
   // unapproved plan would mark every slide failed before it begins.
   if (!cp?.approved || !Array.isArray(slides) || slides.length === 0) return holder;
 
-  const presentIdx = new Set((holder.images || []).filter((im) => im?.src).map((im, i) => (Number.isInteger(im.idx) ? im.idx : i)));
+  const imageList = imagesOverride || holder.images || [];
+  const presentIdx = new Set(imageList.filter((im) => im?.src).map((im, i) => (Number.isInteger(im.idx) ? im.idx : i)));
   const failedSet = new Set(cp.failedSlides || []);
   const recovered = [];
   for (let i = 0; i < slides.length; i++) {
     if (!presentIdx.has(i) && !failedSet.has(i) && slides[i]?.blank !== true) recovered.push(i);
   }
+  // Self-heal the inverse corruption: slides marked failed whose image
+  // IS present (earlier sweeps ran against the wrong images array and
+  // persisted bogus failedSlides — clear them so the chat plan card
+  // stops offering "Retry N slides" for a finished deck).
+  const healed = [...failedSet].filter((i) => presentIdx.has(i));
   const stale = (holder.pendingImages || 0) > 0 || cp.generating === true || holder.streaming === true;
-  if (recovered.length === 0 && !stale) return holder;
+  if (recovered.length === 0 && healed.length === 0 && !stale) return holder;
 
   if (recovered.length) {
     console.warn(`[carousel] hydrate sweep: slides ${recovered.map((i) => i + 1).join(', ')} never arrived — marked failed (retryable)`);
   }
+  if (healed.length) {
+    console.log(`[carousel] hydrate sweep: slides ${healed.map((i) => i + 1).join(', ')} were marked failed but their images exist — cleared`);
+  }
+  const nextFailed = [...failedSet, ...recovered].filter((i) => !presentIdx.has(i)).sort((a, b) => a - b);
   return {
     ...holder,
     pendingImages: 0,
@@ -44,7 +61,7 @@ export function sweepCarouselHolder(holder) {
     carouselPlan: {
       ...cp,
       generating: false,
-      failedSlides: [...failedSet, ...recovered].sort((a, b) => a - b),
+      failedSlides: nextFailed,
     },
   };
 }
@@ -53,9 +70,11 @@ export function sweepCarouselMessages(msgs) {
   if (!Array.isArray(msgs)) return msgs;
   let changed = false;
   const out = msgs.map((m) => {
-    let next = sweepCarouselHolder(m);
-    // AI CEO messages carry the carousel state inside per-message
-    // artifact snapshots rather than on the message itself.
+    // AI CEO: slides live on the artifact snapshot, not the message —
+    // judge the message's plan against wherever images actually are.
+    const artImages = m?.artifact?.images;
+    const imagesForMsg = (m?.images?.length ? m.images : (artImages?.length ? artImages : null));
+    let next = sweepCarouselHolder(m, imagesForMsg);
     if (m?.artifact?.carouselPlan) {
       const sweptArt = sweepCarouselHolder(m.artifact);
       if (sweptArt !== m.artifact) next = { ...next, artifact: sweptArt };
