@@ -1242,7 +1242,16 @@ router.post('/api/generate/carousel', async (req, res) => {
     // Phase a: if slide 1 (index 0) is requested and no anchor was
     // supplied, render it alone first so its bytes anchor the rest —
     // exact mirror of the legacy approve flow.
-    if (!hookRef && queue.includes(0)) {
+    // EXCEPTION (founder lever 2, 2026-07-28): when a curated template
+    // locks the design system, the template — not the hook's bytes —
+    // carries visual consistency, so the anchor wait is pure latency.
+    // Slide 0 joins the parallel pool and the whole carousel completes
+    // in roughly one slide-time.
+    const templateLocked = !!getCuratedTemplate(plan.designSystem?.templateId);
+    if (templateLocked && queue.includes(0)) {
+      console.log('[generate/carousel] curated template locked — skipping anchor-first wait, all slides parallel');
+    }
+    if (!templateLocked && !hookRef && queue.includes(0)) {
       queue = queue.filter((i) => i !== 0);
       try {
         const first = await renderSlide(0);
@@ -1283,9 +1292,19 @@ router.post('/api/generate/carousel', async (req, res) => {
     // landing on the provider in one synchronized burst. Combined with
     // the shared 429 cooldown gate above, an 11-slide run degrades to
     // slightly-slower instead of failing.
-    const CONCURRENCY = Math.min(4, Math.max(queue.length, 1));
+    // Lever 1 (founder 2026-07-28): when the non-anchor slides route
+    // NB2-first (safe aspect + gateway key — the hybrid default), they
+    // land on Atlas, whose limits are separate from OpenAI's — so run
+    // them as ONE wave (cap 12) with a short stagger instead of batches
+    // of 4. OpenAI-routed runs keep the proven cap of 4. The shared 429
+    // cooldown gate remains the safety brake either way.
+    const NB2_POOL_ASPECTS = new Set(['1:1', '9:16', '16:9', '3:4', '4:3', '4:5']);
+    const nb2Pool = !!process.env.MENTOR_API_KEY
+      && process.env.IMAGE_PRIMARY !== 'openai'
+      && NB2_POOL_ASPECTS.has(PLATFORM_IMAGE_RULES[imagePlatform]?.aspectRatio || PLATFORM_IMAGE_RULES.instagram.aspectRatio);
+    const CONCURRENCY = Math.min(nb2Pool ? 12 : 4, Math.max(queue.length, 1));
     await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => (async () => {
-      if (i > 0) await sleep(i * 500);
+      if (i > 0) await sleep(i * (nb2Pool ? 250 : 500));
       return worker();
     })()));
   } catch (err) {
