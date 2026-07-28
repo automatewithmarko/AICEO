@@ -69,7 +69,7 @@ async function getAuthHeaders() {
  * @param {AbortSignal} signal - Abort signal
  */
 export async function streamFromBackend(endpoint, body, callbacks = {}, signal) {
-  const { onTextDelta, onStatus, onAgentChunk, onAgentResult, onAgentStart, onToolCall, onSearchStatus, onFileUpdate, onEditSummary, onFileSaved, onAskUser, onError, onDone } = callbacks;
+  const { onTextDelta, onStatus, onAgentChunk, onAgentResult, onAgentStart, onToolCall, onSearchStatus, onFileUpdate, onEditSummary, onFileSaved, onAskUser, onActivity, onError, onDone } = callbacks;
   const headers = await getAuthHeaders();
 
   const res = await fetch(`${API_URL}${endpoint}`, {
@@ -171,6 +171,9 @@ export async function streamFromBackend(endpoint, body, callbacks = {}, signal) 
             break;
           case 'file_update':
             if (onFileUpdate) onFileUpdate(event.html);
+            break;
+          case 'activity':
+            if (onActivity) onActivity(event);
             break;
           case 'ask_user':
             console.log('[SSE] ask_user event received:', { question: event.question, options: event.options, multiSelect: event.multiSelect, hasCallback: !!onAskUser });
@@ -1290,6 +1293,19 @@ export async function getNotifications() {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_URL}/api/notifications`, { headers });
   if (!res.ok) return { notifications: [] };
+  return res.json();
+}
+
+// Create a bell notification (generation tracker: "your carousel is
+// ready" with a deep link back to the chat).
+export async function createNotification({ title, message, type = 'insight', actionUrl = null }) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/api/notifications`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, message, type, action_url: actionUrl }),
+  });
+  if (!res.ok) throw new Error('Failed to create notification');
   return res.json();
 }
 

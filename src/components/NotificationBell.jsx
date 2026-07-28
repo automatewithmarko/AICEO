@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bell, X, CheckCheck, AlertTriangle, Lightbulb, Zap, Target, TrendingUp, Link2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, X, CheckCheck, AlertTriangle, Lightbulb, Zap, Target, TrendingUp, Link2, ImageIcon } from 'lucide-react';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../lib/api';
 import './NotificationBell.css';
 
@@ -10,6 +11,7 @@ const TYPE_ICONS = {
   milestone: TrendingUp,
   suggestion: Target,
   warning: AlertTriangle,
+  success: ImageIcon,
 };
 
 const TYPE_COLORS = {
@@ -19,6 +21,7 @@ const TYPE_COLORS = {
   milestone: '#10b981',
   suggestion: '#3b82f6',
   warning: '#ef4444',
+  success: '#10b981',
 };
 
 function timeAgo(dateStr) {
@@ -36,10 +39,12 @@ export default function NotificationBell() {
   const [notifications, setNotifications] = useState([]);
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const navigate = useNavigate();
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
-  // Fetch notifications on mount and poll every 30s
+  // Fetch notifications on mount, poll every 30s, and refresh instantly
+  // when the generation tracker files a new one.
   useEffect(() => {
     let active = true;
     const load = async () => {
@@ -50,7 +55,8 @@ export default function NotificationBell() {
     };
     load();
     const interval = setInterval(load, 30000);
-    return () => { active = false; clearInterval(interval); };
+    window.addEventListener('notifications-changed', load);
+    return () => { active = false; clearInterval(interval); window.removeEventListener('notifications-changed', load); };
   }, []);
 
   // Close on outside click
@@ -103,8 +109,16 @@ export default function NotificationBell() {
                 return (
                   <div
                     key={n.id}
-                    className={`notif-item ${!n.is_read ? 'notif-item--unread' : ''}`}
-                    onClick={() => !n.is_read && handleMarkRead(n.id)}
+                    className={`notif-item ${!n.is_read ? 'notif-item--unread' : ''}${n.action_url?.startsWith('/') ? ' notif-item--link' : ''}`}
+                    onClick={() => {
+                      if (!n.is_read) handleMarkRead(n.id);
+                      // In-app deep link (generation tracker: back to the
+                      // chat that produced the finished carousel/post).
+                      if (n.action_url?.startsWith('/')) {
+                        setOpen(false);
+                        navigate(n.action_url);
+                      }
+                    }}
                   >
                     <div className="notif-item-icon" style={{ color, background: color + '18' }}>
                       <Icon size={16} />

@@ -1131,6 +1131,31 @@ app.get('/api/notifications', requireAuth, async (req, res) => {
   res.json({ notifications: data || [] });
 });
 
+// Client-created notifications — used by the generation tracker: when a
+// carousel/image run finishes while the user is on another page, the
+// completion lands in the bell with an action_url deep link back to the
+// chat (founder ask 2026-07-26: don't make users babysit 5-minute runs).
+app.post('/api/notifications', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  if (userId === 'anonymous') return res.status(401).json({ error: 'Auth required' });
+  const { title, message, type, action_url } = req.body || {};
+  if (!title) return res.status(400).json({ error: 'title required' });
+  const { data, error } = await supabase
+    .from('ceo_notifications')
+    .insert({
+      user_id: userId,
+      title: String(title).slice(0, 200),
+      message: String(message || '').slice(0, 500),
+      type: type || 'insight',
+      priority: 'normal',
+      action_url: action_url || null,
+    })
+    .select('id')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ id: data.id });
+});
+
 app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
   const userId = req.user.id;
   const { id } = req.params;

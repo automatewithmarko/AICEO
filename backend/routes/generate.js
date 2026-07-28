@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
-import { MENTOR_BASE_URL } from '../agents/base-agent.js';
 import { requireCredits } from '../middleware/gate.js';
 import { generateImageWithOpenAI, isOpenAIImageConfigured } from '../services/openai-image.js';
 import { deductCredits, hasCredits } from '../services/credits.js';
@@ -426,7 +425,13 @@ async function getCachedBrandData(userId) {
 // so the model edits the user's image directly instead of
 // substituting the brand DNA face/scene. Brand logo + colors + font
 // are still applied — only the brand PHOTOS are suppressed.
-export async function generateImageCore({ userId, rawPrompt, platform, brandData, referenceImages, editUserImage }) {
+// speedTier 'fast' (2026-07-26, carousel latency fix): first OpenAI
+// attempt at quality=medium instead of high. Live timing on a 3-slide
+// LinkedIn run showed q=high with reference images sitting AT or OVER
+// the 110s cap (slides paying 110s timeout + ~50s medium retry each),
+// while medium reliably lands in ~40-60s with no visible quality loss on
+// flat design-system slides. Hook slides keep the default high tier.
+export async function generateImageCore({ userId, rawPrompt, platform, brandData, referenceImages, editUserImage, speedTier = null }) {
   if (!rawPrompt) {
     return { ok: false, status: 400, body: { error: 'prompt is required' } };
   }
@@ -658,18 +663,46 @@ ${prompt}`;
       .filter((p) => p.inlineData?.data)
       .map((p) => p.inlineData);
 
-    if (isOpenAIImageConfigured()) {
+    // Provider order (founder decision 2026-07-26, after a brief NB2-first
+    // trial the same day): gpt-image-2 is PRIMARY — output quality wins
+    // even at higher latency — with Nano Banana 2 (Mentor gateway →
+    // AtlasCloud) as the fallback. Text-to-image gpt-image-2 calls route
+    // through the Mentor gateway (openai-image.js is Mentor-first);
+    // reference-image calls still go direct because the gateway 404s
+    // /api/v1/images/edits (re-checked 2026-07-26 — flip when that route
+    // lands). NB2 ratio support (all ten, incl. 3:4) verified in prod, so
+    // the fallback is ratio-safe everywhere PLATFORM_CONFIG goes.
+    // Switch: IMAGE_PRIMARY=nb2 re-enables the NB2-first trial order.
+    const NB2_SAFE_ASPECTS = new Set(['1:1', '9:16', '16:9', '3:4', '4:3', '4:5']);
+    const nb2First = process.env.IMAGE_PRIMARY === 'nb2'
+      && !!process.env.MENTOR_API_KEY
+      && NB2_SAFE_ASPECTS.has(pConfig.aspectRatio);
+
+    const attemptOpenAI = async () => {
+      if (!isOpenAIImageConfigured()) {
+        console.log('[generate/image] OpenAI unconfigured — skipping');
+        return null;
+      }
+      // Quality tiers: 'quality' → always high (carousel hook — the cover).
+      // 'fast' → always medium. Default: refs-aware — measured across
+      // carousel slides AND tonight's CEO single-image runs (2026-07-25/26),
+      // q=high with 2+ reference images blows the 110s cap essentially
+      // every time, then the medium retry succeeds in ~50s. Starting at
+      // medium for ref-heavy requests turns a reliable ~3-minute cycle
+      // into ~60s with no visible quality loss.
+      const fast = speedTier === 'fast' || (speedTier !== 'quality' && openaiRefs.length >= 2);
       let openaiResult = await generateImageWithOpenAI({
         prompt: imagePrompt,
         referenceImages: openaiRefs,
         aspectRatio: pConfig.aspectRatio,
-        quality: 'high',
+        quality: fast ? 'medium' : 'high',
         // 110s first-attempt cap: live data (2026-07-20) shows q=high
         // with reference images either finishes well under this or blows
         // past 150s anyway — a tighter cap gets the medium retry (which
         // reliably succeeds in ~60s) started sooner, cutting the
-        // worst-case wait from ~240s to ~200s.
-        timeoutMs: 110_000,
+        // worst-case wait from ~240s to ~200s. Fast tier starts at
+        // medium, so 90s covers it comfortably.
+        timeoutMs: fast ? 90_000 : 110_000,
       });
       // One retry at quality=medium with a tighter cap before touching
       // Gemini: a high-quality render that blows the 150s window usually
@@ -697,14 +730,23 @@ ${prompt}`;
           },
         };
       }
-      // Non-fatal — log and fall through to Gemini. We still surface
-      // OpenAI's error via the log so ops can tell whether the fallback
-      // is being hit because of a policy block, quota, or a code bug.
-      console.warn(`[generate/image] OpenAI failed (${openaiResult.status || 'n/a'}${openaiResult.timeout ? ' TIMEOUT' : ''}): ${openaiResult.error} — falling back to Gemini`);
+      // Non-fatal — log and let the caller try the other provider.
+      console.warn(`[generate/image] OpenAI failed (${openaiResult.status || 'n/a'}${openaiResult.timeout ? ' TIMEOUT' : ''}): ${openaiResult.error}`);
+      return null;
+    };
+
+    if (!nb2First) {
+      const viaOpenAI = await attemptOpenAI();
+      if (viaOpenAI) return viaOpenAI;
+      console.warn('[generate/image] falling back to Gemini/NB2');
     } else {
-      console.log('[generate/image] OpenAI unconfigured — using Gemini directly');
+      console.log(`[generate/image] NB2-first (aspect ${pConfig.aspectRatio}) — OpenAI is the fallback`);
     }
 
+    // Platform policy: everything routes through the Mentor gateway,
+    // direct provider APIs are fallback only — and every direct use must
+    // be visible in the logs. Gemini generateContent (image models) has
+    // no Mentor proxy at all, so this entire path is inherently direct.
     console.log(`[generate/image] Gemini fallback — Platform: ${platform || 'default'}, Model: ${model}, Parts: ${requestParts.length} (1 text + ${requestParts.length - 1} images), Prompt: ${prompt.slice(0, 120)}...`);
 
     // Build request body with imageConfig and optional thinking
@@ -725,56 +767,68 @@ ${prompt}`;
       requestBody.tools = [{ google_search: {} }];
     }
 
-    // Mentor first (platform policy — direct APIs are fallback only):
-    // the gateway proxies Gemini-wire generateContent at
-    // /api/v1beta/models/{model}:generateContent (docs/API_ENDPOINTS.txt,
-    // Bearer auth). Any gateway failure falls to direct Google, loudly.
+    // Mentor gateway FIRST (verified 2026-07-26): the gateway's
+    // /api/v1beta/models/<model>:generateContent route proxies Gemini
+    // image models — multimodal parts included — and reroutes them to
+    // AtlasCloud's Nano Banana, so it works even while the direct Google
+    // account's prepay balance is empty (the exact outage of 07-25).
+    // Our 3.x model ids alias through unchanged. Bearer auth, not x-goog.
+    // Direct Google stays as the second attempt if the gateway is down.
     let geminiRes = null;
-    if (process.env.MENTOR_API_KEY) {
+    const mentorKey = process.env.MENTOR_API_KEY;
+    if (mentorKey) {
       try {
         geminiRes = await fetch(
-          `${MENTOR_BASE_URL}/api/v1beta/models/${model}:generateContent`,
+          `https://platform.thementorprogram.xyz/api/v1beta/models/${model}:generateContent`,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${process.env.MENTOR_API_KEY}`,
-            },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mentorKey}` },
             signal: AbortSignal.timeout(timeout),
             body: JSON.stringify(requestBody),
           }
         );
-        if (geminiRes.ok) {
-          console.log('[generate/image] ✅ Gemini served via MENTOR gateway');
-        } else {
-          let detail = '';
-          try { detail = (await geminiRes.text()).slice(0, 200); } catch { /* drain failed */ }
-          console.warn(`[generate/image] ⚠️ MENTOR gateway Gemini failed (${geminiRes.status}): ${detail} — FALLING BACK TO DIRECT GEMINI API`);
+        if (!geminiRes.ok) {
+          const gwErr = await geminiRes.clone().text().catch(() => '');
+          console.warn(`[generate/image] Mentor Gemini route failed (${geminiRes.status}): ${gwErr.slice(0, 160)} — falling back to direct Google`);
           geminiRes = null;
         }
-      } catch (err) {
-        if (err.name === 'AbortError' || err.name === 'TimeoutError') throw err; // real timeout — don't double the wait on direct
-        console.warn(`[generate/image] ⚠️ MENTOR gateway Gemini network error: ${err.message} — FALLING BACK TO DIRECT GEMINI API`);
+      } catch (gwErr) {
+        console.warn(`[generate/image] Mentor Gemini route unreachable: ${gwErr.message} — falling back to direct Google`);
         geminiRes = null;
       }
-    } else {
-      console.warn('[generate/image] ⚠️ DIRECT GEMINI API — MENTOR_API_KEY not configured');
     }
     if (!geminiRes) {
-      geminiRes = await fetch(
-        `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(timeout),
-          body: JSON.stringify(requestBody),
+      try {
+        geminiRes = await fetch(
+          `${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(timeout),
+            body: JSON.stringify(requestBody),
+          }
+        );
+      } catch (err) {
+        // Both Gemini routes down (gateway + direct). NB2-first order
+        // still has OpenAI untried — use it instead of throwing.
+        if (nb2First) {
+          console.warn(`[generate/image] both Gemini routes failed (${err.message}) — trying OpenAI`);
+          const viaOpenAI = await attemptOpenAI();
+          if (viaOpenAI) return viaOpenAI;
         }
-      );
+        throw err;
+      }
     }
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
       console.log(`[generate/image] Gemini error: ${geminiRes.status} ${errText}`);
+      // NB2-first order: OpenAI hasn't been tried yet — do it now before
+      // giving up.
+      if (nb2First) {
+        const viaOpenAI = await attemptOpenAI();
+        if (viaOpenAI) return viaOpenAI;
+      }
       // Human-readable error for the chat UI — the raw provider JSON
       // (e.g. Gemini's "prepayment credits are depleted" blob) reads as
       // a broken product. Full detail stays in the log above.
@@ -821,6 +875,12 @@ ${prompt}`;
       console.warn(`  full response (first 1500 chars): ${JSON.stringify(result).slice(0, 1500)}`);
 
       const blockReason = promptFb?.blockReason;
+      // NB2-first order: a refusal/policy block here still leaves OpenAI
+      // untried — attempt it before surfacing the error.
+      if (nb2First) {
+        const viaOpenAI = await attemptOpenAI();
+        if (viaOpenAI) return viaOpenAI;
+      }
       const errMsg = blockReason
         ? `Image blocked by Gemini (${blockReason}). Try a different prompt or remove brand reference photos.`
         : `Gemini returned no image (finishReason: ${finishReason || 'none'}). Model may have refused.`;
@@ -1105,6 +1165,7 @@ router.post('/api/generate/carousel', async (req, res) => {
         // Shared 429 cooldown: if another slide just got rate-limited,
         // wait out the window instead of piling on and burning attempts.
         const cool = rateLimitUntil - Date.now();
+        if (cool > 3000) console.log(`[generate/carousel] slide ${idx + 1} waiting ${(cool / 1000).toFixed(1)}s on shared rate-limit gate (parallelism collapsed to sequential by provider 429s)`);
         if (cool > 0) await sleep(cool);
         const result = await generateImageCore({
           userId,
@@ -1113,6 +1174,11 @@ router.post('/api/generate/carousel', async (req, res) => {
           brandData,
           referenceImages: refs,
           editUserImage,
+          // Hook slide (the cover + visual anchor for the set) renders at
+          // full quality; every other slide takes the fast tier — flat
+          // design-system pages gain nothing visible from q=high and it
+          // was costing 110s timeouts per slide (2026-07-26 timing).
+          speedTier: idx === 0 ? 'quality' : 'fast',
         });
         const d = result.body?.image?.data;
         const m = result.body?.image?.mimeType;

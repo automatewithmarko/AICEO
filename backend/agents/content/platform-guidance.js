@@ -1,21 +1,25 @@
 // Per-platform content guidance for the /Content generation flows
 // (Instagram, Facebook, LinkedIn, YouTube, X, TikTok).
 //
-// VERBATIM copy of PLATFORM_GUIDANCE in src/pages/Content.jsx (@1172-1312
-// as of 2026-07-15), extracted for the unified content backend per
-// docs/unified-content-backend-plan.md. The linkedin entry interpolates
-// the LinkedIn prompt library exactly like the original.
+// Originally a VERBATIM copy of PLATFORM_GUIDANCE in src/pages/Content.jsx
+// (@1172-1312 as of 2026-07-15), extracted for the unified content backend
+// per docs/unified-content-backend-plan.md.
 //
 // SINGLE SOURCE OF TRUTH since Phase 5 cleanup (2026-07-15): the
 // Content.jsx original was deleted; edit guidance HERE only.
+//
+// MODULAR since 2026-07-25 (prompt modularization, branch bazilceo):
+// build-system-prompt.js now calls buildPlatformGuidance(platformId,
+// modules) instead of reading the flat map, so the LinkedIn tab only pays
+// for the text-post library (SECTION A, 11.8K chars) on turns that are
+// actually about text posts. SECTION B was REMOVED outright — it embedded
+// LINKEDIN_CAROUSEL_PROMPT byte-for-byte, duplicating the carousel
+// standard block that build-system-prompt.js injects on carousel turns,
+// so every LinkedIn request used to carry the same 13.8K chars twice.
 
-import {
-  LINKEDIN_TEXT_PROMPT,
-  LINKEDIN_CAROUSEL_PROMPT,
-} from './linkedin-prompts.js';
+import { LINKEDIN_TEXT_PROMPT } from './linkedin-prompts.js';
 
-const PLATFORM_GUIDANCE = {
-  instagram: `Instagram content that actually performs. Study what top creators do:
+const INSTAGRAM_GUIDANCE = `Instagram content that actually performs. Study what top creators do:
 - Carousels: A carousel is a STORY told across slides, not a list of random tips. The first slide hooks with a bold claim. Every following slide builds on that hook  -  revealing, explaining, proving, and concluding. The viewer should NEED to swipe to get the payoff. Last slide = CTA. ALL slides must share the EXACT same visual style (background color, font, layout) so they look like one cohesive set.
 - Reels/Video Scripts: When the user asks for a reel, write a SCRIPT as the deliverable. Do NOT generate images for reels. The script MUST follow the SHORT-FORM VIDEO SCRIPT GUIDE in this prompt EXACTLY — full master format: scored HOOK OPTIONS list, **HOOK** (0-3s) / **BODY** / **CTA** sections containing ONLY spoken lines, then the --- PRODUCTION NOTES --- block (delivery, captions, music, B-roll plan). Bracket cues like [VISUAL], [B-ROLL], [TEXT ON SCREEN], [SCENE] and timestamps are BANNED inside the spoken sections — production guidance lives ONLY in PRODUCTION NOTES. Follow the guide's word budgets, hook craft, re-hooks, and quality rubric. If a reference video transcript is in this prompt, copy its structure beat-for-beat.
 - Stories: Raw, authentic, behind-the-scenes. Polls/questions for engagement. Keep it casual.
@@ -33,9 +37,9 @@ EVERYTHING ELSE IS YOURS TO DECIDE. Topic, angle, intent, tone, aesthetic, audie
 Rules:
 - Format stated in the user's words → ZERO questions, generate immediately.
 - Format missing → ask the ONE format question above, then generate as soon as they answer. Never a second question.
-- "Surprise me" / any opt-out answer → pick the format yourself and generate in the same flow.`,
-  facebook: `Facebook content that gets shared, not scrolled past. Focus on storytelling, relatable moments, and discussion starters. Longer-form posts perform well. Ask genuine questions. Use line breaks for readability.`,
-  linkedin: `=== LINKEDIN CONTENT TYPE ROUTING ===
+- "Surprise me" / any opt-out answer → pick the format yourself and generate in the same flow.`;
+
+const LINKEDIN_ROUTING_CORE = `=== LINKEDIN CONTENT TYPE ROUTING ===
 ABSOLUTE RULE: NEVER use em dashes (—) anywhere in any output. Use commas, periods, colons, or new sentences instead. Zero tolerance.
 
 === DISCOVERY (FORMAT only — ONE question max, usually zero) ===
@@ -115,20 +119,48 @@ WRONG (NEVER do these):
 
 === WEB RESEARCH ===
 You have access to web search. When the user's topic involves specific companies, products, competitors, statistics, trends, or current events, USE web search to gather real data. This data will be passed to the post generator.
+`;
 
+const LINKEDIN_TEXT_SECTION = `
 ============================================================
 SECTION A: TEXT POST (use when user chose "Text Post")
 ============================================================
 ${LINKEDIN_TEXT_PROMPT}
+`;
 
-============================================================
-SECTION B: CAROUSEL (use when user chose "Carousel")
-============================================================
-${LINKEDIN_CAROUSEL_PROMPT}
-`,
-  youtube: `YouTube content built for retention. Titles: curiosity gap + clarity (not clickbait). Descriptions: front-load keywords, include timestamps. Scripts: open with the payoff/promise, deliver value fast, use pattern interrupts every 30-60s. Thumbnails: high contrast, expressive face or striking visual, 3-4 words max.`,
-  x: `X/Twitter content that spreads. One idea per tweet. Strong opening line. No filler words. Threads: first tweet must stand alone and hook. Use contrarian takes, specific numbers, or "Here's what nobody tells you about X" patterns. No hashtag spam.`,
-  tiktok: `TikTok content that hooks immediately. When the user asks for a TikTok or video, write a SCRIPT as the deliverable. Do NOT generate images for video scripts. The script MUST follow the SHORT-FORM VIDEO SCRIPT GUIDE in this prompt EXACTLY — scored HOOK OPTIONS, **HOOK** / **BODY** / **CTA** sections of pure spoken lines, then --- PRODUCTION NOTES ---. No bracket cues or timestamps inside the spoken sections. Raw > polished. If a reference video transcript is in this prompt, copy its structure beat-for-beat.`,
+const FACEBOOK_GUIDANCE = `Facebook content that gets shared, not scrolled past. Focus on storytelling, relatable moments, and discussion starters. Longer-form posts perform well. Ask genuine questions. Use line breaks for readability.`;
+
+const YOUTUBE_GUIDANCE = `YouTube content built for retention. Titles: curiosity gap + clarity (not clickbait). Descriptions: front-load keywords, include timestamps. Scripts: open with the payoff/promise, deliver value fast, use pattern interrupts every 30-60s. Thumbnails: high contrast, expressive face or striking visual, 3-4 words max.`;
+
+const X_GUIDANCE = `X/Twitter content that spreads. One idea per tweet. Strong opening line. No filler words. Threads: first tweet must stand alone and hook. Use contrarian takes, specific numbers, or "Here's what nobody tells you about X" patterns. No hashtag spam.`;
+
+const TIKTOK_GUIDANCE = `TikTok content that hooks immediately. When the user asks for a TikTok or video, write a SCRIPT as the deliverable. Do NOT generate images for video scripts. The script MUST follow the SHORT-FORM VIDEO SCRIPT GUIDE in this prompt EXACTLY — scored HOOK OPTIONS, **HOOK** / **BODY** / **CTA** sections of pure spoken lines, then --- PRODUCTION NOTES ---. No bracket cues or timestamps inside the spoken sections. Raw > polished. If a reference video transcript is in this prompt, copy its structure beat-for-beat.`;
+
+// Modular assembly. `modules` comes from intent-router.js; omitting it (or
+// passing liText:true) yields the pre-modularization content minus the
+// duplicated SECTION B.
+export function buildPlatformGuidance(platformId, modules = null) {
+  switch (platformId) {
+    case 'instagram': return INSTAGRAM_GUIDANCE;
+    case 'facebook': return FACEBOOK_GUIDANCE;
+    case 'youtube': return YOUTUBE_GUIDANCE;
+    case 'x': return X_GUIDANCE;
+    case 'tiktok': return TIKTOK_GUIDANCE;
+    case 'linkedin':
+      return LINKEDIN_ROUTING_CORE + ((!modules || modules.liText) ? LINKEDIN_TEXT_SECTION : '');
+    default: return null;
+  }
+}
+
+// Legacy flat map, kept for any straggler importer — full (unrouted)
+// guidance per platform.
+const PLATFORM_GUIDANCE = {
+  instagram: INSTAGRAM_GUIDANCE,
+  facebook: FACEBOOK_GUIDANCE,
+  linkedin: LINKEDIN_ROUTING_CORE + LINKEDIN_TEXT_SECTION,
+  youtube: YOUTUBE_GUIDANCE,
+  x: X_GUIDANCE,
+  tiktok: TIKTOK_GUIDANCE,
 };
 
 export { PLATFORM_GUIDANCE };

@@ -459,7 +459,10 @@ export default function SocialPreview({ msg, brandDna, user, onClose, onEdit, on
                 )}
               </div>
             )}
-            <div className="content-ig-counter">{idx + 1}/{totalSlots}</div>
+            {/* Slide counter only when there IS a slide deck — a "1/1"
+                badge made single-image posts read as one-slide carousels
+                (founder report 2026-07-26). */}
+            {totalSlots > 1 && <div className="content-ig-counter">{idx + 1}/{totalSlots}</div>}
             {!atStart && (
               <button className="content-ig-nav content-ig-nav--prev" onClick={() => setIdx(i => i - 1)} aria-label="Previous slide">
                 <ChevronLeft size={20} />
@@ -845,7 +848,7 @@ export function SlideViewerModal({ image, position, total, onClose, onPrev, onNe
       <button className="content-slide-viewer-close" onClick={(e) => { e.stopPropagation(); onClose(); }} aria-label="Close">
         <X size={22} />
       </button>
-      <div className="content-slide-viewer-counter">{position + 1} / {total}</div>
+      {total > 1 && <div className="content-slide-viewer-counter">{position + 1} / {total}</div>}
       {!atStart && (
         <button className="content-slide-viewer-nav content-slide-viewer-nav--prev" onClick={(e) => { e.stopPropagation(); onPrev(); }} aria-label="Previous slide">
           <ChevronLeft size={28} />
@@ -857,7 +860,7 @@ export function SlideViewerModal({ image, position, total, onClose, onPrev, onNe
         </button>
       )}
       <img src={image.src} alt={`Slide ${position + 1}`} className="content-slide-viewer-img" onClick={(e) => e.stopPropagation()} />
-      <div className="content-slide-viewer-hint">ESC to close · ← → to navigate</div>
+      <div className="content-slide-viewer-hint">{total > 1 ? 'ESC to close · ← → to navigate' : 'ESC to close'}</div>
     </div>
   );
 }

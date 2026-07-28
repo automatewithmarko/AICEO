@@ -204,6 +204,32 @@ export function buildAgentTools() {
     {
       type: 'function',
       function: {
+        name: 'get_business_data',
+        description: "Look up the user's LIVE business data on demand — like checking the CRM before you answer. Call this whenever a turn needs specifics that aren't already in your context: full product details (pricing tiers, checkout links, photo URLs), the contact list, scheduled or published posts, sales/payment records, meeting summaries + transcripts, outlier research, or the user's forms. NEVER ask the user for information this tool can fetch, and NEVER guess or invent it. ALWAYS call this with what='products' before delegating a marketing asset (landing page, newsletter) so the task_description carries real photo URLs and checkout links. Fast and free — prefer calling it over answering vaguely.",
+        parameters: {
+          type: 'object',
+          properties: {
+            what: {
+              type: 'string',
+              enum: ['products', 'contacts', 'scheduled_posts', 'published_posts', 'sales', 'meetings', 'outliers', 'forms'],
+              description: 'Which dataset to fetch.',
+            },
+            query: {
+              type: 'string',
+              description: 'Optional case-insensitive keyword filter (matches names/titles/captions).',
+            },
+            limit: {
+              type: 'number',
+              description: 'Max rows (default 20, cap 50).',
+            },
+          },
+          required: ['what'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'check_emails',
         description: "Read the user's recent emails from their connected inbox. Call this IMMEDIATELY whenever the user asks to check/read/review/summarize their emails, find a specific message, or see what's new. NEVER ask follow-up questions before calling this  -  just call it with sensible defaults (limit 10, folder inbox). You'll get the emails back as structured data so you can summarize them in your own words.",
         parameters: {

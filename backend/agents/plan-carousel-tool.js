@@ -10,7 +10,7 @@ export const PLAN_CAROUSEL_TOOL = {
   type: 'function',
   function: {
     name: 'plan_carousel',
-    description: 'Plan a carousel (Instagram or LinkedIn). Call this FIRST for every carousel request on those platforms. Do NOT call generate_image — the client will fire per-slide image generation after receiving the plan. Produces a hook, slide roster (5-9 for IG, 7-12 for LinkedIn), locked design system, and a caption. Tone + visual language should match the target platform (IG: editorial-trendy / LinkedIn: professional thought-leadership). Do NOT call this for reels, videos, short-form video content, single-image posts, or stories — carousels are static swipeable slides, not video, not one-image feed posts, not story frames. If the user said "reel", "video", "TikTok", "short", "single post", or "story", this is the WRONG tool.',
+    description: 'Plan a carousel (Instagram or LinkedIn). Call this FIRST for every carousel request on those platforms. Do NOT call generate_image — the client will fire per-slide image generation after receiving the plan. Produces a hook, slide roster (5-9 for IG, 6-9 for LinkedIn), locked design system, and a caption. Tone + visual language should match the target platform (IG: editorial-trendy / LinkedIn: professional thought-leadership). Do NOT call this for reels, videos, short-form video content, single-image posts, or stories — carousels are static swipeable slides, not video, not one-image feed posts, not story frames. If the user said "reel", "video", "TikTok", "short", "single post", or "story", this is the WRONG tool.',
     parameters: {
       type: 'object',
       properties: {

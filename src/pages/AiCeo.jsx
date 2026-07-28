@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { generateImage, uploadImageToStorage, streamFromBackend, getTemplates, getEmails, getContentItems, getProducts, uploadContextFiles, getIntegrations, generateCarouselServerSide, generatePlanItem , getCuratedCarouselTemplates, findCuratedCarouselTemplate, backfillTranscripts } from '../lib/api';
 import { serializeContentPlan, planPieceLabel, runPlanItems, makeRunToken } from '../lib/planRunner';
 import { sweepCarouselMessages, sweepCarouselHolder } from '../lib/carouselState';
+import { beginRun, endRun, setPageMounted } from '../lib/generationTracker';
 import CarouselPlanCard from '../components/social-canvas/CarouselPlanCard';
 import { bulkSchedulePieces } from '../lib/planSchedule';
 import SchedulePlanModal from '../components/SchedulePlanModal';
@@ -243,6 +244,36 @@ export default function AiCeo() {
   // the current value when it fires a backend request.
   const sessionIdRef = useRef(null);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+
+  // Generation tracker: report mount state so completions that land after
+  // the user navigates away go to the bell + direct-DB persistence.
+  useEffect(() => {
+    setPageMounted('aiceo', true);
+    return () => setPageMounted('aiceo', false);
+  }, []);
+
+  // Patch ONE message inside a persisted CEO session directly in the DB —
+  // used by the generation tracker when a run finishes AFTER this page
+  // unmounted (setMessages/autosave can't capture the results then).
+  const patchCeoSessionMessage = useCallback(async (sid, msgId, patchFn) => {
+    const { data, error } = await supabase
+      .from('ceo_sessions')
+      .select('messages')
+      .eq('id', sid)
+      .single();
+    if (error || !Array.isArray(data?.messages)) return;
+    let found = false;
+    const next = data.messages.map((m) => {
+      if (m.id !== msgId) return m;
+      found = true;
+      return { ...m, ...patchFn(m) };
+    });
+    if (!found) next.push({ id: msgId, role: 'assistant', content: '', ...patchFn({}) });
+    await supabase
+      .from('ceo_sessions')
+      .update({ messages: next, updated_at: new Date().toISOString() })
+      .eq('id', sid);
+  }, []);
   // Mirror of selectedMsgId. sendToAI's useCallback isn't recreated on
   // selection changes (deps = [researchMode]), so without a ref the
   // fork-from-snapshot check inside it would read a stale value.
@@ -1387,6 +1418,14 @@ export default function AiCeo() {
                     ? { ...prev, frames: prev.frames.map((f, i) => i === idx2 ? { ...f, ...patch } : f) }
                     : prev
                 ));
+                // Generation tracker: story frames take 1-3 min each.
+                const storyRunId = beginRun({
+                  kind: 'story',
+                  tab: 'aiceo',
+                  title: 'Story sequence',
+                  deepLink: sessionIdRef.current ? `/ai-ceo/${sessionIdRef.current}` : '/ai-ceo',
+                });
+                const doneFrames = [];
                 await Promise.all(storyFrames.map(async (frame, idx) => {
                   const captionText = frame.caption || frame.title || '';
                   const captionInstruction = captionText ? `\n\nTEXT OVERLAY  -  ONE text sticker:\n- Render EXACTLY ONE text sticker: "${captionText}"\n- Flat solid white (#FFFFFF) rectangle with rounded corners (~12px radius). NO border, NO outline, NO stroke around the pill  -  just a clean flat white shape.\n- Text: "${captionText}" in pure black (#000000), bold weight, clean sans-serif (SF Pro, Helvetica), ~30px\n- Snug padding: pill tightly wraps text. Only as wide as the text needs.\n- Centered horizontally, upper third of frame.\n- ONE sticker only. Do NOT duplicate text. Do NOT add any border or outline around the white pill.\n\nDO NOT RENDER:\n- No Instagram UI (no progress bars, profile pics, usernames, send bar, hearts)\n- No borders or outlines around the text sticker\n- No second copy of the text\n- Just the photo with one clean white text sticker on top.` : '';
@@ -1396,6 +1435,7 @@ export default function AiCeo() {
                     const result = await generateImage(sequencePrompt, 'instagram_story', brandData);
                     const allowedMime = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
                     if (result.image && allowedMime.includes(result.image.mimeType)) {
+                      doneFrames.push({ idx, data: result.image.data, mimeType: result.image.mimeType });
                       const src = `data:${result.image.mimeType};base64,${result.image.data}`;
                       patchFrame(idx, { imageSrc: src, loading: false, error: false });
                     } else {
@@ -1411,6 +1451,37 @@ export default function AiCeo() {
                 // independently previews these frames even after the next
                 // generation replaces the live `artifact`.
                 commitOwnedArtifact(assistantMsgId);
+                // Tracker completion — when the page unmounted mid-run,
+                // upload the frames ourselves and patch the session.
+                {
+                  const sid = sessionIdRef.current;
+                  endRun(storyRunId, {
+                    ok: doneFrames.length > 0,
+                    failedCount: Math.max(0, storyFrames.length - doneFrames.length),
+                    persist: (sid && doneFrames.length) ? async () => {
+                      const uploaded = await Promise.all(doneFrames.map(async (f) => {
+                        try {
+                          const r = await uploadImageToStorage(f.data, f.mimeType);
+                          return { idx: f.idx, url: r.url || r.publicUrl || null };
+                        } catch { return { idx: f.idx, url: null }; }
+                      }));
+                      await patchCeoSessionMessage(sid, assistantMsgId, (m) => ({
+                        hasArtifact: true,
+                        artifactTitle: m.artifactTitle || parsed.summary || 'Story Sequence',
+                        artifactType: 'story_sequence',
+                        artifact: {
+                          ...(m.artifact || { id: storyArtId, type: 'story_sequence', title: parsed.summary || 'Story Sequence' }),
+                          frames: storyFrames.map((f, i) => ({
+                            ...f,
+                            imageSrc: uploaded.find((u) => u.idx === i)?.url || f.imageSrc || null,
+                            loading: false,
+                            error: !uploaded.find((u) => u.idx === i)?.url,
+                          })),
+                        },
+                      }));
+                    } : null,
+                  });
+                }
               })();
             }
           } catch (parseErr) {
@@ -1925,6 +1996,19 @@ export default function AiCeo() {
             commitOwnedArtifact(assistantMsgId);
           }
         },
+        // Live activity trail — the "watch it work" checklist (founder
+        // ask 2026-07-26): each backend tool step lands here as
+        // start→done and renders inside the assistant bubble.
+        onActivity: ({ label, state, id }) => {
+          setMessages(prev => prev.map(m => {
+            if (m.id !== assistantMsgId) return m;
+            const acts = [...(m.activities || [])];
+            const k = acts.findIndex(a => a.id === id);
+            if (k >= 0) acts[k] = { ...acts[k], state };
+            else acts.push({ id, label, state });
+            return { ...m, activities: acts };
+          }));
+        },
         onAskUser: (question, options, multiSelect = false) => {
           console.log('[AiCeo] onAskUser fired:', { question, options, multiSelect, isGenerating });
           askUserFiredRef.current = true;
@@ -1932,10 +2016,28 @@ export default function AiCeo() {
           setMultiAnswers(new Set());
           setCustomTyping(false);
           setCustomText('');
-          // Save the question with ask_user metadata so the backend can reconstruct tool call format
-          setMessages(prev => prev.map(m =>
-            m.id === assistantMsgId ? { ...m, content: question, status: null, wasAskUser: true, askUserOptions: options, ...(multiSelect ? { askUserMultiSelect: true } : {}) } : m
-          ));
+          // Save the question with ask_user metadata so the backend can
+          // reconstruct the tool-call format. PRESERVE any answer the
+          // model already streamed — the old `content: question` replace
+          // ate a good in-progress answer and showed the question twice
+          // (bubble + popup): founder repro 2026-07-26 ("it was answering
+          // quite well, and then boom"). If the model typed the question
+          // as trailing text too (rule-1 violation), trim that duplicate.
+          setMessages(prev => prev.map(m => {
+            if (m.id !== assistantMsgId) return m;
+            let text = (m.content || '').trim();
+            const q = question.trim();
+            if (text.endsWith(q)) text = text.slice(0, text.length - q.length).trim();
+            return {
+              ...m,
+              content: text || question,
+              askUserQuestion: question,
+              status: null,
+              wasAskUser: true,
+              askUserOptions: options,
+              ...(multiSelect ? { askUserMultiSelect: true } : {}),
+            };
+          }));
         },
         // In-stream error (orchestrate caught it after SSE was opened so
         // streamFromBackend can't throw). Surface whatever friendly
@@ -2288,17 +2390,29 @@ export default function AiCeo() {
       // back as storage URLs.
       const abortCtl = new AbortController();
       carouselAbortRef.current = abortCtl;
+      // Generation tracker: closure outlives navigation; completion
+      // toasts + persists even if the user left the page.
+      const runId = beginRun({
+        kind: 'carousel',
+        tab: 'aiceo',
+        title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel`,
+        deepLink: sessionIdRef.current ? `/ai-ceo/${sessionIdRef.current}` : '/ai-ceo',
+      });
+      const doneSlides = [];
       try {
         await generateCarouselServerSide({
           platform,
           plan: { hook: plan.hook, caption: plan.caption, slides, designSystem: plan.designSystem },
           brand: { name: brandName },
         }, {
-          onSlideDone: (idx, url) => setArtifact((prev) => prev ? {
-            ...prev,
-            images: [...(prev.images || []).filter((im) => im.idx !== idx), { src: url, idx }],
-            pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
-          } : prev),
+          onSlideDone: (idx, url) => {
+            doneSlides.push({ src: url, idx });
+            setArtifact((prev) => prev ? {
+              ...prev,
+              images: [...(prev.images || []).filter((im) => im.idx !== idx), { src: url, idx }],
+              pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
+            } : prev);
+          },
           onSlideFailed: (idx, error) => {
             console.error(`[AiCeo] carousel slide ${idx + 1} failed (server): ${error}`);
             // Credit exhaustion is not an ordinary slide failure — surface
@@ -2349,8 +2463,37 @@ export default function AiCeo() {
       // Chat plan card leaves "Generating..." and shows retry if needed.
       mirrorPlan({ generating: false, failedSlides: finalFailed });
       if (assistantMsgId) commitOwnedArtifact(assistantMsgId);
+      // Tracker completion — persistence patches the ceo_sessions row
+      // directly when the page unmounted mid-run (slides are storage
+      // URLs; the hydrate sweep rebuilds failedSlides on next load).
+      {
+        const sid = sessionIdRef.current;
+        endRun(runId, {
+          ok: doneSlides.length > 0,
+          failedCount: Math.max(0, slides.length - doneSlides.length),
+          persist: sid ? async () => {
+            await patchCeoSessionMessage(sid, msgId, (m) => {
+              const baseArt = m.artifact || { ...art };
+              return {
+                hasArtifact: true,
+                artifactTitle: baseArt.title || art.title,
+                artifactType: 'content_post',
+                carouselPlan: { ...(m.carouselPlan || plan), approved: true, generating: false },
+                artifact: {
+                  ...baseArt,
+                  images: [...(baseArt.images || []).filter((im) => !doneSlides.some((d) => d.idx === im.idx)), ...doneSlides],
+                  pendingImages: 0,
+                  streaming: false,
+                  totalSlides: slides.length,
+                  carouselPlan: { ...plan, approved: true, generating: false },
+                },
+              };
+            });
+          } : null,
+        });
+      }
     })();
-  }, [brandDna, user, commitOwnedArtifact]);
+  }, [brandDna, user, commitOwnedArtifact, patchCeoSessionMessage]);
 
   // Unified-path plan editing (Phase 3): the shared CarouselPlanCard lets
   // the user edit slides/palette/caption BEFORE approval — mirror the
@@ -2409,18 +2552,57 @@ export default function AiCeo() {
     // restore this carousel's artifact from its message snapshot first.
     let current = artifactRef.current;
     if (msgId && current?._assistantMsgId !== msgId) {
-      let snap = null;
-      setMessages((prev) => { snap = prev.find((m) => m.id === msgId)?.artifact || null; return prev; });
+      // AWAIT the setState pass-through: in React 18 the updater is not
+      // guaranteed to run synchronously inside a click handler, so the
+      // old code read its result while still null and silently returned —
+      // the founder's "Retry 7 slides button does nothing" bug
+      // (2026-07-26, after a page refresh unbinds the canvas).
+      const planMsg = await new Promise((resolve) => {
+        setMessages((prev) => { resolve(prev.find((m) => m.id === msgId) || null); return prev; });
+      });
+      const snap = planMsg?.artifact || null;
       if (snap?.carouselPlan) {
         current = { ...snap, _assistantMsgId: msgId };
+      } else if (planMsg?.carouselPlan) {
+        // Post-2026-07-24 shape: the plan lives on the CHAT message (the
+        // in-chat approval card), not on an artifact snapshot. Rebuild
+        // the canvas artifact from the message the same way
+        // handleApproveCarousel does — the old handler only knew the
+        // artifact shape and no-op'd on these messages.
+        const plan = planMsg.carouselPlan;
+        const platform = planMsg.carouselPlatform === 'linkedin' ? 'linkedin' : 'instagram';
+        current = {
+          id: Date.now(),
+          type: 'content_post',
+          title: `${platform === 'linkedin' ? 'LinkedIn' : 'Instagram'} carousel: ${(plan.hook || '').slice(0, 60)}`,
+          content: plan.caption || '',
+          images: planMsg.images || [],
+          totalSlides: (plan.slides || []).length,
+          pendingImages: 0,
+          carouselPlan: plan,
+          agentSource: platform,
+          _assistantMsgId: msgId,
+        };
+      }
+      if (current?._assistantMsgId === msgId) {
         setArtifact(current);
         setPanelOpen(true);
       }
     }
     const targetMsgId = msgId || current?._assistantMsgId || null;
     const plan = current?.carouselPlan;
-    const failed = plan?.failedSlides || [];
-    if (!plan || failed.length === 0) return;
+    // Defensive: if failedSlides is stale/empty, derive it from the image
+    // gaps — a retry click on a card that VISIBLY shows failures must
+    // never silently no-op again.
+    let failed = plan?.failedSlides || [];
+    if (plan && failed.length === 0 && Array.isArray(plan.slides)) {
+      const present = new Set((current.images || []).filter((im) => im?.src).map((im, i) => (Number.isInteger(im.idx) ? im.idx : i)));
+      failed = plan.slides.map((_, i) => i).filter((i) => !present.has(i) && plan.slides[i]?.blank !== true);
+    }
+    if (!plan || failed.length === 0) {
+      console.warn(`[carousel] retry clicked but no plan/failed slides resolved (msgId=${msgId}, canvasMsg=${artifactRef.current?._assistantMsgId})`);
+      return;
+    }
     const platform = current.agentSource === 'linkedin' ? 'linkedin' : 'instagram';
     const brandName = brandDna?.brand_name || user?.name || '';
 
@@ -2439,9 +2621,25 @@ export default function AiCeo() {
       streaming: true,
       carouselPlan: { ...prev.carouselPlan, generating: true },
     } : prev);
+    // Mirror onto the chat card too — it renders msg.carouselPlan, and
+    // without this it sits frozen on "N slides failed" during the retry.
+    if (targetMsgId) {
+      setMessages((prev) => prev.map((m) =>
+        m.id === targetMsgId && m.carouselPlan
+          ? { ...m, carouselPlan: { ...m.carouselPlan, generating: true } }
+          : m
+      ));
+    }
 
     const abortCtl = new AbortController();
     carouselAbortRef.current = abortCtl;
+    const retryRunId = beginRun({
+      kind: 'carousel',
+      tab: 'aiceo',
+      title: `Carousel retry (${failed.length} slide${failed.length === 1 ? '' : 's'})`,
+      deepLink: sessionIdRef.current ? `/ai-ceo/${sessionIdRef.current}` : '/ai-ceo',
+    });
+    const retryDone = [];
     try {
       await generateCarouselServerSide({
         platform,
@@ -2451,15 +2649,18 @@ export default function AiCeo() {
         anchorImage,
         anchorUrl,
       }, {
-        onSlideDone: (idx, url) => setArtifact((prev) => prev ? {
-          ...prev,
-          images: [...(prev.images || []).filter((im) => im.idx !== idx), { src: url, idx }],
-          pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
-          carouselPlan: {
-            ...prev.carouselPlan,
-            failedSlides: (prev.carouselPlan?.failedSlides || []).filter((x) => x !== idx),
-          },
-        } : prev),
+        onSlideDone: (idx, url) => {
+          retryDone.push({ src: url, idx });
+          setArtifact((prev) => prev ? {
+            ...prev,
+            images: [...(prev.images || []).filter((im) => im.idx !== idx), { src: url, idx }],
+            pendingImages: Math.max(0, (prev.pendingImages || 1) - 1),
+            carouselPlan: {
+              ...prev.carouselPlan,
+              failedSlides: (prev.carouselPlan?.failedSlides || []).filter((x) => x !== idx),
+            },
+          } : prev);
+        },
         onSlideFailed: (idx, error) => {
           console.error(`[AiCeo] carousel retry slide ${idx + 1} failed (server): ${error}`);
           if (/insufficient credits/i.test(String(error || ''))) setCreditsDepleted(true);
@@ -2490,8 +2691,25 @@ export default function AiCeo() {
         ));
         commitOwnedArtifact(targetMsgId);
       }
+      {
+        const sid = sessionIdRef.current;
+        endRun(retryRunId, {
+          ok: retryDone.length > 0,
+          failedCount: Math.max(0, failed.length - retryDone.length),
+          persist: (sid && targetMsgId) ? async () => {
+            await patchCeoSessionMessage(sid, targetMsgId, (m) => ({
+              artifact: m.artifact ? {
+                ...m.artifact,
+                images: [...(m.artifact.images || []).filter((im) => !retryDone.some((d) => d.idx === im.idx)), ...retryDone],
+                pendingImages: 0,
+                streaming: false,
+              } : m.artifact,
+            }));
+          } : null,
+        });
+      }
     }
-  }, [brandDna, user, commitOwnedArtifact]);
+  }, [brandDna, user, commitOwnedArtifact, patchCeoSessionMessage]);
   // ── In-chat content plan: sequential batch runner ──
   // Generates every pending plan item ONE AT A TIME (never parallel) via
   // POST /api/orchestrate/plan-item, then runs any needed image generation
@@ -3337,6 +3555,18 @@ export default function AiCeo() {
                         : searchStatus === 'searching' ? 'ceo-research-card'
                         : 'ceo-thinking'
                       }>
+                        {Array.isArray(msg.activities) && msg.activities.length > 0 && (
+                          <div className="ceo-activity-trail">
+                            {msg.activities.map((a, ai) => (
+                              <div key={ai} className={`ceo-activity${a.state === 'done' ? ' ceo-activity--done' : ''}`}>
+                                {a.state === 'done'
+                                  ? <span className="ceo-activity-check">✓</span>
+                                  : <Loader2 size={11} className="ceo-activity-spin" />}
+                                <span>{a.label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {isPlanWorking ? (
                           <>
                             <div className="ceo-plan-working-header">
@@ -3399,6 +3629,18 @@ export default function AiCeo() {
                   return (
                     <div key={msg.id} className="ceo-msg-group">
                       <div className={`ceo-bubble ceo-bubble--assistant ${msg.hasArtifact ? 'ceo-bubble--has-artifact' : ''}`}>
+                        {Array.isArray(msg.activities) && msg.activities.length > 0 && (
+                          <div className="ceo-activity-trail">
+                            {msg.activities.map((a, ai) => (
+                              <div key={ai} className={`ceo-activity${a.state === 'done' ? ' ceo-activity--done' : ''}`}>
+                                {a.state === 'done'
+                                  ? <span className="ceo-activity-check">✓</span>
+                                  : <Loader2 size={11} className="ceo-activity-spin" />}
+                                <span>{a.label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {msg.content && (
                           <div className="ceo-markdown">
                             <ReactMarkdown

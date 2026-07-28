@@ -9,7 +9,7 @@ export async function loadUserContext(userId) {
   // Parallel fetch all context data (including soul notes + active integrations)
   const [brandRes, contentRes, statsRes, revenueRes, callsRes, productsRes, contactsRes, creatorsRes, videosRes, integrationRes, soulRes, integrationsRes, emailAccRes, formsRes] = await Promise.allSettled([
     supabase.from('brand_dna').select('*').eq('user_id', userId).order('updated_at', { ascending: true }).limit(1),
-    supabase.from('content_items').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+    supabase.from('content_items').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(25),
     supabase.from('sales').select('amount, created_at').eq('user_id', userId),
     supabase.from('sales').select('amount, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(100),
     supabase.from('sales_calls').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(20),

@@ -9,6 +9,7 @@ import BottomBar from './BottomBar';
 import CreditPill from './CreditPill';
 import MobileProfileButton from './MobileProfileButton';
 import NotificationBell from './NotificationBell';
+import GenerationToasts from './GenerationToasts';
 import './Layout.css';
 
 // Route-prefix → tab-key map used by the permission guard. Order matters:
@@ -339,6 +340,7 @@ export default function Layout() {
       <CreditPill />
       <MobileProfileButton />
       <NotificationBell />
+      <GenerationToasts />
       <div className={`layout-body ${slideClass}`}>
         {location.pathname === '/inbox' && (
           <TopBar

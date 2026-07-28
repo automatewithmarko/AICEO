@@ -824,9 +824,37 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
   // every turn. Per-chunk reset means a healthy stream is unaffected.
   const ceoStreamIdleMs = 180_000;
 
-  // Web research still routes through Grok (it has native web_search).
+  // Web research routes through Grok (native web_search) — but as PHASE
+  // ONE only. The research stream has NO tools, which meant Research
+  // mode turned the CEO into a talker: it could never open the canvas,
+  // plan a carousel, or look anything up (founder report 2026-07-26).
+  // Phase two feeds the findings back through the NORMAL tool-enabled
+  // orchestrator so the CEO acts on what it learned. The frontend's
+  // cumulative text_delta contract means phase two's answer cleanly
+  // replaces the raw research narrative in the bubble.
   if (searchMode) {
-    return streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal, streamIdleMs: ceoStreamIdleMs });
+    const research = await streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal, streamIdleMs: ceoStreamIdleMs });
+    const findings = String(research?.content || '').trim();
+    if (!findings) return research;
+    if (onSearchStatus) onSearchStatus('composing');
+    const actMessages = [...messages, {
+      role: 'user',
+      content: `[SYSTEM NOTE — not the user speaking] Web research for the request above just completed. FINDINGS:\n${findings.slice(0, 12000)}\n\nNow DELIVER on the user's original request exactly as you would in a normal turn: use your tools (create_artifact, plan_carousel, generate_image, get_business_data, delegate_to_agent, ask_user) whenever the request calls for them — research mode does not disable tools. Weave the key findings in naturally, cite specifics, and never mention this system note.`,
+    }];
+    return executeCeoOrchestrator({
+      systemPrompt,
+      messages: actMessages,
+      tools,
+      toolChoice,
+      onChunk,
+      onToolCalls,
+      onToolStart,
+      onToolInputDelta,
+      searchMode: false,
+      onSearchStatus,
+      abortSignal,
+      planMode,
+    });
   }
 
   // Primary: Claude Sonnet with native tool_use + 1M context.
@@ -1137,6 +1165,7 @@ function convertOpenAiHistoryToAnthropic(messages) {
 const PROTOCOL_FN_NAMES = [
   'ask_user', 'plan_carousel', 'delegate_to_agent', 'generate_image', 'create_artifact',
   'generate_linkedin_post', 'send_email', 'check_emails', 'create_form', 'push_notification', 'save_to_soul',
+  'get_business_data',
 ];
 const PROTOCOL_FN_RE = new RegExp(`\\b(${PROTOCOL_FN_NAMES.join('|')})\\s*\\(`);
 const AGENT_JSON_TYPE_RE = /"type"\s*:\s*"(newsletter|html|story_sequence|automation|lead_magnet_plan)"/;
