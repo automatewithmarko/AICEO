@@ -84,8 +84,9 @@ function xaiResponsesTarget() {
  */
 async function fetchWithMentorFallback(target, buildInit) {
   let primaryReason = null;
+  const init = buildInit(target);
   try {
-    const res = await fetch(target.url, buildInit(target));
+    const res = await fetch(target.url, init);
     if (res.status < 500) return res;            // 2xx-4xx: caller decides
     primaryReason = `${target.via} ${res.status}`;
     // Drain the body so it can be logged but the caller still gets a fresh
@@ -93,7 +94,14 @@ async function fetchWithMentorFallback(target, buildInit) {
     // the gateway — small enough to read entirely.
     try { primaryReason += `: ${(await res.text()).slice(0, 200)}`; } catch { /* drain failed */ }
   } catch (err) {
-    if (err?.name === 'AbortError') throw err;  // user cancel / timeout — don't fall back
+    // Only a CALLER abort (user cancel / our watchdog — our signal is
+    // actually aborted) skips the fallback. An AbortError with our signal
+    // NOT aborted is the UPSTREAM resetting the connection (observed
+    // 2026-07-28: the gateway RST both the chat stream and an images/edits
+    // call at the same instant under concurrent carousel load — the user
+    // saw 'Something went wrong' because this guard swallowed the direct-
+    // Anthropic fallback). Treat it as a network failure and fall back.
+    if (err?.name === 'AbortError' && init?.signal?.aborted) throw err;
     primaryReason = `${target.via} ${err.name || 'Error'}: ${err.message}`;
   }
 

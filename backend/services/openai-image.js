@@ -108,7 +108,10 @@ async function generateViaMentor({ prompt, size, quality, signal }) {
     return { ok: true, data: b64, mimeType: 'image/png' };
   } catch (err) {
     const isTimeout = err.name === 'AbortError' || /\baborted\b/i.test(err.message || '');
-    if (isTimeout) throw err; // caller's timeout — don't mask it as a gateway failure
+    // Rethrow ONLY when OUR signal aborted (caller timeout/cancel) — an
+    // abort-shaped error with our signal live = gateway-side reset, fall
+    // back to direct (2026-07-28 outage).
+    if (isTimeout && signal?.aborted) throw err;
     return { ok: false, error: err.message || 'mentor gateway request failed' };
   }
 }
@@ -204,7 +207,9 @@ export async function generateImageWithOpenAI({ prompt, referenceImages, aspectR
           console.log('[openai-image] ✅ edits served via MENTOR gateway');
         } catch (err) {
           const isAbort = err.name === 'AbortError' || err.name === 'APIUserAbortError' || /aborted/i.test(err.message || '');
-          if (isAbort) throw err; // caller timeout — don't mask as gateway failure
+          // Caller abort only when OUR controller fired — a gateway-side
+          // reset must fall through to the direct API (2026-07-28 outage).
+          if (isAbort && controller.signal.aborted) throw err;
           console.warn(`[openai-image] ⚠️ MENTOR gateway edits failed (${err.status || 'n/a'}): ${(err.error?.message || err.message || '').slice(0, 160)} — FALLING BACK TO DIRECT OPENAI API`);
           response = null;
         }
