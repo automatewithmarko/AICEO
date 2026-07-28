@@ -609,9 +609,62 @@ async function streamXaiResearch({ systemPrompt, messages, model, onChunk, onSea
 // fall back on a user abort (intentional cancel) or CONTEXT_EXCEEDED (a
 // prompt too big for Claude's 1M window won't fit Grok either — surface the
 // precise "start a fresh chat" guidance instead).
+// ── Claude-down circuit breaker (founder, 2026-07-28) ──
+// When BOTH Anthropic routes are exhausted by a capacity/billing-class
+// failure (Mentor substituting AND direct key over its usage limit), every
+// turn was still paying the full Mentor→retry→direct dance (~30s on a
+// "hello") before reaching Grok. The breaker remembers the outage: for
+// CLAUDE_BREAKER_COOLDOWN_MS (default 6 min) all Claude-routed calls go
+// STRAIGHT to the fallback model, then the next turn probes Claude again
+// (natural half-open). One-off network errors, aborts, and protocol
+// violations never arm it — only failures that predict the next turn
+// will fail identically.
+const CLAUDE_BREAKER_MS = Number(process.env.CLAUDE_BREAKER_COOLDOWN_MS || 6 * 60_000);
+let claudeDownUntil = 0;
+export function isClaudeDown() { return Date.now() < claudeDownUntil; }
+function isBreakerClass(err) {
+  return err?.code === 'GATEWAY_SUBSTITUTED'
+    || /credit balance|usage limits|billing|overloaded|insufficient[_ ]quota|prepayment/i.test(String(err?.message || ''));
+}
+function armClaudeBreaker(err) {
+  claudeDownUntil = Date.now() + CLAUDE_BREAKER_MS;
+  console.warn(`[breaker] Claude routes exhausted (${String(err?.message || err?.code || err).slice(0, 140)}) — serving the next ${Math.round(CLAUDE_BREAKER_MS / 60000)} min on the fallback model directly`);
+}
+function noteClaudeHealthy() {
+  if (claudeDownUntil) { claudeDownUntil = 0; console.log('[breaker] Claude healthy again — normal routing restored'); }
+}
+
+// Fallback-output sanitizer: Grok (OpenAI protocol) serving prompts
+// written for Claude sometimes leaks pseudo tool-calls, reasoning tags,
+// or fences around the JSON/HTML envelope the specialist agents must
+// return — which then leak into chat bubbles/artifacts (founder,
+// 2026-07-28). Normalize before the platform parses it.
+function sanitizeFallbackOutput(text) {
+  if (!text) return text;
+  let out = String(text);
+  out = out.replace(/^\s*\{"tool_code"[\s\S]*?\}\s*$/gm, '');
+  out = out.replace(/<(thinking|reasoning|scratchpad)>[\s\S]*?<\/\1>/gi, '');
+  out = out.replace(/<\/?(thinking|reasoning|scratchpad)>/gi, '');
+  const fenced = out.match(/^\s*```(?:json|html)?\s*\n([\s\S]*?)\n```\s*$/);
+  if (fenced) out = fenced[1];
+  if (!out.trim().startsWith('{')) {
+    const m = out.match(/\{"type"\s*:\s*"[a-z_]+[\s\S]*\}/);
+    if (m) { try { JSON.parse(m[0]); out = m[0]; } catch { /* keep prose */ } }
+  }
+  return out.trim();
+}
+
 async function streamAnthropicWithGrokFallback({ systemPrompt, messages, model, maxTokens, onChunk, onSearchStatus, abortSignal, streamIdleMs }) {
+  if (isClaudeDown()) {
+    console.log('[breaker] Claude down — agent turn served on Grok directly');
+    if (onSearchStatus) onSearchStatus('writing');
+    const result = await streamXai({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', maxTokens, onChunk, abortSignal, streamIdleMs });
+    return sanitizeFallbackOutput(result?.content || '');
+  }
   try {
-    return await streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs });
+    const content = await streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs });
+    noteClaudeHealthy();
+    return content;
   } catch (err) {
     // Never fall back on a genuine caller cancel (client disconnect / stop
     // button): abortSignal.aborted is set, and the fetch rejects with an
@@ -620,6 +673,7 @@ async function streamAnthropicWithGrokFallback({ systemPrompt, messages, model, 
     if (abortSignal?.aborted || err?.name === 'AbortError') throw err;
     if (err?.code === 'CONTEXT_EXCEEDED') throw err;
     console.warn(`[agent] Claude generation failed (${err?.code || String(err?.message || '').slice(0, 160)}) — falling back to Grok so the request does not hard-fail`);
+    if (isBreakerClass(err)) armClaudeBreaker(err);
     if (onSearchStatus) onSearchStatus('writing');
     const result = await streamXai({
       systemPrompt,
@@ -630,7 +684,7 @@ async function streamAnthropicWithGrokFallback({ systemPrompt, messages, model, 
       abortSignal,
       streamIdleMs,
     });
-    return result?.content || '';
+    return sanitizeFallbackOutput(result?.content || '');
   }
 }
 
@@ -870,8 +924,13 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
   // context-exceeded that survives the 1M retry, or explicit throws in
   // the tool-use loop). The user asked to keep xAI as a fallback so we
   // don't take an outage from either provider individually.
+  if (isClaudeDown()) {
+    console.log('[breaker] Claude down — CEO turn served on Grok directly');
+    return executeCeoOrchestratorGrok({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, abortSignal, planMode, streamIdleMs: ceoStreamIdleMs });
+  }
+  let breakerErr = null;
   try {
-    return await executeCeoOrchestratorClaude({
+    const result = await executeCeoOrchestratorClaude({
       systemPrompt,
       messages,
       tools,
@@ -886,7 +945,10 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
       planMode,
       streamIdleMs: ceoStreamIdleMs,
     });
+    noteClaudeHealthy();
+    return result;
   } catch (err) {
+    breakerErr = err;
     // Never fall back on user aborts — the user cancelled deliberately.
     if (err?.name === 'AbortError' || abortSignal?.aborted) throw err;
     // Never fall back on CONTEXT_EXCEEDED — the conversation genuinely
@@ -949,14 +1011,17 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
             if (directErr?.name === 'AbortError' || abortSignal?.aborted) throw directErr;
             if (directErr?.code === 'CONTEXT_EXCEEDED') throw directErr;
             console.warn(`[ceo] Direct rescue also failed (${directErr?.message?.slice(0, 150) || directErr}) — falling back to Grok`);
+            breakerErr = directErr;
           }
         } else {
           console.warn(`[ceo] Retry also failed (${retryErr?.message?.slice(0, 150) || retryErr}) — falling back to Grok`);
+          breakerErr = retryErr;
         }
       }
     } else {
       console.warn(`[ceo] Claude failed (${err?.message?.slice(0, 200) || err}), falling back to Grok`);
     }
+    if (isBreakerClass(breakerErr)) armClaudeBreaker(breakerErr);
     return executeCeoOrchestratorGrok({
       systemPrompt,
       messages,
