@@ -55,3 +55,31 @@
 - `openai-image.js`: default quality `high` → `medium` (env `OPENAI_IMAGE_QUALITY` to override).
 - NB2 legs: pin `imageSize: '2K'`.
 - Adopt the hybrid split: NB2-2K for middle slides, gpt2-medium for hook/CTA/single-image/reference work — then measure a real 9-slide carousel end-to-end.
+
+
+---
+
+# Root cause: why production carousels took 5-10 minutes (2026-07-28)
+
+**Evidence:** captured production logs (2026-07-27), the colleague's live 3-slide timing measurement (generate.js:428-433), benchmark rounds 1-2. Both environments' logs rotated with today's redeploys, but the three sources agree and the math closes.
+
+## It was NOT sequential generation
+Slides render through a parallel worker pool (CONCURRENCY 4, staggered starts) since 2026-07-24. The founder's sequential hypothesis is ruled out by code and logs (parallel `[openai-image] edits` lines interleave).
+
+## The real chain (per slide, pre-hybrid production)
+1. **`quality:'high'` + reference images = a guaranteed ~110s timeout burn.** Every slide carries 4-5 refs (logo + brand photos + hook anchor) and a 5-14K-char prompt. At `high`, gpt-image-2 edits reliably blows the 110s first-attempt cap (colleague's live measurement: "AT or OVER the cap, essentially every time"), pays the full timeout, THEN the medium retry succeeds in ~50-80s. **Per slide: ~160-190s — of which ~110s is pure wasted timeout.**
+2. **Anchor-first serialization**: slide 1 renders alone (its bytes anchor the rest) — one full slide-time before any parallelism starts. By design, but at 190s/slide it's 3 wasted minutes of wall-clock across a run.
+3. **Wave math**: CONCURRENCY 4 (deliberate anti-429 cap) turns 8 remaining slides into 2 sequential waves. Total = 3 × per-slide time.
+
+**9-slide carousel: 190s (anchor) + 2 × 190s (waves) ≈ 9.5 minutes.** Exactly the reported 5-10 min band (7 slides ≈ 6 min).
+
+4. **Aggravator on 07-27 (since fixed):** one corrupt brand photo 400'd EVERY OpenAI edits call → all slides cascaded to Gemini → 429 storm under the parallel burst → 3-attempt failures. Fixed by sharp reference sanitization + drop-and-retry.
+
+## The fix (shipped to dev, 32da796 + bazilceo merge)
+- Colleague's refs-aware fast tier: ref-heavy requests START at medium — kills the 110s burn (~40-60s/slide).
+- Hybrid routing: middle slides NB2-2K first (25-36s), hook/CTA + singles gpt2-medium (benchmark: medium == high visually).
+- Projected 9-slide run: ~50s anchor + 2 × ~35s waves ≈ **2 minutes** (4-5x faster).
+
+## Remaining actions
+- **Promote to production after the founder's dev test** — production still runs the old chain; users see 5-10 min until the promote.
+- Optional next notch: raise CONCURRENCY for NB2-routed slides (Atlas limits are separate from OpenAI's) and/or relax anchor-first when a curated template locks the design system — measure on dev first.
