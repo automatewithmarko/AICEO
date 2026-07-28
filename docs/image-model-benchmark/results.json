@@ -1,0 +1,79 @@
+[
+  {
+    "model": "openai/gpt-image-2",
+    "label": "gpt-image-2 (current primary)",
+    "route": "openai-wire",
+    "prompt": "slide",
+    "seconds": 32.2,
+    "kb": 914,
+    "file": "openai_gpt-image-2__slide.png",
+    "ok": true
+  },
+  {
+    "model": "openai/gpt-image-2",
+    "label": "gpt-image-2 (current primary)",
+    "route": "openai-wire",
+    "prompt": "visual",
+    "seconds": 27.3,
+    "kb": 1155,
+    "file": "openai_gpt-image-2__visual.png",
+    "ok": true
+  },
+  {
+    "model": "google/gemini-2.5-flash-image",
+    "label": "gemini-2.5-flash-image / Nano Banana 1 (old fast baseline)",
+    "route": "openai-wire",
+    "prompt": "slide",
+    "seconds": 26.6,
+    "kb": 1157,
+    "file": "google_gemini-2_5-flash-image__slide.png",
+    "ok": true
+  },
+  {
+    "model": "google/gemini-2.5-flash-image",
+    "label": "gemini-2.5-flash-image / Nano Banana 1 (old fast baseline)",
+    "route": "openai-wire",
+    "prompt": "visual",
+    "seconds": 124.1,
+    "ok": false,
+    "error": "HTTP 429: {\"error\":{\"message\":\"Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing. Learn more at https://ai.google.dev/gemini-api/docs/"
+  },
+  {
+    "model": "gemini-3-pro-image-preview",
+    "label": "gemini-3-pro-image-preview",
+    "route": "openai-wire",
+    "prompt": "slide",
+    "seconds": 1.6,
+    "ok": false,
+    "error": "HTTP 429: {\"error\":{\"message\":\"Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing. Learn more at https://ai.google.dev/gemini-api/docs/"
+  },
+  {
+    "model": "gemini-3-pro-image-preview",
+    "label": "gemini-3-pro-image-preview",
+    "route": "openai-wire",
+    "prompt": "visual",
+    "seconds": 1.9,
+    "ok": false,
+    "error": "HTTP 429: {\"error\":{\"message\":\"Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing. Learn more at https://ai.google.dev/gemini-api/docs/"
+  },
+  {
+    "model": "gemini-3.1-flash-image-preview",
+    "label": "gemini-3.1-flash via v1beta -> Atlas NB2 (the NB2 leg)",
+    "route": "gemini-wire",
+    "prompt": "slide",
+    "seconds": 60.2,
+    "kb": 582,
+    "file": "gemini-3_1-flash-image-preview__slide.png",
+    "ok": true
+  },
+  {
+    "model": "gemini-3.1-flash-image-preview",
+    "label": "gemini-3.1-flash via v1beta -> Atlas NB2 (the NB2 leg)",
+    "route": "gemini-wire",
+    "prompt": "visual",
+    "seconds": 20.2,
+    "kb": 1395,
+    "file": "gemini-3_1-flash-image-preview__visual.png",
+    "ok": true
+  }
+]
