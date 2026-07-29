@@ -1495,3 +1495,18 @@
     display: none;
   }
 }
+
+/* Needs-attention card controls (collapse + dismiss) — founder 2026-07-28 */
+.dash-attn-actions { margin-left: auto; display: inline-flex; gap: 4px; }
+.dash-attn-btn {
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.dash-attn-btn:hover { opacity: 1; background: rgba(0, 0, 0, 0.06); }

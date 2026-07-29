@@ -930,6 +930,9 @@ export async function getDashboardStats(timeframe = 'week', { from, to } = {}) {
   const headers = await getAuthHeaders();
   const url = new URL(`${API_URL}/api/dashboard-stats`);
   url.searchParams.set('timeframe', timeframe);
+  // Browser timezone offset (minutes, JS convention) — the backend anchors
+  // "today"/"week"/"month" to the USER's midnight, not server UTC.
+  url.searchParams.set('tz_offset', String(new Date().getTimezoneOffset()));
   if (timeframe === 'custom') {
     if (from) url.searchParams.set('from', from);
     if (to) url.searchParams.set('to', to);

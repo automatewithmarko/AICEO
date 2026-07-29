@@ -15,27 +15,41 @@ const router = Router();
 
 const PLATFORMS = ['instagram', 'linkedin', 'facebook', 'x', 'tiktok', 'youtube'];
 
-function getTimeframeRange(timeframe, from, to) {
+function getTimeframeRange(timeframe, from, to, tzOffsetMin) {
+  // tz_offset = JS getTimezoneOffset() minutes (UTC minus local). All
+  // preset windows anchor to the USER's local midnight — the server runs
+  // UTC, so without this a +05:00 founder's "today" started at 5am local
+  // and week/month counts never matched what they remembered doing.
+  const off = Number.isFinite(Number(tzOffsetMin)) ? Number(tzOffsetMin) : 0;
   if (timeframe === 'custom') {
+    let since = null;
     let until = null;
+    if (from) {
+      const d = new Date(from);
+      // Bare dates are the user's LOCAL days.
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(from))) d.setTime(d.getTime() + off * 60_000);
+      since = d.toISOString();
+    }
     if (to) {
       const d = new Date(to);
-      // Include the ENTIRE final day — bare dates parse to T00:00:00Z and
-      // silently excluded the last day of every custom range (audit C).
-      if (/^\d{4}-\d{2}-\d{2}$/.test(String(to))) d.setUTCHours(23, 59, 59, 999);
+      // Include the ENTIRE final local day — bare dates parse to
+      // T00:00:00Z and silently excluded the range's last day (audit C).
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(to))) {
+        d.setUTCHours(23, 59, 59, 999);
+        d.setTime(d.getTime() + off * 60_000);
+      }
       until = d.toISOString();
     }
-    return { since: from ? new Date(from).toISOString() : null, until };
+    return { since, until };
   }
-  const d = new Date();
-  switch (timeframe) {
-    case 'today': d.setHours(0, 0, 0, 0); break;
-    case 'month': d.setDate(d.getDate() - 30); break;
-    case 'all':   return { since: null, until: null };
-    case 'week':
-    default:      d.setDate(d.getDate() - 7); break;
-  }
-  return { since: d.toISOString(), until: null };
+  if (timeframe === 'all') return { since: null, until: null };
+  // User-local midnight of TODAY, expressed in UTC.
+  const shifted = new Date(Date.now() - off * 60_000);
+  shifted.setUTCHours(0, 0, 0, 0);
+  const localMidnightUtc = shifted.getTime() + off * 60_000;
+  const DAY = 86_400_000;
+  const backDays = timeframe === 'today' ? 0 : (timeframe === 'month' ? 29 : 6);
+  return { since: new Date(localMidnightUtc - backDays * DAY).toISOString(), until: null };
 }
 
 function emptyPlatformMap() {
@@ -102,7 +116,7 @@ router.get('/api/dashboard-stats', async (req, res) => {
   const timeframe = ['today', 'week', 'month', 'all', 'custom'].includes(req.query.timeframe)
     ? req.query.timeframe
     : 'week';
-  const { since, until } = getTimeframeRange(timeframe, req.query.from, req.query.to);
+  const { since, until } = getTimeframeRange(timeframe, req.query.from, req.query.to, req.query.tz_offset);
 
   const inRange = (q, col) => {
     let out = q;

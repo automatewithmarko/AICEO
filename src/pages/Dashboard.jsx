@@ -92,6 +92,16 @@ export default function Dashboard() {
   const [customTo, setCustomTo] = useState('');
   const [customApplied, setCustomApplied] = useState({ from: '', to: '' });
   const [overviewStats, setOverviewStats] = useState(null);
+  // Needs-attention card UX: collapse + dismiss-until-new-failures.
+  const [attnCollapsed, setAttnCollapsed] = useState(false);
+  const [attnDismissedKey, setAttnDismissedKey] = useState(() => {
+    try { return localStorage.getItem('dash-attn-dismissed') || null; } catch { return null; }
+  });
+  const dismissAttn = () => {
+    const key = String((overviewStats?.failed_posts || [])[0]?.id ?? (overviewStats?.failed_posts || []).length);
+    try { localStorage.setItem('dash-attn-dismissed', key); } catch { /* private mode */ }
+    setAttnDismissedKey(key);
+  };
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewError, setOverviewError] = useState(null); // HTTP status or 'network'
   const [openPlatform, setOpenPlatform] = useState(null);   // accordion: one platform open at a time
@@ -742,8 +752,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* B — Needs attention: silently-failed scheduled posts, surfaced at last */}
-      {failedPosts.length > 0 && (
+      {/* B — Needs attention: silently-failed scheduled posts, surfaced at
+          last. Dismissible (stays hidden until NEW failures appear — keyed
+          by newest failed id in localStorage) and collapsible; founder
+          2026-07-28: an un-removable red alert is hostile, not helpful. */}
+      {failedPosts.length > 0 && attnDismissedKey !== String(failedPosts[0]?.id ?? failedPosts.length) && (
         <div className="dash-attn-card">
           <div className="dash-attn-head">
             <AlertTriangle size={16} />
@@ -751,7 +764,14 @@ export default function Dashboard() {
             <span className="dash-attn-count">
               {failedPosts.length} failed {failedPosts.length === 1 ? 'post' : 'posts'}
             </span>
+            <span className="dash-attn-actions">
+              <button type="button" className="dash-attn-btn" onClick={() => setAttnCollapsed((v) => !v)} title={attnCollapsed ? 'Expand' : 'Collapse'}>
+                {attnCollapsed ? '▸' : '▾'}
+              </button>
+              <button type="button" className="dash-attn-btn" onClick={dismissAttn} title="Dismiss until new failures appear">✕</button>
+            </span>
           </div>
+          {!attnCollapsed && (
           <ul className="dash-attn-list">
             {failedPosts.map((p, i) => (
               <li key={p.id ?? i} className="dash-attn-row">
@@ -762,9 +782,12 @@ export default function Dashboard() {
               </li>
             ))}
           </ul>
+          )}
+          {!attnCollapsed && (
           <button className="dash-card-link" onClick={goTo('/content-calendar')}>
             Open Content Calendar <ExternalLink size={13} />
           </button>
+          )}
         </div>
       )}
 
