@@ -366,6 +366,7 @@ router.post('/api/boosend/instagram/publish', requireFeature('instagram_posting'
       user_id: userId,
       platform: 'instagram',
       caption: caption || '',
+      content_type: items.length > 1 ? 'carousel' : 'image_post',
       external_post_id: data?.media_id || null,
       status: 'published',
       published_at: new Date().toISOString(),
@@ -421,6 +422,7 @@ router.post('/api/boosend/instagram/schedule', requireFeature('instagram_posting
       user_id: userId,
       platform: 'instagram',
       caption: caption || '',
+      content_type: items.length > 1 ? 'carousel' : 'image_post',
       status: 'scheduled',
       scheduled_at,
     });

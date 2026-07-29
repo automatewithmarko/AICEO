@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Check, ChevronDown, ChevronUp, ExternalLink, X, Copy, Loader, Upload, Plus } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Check, ChevronDown, ChevronUp, ExternalLink, X, Loader, Upload, Plus, AlertTriangle, CalendarClock, Facebook } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
-import { connectIntegration, getIntegrations, getEmailAccounts, uploadBrandDnaFiles, getDashboardStats } from '../lib/api';
+import { connectIntegration, getIntegrations, uploadBrandDnaFiles, getDashboardStats } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import './Pages.css';
 import './Dashboard.css';
@@ -22,18 +23,55 @@ const ONBOARDING_STEPS = [
   { id: 9, label: 'Connect your social media profiles to automate content posting', type: 'action' },
 ];
 
+const STEP_KEYS = { 1: 'signup', 2: 'photos', 3: 'logos', 4: 'brand-brain', 5: 'payment', 7: 'gohighlevel', 8: 'boosend', 9: 'social' };
+
+// Platform metadata for the Overview (array order = display order).
+const PLATFORM_META = [
+  { id: 'instagram', name: 'Instagram', logoClass: 'stat-platform-logo--ig', icon: '/instagram-icon.svg', color: '#E4405F' },
+  { id: 'linkedin', name: 'LinkedIn', logoClass: 'stat-platform-logo--li', icon: '/linkedin-icon.svg', color: '#0A66C2' },
+  { id: 'facebook', name: 'Facebook', logoClass: 'stat-platform-logo--fb', icon: null, color: '#1877F2' },
+  { id: 'x', name: 'X', logoClass: 'stat-platform-logo--x', icon: '/x-icon.svg', color: '#555555' },
+  { id: 'tiktok', name: 'TikTok', logoClass: 'stat-platform-logo--tt', icon: '/tiktok-icon.svg', color: '#111111' },
+  { id: 'youtube', name: 'YouTube', logoClass: 'stat-platform-logo--yt', icon: '/youtube-icon.svg', color: '#FF0000' },
+];
+
+const TYPE_LABELS = {
+  text_post: 'Text posts', image_post: 'Image posts', carousel: 'Carousels',
+  story: 'Stories', reel: 'Reels', script: 'Scripts',
+  landing_page: 'Landing pages', newsletter: 'Newsletters', other: 'Other',
+};
+const TYPE_LABELS_ONE = {
+  text_post: 'Text post', image_post: 'Image post', carousel: 'Carousel',
+  story: 'Story', reel: 'Reel', script: 'Script',
+  landing_page: 'Landing page', newsletter: 'Newsletter', other: 'Post',
+};
+const TYPE_ORDER = Object.keys(TYPE_LABELS);
+
+const platformName = (id) =>
+  PLATFORM_META.find((p) => p.id === String(id || '').toLowerCase())?.name || (id ? String(id) : 'Unknown');
+const typeLabelOne = (t) => TYPE_LABELS_ONE[t] || TYPE_LABELS_ONE.other;
+const snippet = (s, n = 70) => {
+  const t = String(s || '').trim();
+  return t.length > n ? `${t.slice(0, n)}…` : t;
+};
+const fmtWhen = (iso) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? ''
+    : d.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+};
+
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [dashLoading, setDashLoading] = useState(true);
   const [onboardingExpanded, setOnboardingExpanded] = useState(true);
   const autoCollapsedRef = useRef(false);
   const [completedSteps, setCompletedSteps] = useState(new Set([1]));
-  const [connectedIntegrations, setConnectedIntegrations] = useState({});
   const [selectedPayment, setSelectedPayment] = useState(PAYMENT_TRACKERS[0]);
   const [paymentDropdownOpen, setPaymentDropdownOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalType, setModalType] = useState(null);
   const [apiKey, setApiKey] = useState('');
-  const [copiedField, setCopiedField] = useState(null);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState(null);
 
@@ -46,7 +84,6 @@ export default function Dashboard() {
   const fileInputRef = useRef(null);
   const logoInputRef = useRef(null);
   const brandBrainIframeRef = useRef(null);
-  const [brandBrainSaved, setBrandBrainSaved] = useState(false);
   const [brandBrainRawData, setBrandBrainRawData] = useState(null);
 
   // Dashboard stats (populated from /api/dashboard-stats)
@@ -56,6 +93,8 @@ export default function Dashboard() {
   const [customApplied, setCustomApplied] = useState({ from: '', to: '' });
   const [overviewStats, setOverviewStats] = useState(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewError, setOverviewError] = useState(null); // HTTP status or 'network'
+  const [openPlatform, setOpenPlatform] = useState(null);   // accordion: one platform open at a time
 
   useEffect(() => {
     // Don't fetch if user picked Custom but hasn't applied a range yet.
@@ -66,8 +105,16 @@ export default function Dashboard() {
       ? { from: customApplied.from || undefined, to: customApplied.to || undefined }
       : {};
     getDashboardStats(statsTimeframe, opts)
-      .then((data) => { if (!cancelled && data) setOverviewStats(data); })
-      .catch(() => {})
+      .then((data) => {
+        if (cancelled) return;
+        if (!data || data.error) {
+          setOverviewError(data?.error || 'network');
+        } else {
+          setOverviewError(null);
+          setOverviewStats(data);
+        }
+      })
+      .catch(() => { if (!cancelled) setOverviewError('network'); })
       .finally(() => { if (!cancelled) setOverviewLoading(false); });
     return () => { cancelled = true; };
   }, [statsTimeframe, customApplied]);
@@ -78,8 +125,35 @@ export default function Dashboard() {
     const v = Number(n) || 0;
     return `$${v.toLocaleString('en-US', { maximumFractionDigits: v >= 1000 ? 0 : 2 })}`;
   };
-  const platformCreated = (p) => overviewStats?.content_created?.[p] ?? 0;
-  const platformPublished = (p) => overviewStats?.content_published?.[p] ?? 0;
+  // Always two decimals — the Revenue tile shows real dollars ($X,XXX.XX).
+  const fmtMoneyExact = (n) => {
+    const v = Number(n) || 0;
+    return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+  const platformGenerated = (p) => overviewStats?.content_generated?.[p]?.total ?? 0;
+  const platformPublished = (p) => overviewStats?.content_published_detail?.[p]?.total ?? 0;
+
+  // Union of generated + published byType keys for one platform; all-zero rows skipped.
+  const platformTypeRows = (p) => {
+    const gen = overviewStats?.content_generated?.[p]?.byType || {};
+    const pub = overviewStats?.content_published_detail?.[p]?.byType || {};
+    const keys = [...new Set([...Object.keys(gen), ...Object.keys(pub)])];
+    keys.sort((a, b) => {
+      const ia = TYPE_ORDER.indexOf(a); const ib = TYPE_ORDER.indexOf(b);
+      return (ia === -1 ? TYPE_ORDER.length : ia) - (ib === -1 ? TYPE_ORDER.length : ib);
+    });
+    return keys
+      .map((k) => ({ key: k, label: TYPE_LABELS[k] || TYPE_LABELS.other, generated: Number(gen[k]) || 0, published: Number(pub[k]) || 0 }))
+      .filter((r) => r.generated > 0 || r.published > 0);
+  };
+
+  const upcomingPosts = overviewStats?.upcoming_posts || [];
+  const failedPosts = overviewStats?.failed_posts || [];
+
+  const goTo = (path) => () => navigate(path);
+  const cardKeyNav = (path) => (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(path); }
+  };
 
   // ── Chart data ──
   const revenueChartData = useMemo(() => {
@@ -94,20 +168,13 @@ export default function Dashboard() {
     });
   }, [overviewStats]);
 
+  // Content Mix = PUBLISHED pieces only (created+published double-counted before).
   const contentMixData = useMemo(() => {
-    const PLATFORM_META = [
-      { id: 'instagram', name: 'Instagram', color: '#E4405F' },
-      { id: 'tiktok', name: 'TikTok', color: '#111111' },
-      { id: 'youtube', name: 'YouTube', color: '#FF0000' },
-      { id: 'linkedin', name: 'LinkedIn', color: '#0A66C2' },
-      { id: 'x', name: 'X', color: '#555555' },
-    ];
-    const rows = PLATFORM_META.map((p) => ({
-      ...p,
-      value: platformCreated(p.id) + platformPublished(p.id),
+    return PLATFORM_META.map((p) => ({
+      id: p.id, name: p.name, color: p.color,
+      value: overviewStats?.content_published_detail?.[p.id]?.total ?? 0,
     })).filter((r) => r.value > 0);
-    return rows;
-  }, [overviewStats]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [overviewStats]);
 
   const revenueTotal = overviewStats?.revenue_generated || 0;
   const contentTotal = contentMixData.reduce((s, r) => s + r.value, 0);
@@ -118,6 +185,7 @@ export default function Dashboard() {
   useEffect(() => {
     async function load() {
       const steps = new Set([1]); // signup always done
+      let visible = true;
 
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
@@ -128,7 +196,8 @@ export default function Dashboard() {
           .single();
 
         if (onboarding) {
-          setOnboardingExpanded(onboarding.is_visible !== false);
+          visible = onboarding.is_visible !== false;
+          setOnboardingExpanded(visible);
           for (const s of (onboarding.completed_steps || [])) {
             if (s === 'signup') steps.add(1);
             if (s === 'photos') steps.add(2);
@@ -156,21 +225,18 @@ export default function Dashboard() {
         }
       }
 
-      const [intResult] = await Promise.all([
-        getIntegrations(),
-        getEmailAccounts(),
-      ]);
+      const intResult = await getIntegrations();
 
       const intMap = {};
       for (const int of (intResult.integrations || [])) {
         intMap[int.provider] = int;
       }
-      setConnectedIntegrations(intMap);
 
       if (intMap.stripe?.is_active || intMap.whop?.is_active) steps.add(5);
       if (intMap.gohighlevel?.is_active) steps.add(7);
       if (intMap.boosend?.is_active) steps.add(8);
 
+      onboardingRef.current = { visible, steps };
       setCompletedSteps(steps);
       setDashLoading(false);
     }
@@ -181,23 +247,31 @@ export default function Dashboard() {
   const completedCount = completedSteps.size;
   const progressPercent = (completedCount / totalSteps) * 100;
 
-  const persistOnboardingVisibility = (visible) => {
+  // Onboarding persistence. The upsert (onConflict: 'user_id') REPLACES the
+  // row, so is_visible and completed_steps must always be written together —
+  // two single-column upserts were clobbering each other (audit finding 2).
+  // The ref always mirrors the latest onboarding state so every save carries
+  // both fields regardless of which one just changed.
+  const onboardingRef = useRef({ visible: true, steps: new Set([1]) });
+  const persistOnboarding = (patch = {}) => {
+    const next = { ...onboardingRef.current, ...patch };
+    onboardingRef.current = next;
+    const stepsArr = [...next.steps].map((id) => STEP_KEYS[id]).filter(Boolean);
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session?.user) return;
       supabase.from('onboarding').upsert({
         user_id: session.user.id,
-        is_visible: visible,
+        is_visible: next.visible,
+        completed_steps: stepsArr,
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' });
+      }, { onConflict: 'user_id' }).then(() => {}, () => {});
     });
   };
 
   const toggleOnboarding = () => {
-    setOnboardingExpanded((prev) => {
-      const next = !prev;
-      persistOnboardingVisibility(next);
-      return next;
-    });
+    const next = !onboardingExpanded;
+    setOnboardingExpanded(next);
+    persistOnboarding({ visible: next });
   };
 
   // Auto-collapse on the incomplete -> complete transition within this session.
@@ -210,44 +284,34 @@ export default function Dashboard() {
     if (wasIncomplete && nowComplete && !autoCollapsedRef.current && onboardingExpanded) {
       autoCollapsedRef.current = true;
       setOnboardingExpanded(false);
-      persistOnboardingVisibility(false);
+      persistOnboarding({ visible: false });
     }
     prevCompletedRef.current = completedCount;
   }, [completedCount, totalSteps, onboardingExpanded]);
 
   const handleComplete = (stepId) => {
-    setCompletedSteps((prev) => {
-      const next = new Set([...prev, stepId]);
-      const stepMap = { 1: 'signup', 2: 'photos', 3: 'logos', 4: 'brand-brain', 5: 'payment', 7: 'gohighlevel', 8: 'boosend', 9: 'social' };
-      const stepsArr = [...next].map(id => stepMap[id]).filter(Boolean);
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session?.user) {
-          supabase.from('onboarding').upsert({
-            user_id: session.user.id,
-            completed_steps: stepsArr,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'user_id' });
-        }
-      });
-      return next;
-    });
+    // Read from the ref (not the render closure) so back-to-back completions
+    // never drop a step, then persist BOTH onboarding fields together.
+    const next = new Set([...onboardingRef.current.steps, stepId]);
+    persistOnboarding({ steps: next });
+    setCompletedSteps(next);
   };
 
   const handleSkip = (stepId) => handleComplete(stepId);
 
   // --- Integration modals ---
   const openPaymentModal = () => {
-    setApiKey(''); setCopiedField(null); setConnectError(null); setConnecting(false);
+    setApiKey(''); setConnectError(null); setConnecting(false);
     setModalType('payment'); setModalOpen(true);
   };
 
   const openBoosendModal = () => {
-    setApiKey(''); setCopiedField(null); setConnectError(null); setConnecting(false);
+    setApiKey(''); setConnectError(null); setConnecting(false);
     setModalType('boosend'); setModalOpen(true);
   };
 
   const openGhlModal = () => {
-    setApiKey(''); setGhlLocationId(''); setCopiedField(null); setConnectError(null); setConnecting(false);
+    setApiKey(''); setGhlLocationId(''); setConnectError(null); setConnecting(false);
     setModalType('gohighlevel'); setModalOpen(true);
   };
 
@@ -278,12 +342,6 @@ export default function Dashboard() {
       setApiKey(''); setModalType(null);
     } catch (err) { setConnectError(err.message); }
     finally { setConnecting(false); }
-  };
-
-  const copyToClipboard = (text, field) => {
-    navigator.clipboard.writeText(text);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
   };
 
   // --- Brand DNA helpers ---
@@ -422,7 +480,6 @@ export default function Dashboard() {
     if (!id) return;
     const { data } = await supabase.from('brand_dna').select('documents').eq('id', id).single();
     setBrandBrainRawData(data?.documents?.brandBrain?.rawData || null);
-    setBrandBrainSaved(!!data?.documents?.brandBrain);
     setBrandDnaModal('brand-brain');
   };
 
@@ -449,10 +506,13 @@ export default function Dashboard() {
     return () => window.removeEventListener('message', handler);
   }, [brandBrainRawData, brandDnaId]);
 
-  if (dashLoading) {
-    return (
-      <div className="page-container">
-        <h1 className="page-title">Dashboard</h1>
+  return (
+    <div className="page-container">
+      <h1 className="page-title">Dashboard</h1>
+
+      {/* Only the onboarding card waits for getIntegrations — the Overview
+          below renders as soon as stats arrive (audit finding 5). */}
+      {dashLoading ? (
         <div className="skeleton-card" style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
             <div className="skeleton" style={{ width: 120, height: 22, borderRadius: 12 }} />
@@ -466,14 +526,7 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="page-container">
-      <h1 className="page-title">Dashboard</h1>
-
+      ) : (
       <div className={`onboarding ${onboardingExpanded ? '' : 'onboarding--collapsed'}`}>
         <div className="onboarding-header" onClick={toggleOnboarding} role="button" tabIndex={0}
              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOnboarding(); } }}>
@@ -573,6 +626,7 @@ export default function Dashboard() {
           </div>
         </>)}
       </div>
+      )}
 
       <div className="dashboard-stats-header">
         <h2 className="dashboard-stats-title">Overview</h2>
@@ -605,11 +659,7 @@ export default function Dashboard() {
                 type="date"
                 value={customFrom}
                 max={customTo || undefined}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setCustomFrom(v);
-                  if (v || customTo) { setStatsTimeframe('custom'); setCustomApplied({ from: v, to: customTo }); }
-                }}
+                onChange={(e) => setCustomFrom(e.target.value)}
               />
             </label>
             <label>
@@ -618,19 +668,39 @@ export default function Dashboard() {
                 type="date"
                 value={customTo}
                 min={customFrom || undefined}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setCustomTo(v);
-                  if (v || customFrom) { setStatsTimeframe('custom'); setCustomApplied({ from: customFrom, to: v }); }
-                }}
+                onChange={(e) => setCustomTo(e.target.value)}
               />
             </label>
+            <button
+              className="dashboard-timeframe-apply"
+              disabled={!customFrom || !customTo}
+              onClick={() => {
+                setStatsTimeframe('custom');
+                setCustomApplied({ from: customFrom, to: customTo });
+              }}
+            >
+              Apply
+            </button>
           </div>
         </div>
       </div>
 
+      {overviewError ? (
+        <div className="dash-error-banner" role="alert">
+          <AlertTriangle size={18} />
+          <div className="dash-error-text">
+            <strong>Couldn&apos;t load stats.</strong>{' '}
+            {overviewError === 403
+              ? "You don't have dashboard access in this workspace."
+              : 'Please try again in a moment.'}
+          </div>
+        </div>
+      ) : (
+      <>
+      {/* A — Stat row */}
       <div className={`dashboard-stats dashboard-stats--grid${overviewLoading ? ' dashboard-stats--loading' : ''}`}>
-        <div className="stat-card">
+        <div className="stat-card stat-card--clickable" role="button" tabIndex={0}
+             onClick={goTo('/crm')} onKeyDown={cardKeyNav('/crm')}>
           <div className="stat-icon">
             <img src="/icon-crm.png" alt="" className="stat-icon-img" />
           </div>
@@ -639,12 +709,13 @@ export default function Dashboard() {
             <span className="stat-label">New Contacts</span>
           </div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card stat-card--clickable" role="button" tabIndex={0}
+             onClick={goTo('/sales')} onKeyDown={cardKeyNav('/sales')}>
           <div className="stat-icon stat-icon--success">
             <img src="/icon-sales.png" alt="" className="stat-icon-img" />
           </div>
           <div className="stat-info">
-            <span className="stat-value">{fmtMoney(overviewStats?.revenue_generated)}</span>
+            <span className="stat-value">{fmtMoneyExact(overviewStats?.revenue_generated)}</span>
             <span className="stat-label">Revenue Generated</span>
           </div>
         </div>
@@ -655,124 +726,143 @@ export default function Dashboard() {
           <div className="stat-info">
             <span className="stat-value">{fmtInt(overviewStats?.emails_sent)}</span>
             <span className="stat-label">Emails Sent</span>
+            <span className="stat-sub">{fmtInt(overviewStats?.newsletters_sent)} newsletters</span>
           </div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card stat-card--clickable" role="button" tabIndex={0}
+             onClick={goTo('/settings')} onKeyDown={cardKeyNav('/settings')}>
           <div className="stat-icon stat-icon--info">
-            <img src="/icon-marketing.png" alt="" className="stat-icon-img" />
+            <img src="/icon-credits.png" alt="" className="stat-icon-img" />
           </div>
           <div className="stat-info">
-            <span className="stat-value">{fmtInt(overviewStats?.newsletters_sent)}</span>
-            <span className="stat-label">Newsletters Sent</span>
-          </div>
-        </div>
-        <div className="stat-card stat-card--wide">
-          <div className="stat-info stat-info--full">
-            <span className="stat-label stat-label--section">Content Created</span>
-            <div className="stat-platforms">
-              <div className="stat-platform">
-                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--ig">
-                  <img src="/instagram-icon.svg" alt="Instagram" />
-                </div>
-                <div className="stat-platform-meta">
-                  <span className="stat-platform-value">{fmtInt(platformCreated('instagram'))}</span>
-                  <span className="stat-platform-name">Instagram</span>
-                </div>
-              </div>
-              <div className="stat-platform">
-                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--tt">
-                  <img src="/tiktok-icon.svg" alt="TikTok" />
-                </div>
-                <div className="stat-platform-meta">
-                  <span className="stat-platform-value">{fmtInt(platformCreated('tiktok'))}</span>
-                  <span className="stat-platform-name">TikTok</span>
-                </div>
-              </div>
-              <div className="stat-platform">
-                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--yt">
-                  <img src="/youtube-icon.svg" alt="YouTube" />
-                </div>
-                <div className="stat-platform-meta">
-                  <span className="stat-platform-value">{fmtInt(platformCreated('youtube'))}</span>
-                  <span className="stat-platform-name">YouTube</span>
-                </div>
-              </div>
-              <div className="stat-platform">
-                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--li">
-                  <img src="/linkedin-icon.svg" alt="LinkedIn" />
-                </div>
-                <div className="stat-platform-meta">
-                  <span className="stat-platform-value">{fmtInt(platformCreated('linkedin'))}</span>
-                  <span className="stat-platform-name">LinkedIn</span>
-                </div>
-              </div>
-              <div className="stat-platform">
-                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--x">
-                  <img src="/x-icon.svg" alt="X" />
-                </div>
-                <div className="stat-platform-meta">
-                  <span className="stat-platform-value">{fmtInt(platformCreated('x'))}</span>
-                  <span className="stat-platform-name">X</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="stat-card stat-card--wide">
-          <div className="stat-info stat-info--full">
-            <span className="stat-label stat-label--section">Content Published</span>
-            <div className="stat-platforms">
-              <div className="stat-platform">
-                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--ig">
-                  <img src="/instagram-icon.svg" alt="Instagram" />
-                </div>
-                <div className="stat-platform-meta">
-                  <span className="stat-platform-value">{fmtInt(platformPublished('instagram'))}</span>
-                  <span className="stat-platform-name">Instagram</span>
-                </div>
-              </div>
-              <div className="stat-platform">
-                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--tt">
-                  <img src="/tiktok-icon.svg" alt="TikTok" />
-                </div>
-                <div className="stat-platform-meta">
-                  <span className="stat-platform-value">{fmtInt(platformPublished('tiktok'))}</span>
-                  <span className="stat-platform-name">TikTok</span>
-                </div>
-              </div>
-              <div className="stat-platform">
-                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--yt">
-                  <img src="/youtube-icon.svg" alt="YouTube" />
-                </div>
-                <div className="stat-platform-meta">
-                  <span className="stat-platform-value">{fmtInt(platformPublished('youtube'))}</span>
-                  <span className="stat-platform-name">YouTube</span>
-                </div>
-              </div>
-              <div className="stat-platform">
-                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--li">
-                  <img src="/linkedin-icon.svg" alt="LinkedIn" />
-                </div>
-                <div className="stat-platform-meta">
-                  <span className="stat-platform-value">{fmtInt(platformPublished('linkedin'))}</span>
-                  <span className="stat-platform-name">LinkedIn</span>
-                </div>
-              </div>
-              <div className="stat-platform">
-                <div className="stat-platform-logo stat-platform-logo--tile stat-platform-logo--x">
-                  <img src="/x-icon.svg" alt="X" />
-                </div>
-                <div className="stat-platform-meta">
-                  <span className="stat-platform-value">{fmtInt(platformPublished('x'))}</span>
-                  <span className="stat-platform-name">X</span>
-                </div>
-              </div>
-            </div>
+            <span className="stat-value">{fmtInt(overviewStats?.credits_spent)}</span>
+            <span className="stat-label">Credits Spent</span>
+            <span className="stat-sub">This timeframe</span>
           </div>
         </div>
       </div>
 
-      {/* ── Charts ── */}
+      {/* B — Needs attention: silently-failed scheduled posts, surfaced at last */}
+      {failedPosts.length > 0 && (
+        <div className="dash-attn-card">
+          <div className="dash-attn-head">
+            <AlertTriangle size={16} />
+            <span className="dash-attn-title">Needs attention</span>
+            <span className="dash-attn-count">
+              {failedPosts.length} failed {failedPosts.length === 1 ? 'post' : 'posts'}
+            </span>
+          </div>
+          <ul className="dash-attn-list">
+            {failedPosts.map((p, i) => (
+              <li key={p.id ?? i} className="dash-attn-row">
+                <span className="dash-attn-platform">{platformName(p.platform)}</span>
+                <span className="dash-attn-type">{typeLabelOne(p.content_type)}</span>
+                <span className="dash-attn-caption">{snippet(p.caption) || 'Untitled post'}</span>
+                {p.error ? <span className="dash-attn-error">{snippet(p.error, 90)}</span> : null}
+              </li>
+            ))}
+          </ul>
+          <button className="dash-card-link" onClick={goTo('/content-calendar')}>
+            Open Content Calendar <ExternalLink size={13} />
+          </button>
+        </div>
+      )}
+
+      {/* C — Scheduled, next 7 days */}
+      <div className="dash-upcoming-card">
+        <div className="dash-upcoming-head">
+          <CalendarClock size={16} />
+          <span className="dash-upcoming-title">Scheduled — next 7 days</span>
+        </div>
+        {upcomingPosts.length === 0 ? (
+          <div className="dash-upcoming-empty">Nothing scheduled — plan content in the calendar</div>
+        ) : (
+          <ul className="dash-upcoming-list">
+            {upcomingPosts.map((p, i) => (
+              <li key={p.id ?? i} className="dash-upcoming-row">
+                {p.thumbnail_url ? (
+                  <img className="dash-upcoming-thumb" src={p.thumbnail_url} alt="" />
+                ) : (
+                  <span className="dash-upcoming-thumb dash-upcoming-thumb--empty" aria-hidden="true" />
+                )}
+                <span className="dash-upcoming-platform">{platformName(p.platform)}</span>
+                <span className="dash-upcoming-type">{typeLabelOne(p.content_type)}</span>
+                <span className="dash-upcoming-caption">{snippet(p.caption) || 'Untitled post'}</span>
+                <span className="dash-upcoming-when">{fmtWhen(p.scheduled_at)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <button className="dash-card-link" onClick={goTo('/content-calendar')}>
+          Open Content Calendar <ExternalLink size={13} />
+        </button>
+      </div>
+
+      {/* D — Content by platform (generated vs published, per-type accordion) */}
+      <div className="dash-plat-section">
+        <div className="dash-plat-header">
+          <h3 className="dash-plat-heading">Content by platform</h3>
+          <span className="dash-plat-note">Tracking since Jul 28, 2026</span>
+        </div>
+        <div className="dash-plat-grid">
+          {PLATFORM_META.map((p) => {
+            const open = openPlatform === p.id;
+            const rows = open ? platformTypeRows(p.id) : [];
+            return (
+              <div key={p.id} className={`dash-plat-card${open ? ' dash-plat-card--open' : ''}`}>
+                <button
+                  className="dash-plat-summary"
+                  onClick={() => setOpenPlatform(open ? null : p.id)}
+                  aria-expanded={open}
+                >
+                  <span className={`stat-platform-logo stat-platform-logo--tile ${p.logoClass}`}>
+                    {p.icon ? <img src={p.icon} alt="" /> : <Facebook size={18} />}
+                  </span>
+                  <span className="dash-plat-name">{p.name}</span>
+                  <span className="dash-plat-nums">
+                    <span className="dash-plat-num">
+                      <span className="dash-plat-num-value">{fmtInt(platformGenerated(p.id))}</span>
+                      <span className="dash-plat-num-label">Generated</span>
+                    </span>
+                    <span className="dash-plat-num">
+                      <span className="dash-plat-num-value">{fmtInt(platformPublished(p.id))}</span>
+                      <span className="dash-plat-num-label">Published</span>
+                    </span>
+                  </span>
+                  <span className="dash-plat-chevron">
+                    {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </span>
+                </button>
+                {open && (
+                  <div className="dash-plat-detail">
+                    {rows.length === 0 ? (
+                      <div className="dash-plat-detail-empty">No content yet for {p.name}.</div>
+                    ) : (
+                      <div className="dash-plat-detail-table">
+                        <div className="dash-plat-detail-row dash-plat-detail-row--head">
+                          <span>Type</span><span>Generated</span><span>Published</span>
+                        </div>
+                        {rows.map((r) => (
+                          <div key={r.key} className="dash-plat-detail-row">
+                            <span>{r.label}</span>
+                            <span>{fmtInt(r.generated)}</span>
+                            <span>{fmtInt(r.published)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <button className="dash-card-link dash-plat-create" onClick={goTo('/content')}>
+                      Create for {p.name} <ExternalLink size={12} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Charts (E revenue, F content mix) ── */}
       <div className="dashboard-charts">
         <div className="dashboard-chart-card dashboard-chart-card--primary">
           <div className="dashboard-chart-head">
@@ -844,11 +934,11 @@ export default function Dashboard() {
               <span className="dashboard-chart-label">Content Mix</span>
               <span className="dashboard-chart-value">{fmtInt(contentTotal)}</span>
             </div>
-            <span className="dashboard-chart-subtitle">By platform</span>
+            <span className="dashboard-chart-subtitle">Published by platform</span>
           </div>
           <div className="dashboard-chart-body">
             {contentMixData.length === 0 ? (
-              <div className="dashboard-chart-empty">No content in this range yet.</div>
+              <div className="dashboard-chart-empty">Nothing published in this range yet.</div>
             ) : (
               <div className="dashboard-donut-wrap">
                 <ResponsiveContainer width="100%" height={200}>
@@ -894,6 +984,8 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* Connection Modal */}
       {modalOpen && (

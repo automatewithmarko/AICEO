@@ -204,6 +204,8 @@ router.post('/api/integrations/linkedin/post', requireFeature('linkedin_posting'
       url: result.postUrl || null,
       caption: text.slice(0, 5000),
       thumbnail_url: urlList[0] || null,
+      content_type: urlList.length > 1 ? 'carousel' : (urlList.length === 1 ? 'image_post' : 'text_post'),
+      status: 'published',
       published_at: new Date().toISOString(),
     });
 

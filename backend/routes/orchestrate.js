@@ -13,6 +13,7 @@ import { detectCeoModules, ALL_CEO_MODULES } from '../agents/ceo-intent-router.j
 import { getContentProfileBlock } from '../services/content-profile.js';
 import { LINKEDIN_CAROUSEL_CAPTION_PARAM, LINKEDIN_CAPTION_STANDARD_BLOCK, LINKEDIN_SLIDE_BODY_STANDARD_BLOCK, REFERENCE_REPLICATION_EXAMPLE } from '../agents/content/build-system-prompt.js';
 import { scrubAiDashes, scrubCarouselPlanDashes } from '../agents/content/claude-protocol.js';
+import { logGeneratedContent } from '../services/generated-content.js';
 import { buildPlanModeDirective } from '../agents/content/plan-mode.js';
 import { PLAN_CAROUSEL_TOOL } from '../agents/plan-carousel-tool.js';
 import { COMPOSE_SINGLE_IMAGE_POST_TOOL, PLAN_PLATFORM_FORMATS } from '../agents/content-plan-tool.js';
@@ -1690,6 +1691,7 @@ RULES:
           // (founder, non-negotiable — an instant AI-tell).
           if (call.name === 'create_artifact' && args.type === 'content_post' && args.content) {
             args.content = scrubAiDashes(args.content);
+            logGeneratedContent({ userId, platform: args.platform, contentType: 'text_post', source: 'ai-ceo' });
           }
           sendSSE(res, { type: 'tool_call', name: call.name, arguments: args });
         } else if (call.name === 'generate_linkedin_post') {
@@ -1713,6 +1715,7 @@ RULES:
               socialUrls: mapContentItemsToSocialRefs(context.contentItems),
             });
             if (postText) {
+              logGeneratedContent({ userId, platform: 'linkedin', contentType: 'text_post', source: 'ai-ceo' });
               sendSSE(res, {
                 type: 'tool_call',
                 name: 'create_artifact',

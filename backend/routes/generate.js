@@ -5,6 +5,7 @@ import { requireCredits } from '../middleware/gate.js';
 import { generateImageWithOpenAI, isOpenAIImageConfigured } from '../services/openai-image.js';
 import { deductCredits, hasCredits } from '../services/credits.js';
 import { supabase as storageSupabase } from '../services/storage.js';
+import { logGeneratedContent } from '../services/generated-content.js';
 import { buildCarouselSlidePrompt } from '../agents/content/carousel-slide-prompt.js';
 import { getCuratedTemplate } from '../agents/content/curated-carousel-templates.js';
 
@@ -926,7 +927,11 @@ ${prompt}`;
 router.post('/api/generate/image', requireCredits('image_generation'), async (req, res) => {
   const { prompt: rawPrompt, platform, brandData, referenceImages, editUserImage } = req.body;
   const result = await generateImageCore({ userId: req.user?.id, rawPrompt, platform, brandData, referenceImages, editUserImage });
-  res.status(result.status).json(result.body);
+  if (result.ok && result.body?.image) {
+      const t = req.body?.platform === 'instagram_story' ? 'story' : 'image_post';
+      logGeneratedContent({ userId: req.user?.id, platform: req.body?.platform, contentType: t, source: 'image-route' });
+    }
+    res.status(result.status).json(result.body);
 });
 
 // ─── Upload base64 image to Supabase storage ───
@@ -1311,6 +1316,9 @@ router.post('/api/generate/carousel', async (req, res) => {
     console.error(`[generate/carousel] fatal: ${err.message}`);
     send({ type: 'error', error: err.message });
   } finally {
+    if (succeeded.length > 0) {
+      logGeneratedContent({ userId, platform: platform === 'linkedin' ? 'linkedin' : 'instagram', contentType: 'carousel', source: 'carousel-route' });
+    }
     clearInterval(heartbeat);
     send({ type: 'done', succeeded, failed });
     res.write('data: [DONE]\n\n');

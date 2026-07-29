@@ -60,6 +60,7 @@ import { detectContentModules } from './intent-router.js';
 import { getContentProfileBlock } from '../../services/content-profile.js';
 import { SHORT_FORM_SCRIPT_GUIDE, LONG_FORM_SCRIPT_GUIDE, scrubScriptLabels, buildReplicationDirective } from './video-script-guide.js';
 import { scrubAiDashes, scrubCarouselPlanDashes } from './claude-protocol.js';
+import { logGeneratedContent } from '../../services/generated-content.js';
 import { applyCuratedTemplateToPlanArgs } from './curated-carousel-templates.js';
 
 export async function handleContentOrchestration({ res, sendSSE, body, userId, abortSignal = null }) {
@@ -391,6 +392,10 @@ export async function handleContentOrchestration({ res, sendSSE, body, userId, a
           }
           if (call.name === 'submit_text_post' && args.caption) {
             args.caption = scrubAiDashes(args.caption);
+            logGeneratedContent({ userId, platform: platform?.id, contentType: 'text_post', source: 'content-chat' });
+          }
+          if (call.name === 'submit_script' && args.script) {
+            logGeneratedContent({ userId, platform: platform?.id, contentType: platform?.id === 'youtube' ? 'script' : 'reel', source: 'content-chat' });
           }
           if (call.name === 'plan_carousel') {
             scrubCarouselPlanDashes(args);

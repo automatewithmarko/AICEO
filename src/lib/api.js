@@ -935,7 +935,9 @@ export async function getDashboardStats(timeframe = 'week', { from, to } = {}) {
     if (to) url.searchParams.set('to', to);
   }
   const res = await fetch(url.toString(), { headers });
-  if (!res.ok) return null;
+  // Surface failures instead of silently rendering an all-zero dashboard:
+  // callers check for `.error` (the HTTP status) and show a banner.
+  if (!res.ok) return { error: res.status };
   return res.json();
 }
 
@@ -1399,7 +1401,7 @@ export async function streamBoosendAgentBuild({ message, graph, meta, targetNode
         if (json.error) { onError?.(json.detail || json.error); return; }
         if (json.done) { onDone?.(json); return; }
         onData?.(json);
-      } catch {}
+      } catch { /* partial SSE frame — next chunk completes it */ }
     }
   }
 }

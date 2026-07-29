@@ -1,21 +1,36 @@
+// Dashboard stats — rebuilt 2026-07-28 (audit: docs + founder directive).
+// Every number now reads the table that actually holds the truth:
+//   revenue     → integration_data payments + manual_sales (NOT the dead
+//                 `sales` table, which nothing writes — it was always $0)
+//   published   → social_posts WHERE status='published' (drafts/scheduled
+//                 no longer count), grouped platform × normalized type
+//   generated   → generated_content ledger (real pieces, not chat rows)
+//   + upcoming schedule, failed posts, credit spend — the surfaces a
+//   CMO/CFO/seller actually acts on.
 import { Router } from 'express';
 import { supabase } from '../services/storage.js';
+import { normalizeContentType } from '../services/generated-content.js';
 
 const router = Router();
 
-const PLATFORMS = ['instagram', 'tiktok', 'youtube', 'linkedin', 'x'];
+const PLATFORMS = ['instagram', 'linkedin', 'facebook', 'x', 'tiktok', 'youtube'];
 
 function getTimeframeRange(timeframe, from, to) {
   if (timeframe === 'custom') {
-    return {
-      since: from ? new Date(from).toISOString() : null,
-      until: to ? new Date(to).toISOString() : null,
-    };
+    let until = null;
+    if (to) {
+      const d = new Date(to);
+      // Include the ENTIRE final day — bare dates parse to T00:00:00Z and
+      // silently excluded the last day of every custom range (audit C).
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(to))) d.setUTCHours(23, 59, 59, 999);
+      until = d.toISOString();
+    }
+    return { since: from ? new Date(from).toISOString() : null, until };
   }
   const d = new Date();
   switch (timeframe) {
     case 'today': d.setHours(0, 0, 0, 0); break;
-    case 'month': d.setMonth(d.getMonth() - 1); break;
+    case 'month': d.setDate(d.getDate() - 30); break;
     case 'all':   return { since: null, until: null };
     case 'week':
     default:      d.setDate(d.getDate() - 7); break;
@@ -23,20 +38,20 @@ function getTimeframeRange(timeframe, from, to) {
   return { since: d.toISOString(), until: null };
 }
 
-function groupByPlatform(rows, platformField) {
-  const out = Object.fromEntries(PLATFORMS.map((p) => [p, 0]));
-  for (const row of rows) {
-    const p = String(row[platformField] || '').toLowerCase();
-    if (p in out) out[p] += 1;
-  }
-  return out;
+function emptyPlatformMap() {
+  return Object.fromEntries(PLATFORMS.map((p) => [p, { total: 0, byType: {} }]));
 }
 
-// Bucket rows into a continuous time series so the chart x-axis never has
-// gaps. Granularity is picked from the timeframe: 'today' → hourly, anything
-// longer → daily. Value is summed per bucket (set valueField = null to count
-// rows instead).
-function bucketTimeSeries(rows, { timestampField, valueField, since, until, granularity }) {
+function addToPlatformMap(map, platform, type) {
+  const p = String(platform || '').toLowerCase();
+  if (!(p in map)) return;
+  map[p].total += 1;
+  const t = normalizeContentType(type);
+  map[p].byType[t] = (map[p].byType[t] || 0) + 1;
+}
+
+// Continuous time series (no x-axis gaps). 'today' → hourly, else daily.
+function bucketTimeSeries(points, { since, until, granularity }) {
   const addHour = (d) => { d.setHours(d.getHours() + 1, 0, 0, 0); };
   const addDay = (d) => { d.setDate(d.getDate() + 1); d.setHours(0, 0, 0, 0); };
   const keyOf = granularity === 'hour'
@@ -44,40 +59,40 @@ function bucketTimeSeries(rows, { timestampField, valueField, since, until, gran
     : (d) => d.toISOString().slice(0, 10);
   const step = granularity === 'hour' ? addHour : addDay;
 
-  // Establish the window start/end — fall back to the row range if no bound.
-  const rowTimes = rows
-    .map((r) => r[timestampField])
-    .filter(Boolean)
-    .map((t) => new Date(t).getTime());
-  const startMs = since
-    ? new Date(since).getTime()
-    : (rowTimes.length ? Math.min(...rowTimes) : Date.now());
+  const times = points.map((p) => p.ts).filter(Boolean);
+  const startMs = since ? new Date(since).getTime() : (times.length ? Math.min(...times) : Date.now());
   const endMs = until ? new Date(until).getTime() : Date.now();
 
   const map = new Map();
   const cur = new Date(startMs);
   if (granularity === 'hour') cur.setMinutes(0, 0, 0);
   else cur.setHours(0, 0, 0, 0);
-  // Safety cap at 400 buckets so "all" on a long history doesn't explode.
   let guard = 400;
   while (cur.getTime() <= endMs && guard-- > 0) {
     map.set(keyOf(cur), { date: keyOf(cur), value: 0 });
     step(cur);
   }
-
-  for (const row of rows) {
-    const t = row[timestampField];
-    if (!t) continue;
-    const key = keyOf(new Date(t));
-    const bucket = map.get(key) || { date: key, value: 0 };
-    bucket.value += valueField ? (Number(row[valueField]) || 0) : 1;
-    map.set(key, bucket);
+  for (const p of points) {
+    if (!p.ts) continue;
+    const key = keyOf(new Date(p.ts));
+    // Rows beyond the 400-bucket guard are dropped rather than creating
+    // orphan sparse buckets after a dense run (audit G).
+    const bucket = map.get(key);
+    if (bucket) bucket.value += p.value;
   }
-
   return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// ── GET /api/dashboard-stats?timeframe=week|month|year ──
+// Payment rows → { ts(ms), value(dollars) }. metadata.amount is CENTS;
+// metadata.created is unix SECONDS (Stripe convention, same handling as
+// routes/sales.js dateFormat).
+function paymentPoint(row) {
+  const meta = row.metadata || {};
+  const created = meta.created ? Number(meta.created) * 1000 : new Date(row.synced_at).getTime();
+  return { ts: created, value: (Number(meta.amount) || 0) / 100 };
+}
+
+// ── GET /api/dashboard-stats?timeframe=today|week|month|all|custom ──
 router.get('/api/dashboard-stats', async (req, res) => {
   const userId = req.user?.id;
   if (!userId || userId === 'anonymous') {
@@ -89,8 +104,6 @@ router.get('/api/dashboard-stats', async (req, res) => {
     : 'week';
   const { since, until } = getTimeframeRange(timeframe, req.query.from, req.query.to);
 
-  // Helper: apply a createdAt column range onto a query builder. Null bounds
-  // mean "unbounded" so "All" includes rows that have null timestamps too.
   const inRange = (q, col) => {
     let out = q;
     if (since) out = out.gte(col, since);
@@ -99,67 +112,90 @@ router.get('/api/dashboard-stats', async (req, res) => {
   };
 
   try {
-    const [contactsRes, salesRes, sentEmailsRes, contentCreatedRes, socialPostsRes] = await Promise.all([
+    const now = new Date();
+    const in7d = new Date(now.getTime() + 7 * 86400_000).toISOString();
+    const [
+      contactsRes, paymentsRes, manualSalesRes, sentEmailsRes,
+      generatedRes, publishedRes, scheduledRes, failedRes, creditsRes, sessionsRes,
+    ] = await Promise.all([
+      inRange(supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('user_id', userId), 'created_at'),
+      supabase.from('integration_data').select('metadata, synced_at').eq('user_id', userId).eq('data_type', 'payment'),
+      supabase.from('manual_sales').select('amount, sold_at').eq('user_id', userId),
+      inRange(supabase.from('emails').select('to_emails, date').eq('user_id', userId).eq('folder', 'sent'), 'date'),
+      inRange(supabase.from('generated_content').select('platform, content_type, created_at').eq('user_id', userId), 'created_at'),
       inRange(
-        supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('user_id', userId),
-        'created_at'
-      ),
-      inRange(
-        supabase.from('sales').select('amount, created_at').eq('user_id', userId),
-        'created_at'
-      ),
-      inRange(
-        supabase.from('emails').select('to_emails, date').eq('user_id', userId).eq('folder', 'sent'),
-        'date'
-      ),
-      inRange(
-        supabase.from('content_sessions').select('platform, created_at').eq('user_id', userId),
-        'created_at'
-      ),
-      inRange(
-        supabase.from('social_posts').select('platform, published_at').eq('user_id', userId),
+        supabase.from('social_posts').select('platform, content_type, published_at').eq('user_id', userId).eq('status', 'published'),
         'published_at'
       ),
+      supabase.from('social_posts')
+        .select('id, platform, content_type, caption, scheduled_at, thumbnail_url')
+        .eq('user_id', userId).eq('status', 'scheduled')
+        .gte('scheduled_at', now.toISOString()).lte('scheduled_at', in7d)
+        .order('scheduled_at', { ascending: true }).limit(10),
+      supabase.from('social_posts')
+        .select('id, platform, content_type, caption, last_error, scheduled_at')
+        .eq('user_id', userId).eq('status', 'failed')
+        .order('scheduled_at', { ascending: false }).limit(5),
+      inRange(supabase.from('credit_transactions').select('amount, reason, created_at').eq('user_id', userId).lt('amount', 0), 'created_at'),
+      inRange(supabase.from('content_sessions').select('platform, created_at').eq('user_id', userId), 'created_at'),
     ]);
 
-    const newContacts = contactsRes.count || 0;
-
-    const revenueGenerated = (salesRes.data || []).reduce(
-      (sum, s) => sum + (Number(s.amount) || 0),
-      0
-    );
+    // ── Revenue: payments (cents→dollars) + manual sales, range-filtered ──
+    const sinceMs = since ? new Date(since).getTime() : null;
+    const untilMs = until ? new Date(until).getTime() : null;
+    const inMsRange = (ts) => (sinceMs === null || ts >= sinceMs) && (untilMs === null || ts <= untilMs);
+    const payPoints = (paymentsRes.data || []).map(paymentPoint).filter((p) => inMsRange(p.ts));
+    const manualPoints = (manualSalesRes.data || [])
+      .map((m) => ({ ts: new Date(m.sold_at).getTime(), value: (Number(m.amount) || 0) / 100 }))
+      .filter((p) => p.ts && inMsRange(p.ts));
+    const revenuePoints = [...payPoints, ...manualPoints];
+    const revenueGenerated = Math.round(revenuePoints.reduce((s, p) => s + p.value, 0) * 100) / 100;
 
     const sentEmails = sentEmailsRes.data || [];
-    const emailsSent = sentEmails.length;
-    const newslettersSent = sentEmails.filter(
-      (e) => Array.isArray(e.to_emails) && e.to_emails.length >= 2
-    ).length;
+    const newslettersSent = sentEmails.filter((e) => Array.isArray(e.to_emails) && e.to_emails.length >= 2).length;
 
-    const contentCreated = groupByPlatform(contentCreatedRes.data || [], 'platform');
-    // social_posts table may not exist yet until migration is applied — treat as empty.
-    const socialPostsRows = socialPostsRes.error ? [] : (socialPostsRes.data || []);
-    const contentPublished = groupByPlatform(socialPostsRows, 'platform');
+    // ── Content: generated (ledger) + published (real publishes only) ──
+    const contentGenerated = emptyPlatformMap();
+    for (const row of (generatedRes.error ? [] : generatedRes.data || [])) {
+      addToPlatformMap(contentGenerated, row.platform, row.content_type);
+    }
+    const contentPublished = emptyPlatformMap();
+    for (const row of (publishedRes.error ? [] : publishedRes.data || [])) {
+      addToPlatformMap(contentPublished, row.platform, row.content_type);
+    }
+    // Legacy compat: flat totals per platform (the old response shape).
+    const flatten = (m) => Object.fromEntries(Object.entries(m).map(([p, v]) => [p, v.total]));
 
-    // Time-series for the revenue chart. Hourly for "today", daily otherwise.
     const granularity = timeframe === 'today' ? 'hour' : 'day';
-    const revenueSeries = bucketTimeSeries(salesRes.data || [], {
-      timestampField: 'created_at',
-      valueField: 'amount',
-      since,
-      until,
-      granularity,
-    });
+    const revenueSeries = bucketTimeSeries(revenuePoints, { since, until, granularity });
+
+    const creditsSpent = (creditsRes.error ? [] : creditsRes.data || [])
+      .reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
 
     res.json({
       timeframe,
       granularity,
-      new_contacts: newContacts,
+      new_contacts: contactsRes.count || 0,
       revenue_generated: revenueGenerated,
-      emails_sent: emailsSent,
+      emails_sent: sentEmails.length,
       newsletters_sent: newslettersSent,
-      content_created: contentCreated,
-      content_published: contentPublished,
+      // New shape: { platform: { total, byType: { text_post: n, ... } } }
+      content_generated: contentGenerated,
+      content_published_detail: contentPublished,
+      // Old flat shape kept so nothing breaks mid-deploy.
+      content_created: flatten(contentGenerated),
+      content_published: flatten(contentPublished),
+      chats_started: (sessionsRes.data || []).length,
       revenue_series: revenueSeries,
+      upcoming_posts: scheduledRes.error ? [] : (scheduledRes.data || []).map((p) => ({
+        id: p.id, platform: p.platform, content_type: normalizeContentType(p.content_type),
+        caption: String(p.caption || '').slice(0, 120), scheduled_at: p.scheduled_at, thumbnail_url: p.thumbnail_url || null,
+      })),
+      failed_posts: failedRes.error ? [] : (failedRes.data || []).map((p) => ({
+        id: p.id, platform: p.platform, content_type: normalizeContentType(p.content_type),
+        caption: String(p.caption || '').slice(0, 120), error: String(p.last_error || '').slice(0, 160), scheduled_at: p.scheduled_at,
+      })),
+      credits_spent: creditsSpent,
     });
   } catch (err) {
     console.error('[dashboard-stats] failed:', err.message);
