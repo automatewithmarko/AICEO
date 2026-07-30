@@ -637,7 +637,7 @@ function armClaudeBreaker(err) {
 // per-provider credit depletion. Reorder without a deploy via
 // CHAT_FALLBACK_LADDER. A rung that hard-fails is skipped for 5 minutes.
 const CHAT_FALLBACK_LADDER = (process.env.CHAT_FALLBACK_LADDER
-  || 'atlas/google/gemini-3.5-flash,atlas/deepseek-ai/deepseek-v4-pro,atlas/qwen/qwen3.6-plus,openai/gpt-5-mini,google/gemini-2.5-flash,grok-4-1-fast-non-reasoning'
+  || 'grok-4-1-fast-non-reasoning,atlas/google/gemini-3.5-flash,atlas/deepseek-ai/deepseek-v4-pro,atlas/qwen/qwen3.6-plus,openai/gpt-5-mini,google/gemini-2.5-flash'
 ).split(',').map((m) => m.trim()).filter(Boolean);
 const LADDER_DOWN_MS = 5 * 60_000;
 const ladderDownUntil = new Map();
