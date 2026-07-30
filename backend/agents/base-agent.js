@@ -19,60 +19,42 @@ const MENTOR_BASE_URL = process.env.MENTOR_BASE_URL || 'https://platform.thement
 // take the app down. A 4xx is a real input error and never falls back.
 
 function anthropicTarget() {
-  const direct = process.env.ANTHROPIC_API_KEY
-    ? { url: 'https://api.anthropic.com/v1/messages', key: process.env.ANTHROPIC_API_KEY, via: 'direct' }
-    : null;
-  const mentor = process.env.MENTOR_API_KEY
-    ? {
-        url: `${MENTOR_BASE_URL}/api/v1/messages`,
-        key: process.env.MENTOR_API_KEY,
-        via: 'mentor',
-      }
-    : null;
-  // ANTHROPIC_PREFER_DIRECT=true flips routing priority: direct Anthropic
-  // primary, Mentor as the 5xx fallback. Set this on Railway when the
-  // gateway misbehaves — observed 2026-07-16: Mentor returned 200s whose
-  // backing model ignored the native tool protocol (emitted
-  // {"tool_code": ...} pseudo tool calls as chat text, Gemini-style
-  // meta-commentary, coarse streaming). No code change needed to flip.
-  if (process.env.ANTHROPIC_PREFER_DIRECT === 'true' && direct) {
-    return { ...direct, fallback: mentor || undefined };
+  // Founder policy 2026-07-29: ALL chat traffic routes through Mentor —
+  // the direct Anthropic key is retired from production routing (it kept
+  // hitting its own usage limits and doubled the failure surface). The
+  // direct URL survives ONLY as a no-gateway dev convenience; there is
+  // no fallback chaining between the two.
+  if (process.env.MENTOR_API_KEY) {
+    return { url: `${MENTOR_BASE_URL}/api/v1/messages`, key: process.env.MENTOR_API_KEY, via: 'mentor' };
   }
-  if (mentor) return { ...mentor, fallback: direct };
-  if (direct) return direct;
-  throw new Error('No Anthropic credential — set MENTOR_API_KEY (preferred) or ANTHROPIC_API_KEY');
+  if (process.env.ANTHROPIC_API_KEY) {
+    return { url: 'https://api.anthropic.com/v1/messages', key: process.env.ANTHROPIC_API_KEY, via: 'direct' };
+  }
+  throw new Error('No Anthropic credential — set MENTOR_API_KEY');
 }
 
 function xaiChatTarget() {
-  const direct = process.env.XAI_API_KEY
-    ? { url: 'https://api.x.ai/v1/chat/completions', key: process.env.XAI_API_KEY, via: 'direct' }
-    : null;
+  // Mentor-only (founder policy 2026-07-29) — this target now serves the
+  // whole OpenAI-protocol model roster (grok, atlas/*, openai/*,
+  // google/*) since the model id rides in the request body.
   if (process.env.MENTOR_API_KEY) {
-    return {
-      url: `${MENTOR_BASE_URL}/api/v1/chat/completions`,
-      key: process.env.MENTOR_API_KEY,
-      via: 'mentor',
-      fallback: direct,
-    };
+    return { url: `${MENTOR_BASE_URL}/api/v1/chat/completions`, key: process.env.MENTOR_API_KEY, via: 'mentor' };
   }
-  if (direct) return direct;
-  throw new Error('No xAI credential — set MENTOR_API_KEY (preferred) or XAI_API_KEY');
+  if (process.env.XAI_API_KEY) {
+    return { url: 'https://api.x.ai/v1/chat/completions', key: process.env.XAI_API_KEY, via: 'direct' };
+  }
+  throw new Error('No chat-completions credential — set MENTOR_API_KEY');
 }
 
 function xaiResponsesTarget() {
-  const direct = process.env.XAI_API_KEY
-    ? { url: 'https://api.x.ai/v1/responses', key: process.env.XAI_API_KEY, via: 'direct' }
-    : null;
+  // Mentor-only (founder policy 2026-07-29).
   if (process.env.MENTOR_API_KEY) {
-    return {
-      url: `${MENTOR_BASE_URL}/api/v1/responses`,
-      key: process.env.MENTOR_API_KEY,
-      via: 'mentor',
-      fallback: direct,
-    };
+    return { url: `${MENTOR_BASE_URL}/api/v1/responses`, key: process.env.MENTOR_API_KEY, via: 'mentor' };
   }
-  if (direct) return direct;
-  throw new Error('No xAI credential — set MENTOR_API_KEY (preferred) or XAI_API_KEY');
+  if (process.env.XAI_API_KEY) {
+    return { url: 'https://api.x.ai/v1/responses', key: process.env.XAI_API_KEY, via: 'direct' };
+  }
+  throw new Error('No responses credential — set MENTOR_API_KEY');
 }
 
 /**
@@ -170,6 +152,22 @@ function isSubstitutedModel(served, requested) {
   return !served.startsWith(requested);         // date-suffixed ids are fine
 }
 
+// Tiered substitution acceptance (founder policy 2026-07-29): when
+// Mentor substitutes Claude with a FRONTIER-tier model (its documented
+// fallback chain serves gemini-3.6-flash / gpt-5.5 / gpt-5.4-mini), the
+// substituted response is ACCEPTED — a comparable answer now beats a
+// perfect answer never. Weak substitutes (the gpt-4o-mini class we
+// caught on 07-27) are still rejected and fall to the model ladder.
+// Tool-protocol slips by accepted substitutes are handled downstream by
+// the PROTOCOL_VIOLATION salvage translator + fallback sanitizer.
+const SUBSTITUTE_ALLOW_RE = new RegExp(
+  process.env.MENTOR_SUBSTITUTE_ALLOWLIST || 'gpt-[5-9]|gemini-[3-9]|claude|sonnet|opus',
+  'i'
+);
+function isAcceptableSubstitute(served) {
+  return SUBSTITUTE_ALLOW_RE.test(String(served || ''));
+}
+
 function gatewaySubstitutionError(served, requested) {
   const e = new Error(`Gateway substituted the model: requested ${requested}, served "${served}"`);
   e.code = 'GATEWAY_SUBSTITUTED';
@@ -230,14 +228,11 @@ async function streamAnthropicWithSubstitutionRetry(args) {
     return await streamAnthropicCore(args);
   } catch (err) {
     if (err?.code !== 'GATEWAY_SUBSTITUTED') throw err;
+    // One Mentor retry covers per-request flakes. A second weak
+    // substitution throws to the caller, whose model ladder takes over —
+    // there is no direct-Anthropic rescue anymore (Mentor-only policy).
     console.warn(`[anthropic] ${err.message} — retrying via Mentor once`);
-    try {
-      return await streamAnthropicCore(args);
-    } catch (err2) {
-      if (err2?.code !== 'GATEWAY_SUBSTITUTED' || !anthropicTarget().fallback) throw err2;
-      console.warn(`[anthropic] Mentor still substituting (${err2.servedBy}) — rescuing this turn via direct Anthropic`);
-      return await streamAnthropicCore({ ...args, preferDirect: true });
-    }
+    return await streamAnthropicCore(args);
   }
 }
 
@@ -337,8 +332,12 @@ async function streamAnthropicCore({ systemPrompt, messages, model, maxTokens, o
         // Reject gateway-substituted responses before any content flows —
         // message_start is the first event and carries the served model.
         if (parsed.type === 'message_start' && isSubstitutedModel(parsed.message?.model, model || SONNET_MODEL)) {
-          try { controller.abort(); } catch { /* already closed */ }
-          throw gatewaySubstitutionError(parsed.message.model, model || SONNET_MODEL);
+          if (isAcceptableSubstitute(parsed.message?.model)) {
+            console.warn(`[anthropic] Gateway substituting with frontier-tier model ("${parsed.message.model}") — ACCEPTED per policy`);
+          } else {
+            try { controller.abort(); } catch { /* already closed */ }
+            throw gatewaySubstitutionError(parsed.message.model, model || SONNET_MODEL);
+          }
         }
         if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
           fullContent += parsed.delta.text;
@@ -630,6 +629,20 @@ function armClaudeBreaker(err) {
   claudeDownUntil = Date.now() + CLAUDE_BREAKER_MS;
   console.warn(`[breaker] Claude routes exhausted (${String(err?.message || err?.code || err).slice(0, 140)}) — serving the next ${Math.round(CLAUDE_BREAKER_MS / 60000)} min on the fallback model directly`);
 }
+// ── Atlas-first model ladder (founder policy 2026-07-29) ──
+// When Mentor cannot serve Claude-tier at all (hard error or weak
+// substitute), the turn walks this ladder of EXPLICIT model ids on
+// Mentor /v1/chat/completions. Atlas-billed rungs come first — one
+// Atlas key covers many models, so it is the deepest insurance against
+// per-provider credit depletion. Reorder without a deploy via
+// CHAT_FALLBACK_LADDER. A rung that hard-fails is skipped for 5 minutes.
+const CHAT_FALLBACK_LADDER = (process.env.CHAT_FALLBACK_LADDER
+  || 'atlas/google/gemini-3.5-flash,atlas/deepseek-ai/deepseek-v4-pro,atlas/qwen/qwen3.6-plus,openai/gpt-5-mini,google/gemini-2.5-flash,grok-4-1-fast-non-reasoning'
+).split(',').map((m) => m.trim()).filter(Boolean);
+const LADDER_DOWN_MS = 5 * 60_000;
+const ladderDownUntil = new Map();
+const FLOOR_MESSAGE = "I'm having trouble reaching my AI providers right now. Please try again in a minute — nothing was lost.";
+
 function noteClaudeHealthy() {
   if (claudeDownUntil) { claudeDownUntil = 0; console.log('[breaker] Claude healthy again — normal routing restored'); }
 }
@@ -654,12 +667,33 @@ function sanitizeFallbackOutput(text) {
   return out.trim();
 }
 
+// Walk the ladder for a plain-text (specialist agent) turn. Returns the
+// sanitized content of the first rung that answers; serves the graceful
+// floor message when every rung is down — an agent turn NEVER throws a
+// provider error at the user.
+async function runAgentChatLadder({ systemPrompt, messages, maxTokens, onChunk, abortSignal, streamIdleMs }) {
+  for (const rung of CHAT_FALLBACK_LADDER) {
+    if ((ladderDownUntil.get(rung) || 0) > Date.now()) continue;
+    try {
+      const result = await streamXai({ systemPrompt, messages, model: rung, maxTokens, onChunk, abortSignal, streamIdleMs });
+      console.log(`[ladder] agent turn served by ${rung}`);
+      return sanitizeFallbackOutput(result?.content || '');
+    } catch (e) {
+      if (e?.name === 'AbortError' || abortSignal?.aborted) throw e;
+      console.warn(`[ladder] ${rung} failed (${String(e?.message || '').slice(0, 120)}) — skipping this rung for 5 min`);
+      ladderDownUntil.set(rung, Date.now() + LADDER_DOWN_MS);
+    }
+  }
+  console.error('[ladder] every rung failed — serving the graceful floor message');
+  if (onChunk) onChunk(FLOOR_MESSAGE);
+  return FLOOR_MESSAGE;
+}
+
 async function streamAnthropicWithGrokFallback({ systemPrompt, messages, model, maxTokens, onChunk, onSearchStatus, abortSignal, streamIdleMs }) {
   if (isClaudeDown()) {
-    console.log('[breaker] Claude down — agent turn served on Grok directly');
+    console.log('[breaker] Claude down — agent turn goes straight to the model ladder');
     if (onSearchStatus) onSearchStatus('writing');
-    const result = await streamXai({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', maxTokens, onChunk, abortSignal, streamIdleMs });
-    return sanitizeFallbackOutput(result?.content || '');
+    return runAgentChatLadder({ systemPrompt, messages, maxTokens, onChunk, abortSignal, streamIdleMs });
   }
   try {
     const content = await streamAnthropic({ systemPrompt, messages, model, maxTokens, onChunk, abortSignal, streamIdleMs });
@@ -672,19 +706,10 @@ async function streamAnthropicWithGrokFallback({ systemPrompt, messages, model, 
     // 'Error') and DOES fall back — a stalled Claude should still try Grok.
     if (abortSignal?.aborted || err?.name === 'AbortError') throw err;
     if (err?.code === 'CONTEXT_EXCEEDED') throw err;
-    console.warn(`[agent] Claude generation failed (${err?.code || String(err?.message || '').slice(0, 160)}) — falling back to Grok so the request does not hard-fail`);
+    console.warn(`[agent] Claude generation failed (${err?.code || String(err?.message || '').slice(0, 160)}) — walking the model ladder so the request does not hard-fail`);
     if (isBreakerClass(err)) armClaudeBreaker(err);
     if (onSearchStatus) onSearchStatus('writing');
-    const result = await streamXai({
-      systemPrompt,
-      messages,
-      model: 'grok-4-1-fast-non-reasoning',
-      maxTokens,
-      onChunk,
-      abortSignal,
-      streamIdleMs,
-    });
-    return sanitizeFallbackOutput(result?.content || '');
+    return runAgentChatLadder({ systemPrompt, messages, maxTokens, onChunk, abortSignal, streamIdleMs });
   }
 }
 
@@ -819,7 +844,7 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
     // model field carries the served model). Substituted backends dump
     // the whole edited HTML as a text block instead of calling
     // replace_text. Retry Mentor once, then rescue via direct Anthropic.
-    if (isSubstitutedModel(response.model, SONNET_MODEL)) {
+    if (isSubstitutedModel(response.model, SONNET_MODEL) && !isAcceptableSubstitute(response.model)) {
       substitutionRetries++;
       if (substitutionRetries === 1) {
         console.warn(`[edit] Gateway substituted the model (${response.model}) — retrying via Mentor once`);
@@ -877,6 +902,27 @@ export async function executeAnthropicWithTools({ systemPrompt, messages, tools,
 
 // Execute the CEO orchestrator with tool_use loop
 // After tool calls, sends results back to the model for a follow-up response
+// Walk the ladder for a full tool-enabled CEO turn. Same OpenAI-protocol
+// orchestrator the Grok fallback always used, per rung. Serves the
+// graceful floor message when every rung is down — chat NEVER errors.
+async function runCeoChatLadder(args) {
+  for (const rung of CHAT_FALLBACK_LADDER) {
+    if ((ladderDownUntil.get(rung) || 0) > Date.now()) continue;
+    try {
+      const result = await executeCeoOrchestratorGrok({ ...args, model: rung });
+      console.log(`[ladder] CEO turn served by ${rung}`);
+      return result;
+    } catch (e) {
+      if (e?.name === 'AbortError' || args.abortSignal?.aborted) throw e;
+      console.warn(`[ladder] ${rung} failed (${String(e?.message || '').slice(0, 120)}) — skipping this rung for 5 min`);
+      ladderDownUntil.set(rung, Date.now() + LADDER_DOWN_MS);
+    }
+  }
+  console.error('[ladder] every rung failed — serving the graceful floor message');
+  if (args.onChunk) args.onChunk(FLOOR_MESSAGE);
+  return { content: FLOOR_MESSAGE };
+}
+
 export async function executeCeoOrchestrator({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, onToolStart, onToolInputDelta, searchMode, onSearchStatus, abortSignal, planMode = false }) {
   // The Mentor gateway adds cold-start latency on top of the upstream
   // provider's own time-to-first-token. Combined with a long system
@@ -895,9 +941,18 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
   // cumulative text_delta contract means phase two's answer cleanly
   // replaces the raw research narrative in the bubble.
   if (searchMode) {
-    const research = await streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal, streamIdleMs: ceoStreamIdleMs });
-    const findings = String(research?.content || '').trim();
-    if (!findings) return research;
+    let findings = '';
+    try {
+      const research = await streamXaiResearch({ systemPrompt, messages, model: 'grok-4-1-fast-non-reasoning', onChunk, onSearchStatus, abortSignal, streamIdleMs: ceoStreamIdleMs });
+      findings = String(research?.content || '').trim();
+    } catch (researchErr) {
+      if (researchErr?.name === 'AbortError' || abortSignal?.aborted) throw researchErr;
+      // Web search is Grok-native; when that upstream is dry the turn
+      // proceeds WITHOUT web data instead of erroring (founder policy:
+      // chat never fails).
+      console.warn(`[research] web search unavailable (${String(researchErr?.message || '').slice(0, 120)}) — answering without web data`);
+    }
+    if (findings) {
     if (onSearchStatus) onSearchStatus('composing');
     const actMessages = [...messages, {
       role: 'user',
@@ -917,6 +972,9 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
       abortSignal,
       planMode,
     });
+    }
+    // Research empty or unavailable — fall through to the normal
+    // tool-enabled turn so the user still gets a full answer.
   }
 
   // Primary: Claude Sonnet with native tool_use + 1M context.
@@ -925,8 +983,8 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
   // the tool-use loop). The user asked to keep xAI as a fallback so we
   // don't take an outage from either provider individually.
   if (isClaudeDown()) {
-    console.log('[breaker] Claude down — CEO turn served on Grok directly');
-    return executeCeoOrchestratorGrok({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, abortSignal, planMode, streamIdleMs: ceoStreamIdleMs });
+    console.log('[breaker] Claude down — CEO turn goes straight to the model ladder');
+    return runCeoChatLadder({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, abortSignal, planMode, streamIdleMs: ceoStreamIdleMs });
   }
   let breakerErr = null;
   try {
@@ -966,8 +1024,12 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
     // and clean chat text either way. The frontend's cumulative
     // text_delta contract means the fresh stream cleanly replaces
     // whatever partial text the bad attempt displayed.
-    if (err?.code === 'PROTOCOL_VIOLATION' || err?.code === 'GATEWAY_SUBSTITUTED') {
-      console.warn(`[ceo] ${err.code === 'GATEWAY_SUBSTITUTED' ? `Gateway substituted the model (${err.servedBy})` : 'Protocol violation (tool call as text)'} — retrying once via Mentor, salvage armed`);
+    if (err?.code === 'PROTOCOL_VIOLATION') {
+      // Intermittent: retry ONCE with the salvage translator armed — if
+      // the fresh sample also emits protocol text it gets translated into
+      // the equivalent native tool call server-side. Covers real-Claude
+      // flukes AND accepted frontier-tier substitutes that slip.
+      console.warn('[ceo] Protocol violation (tool call as text) — retrying once via Mentor, salvage armed');
       try {
         return await executeCeoOrchestratorClaude({
           systemPrompt,
@@ -986,61 +1048,26 @@ export async function executeCeoOrchestrator({ systemPrompt, messages, tools, to
       } catch (retryErr) {
         if (retryErr?.name === 'AbortError' || abortSignal?.aborted) throw retryErr;
         if (retryErr?.code === 'CONTEXT_EXCEEDED') throw retryErr;
-        // Mentor twice declared it isn't serving Claude — rescue THIS
-        // turn via direct Anthropic (real Claude honors the native tool
-        // protocol; measured 6/6 vs Mentor-fallback 0/6). Mentor remains
-        // the primary route for every new turn.
-        if (retryErr?.code === 'GATEWAY_SUBSTITUTED' && process.env.ANTHROPIC_API_KEY) {
-          console.warn(`[ceo] Mentor still substituting (${retryErr.servedBy}) — rescuing this turn via direct Anthropic`);
-          try {
-            return await executeCeoOrchestratorClaude({
-              systemPrompt,
-              messages,
-              tools,
-              toolChoice,
-              onChunk,
-              onToolCalls,
-              onToolStart,
-              onToolInputDelta,
-              abortSignal,
-              planMode,
-              streamIdleMs: ceoStreamIdleMs,
-              preferDirect: true,
-            });
-          } catch (directErr) {
-            if (directErr?.name === 'AbortError' || abortSignal?.aborted) throw directErr;
-            if (directErr?.code === 'CONTEXT_EXCEEDED') throw directErr;
-            console.warn(`[ceo] Direct rescue also failed (${directErr?.message?.slice(0, 150) || directErr}) — falling back to Grok`);
-            breakerErr = directErr;
-          }
-        } else {
-          console.warn(`[ceo] Retry also failed (${retryErr?.message?.slice(0, 150) || retryErr}) — falling back to Grok`);
-          breakerErr = retryErr;
-        }
+        console.warn(`[ceo] Salvage retry also failed (${retryErr?.message?.slice(0, 150) || retryErr}) — walking the model ladder`);
+        breakerErr = retryErr;
       }
+    } else if (err?.code === 'GATEWAY_SUBSTITUTED') {
+      // Weak substitute or gateway billing error — the gateway cannot
+      // serve Claude-tier this turn; re-asking it won't change that.
+      console.warn(`[ceo] Gateway cannot serve Claude-tier (${err.servedBy}) — walking the model ladder`);
     } else {
-      console.warn(`[ceo] Claude failed (${err?.message?.slice(0, 200) || err}), falling back to Grok`);
+      console.warn(`[ceo] Claude failed (${err?.message?.slice(0, 200) || err}) — walking the model ladder`);
     }
     if (isBreakerClass(breakerErr)) armClaudeBreaker(breakerErr);
-    return executeCeoOrchestratorGrok({
-      systemPrompt,
-      messages,
-      tools,
-      toolChoice,
-      onChunk,
-      onToolCalls,
-      abortSignal,
-      planMode,
-      streamIdleMs: ceoStreamIdleMs,
-    });
+    return runCeoChatLadder({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, abortSignal, planMode, streamIdleMs: ceoStreamIdleMs });
   }
 }
 
 // Grok orchestrator — kept as a fallback path so a Claude outage doesn't
 // take the app down. Same shape as the previous CEO loop: OpenAI-style
 // tool_calls, 5-iteration cap, planMode + ask_user early exit.
-async function executeCeoOrchestratorGrok({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, abortSignal, planMode, streamIdleMs }) {
-  const model = 'grok-4-1-fast-non-reasoning';
+async function executeCeoOrchestratorGrok({ systemPrompt, messages, tools, toolChoice, onChunk, onToolCalls, abortSignal, planMode, streamIdleMs, model: ladderModel }) {
+  const model = ladderModel || 'grok-4-1-fast-non-reasoning';
   let conversationMessages = [...messages];
   let iterations = 0;
   const MAX_ITERATIONS = 5;
@@ -1721,8 +1748,12 @@ async function streamAnthropicWithToolsCore({ systemPrompt, messages, model, too
         // A substituted backend is what emits tool calls as text (the
         // protocol violations this file guards against downstream).
         if (parsed.type === 'message_start' && isSubstitutedModel(parsed.message?.model, model || SONNET_MODEL)) {
-          try { controller.abort(); } catch { /* already closed */ }
-          throw gatewaySubstitutionError(parsed.message.model, model || SONNET_MODEL);
+          if (isAcceptableSubstitute(parsed.message?.model)) {
+            console.warn(`[anthropic] Gateway substituting with frontier-tier model ("${parsed.message.model}") — ACCEPTED per policy`);
+          } else {
+            try { controller.abort(); } catch { /* already closed */ }
+            throw gatewaySubstitutionError(parsed.message.model, model || SONNET_MODEL);
+          }
         }
         // Text chunks: content_block_delta with delta.type === 'text_delta'
         if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
