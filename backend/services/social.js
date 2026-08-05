@@ -16,6 +16,11 @@ const APIFY_LINKEDIN_ACTOR = process.env.APIFY_LINKEDIN_ACTOR || 'apimaestro~lin
 // (2026-07-25: that egress was failing with "Connection error" in Railway).
 // Replaces the removed bulletproof/instagram-transcript-extractor (now 404).
 const APIFY_IG_TRANSCRIPT_ACTOR = process.env.APIFY_IG_TRANSCRIPT_ACTOR || 'apple_yang~instagram-transcripts-scraper';
+// Dedicated YouTube transcript actor (2026-08-05): youtube-caption-extractor
+// broke upstream ("Player API failed: 400" — YouTube player-API change) and
+// the yt-dlp leg trips bot-detection on datacenter IPs. Apify's infra
+// dodges both — same play that made Instagram transcripts reliable.
+const APIFY_YT_TRANSCRIPT_ACTOR = process.env.APIFY_YT_TRANSCRIPT_ACTOR || 'pintostudio~youtube-transcript-scraper';
 
 function isYouTube(url) {
   return /youtube\.com|youtu\.be/i.test(url);
@@ -270,6 +275,50 @@ async function extractLinkedInApify(url) {
 // Dedicated Apify transcript actor for a single IG reel. Returns
 // { text, language, segments } or null. ASR happens on Apify's side, so this
 // path is independent of this container's outbound Whisper connectivity.
+async function transcribeYouTubeViaApifyActor(url) {
+  if (!APIFY_TOKEN) return null;
+  try {
+    const res = await fetch(
+      `https://api.apify.com/v2/acts/${APIFY_YT_TRANSCRIPT_ACTOR}/run-sync-get-dataset-items?token=${APIFY_TOKEN}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoUrl: url }),
+        signal: AbortSignal.timeout(120000),
+      }
+    );
+    if (!res.ok) {
+      console.log(`[youtube] Apify transcript actor failed: ${res.status}`);
+      return null;
+    }
+    const items = await res.json();
+    // Schema varies by actor version — accept every shape we have seen:
+    // [{transcript: "..."}], [{text: "..."}], [{data: [{text}...]}],
+    // [{captions: [{text}...]}], or a flat array of {text} segments.
+    const joinSegs = (arr) => arr.map((x) => (typeof x === 'string' ? x : x?.text || '')).join(' ').replace(/\s+/g, ' ').trim();
+    let text = '';
+    const it = items?.[0];
+    if (it) {
+      if (typeof it.transcript === 'string') text = it.transcript.trim();
+      else if (Array.isArray(it.transcript)) text = joinSegs(it.transcript);
+      else if (typeof it.text === 'string' && it.text.length > 80) text = it.text.trim();
+      else if (Array.isArray(it.data)) text = joinSegs(it.data);
+      else if (Array.isArray(it.captions)) text = joinSegs(it.captions);
+      else if (Array.isArray(it.segments)) text = joinSegs(it.segments);
+    }
+    if (!text && Array.isArray(items) && items.length > 1) text = joinSegs(items);
+    if (!text) {
+      console.log(`[youtube] Apify transcript actor returned no usable text (keys: ${it ? Object.keys(it).join(',') : 'none'})`);
+      return null;
+    }
+    console.log(`[youtube] Transcript via Apify actor (${text.length} chars)`);
+    return text;
+  } catch (err) {
+    console.log(`[youtube] Apify transcript actor error: ${err.message?.slice(0, 100)}`);
+    return null;
+  }
+}
+
 async function transcribeViaApifyActor(url) {
   // The actor only resolves the plural /reels/ path; the app often stores the
   // singular /reel/ form, which returns zero items. Normalize before calling.
@@ -362,6 +411,15 @@ async function extractYouTube(url) {
     }
   } catch (err) {
     console.log('[youtube] Caption extraction failed:', err.message?.slice(0, 150));
+  }
+
+  // 2b. Captions broken upstream — the Apify actor is the reliable path.
+  if (!transcript) {
+    const viaActor = await transcribeYouTubeViaApifyActor(url);
+    if (viaActor) {
+      transcript = viaActor;
+      source = 'apify_yt_actor';
+    }
   }
 
   // 3. If no captions, try yt-dlp audio + Whisper as fallback
@@ -490,7 +548,11 @@ async function downloadAudio(url, tmpDir) {
     const files = await fs.readdir(tmpDir);
     const audioFile = files.find(f => f.startsWith('audio.'));
     return audioFile ? path.join(tmpDir, audioFile) : null;
-  } catch {
+  } catch (err) {
+    // Was a silent catch — which hid WHY the Whisper leg never engaged
+    // (typically YouTube bot-detection on datacenter IPs). Keep the
+    // stderr tail so the logs finally say so.
+    console.log(`[yt-dlp] download failed: ${String(err?.stderr || err?.message || err).slice(-220)}`);
     return null;
   }
 }
